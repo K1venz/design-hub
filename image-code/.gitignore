@@ -9,6 +9,11 @@ __pycache__/
 # uv / virtualenv
 .venv/
 
+# Local SQLite (dev/smoke only)
+*.db
+*.sqlite
+*.sqlite3
+
 # Env
 .env
 .env.*

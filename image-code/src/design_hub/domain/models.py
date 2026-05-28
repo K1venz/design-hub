@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from design_hub.domain.enums import (
     Category,
+    JobStatus,
     ModelName,
     Style,
     SubScene,
@@ -73,3 +74,16 @@ class BudgetSnapshot:
     user_monthly_quota: Decimal
     company_month_used: Decimal
     company_monthly_budget: Decimal
+
+
+@dataclass(frozen=True)
+class JobRecord:
+    """已持久化出图任务的读模型。"""
+
+    id: str
+    user_id: str
+    customer: str
+    used_model: ModelName
+    total_cost: Decimal
+    status: JobStatus
+    images: tuple[GeneratedImage, ...]

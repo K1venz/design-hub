@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env.development", extra="ignore")
 
+    # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
+    db_url: str = "sqlite+aiosqlite:///./design_hub.db"
     dashscope_key: SecretStr = SecretStr("")
     openai_api_key: SecretStr = SecretStr("")
 

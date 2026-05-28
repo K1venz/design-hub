@@ -58,3 +58,27 @@ class ModelName(StrEnum):
     SEEDREAM_5 = "seedream-5"
     WANXIANG_27 = "wanxiang-2.7-pro"
     LINGDONG_2 = "lingdong-2"
+
+
+class ProjectStatus(StrEnum):
+    REQUIREMENT = "需求录入"
+    DESIGNING = "设计中"
+    REVIEW = "客户审稿"
+    DELIVERED = "已交付"
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class AssetKind(StrEnum):
+    PRODUCT = "产品图"
+    REFERENCE = "参考图"
+
+
+class RevisionStatus(StrEnum):
+    OPEN = "进行中"
+    DONE = "已完成"
