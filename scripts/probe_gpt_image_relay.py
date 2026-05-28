@@ -103,7 +103,7 @@ def estimate_cost_usd(usage: dict[str, Any]) -> float | None:
     )
 
 
-def inspect_response(body: dict[str, Any], latency_ms: int) -> None:
+def inspect_response(body: dict[str, Any], latency_ms: int, out_path: Path) -> None:
     print(f"  顶层字段: {sorted(body.keys())}")
     data = body.get("data") or []
     if not data:
@@ -116,7 +116,6 @@ def inspect_response(body: dict[str, Any], latency_ms: int) -> None:
             print(f"  [返回格式] ✅ url  → {item['url'][:80]}")
         elif b64:
             print(f"  [返回格式] ⚠️ b64_json（长度 {len(b64)}），需在 adapter 解码")
-            out_path = Path(__file__).parent / "probe_out.png"
             out_path.write_bytes(base64.b64decode(b64))
             print(f"            已存盘 {out_path}，可肉眼看质量档")
         else:
@@ -133,8 +132,12 @@ def inspect_response(body: dict[str, Any], latency_ms: int) -> None:
     print(f"  [延迟] {latency_ms} ms")
 
 
+def out_file(label: str) -> Path:
+    return Path(__file__).parent / f"probe_{label}_{time.strftime('%Y%m%d-%H%M%S')}.png"
+
+
 async def fire(client: httpx.AsyncClient, url: str, payload: dict[str, Any],
-               headers: dict[str, str], timeout: float) -> None:
+               headers: dict[str, str], timeout: float, label: str) -> None:
     start = time.perf_counter()
     try:
         resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
@@ -152,7 +155,7 @@ async def fire(client: httpx.AsyncClient, url: str, payload: dict[str, Any],
         print(f"  [错误映射] {resp.status_code} → 按 spec: {bucket}")
         print(f"  返回体: {resp.text[:400]}")
         return
-    inspect_response(resp.json(), latency_ms)
+    inspect_response(resp.json(), latency_ms, out_file(label))
 
 
 async def fire_edit(client: httpx.AsyncClient, url: str, args: argparse.Namespace,
@@ -189,7 +192,7 @@ async def fire_edit(client: httpx.AsyncClient, url: str, args: argparse.Namespac
         print(f"  [错误映射] {resp.status_code} → 按 spec: {bucket}")
         print(f"  返回体: {resp.text[:400]}")
         return
-    inspect_response(resp.json(), latency_ms)
+    inspect_response(resp.json(), latency_ms, out_file("edit"))
 
 
 async def main() -> None:
@@ -213,12 +216,13 @@ async def main() -> None:
             await fire_edit(client, f"{base}/images/edits", args, headers)
         else:
             print("\n[1] 文生图探测 /images/generations")
-            await fire(client, f"{base}/images/generations", build_payload(args), headers, args.timeout)
+            await fire(client, f"{base}/images/generations",
+                       build_payload(args), headers, args.timeout, "gen")
 
         if args.probe_bad:
             print("\n[坏请求] size=1x1，验证决策①的 4xx 行为")
             await fire(client, f"{base}/images/generations",
-                       build_payload(args, bad=True), headers, args.timeout)
+                       build_payload(args, bad=True), headers, args.timeout, "bad")
 
 
 if __name__ == "__main__":
