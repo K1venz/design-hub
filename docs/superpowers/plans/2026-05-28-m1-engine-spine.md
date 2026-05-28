@@ -16,57 +16,48 @@
 
 ## 文件结构（职责锁定）
 
+> **实现说明（2026-05-28 更新）**：M1 落地后已重组为**六边形（Ports & Adapters）架构**，下面是**实际生效**的结构。各 Task 正文里出现的旧路径（如 `providers/base.py`、`prompt/orchestrator.py`、`cost/ledger.py`、`pipeline/pipeline.py`、`domain/dto.py`）一律以本结构为准；Task 正文描述的**行为与 TDD 期望不变**，仅文件位置与导入路径迁移。另：本仓库 `image-code/CLAUDE.md` 将本窗口定为 **Dev 角色（不写测试用例）**，故 `tests/` 由 QA（image-qa）维护，Task 中的测试代码作为 QA 的期望行为说明。
+
 ```
 image-code/
-  pyproject.toml                      # uv 管理；含 ruff/mypy/pytest 配置
+  pyproject.toml                      # uv 管理；含 ruff/mypy 配置
   .python-version                     # 3.12
+  .gitignore                          # 忽略 __pycache__/.venv/各类 cache
   src/design_hub/
     __init__.py
-    config/settings.py                # Pydantic Settings（SecretStr + from_kms 入口占位）
-    logging.py                        # structlog JSON 日志初始化
-    errors.py                         # 领域异常基类（fail-fast）
-    domain/
+    domain/                           # 领域层（零外部依赖）
       enums.py                        # SubScene/Tier/TemplateFamily/Style/Category/MaterialType/ModelName
-      dto.py                          # GeneratedImage/PromptPair/RoutingDecision/ProductVisualInfo/Brief/GenerationResult
-    providers/
-      base.py                         # AbstractModelProvider（ISP：唯一 generate）
-      errors.py                       # ProviderError / ProviderTimeout
-      mock.py                         # MockModelProvider（可控延迟/失败，LSP）
+      models.py                       # GeneratedImage/PromptPair/RoutingDecision/ProductVisualInfo/Brief/GenerationResult/BudgetSnapshot
+      errors.py                       # DomainError / BudgetExceeded
+      __init__.py                     # 暴露公共契约
+    ports/                            # 抽象契约（被 application 依赖、由 infrastructure 实现）
+      model_provider.py               # AbstractModelProvider + ProviderError / ProviderTimeout（ISP）
+      ledger.py                       # LedgerRepository（DIP）
+      vision.py                       # VisionAssist（ISP/DIP）
+      __init__.py                     # 暴露公共契约
+    application/                      # 用例层（仅依赖 domain + ports）
       registry.py                     # ProviderRegistry（DIP 组装根）
-    routing/
-      table.py                        # 路由数据表（OCP：族→模型、档位规则、fallback 链）
-      router.py                       # ModelRouter（族+场景+档位→RoutingDecision）
-    prompt/
-      libraries/color.py             # 词库 A 风格→色卡
-      libraries/negative.py          # 词库 B 中文负面句
-      libraries/guard.py             # 词库 C 歧义防御
-      libraries/quality.py           # 词库 D 质量增强词
-      libraries/lens.py              # 词库 E 镜头（含 LensPurpose 枚举）
-      families/base.py               # TemplateFamilySkeleton 基类（OCP/LSP）
-      families/family3.py            # 极简电商主图
-      families/family4.py            # 高端商业摄影
-      families/family5.py            # 氛围沉浸场景
-      families/family7.py            # 中式节庆促销
-      families/registry.py           # FamilyRegistry
-      vision.py                      # VisionAssist 接口 + MockVisionAssist（ISP/DIP）
-      brand.py                       # BrandNameGenerator
-      rules.py                       # 10 法则可执行片段（format_ratio / typography_block）
-      orchestrator.py                # PromptOrchestrator（DIP：组合注入）
-    cost/
-      estimator.py                   # CostEstimator
-      budget.py                      # BudgetSnapshot / BudgetPolicy / BudgetExceeded
-      ledger.py                      # LedgerRepository 接口 + InMemoryLedgerRepository
-      guard.py                       # CostGuard + @cost_guard 装饰器 + GuardContext
-    pipeline/pipeline.py             # GenerationPipeline（依赖注入组装）
-  tests/
-    conftest.py
-    domain/test_enums.py · test_dto.py
-    providers/test_mock.py · test_registry.py
-    routing/test_router.py
-    prompt/test_libraries.py · test_families.py · test_orchestrator.py
-    cost/test_estimator.py · test_budget.py · test_ledger.py · test_guard.py
-    pipeline/test_pipeline.py
+      pipeline.py                     # GenerationPipeline（依赖注入组装）
+      routing/table.py                # 路由数据表（OCP）
+      routing/router.py               # ModelRouter（族+场景+档位→RoutingDecision）
+      prompt/libraries/{color,negative,guard,quality,lens}.py   # 5 词库（lens 含 LensPurpose）
+      prompt/families/{base,family3,family4,family5,family7,registry}.py  # 骨架+4族+注册表
+      prompt/brand.py                 # BrandNameGenerator
+      prompt/rules.py                 # 10 法则片段（format_ratio / typography_block）
+      prompt/orchestrator.py          # PromptOrchestrator（DIP：组合注入）
+      cost/estimator.py               # CostEstimator
+      cost/budget.py                  # BudgetPolicy（BudgetSnapshot/BudgetExceeded 已移 domain）
+      cost/guard.py                   # CostGuard + @cost_guard 装饰器 + GuardContext
+    infrastructure/                   # 适配器实现（CI 注 Mock，生产注真实）
+      providers/mock.py               # MockModelProvider（可控延迟/失败，LSP）
+      ledger/memory.py                # InMemoryLedgerRepository
+      vision/mock.py                  # MockVisionAssist
+    config/
+      settings.py                     # Pydantic Settings（SecretStr + from_kms 入口占位）
+      logging.py                      # structlog JSON 日志初始化
 ```
+
+依赖方向一律指向内：`domain ← ports ← application ← infrastructure`。统一绝对导入（`from design_hub.x import y`）。VisionAssist 接口已上移到 `ports/vision.py`，Mock 实现在 `infrastructure/vision/mock.py`。
 
 ---
 
