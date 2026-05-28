@@ -1,6 +1,6 @@
 ---
 id: ISSUE-0002
-title: M3-a failover/中转 adapter 与 spec 决策不一致（错误切换/预算口径/质量档）
+title: M3-a 中转 adapter 缺陷集（错误切换/预算口径/b64/图生图未实现/超时）
 status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: PM
@@ -34,17 +34,35 @@ M3-a (fe1e77b) 已实现 `OpenAICompatImageProvider` + `FailoverModelProvider`�
 - 期望（spec §3.3）：`self.unit_cost = max(p.unit_cost for p in providers)`，保守预留、按实际出图家结算。
 - 附：建议补 `assert all(p.name == providers[0].name for p in providers)`，确保只有同模型中转互备（spec §3.2）。
 
-### ③ 质量档缺失 + b64 取 url 隐患 —— openai_compat.py
-- payload 未带 `quality`：gpt-image-2 不指定质量可能默认走最贵档（≈¥1.5/张），与成本约束冲突。spec §6 已列为开放项——最小处理：`OpenAICompatImageProvider` 构造期固定 `quality`（默认 medium）。
-- `response_format:"url"` + `item.get("url")` 为空即报错：gpt-image 原生协议返回 `b64_json` 而非 url，除非中转站代转 url，否则会失败到两家全挂。需按选定中转站（诗云/API易）实际返回确认，必要时支持 `b64_json` 解码。代码现有自注 "b64 handling TBD with chosen gateway" 即指此。
+### ③ 质量档缺失 + b64 取 url 隐患 —— openai_compat.py（已被实测坐实）
+- payload 未带 `quality`：gpt-image-2 不指定质量可能默认走最贵档（≈¥1.5/张），与成本约束冲突。最小处理：构造期固定 `quality`（默认 medium）。
+- `response_format:"url"` + `item.get("url")` 为空即报错。**实测（诗云）确认：gpt-image-2 返回 `b64_json` 而非 url**（文生图 b64 长 128万字符、图生图 148万字符）。现有实现对诗云会 100% 失败到两家全挂。**必须改为 b64_json 解码**。
+
+### ④【新增 / 严重】图生图(image-to-image)完全未实现 —— openai_compat.py
+用户主业务是**图生图**，但现 `generate()` 收了 `reference_images` 参数却**完全没用**，只调 `/images/generations`（纯文生图）。
+- 实测：图生图须走 **`POST /images/edits`**（multipart：`image` 文件 + `prompt` + `model` + `n` + `size` + `quality`），诗云已验证可用、质量好（墨镜→金丝圆框、换背景、保风格均准确）。
+- 期望：`reference_images` 非空 → 走 `/images/edits`（multipart）；为空 → 走 `/images/generations`。两路返回都按 b64_json 解析。
+
+### ⑤【新增】默认 timeout 过短 —— openai_compat.py
+现 `timeout: float = 60.0`。实测诗云：文生图 91s、图生图 102s。60s 会频繁超时误触发 failover。
+- 期望：默认 ≥180s（gpt-image-2 是推理型图模型，本就慢）。
+
+## 实测价格（诗云，medium，1024²，2026-05-28）
+| 场景 | usage(in/out tokens) | 按官方价折算 | 备注 |
+|---|---|---|---|
+| 文生图 | 36 / 196 | ≈¥0.044/张 | output token 偏低，疑 usage 失真 |
+| **图生图** | 1054(图1024+文30) / 1756 | **≈¥0.44/张** | 输入图吃 1024 image token，**超 1-3毛预算** |
+> 注：折算基于官方价×reported usage，**诗云真实扣费含其倍率，须以控制台余额为准**。high 档约为 medium 的 3-4 倍。
 
 ## 期望 vs 实际
-- 期望：实现严格对齐 spec（b4c61ca）的决策①②与 §6 最小处理。
-- 实际：①②未落实，③留有 TBD。
+- 期望：实现严格对齐 spec（b4c61ca）的决策①②与 §6；支持图生图主路径。
+- 实际：①②未落实，③已被实测证伪(必须 b64)，④图生图未实现(主业务!)，⑤超时过短。
 
 ## 环境 / 上下文
-- 路线已定：「gpt-image-2 + 合规」，主备均用能开增值税票的中转（诗云主 / API易备），单张成本不卡 1-3 毛。
-- 主备顺序由 composition.py 配置决定（OCP），拿到 key 小额实测后把更稳+更便宜者设为 relays[0]。
+- 路线已定：「gpt-image-2 + 合规」，主备均用能开增值税票的中转（诗云主 / API易备）。
+- **主业务=图生图**；图生图 medium ≈¥0.44/张已超 1-3 毛，预算需用户重新拍板（见处理记录）。
+- 主备顺序由 composition.py 配置决定（OCP）。诗云实测：返回 b64、延迟~100s、坏请求时遇 429「上游负载饱和」(跑 New API 网关)。
 
 ## 处理记录
 - 2026-05-28 [PM] 创建并确认（读 fe1e77b 代码核对 spec），状态=已确认，owner=开发
+- 2026-05-28 [PM] 诗云 key 实测：坐实③(b64)、新增④(图生图未实现,主业务)、⑤(超时短)，补图生图价格数据。owner 仍=开发

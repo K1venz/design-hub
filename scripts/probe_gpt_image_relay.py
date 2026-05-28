@@ -1,6 +1,13 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["httpx>=0.28"]
+# dependencies = [
+#     "httpx>=0.28",
+#     "socksio>=1.0.0",
+# ]
+#
+# [[tool.uv.index]]
+# url = "https://mirrors.aliyun.com/pypi/simple/"
+# default = true
 # ///
 """gpt-image-2 中转站实测探针。
 
@@ -53,9 +60,13 @@ def parse_args() -> argparse.Namespace:
                    help='low|medium|high；传 "omit" 则不带 quality，观察默认档')
     p.add_argument("--response-format", default="omit",
                    help='url|b64_json|omit；默认 omit 以观察中转站默认返回格式')
-    p.add_argument("--timeout", type=float, default=120.0)
+    p.add_argument("--timeout", type=float, default=180.0)
     p.add_argument("--probe-bad", action="store_true",
                    help="额外发一个非法请求(size=1x1)看 4xx 状态码")
+    p.add_argument("--edit", action="store_true",
+                   help="测图生图(image-to-image)：走 /images/edits，需 --image 输入图")
+    p.add_argument("--image", default=str(Path(__file__).parent / "probe_out.png"),
+                   help="图生图的输入图路径（默认用文生图存盘的 probe_out.png）")
     return p.parse_args()
 
 
@@ -144,28 +155,70 @@ async def fire(client: httpx.AsyncClient, url: str, payload: dict[str, Any],
     inspect_response(resp.json(), latency_ms)
 
 
+async def fire_edit(client: httpx.AsyncClient, url: str, args: argparse.Namespace,
+                    headers: dict[str, str]) -> None:
+    """图生图：multipart 上传输入图到 /images/edits。"""
+    img_path = Path(args.image)
+    if not img_path.exists():
+        print(f"  [!] 输入图不存在: {img_path}（先跑一次文生图生成 probe_out.png）")
+        return
+    image_bytes = img_path.read_bytes()
+    print(f"  输入图: {img_path.name}（{len(image_bytes) // 1024} KB）")
+    data: dict[str, str] = {
+        "model": args.model,
+        "prompt": args.prompt,
+        "n": "1",
+        "size": args.size,
+    }
+    if args.quality != "omit":
+        data["quality"] = args.quality
+    files = {"image": (img_path.name, image_bytes, "image/png")}
+    start = time.perf_counter()
+    try:
+        resp = await client.post(url, data=data, files=files, headers=headers, timeout=args.timeout)
+    except httpx.TimeoutException as exc:
+        print(f"  [!] 超时（IO 域 → failover）: {exc}")
+        return
+    except httpx.RequestError as exc:
+        print(f"  [!] 连接错误（IO 域 → failover）: {exc}")
+        return
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    print(f"  HTTP {resp.status_code}")
+    if resp.status_code >= 400:
+        bucket = "应上抛(DomainError)" if resp.status_code in (400, 422) else "应切备(ProviderTimeout)"
+        print(f"  [错误映射] {resp.status_code} → 按 spec: {bucket}")
+        print(f"  返回体: {resp.text[:400]}")
+        return
+    inspect_response(resp.json(), latency_ms)
+
+
 async def main() -> None:
     args = parse_args()
     if not args.base_url or not args.api_key:
         raise SystemExit(
             "缺少 --base-url / --api-key（或 RELAY_BASE_URL / RELAY_API_KEY 环境变量）"
         )
-    url = f"{args.base_url.rstrip('/')}/images/generations"
+    base = args.base_url.rstrip("/")
     headers = {"Authorization": f"Bearer {args.api_key}"}
 
     print("=" * 60)
-    print(f"中转站: {url}")
+    print(f"中转站: {base}")
     print(f"key: {mask(args.api_key)} | model: {args.model} | "
           f"quality: {args.quality} | size: {args.size} | response_format: {args.response_format}")
     print("=" * 60)
 
     async with httpx.AsyncClient() as client:
-        print("\n[1] 正常出图探测")
-        await fire(client, url, build_payload(args), headers, args.timeout)
+        if args.edit:
+            print("\n[图生图] /images/edits 探测")
+            await fire_edit(client, f"{base}/images/edits", args, headers)
+        else:
+            print("\n[1] 文生图探测 /images/generations")
+            await fire(client, f"{base}/images/generations", build_payload(args), headers, args.timeout)
 
         if args.probe_bad:
-            print("\n[2] 坏请求探测（size=1x1，验证决策①的 4xx 行为）")
-            await fire(client, url, build_payload(args, bad=True), headers, args.timeout)
+            print("\n[坏请求] size=1x1，验证决策①的 4xx 行为")
+            await fire(client, f"{base}/images/generations",
+                       build_payload(args, bad=True), headers, args.timeout)
 
 
 if __name__ == "__main__":
