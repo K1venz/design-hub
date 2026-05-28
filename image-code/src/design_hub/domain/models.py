@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 from design_hub.domain.enums import (
     Category,
@@ -7,6 +8,7 @@ from design_hub.domain.enums import (
     ModelName,
     Style,
     SubScene,
+    TaskEventType,
     TemplateFamily,
     Tier,
 )
@@ -87,3 +89,12 @@ class JobRecord:
     total_cost: Decimal
     status: JobStatus
     images: tuple[GeneratedImage, ...]
+
+
+@dataclass(frozen=True)
+class TaskEvent:
+    """异步出图任务的进度事件（PRD §6.3.1）。"""
+
+    job_id: str
+    type: TaskEventType
+    data: dict[str, Any]

@@ -82,3 +82,11 @@ class AssetKind(StrEnum):
 class RevisionStatus(StrEnum):
     OPEN = "进行中"
     DONE = "已完成"
+
+
+class TaskEventType(StrEnum):
+    TASK_STARTED = "task_started"
+    MODEL_CALLED = "model_called"
+    IMAGE_GENERATED = "image_generated"
+    TASK_COMPLETED = "task_completed"
+    TASK_FAILED = "task_failed"
