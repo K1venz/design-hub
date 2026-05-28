@@ -1,0 +1,5 @@
+# macOS
+.DS_Store
+
+# Playwright MCP 临时快照/截图
+.playwright-mcp/
