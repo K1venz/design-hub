@@ -1,5 +1,3 @@
-import uuid
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
@@ -17,12 +15,12 @@ class SqlAlchemyJobRepository(JobRepository):
     async def save_completed(
         self,
         *,
+        job_id: str,
         user_id: str,
         brief: Brief,
         result: GenerationResult,
         project_id: int | None = None,
     ) -> str:
-        job_id = uuid.uuid4().hex
         async with self._session_factory() as session:
             row = GenerationJobRow(
                 id=job_id,

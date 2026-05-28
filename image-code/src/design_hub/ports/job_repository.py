@@ -10,12 +10,13 @@ class JobRepository(ABC):
     async def save_completed(
         self,
         *,
+        job_id: str,
         user_id: str,
         brief: Brief,
         result: GenerationResult,
         project_id: int | None = None,
     ) -> str:
-        """落库一条已完成任务及其候选图，返回 job_id。"""
+        """落库一条已完成任务及其候选图，返回 job_id（由调用方提供，与事件流一致）。"""
 
     @abstractmethod
     async def get(self, job_id: str) -> JobRecord | None:

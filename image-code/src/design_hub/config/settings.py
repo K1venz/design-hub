@@ -7,6 +7,7 @@ class Settings(BaseSettings):
 
     # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
     db_url: str = "sqlite+aiosqlite:///./design_hub.db"
+    redis_url: str = "redis://127.0.0.1:6379/0"
     dashscope_key: SecretStr = SecretStr("")
     openai_api_key: SecretStr = SecretStr("")
 
