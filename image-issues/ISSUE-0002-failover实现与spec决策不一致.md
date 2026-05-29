@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0002
 title: M3-a 中转 adapter 缺陷集（错误切换/预算口径/b64/图生图未实现/超时）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: PM
-owner: 开发
+owner: QA
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-05-29
 related:
   - spec: docs/superpowers/specs/2026-05-28-gpt-image-2-failover-relay-design.md (commit b4c61ca)
   - code: image-code/src/design_hub/infrastructure/providers/openai_compat.py
@@ -73,3 +73,13 @@ M3-a (fe1e77b) 已实现 `OpenAICompatImageProvider` + `FailoverModelProvider`�
 - 2026-05-28 [PM] 创建并确认（读 fe1e77b 代码核对 spec），状态=已确认，owner=开发
 - 2026-05-28 [PM] 诗云 key 实测：坐实③(b64)、新增④(图生图未实现,主业务)、⑤(超时短)，补图生图价格数据。owner 仍=开发
 - 2026-05-29 [PM] 选型已定 apinebula 单跑(ISSUE-0003，诗云出局)。装配参考草案见 `docs/superpowers/specs/2026-05-29-composition-apinebula-wiring-draft.md`：**先修本 issue 三项，再按草案接 composition.py**。apinebula 实测：返回 b64、走 /images/edits、延迟~90s、错误码 400/422/403/503 标准(已并入决策①证据表)。owner 仍=开发。
+- 2026-05-29 [开发] **五项全部修复**，状态→待验证，owner→QA。提交 `feat(M3): 图生图 /images/edits + ImageStore` 与 `fix(ISSUE-0002): 闭合中转 adapter 五项偏差`：
+  - ①错误按 status_code 分流：400/401/403/422→`DomainError`(不切备)；429/5xx→`ProviderTimeout`(切备)；连接/超时→`ProviderTimeout`；**不对非 JSON 错误体调 .json()**（502 nginx HTML 安全）。
+  - ②`FailoverModelProvider.unit_cost = max(...)`，并断言仅同模型互备。
+  - ③b64_json 解码：经新增 `ImageStore` 端口落点换 url，兼容直接 url。
+  - ④图生图 `/images/edits`(multipart 上传产品图)；有参考图走 edits、无走 generations。
+  - ⑤默认 timeout 60→**180s**。
+  - 附：中转站 `trust_env=False` 直连(境内站绕本机梯子代理)；b64 经 `LocalImageStore` 落 `generated/`(A 方案)。
+  - **真实联调（1 张，apinebula gpt-image-2-vip，~¥0.10）**：`/images/edits` 出 1024×1024 有效 PNG(1.28MB)、耗时 115s。
+  - 仍属 mock 验证的错误分流(400/429/502/failover 不切备/最贵预留/同模型断言)已全绿；**留给 QA 真实验证**：① 真实 400/422 不切备、429/5xx 切备行为；④图生图换背景质量；以及 composition 接线后端到端。
+  - ⚠️ 注：`build_gpt_image_provider` 已就绪但**尚未接进 build_engine 路由**（GPT_IMAGE_2 在 build_engine 里仍是 Mock）。按草案接线是下一步，可另开 issue 或并入本 issue 验证。
