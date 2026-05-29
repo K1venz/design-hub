@@ -72,3 +72,4 @@ M3-a (fe1e77b) 已实现 `OpenAICompatImageProvider` + `FailoverModelProvider`�
 ## 处理记录
 - 2026-05-28 [PM] 创建并确认（读 fe1e77b 代码核对 spec），状态=已确认，owner=开发
 - 2026-05-28 [PM] 诗云 key 实测：坐实③(b64)、新增④(图生图未实现,主业务)、⑤(超时短)，补图生图价格数据。owner 仍=开发
+- 2026-05-29 [PM] 选型已定 apinebula 单跑(ISSUE-0003，诗云出局)。装配参考草案见 `docs/superpowers/specs/2026-05-29-composition-apinebula-wiring-draft.md`：**先修本 issue 三项，再按草案接 composition.py**。apinebula 实测：返回 b64、走 /images/edits、延迟~90s、错误码 400/422/403/503 标准(已并入决策①证据表)。owner 仍=开发。
