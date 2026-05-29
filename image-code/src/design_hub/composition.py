@@ -13,11 +13,13 @@ from design_hub.application.cost.preview import CostPreviewService
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.prompt.brand import BrandNameGenerator
 from design_hub.application.prompt.families.registry import FamilyRegistry
-from design_hub.application.prompt.libraries.color import ColorLibrary
-from design_hub.application.prompt.libraries.guard import GuardLibrary
 from design_hub.application.prompt.libraries.negative import NegativeLibrary
 from design_hub.application.prompt.libraries.quality import QualityLibrary
 from design_hub.application.prompt.orchestrator import PromptOrchestrator
+from design_hub.application.prompt.profiles.registry import (
+    CategoryProfileRegistry,
+    StylePresetRegistry,
+)
 from design_hub.application.registry import ProviderRegistry
 from design_hub.application.routing.router import ModelRouter
 from design_hub.domain.enums import ModelName
@@ -54,9 +56,9 @@ def build_mock_registry() -> ProviderRegistry:
 def build_orchestrator() -> PromptOrchestrator:
     return PromptOrchestrator(
         families=FamilyRegistry(),
-        colors=ColorLibrary(),
+        categories=CategoryProfileRegistry(),
+        styles=StylePresetRegistry(),
         negatives=NegativeLibrary(),
-        guards=GuardLibrary(),
         qualities=QualityLibrary(),
         vision=MockVisionAssist(),
         brands=BrandNameGenerator(),
