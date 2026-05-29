@@ -159,10 +159,11 @@ slots = {
 **品类画像（4 个）**：数码(DIGITAL_3C) / 食品(FOOD) / 美妆(BEAUTY) / 服饰(APPAREL)。
 其余（含人物/镜面）未注册 → `get` 抛 KeyError（fail-fast），待后续补。
 
-**风格预设（5 个）**：国潮中式 / 极简北欧(简约) / 高端轻奢 / 科技未来 / 清新自然。
-其余（运动机能/喜庆节日）暂不做。
+**风格预设（6 个）**：国潮中式 / 极简北欧(简约) / 高端轻奢 / 科技未来 / 清新自然 / 运动机能。
+喜庆节日(FESTIVE) **不单列为风格**——它与「族7中式节庆」骨架强绑定，做成风格会与族7冲突，留给族7骨架处理。
 
-> 4 品类 × 5 风格 × 4 模板族 = 理论 80 种组合，均由三维**正交组合**得到，无需逐一手写。
+> 4 品类 × 6 风格 × 4 模板族 = 理论 96 种组合，均由三维**正交组合**得到，无需逐一手写。
+> 选型参考：市面电商 AI 工具（搞定/美图/爱创）的"风格预设"多为「风格+场景+模板」捆绑；拆解到本设计三维后，纯风格维度收敛到以上 6 个，"纯色背景/场景化"等属模板族而非风格。
 
 ---
 
@@ -176,8 +177,8 @@ application/prompt/
     style_preset.py               # StylePreset dataclass
     categories/                   # 4 个品类画像，一品类一文件(SRP)
       digital.py food.py beauty.py apparel.py
-    styles/                       # 5 个风格预设，一风格一文件(SRP)
-      guochao.py nordic.py luxury.py tech.py fresh.py
+    styles/                       # 6 个风格预设，一风格一文件(SRP)
+      guochao.py nordic.py luxury.py tech.py fresh.py sport.py
     registry.py                   # CategoryProfileRegistry + StylePresetRegistry
   libraries/
     color.py  guard.py  lens.py   # 移除
