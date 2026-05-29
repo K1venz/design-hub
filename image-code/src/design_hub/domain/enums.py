@@ -90,3 +90,8 @@ class TaskEventType(StrEnum):
     IMAGE_GENERATED = "image_generated"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
+
+
+class GenMode(StrEnum):
+    TEXT2IMG = "text2img"  # 文生图/造景
+    EDIT = "edit"          # 图生图 edit（保持产品不变，仅重绘背景光影）
