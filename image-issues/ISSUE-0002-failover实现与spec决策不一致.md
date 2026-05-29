@@ -27,6 +27,12 @@ M3-a (fe1e77b) 已实现 `OpenAICompatImageProvider` + `FailoverModelProvider`�
   - 400 / 422 → `DomainError`（立即上抛，**不切备**）
   - 2xx 响应体非法 → `ProviderError`（视为该家故障，切备）
 - 实现要点：需按 `httpx.HTTPStatusError` 的 `response.status_code` 分流，不能一把 `HTTPError` 全归 `ProviderError`。
+- **2026-05-29 真实 HTTP 实测（已为决策①补齐硬证据）**：
+  - apinebula 坏 size → **400**「不合法的size」、缺 prompt → **422** → 均应 `DomainError` 上抛不切备 ✓
+  - apinebula 无权限模型 → **403**、坏 token → **401** → 鉴权/配置类，应上抛（换网关无意义）
+  - apinebula 分组无渠道 → **503**、诗云整站宕机 → **502** → 5xx 应 `ProviderTimeout` 切备 ✓
+  - ⚠️ **诗云 502 的 body 是 nginx 的 HTML 不是 JSON**：实现必须先按 status_code 分流，**严禁对非 JSON 错误 body 调 `.json()`**（现 M3-a 代码 raise_for_status 在前侥幸不踩，但重构成 status_code 分流时务必显式处理）。
+  - 建议直接照搬上表，apinebula 错误码完全是 OpenAI 标准，按 status_code 实现即可。
 
 ### ② 预算预留口径错误（决策②）—— failover.py
 当前 `self.unit_cost = providers[0].unit_cost`（取主用价）。

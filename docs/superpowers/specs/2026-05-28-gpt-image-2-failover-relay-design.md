@@ -58,14 +58,17 @@ class OpenAICompatProvider(AbstractModelProvider):
                        size, n, seed=None) -> list[GeneratedImage]: ...
 ```
 
-错误映射（**决策①，已确认**）——这是 fail-fast 红线的落点：
+错误映射（**决策①，已确认 + 2026-05-29 真实 HTTP 实测验证**）——这是 fail-fast 红线的落点：
 
-| 来源 | 抛出 | 后果 |
-|---|---|---|
-| 连接错误 / 读超时 | `ProviderTimeout` | 可重试 → 触发 failover |
-| HTTP 429 / 5xx | `ProviderTimeout` | 可重试 → 触发 failover |
-| HTTP 400 / 422（提示词违规、参数非法） | `DomainError` | 立即上抛，**不切备**（同 payload 必然同样失败） |
-| 2xx 但响应体不合法 | `ProviderError` | 视为该家故障 → 触发 failover |
+| 来源 | 抛出 | 后果 | 实测证据(2026-05-29) |
+|---|---|---|---|
+| 连接错误 / 读超时 | `ProviderTimeout` | 可重试 → 触发 failover | — |
+| HTTP 429 / 5xx | `ProviderTimeout` | 可重试 → 触发 failover | ✅ 诗云整站宕机全返回 **502**；apinebula 分组无渠道 **503**；诗云曾 **429**「上游负载饱和」 |
+| HTTP 400 / 422（提示词违规、参数非法） | `DomainError` | 立即上抛，**不切备**（同 payload 必然同样失败） | ✅ apinebula：坏 size→**400**「不合法的size」、缺 prompt→**422** |
+| HTTP 401 / 403（鉴权/无模型权限） | `DomainError` | 立即上抛，**不切备**（换网关也无权限） | ✅ apinebula 无权限模型→**403**、坏 token→**401** |
+| 2xx 但响应体不合法（含 nginx 502 返回 HTML 而非 JSON） | `ProviderError` | 视为该家故障 → 触发 failover | ✅ 诗云 502 body 是 HTML，**解析前必须先按 status_code 分流，不可对非 JSON body 调 .json()** |
+
+> 实测要点：① apinebula 错误码完全符合 OpenAI 标准（400/422/403/503 干净分流），适合直接按 status_code 实现决策①。② 诗云在实测当下**整站 502 宕机**（连免费 /v1/models 都 502），其错误映射风格待恢复后补测；但此次宕机本身正是 failover 设计要兜住的真实场景——若诗云为主、apinebula 为备，本次宕机会被透明切备。
 
 `generate()` 返回的 `GeneratedImage.cost` 必须填**本中转站实际单价**（按 `unit_cost` 或响应中的用量换算），保证结算口径准确。
 

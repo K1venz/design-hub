@@ -59,7 +59,7 @@ https://www.zcool.com.cn/article/ZMTc0NDU3Ng==.html?
   │ High                 │ $0.17–0.211      │ 1.2–1.5 元   │
   └──────────────────────┴──────────────────┴──────────────┘
   
-  ▎ 数据来源：GPT Image 2 当前定价区间 $0.005–$0.211/图（见文末）。
+  ▎ 数据来源：GPT Image 2 当前定价区间 $0.005–$0.211/图。
   
   二、于是一个颠覆性结论：单靠 GPT-image 2.0 就能达成 0.3 元/张
   
@@ -77,6 +77,24 @@ https://www.zcool.com.cn/article/ZMTc0NDU3Ng==.html?
   
   加权 ≈ 0.7×0.10 + 0.25×0.45 + 0.05×1.35 = 0.25 元/张 → 达标，且全程只用 GPT-image 2.0。
 
+诗云 API 
+https://shiyunapi.com/pricing 
+输入价格 $3.0000/M 补全价格 $18.0000/M （1¥ = 1$）
 
+GetGoAPI 
+https://api.getgoapi.com/pricing 
+$0.080/ 次
 
+ChatAnywhere API
+https://docs.chatanywhere.tech/doc-2694962  
+文字输入: 0.035CA/1K Tokens, 图片输入: 0.056CA/1K Tokens, 图片输出：0.21 CA/1K Tokens 因资源较少可能会报错
+
+LaoZhang API 
+https://docs.laozhang.ai/api-capabilities/gpt-image-2#线路对照
+默认分组	  gpt-image-2-vip  	尺寸增强线路	$0.03/次	  支持 1K/2K/4K 共 30 个尺寸
+
+Atlas Cloud
+Openai GPT Image 2 Edit API by OpenAI
+https://www.atlascloud.ai/zh/models/openai/gpt-image-2/edit
+$0.01/张
 
