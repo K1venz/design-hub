@@ -44,7 +44,13 @@ related:
   - C：apinebula 裸跑无备——放弃稳定性，不建议。
 - **风险提示（仍需 PM 知悉）**：apinebula 底层疑逆向号池(分组命名"自建号池/逆向满血")。普票票面合规，但底层若为逆向 ChatGPT，业务在《生成式AI管理办法》《深度合成规定》下仍属灰色——**能开票≠业务合规，PM 评估公司风险偏好**；号池稳定性为结构性风险，主备 failover 是缓解手段。
 
+## 最终决定（2026-05-29 用户拍板）
+- **apinebula 单跑上线**：gpt-image-2 这条线先只接 apinebula 一家；备用中转**挂起待补**(非阻断，后续再测 GetGoAPI/API易)。
+- **可接受性**：pipeline 外层已有"换模型"兜底(GPT_IMAGE_2 全失败→降级 SEEDREAM_5 等国内模型)，apinebula 全挂时图仍可出(降级后非 gpt-image-2)。故单跑为可接受过渡态。
+- **给开发的实现提示（重要，省未来改动）**：composition.py 仍用 `FailoverModelProvider` 包 apinebula(即使只有一个 relay)，将来补备用只需往 relays 列表追加一家、零改代码(OCP)。不要图省事直接注册裸 OpenAICompatProvider。
+
 ## 处理记录
 - 2026-05-29 [Research] 创建，汇总两家实测结论，owner=PM。已向用户提供 apinebula 开票追问话术（专票/主体全称税号/品名/税点/门槛）。
 - 2026-05-29 [Research] 用户提供 apinebula 样票：增值税普通发票，正规公司主体(销售方有名称+税号)，项目名"信息系统增值服务/信息服务费"。用户确认普票够用(仅报销入账)。→ **apinebula 合规生死线通过**，动作1闭环。
-- 2026-05-29 [Research] 用户决定**诗云出局**(宕机+不再考虑)。apinebula 定为主，但备用位空缺=单点故障风险，新增动作3"补备用中转"(待测 GetGoAPI/API易)。owner 仍=PM。
+- 2026-05-29 [Research] 用户决定**诗云出局**(宕机+不再考虑)。
+- 2026-05-29 [Research] 用户拍板**apinebula 单跑上线、备用挂起待补**，剩余交 PM/开发推进。本 issue 决策部分完成，owner=PM 跟进 go + 后续补备用。
