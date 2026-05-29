@@ -7,7 +7,7 @@ from design_hub.application.prompt.orchestrator import PromptOrchestrator
 from design_hub.application.registry import ProviderRegistry
 from design_hub.application.routing.router import ModelRouter
 from design_hub.application.routing.table import MAX_CANDIDATES
-from design_hub.domain.enums import ModelName
+from design_hub.domain.enums import GenMode, ModelName
 from design_hub.domain.models import (
     Brief,
     GeneratedImage,
@@ -34,7 +34,9 @@ class GenerationPipeline:
 
         routed = self.router.route(brief.family, brief.subscene, brief.tier)
         decision = RoutingDecision(routed.primary, routed.fallbacks, brief.n)
-        prompt = await self.orchestrator.build(brief, decision.primary)
+        # 有参考图 → 图生图 EDIT(追加产品保真约束)，与 Provider 走 /images/edits 一致
+        mode = GenMode.EDIT if brief.reference_images else GenMode.TEXT2IMG
+        prompt = await self.orchestrator.build(brief, decision.primary, mode)
         estimate = self.estimator.estimate(decision, self.registry.get(decision.primary))
 
         await self.guard.precheck_and_reserve(user_id, estimate)

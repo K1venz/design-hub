@@ -74,6 +74,17 @@ def build_gpt_image_provider(settings: Settings) -> OpenAICompatImageProvider:
     )
 
 
+def build_registry(settings: Settings, *, real_gpt_image: bool = False) -> ProviderRegistry:
+    """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖 GPT_IMAGE_2。
+
+    仅 gpt-image 有真实 key，其余模型暂仍 Mock；按 LSP 替换，路由/pipeline 无感。
+    """
+    registry = build_mock_registry()
+    if real_gpt_image:
+        registry.register(build_gpt_image_provider(settings))  # 按 name 覆盖 Mock
+    return registry
+
+
 def build_orchestrator() -> PromptOrchestrator:
     return PromptOrchestrator(
         families=FamilyRegistry(),
@@ -90,9 +101,17 @@ def build_engine(
     *,
     registry: ProviderRegistry | None = None,
     ledger: LedgerRepository | None = None,
+    real_gpt_image: bool = False,
+    settings: Settings | None = None,
 ) -> Engine:
-    """装配引擎。默认全 Mock（零基础设施）；真实适配器由调用方传入替换（LSP）。"""
-    registry = registry if registry is not None else build_mock_registry()
+    """装配引擎。默认全 Mock（零基础设施）；真实适配器由调用方传入替换（LSP）。
+
+    real_gpt_image=True → GPT_IMAGE_2 走真实中转 Provider（需 .env 配 GPT_IMAGE_*）。
+    """
+    if registry is None:
+        registry = build_registry(
+            settings or Settings(), real_gpt_image=real_gpt_image
+        )
     ledger = ledger if ledger is not None else InMemoryLedgerRepository()
     router = ModelRouter()
     estimator = CostEstimator()
