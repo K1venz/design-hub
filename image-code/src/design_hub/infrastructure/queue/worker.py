@@ -14,7 +14,7 @@ from design_hub.application.cost.guard import CostGuard
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.routing.router import ModelRouter
 from design_hub.application.task_runner import GenerationTaskRunner
-from design_hub.composition import build_mock_registry, build_orchestrator
+from design_hub.composition import build_orchestrator, build_registry
 from design_hub.config.settings import Settings
 from design_hub.infrastructure.db.job_repository import SqlAlchemyJobRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
@@ -37,7 +37,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     pipeline = GenerationPipeline(
         router=ModelRouter(),
         orchestrator=build_orchestrator(),
-        registry=build_mock_registry(),
+        registry=build_registry(settings, real_gpt_image=True),
         estimator=CostEstimator(),
         guard=CostGuard(ledger=ledger, policy=BudgetPolicy()),
     )

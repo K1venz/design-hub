@@ -16,7 +16,7 @@ from design_hub.application.cost.guard import CostGuard
 from design_hub.application.cost.preview import CostPreviewService
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.routing.router import ModelRouter
-from design_hub.composition import Engine, build_mock_registry, build_orchestrator
+from design_hub.composition import Engine, build_orchestrator, build_registry
 from design_hub.config.settings import Settings
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.events.redis_bus import RedisEventBus
@@ -34,7 +34,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     ledger = SqlAlchemyLedgerRepository(session_factory)
     router = ModelRouter()
     estimator = CostEstimator()
-    registry = build_mock_registry()
+    # GPT_IMAGE_2 走真实中转 Provider（需 .env 配 GPT_IMAGE_*），其余模型暂 Mock
+    registry = build_registry(settings, real_gpt_image=True)
     pipeline = GenerationPipeline(
         router=router,
         orchestrator=build_orchestrator(),
