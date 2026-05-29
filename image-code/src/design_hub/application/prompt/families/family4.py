@@ -15,7 +15,7 @@ class Family4Premium(TemplateFamilySkeleton):
     def render(self, slots: dict[str, str]) -> str:
         self._check(slots)
         return (
-            "8K超高清，电影级画质，极致细节。超写实3D渲染，商业摄影质感。"
+            "超写实商业摄影质感。"
             f"{slots['镜头']}。{slots['构图']}。{slots['光影']}。"
             f"主体为{slots['产品描述']}。画面无人物。"
             f"主色调{slots['色卡']}。{slots['氛围词']}。"
