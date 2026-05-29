@@ -11,9 +11,12 @@ class FailoverModelProvider(AbstractModelProvider):
     def __init__(self, *, providers: list[AbstractModelProvider]) -> None:
         if not providers:
             raise ValueError("failover needs at least one provider")
+        if any(p.name != providers[0].name for p in providers):
+            raise ValueError("failover 仅允许同模型多中转互备")
         self._providers = providers
         self.name = providers[0].name
-        self.unit_cost = providers[0].unit_cost
+        # 预留取最贵价，切到更贵备用站时预算不被击穿
+        self.unit_cost = max(p.unit_cost for p in providers)
 
     async def generate(
         self,

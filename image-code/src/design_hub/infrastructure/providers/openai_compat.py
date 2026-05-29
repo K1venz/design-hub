@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from design_hub.domain.enums import ModelName
+from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.model_provider import (
@@ -33,7 +34,8 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         model: str,
         image_store: ImageStore | None = None,
         client: httpx.AsyncClient | None = None,
-        timeout: float = 120.0,
+        timeout: float = 180.0,
+        trust_env: bool = True,
     ) -> None:
         self.name = name
         self.unit_cost = unit_cost
@@ -43,6 +45,8 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._image_store = image_store
         self._client = client
         self._timeout = timeout
+        # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
+        self._trust_env = trust_env
 
     async def generate(
         self,
@@ -62,13 +66,25 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                 response = await self._edit(composed, reference_images[0], size_str, n)
             else:
                 response = await self._generate(composed, size_str, n)
-            response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise ProviderTimeout(f"{self.name} timeout: {exc}") from exc
-        except httpx.HTTPError as exc:
-            raise ProviderError(f"{self.name} http error: {exc}") from exc
+        except httpx.HTTPError as exc:  # 连接/传输层错误 → 可切备
+            raise ProviderTimeout(f"{self.name} transport error: {exc}") from exc
+        self._raise_for_status(response)
         latency_ms = int((time.perf_counter() - start) * 1000)
         return await self._parse(response.json(), seed, latency_ms)
+
+    def _raise_for_status(self, response: httpx.Response) -> None:
+        # 按 status_code 分流（不对错误体调 .json()，诗云 502 是 nginx HTML）
+        code = response.status_code
+        if 200 <= code < 300:
+            return
+        snippet = response.text[:200]
+        if code == 429 or code >= 500:
+            # 限流/服务端故障 → 可切同模型备用中转
+            raise ProviderTimeout(f"{self.name} {code}: {snippet}")
+        # 其余 4xx（400/401/403/422…）坏请求/鉴权/配置 → 上抛不切备（换网关无意义）
+        raise DomainError(f"{self.name} {code} (不切备): {snippet}")
 
     async def _generate(self, prompt: str, size: str, n: int) -> httpx.Response:
         payload = {"model": self._model, "prompt": prompt, "n": n, "size": size}
@@ -87,7 +103,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             return await self._client.post(
                 url, json=payload, headers=headers, timeout=self._timeout
             )
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, trust_env=self._trust_env) as client:
             return await client.post(url, json=payload, headers=headers)
 
     async def _request_multipart(
@@ -101,7 +117,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             return await self._client.post(
                 url, data=data, files=files, headers=headers, timeout=self._timeout
             )
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, trust_env=self._trust_env) as client:
             return await client.post(url, data=data, files=files, headers=headers)
 
     async def _parse(

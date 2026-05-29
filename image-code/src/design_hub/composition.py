@@ -70,6 +70,7 @@ def build_gpt_image_provider(settings: Settings) -> OpenAICompatImageProvider:
         api_key=settings.gpt_image_api_key.get_secret_value(),
         model=settings.gpt_image_model,
         image_store=LocalImageStore(settings.image_output_dir),
+        trust_env=False,  # 境内中转站直连，绕开本机梯子代理
     )
 
 
