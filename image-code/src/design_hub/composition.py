@@ -22,9 +22,12 @@ from design_hub.application.prompt.profiles.registry import (
 )
 from design_hub.application.registry import ProviderRegistry
 from design_hub.application.routing.router import ModelRouter
+from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.ledger.memory import InMemoryLedgerRepository
 from design_hub.infrastructure.providers.mock import MockModelProvider
+from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
+from design_hub.infrastructure.storage.local import LocalImageStore
 from design_hub.infrastructure.vision.mock import MockVisionAssist
 from design_hub.ports.ledger import LedgerRepository
 
@@ -51,6 +54,23 @@ def build_mock_registry() -> ProviderRegistry:
     for name, unit_cost in _MOCK_UNIT_COSTS.items():
         registry.register(MockModelProvider(name=name, unit_cost=unit_cost))
     return registry
+
+
+def build_gpt_image_provider(settings: Settings) -> OpenAICompatImageProvider:
+    """真实 gpt-image-2 中转 Provider（apinebula/诗云）。需 .env 提供 GPT_IMAGE_*。
+
+    b64 出图经 LocalImageStore 落本地目录（A 方案）；将来换 OSS 只改 image_store。
+    """
+    if not settings.gpt_image_base_url or not settings.gpt_image_model:
+        raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env）")
+    return OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.10"),  # apinebula gpt-image-2-vip 实扣参考
+        base_url=settings.gpt_image_base_url,
+        api_key=settings.gpt_image_api_key.get_secret_value(),
+        model=settings.gpt_image_model,
+        image_store=LocalImageStore(settings.image_output_dir),
+    )
 
 
 def build_orchestrator() -> PromptOrchestrator:
