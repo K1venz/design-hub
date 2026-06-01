@@ -30,7 +30,8 @@ async def get_project(project_id: int, svc: ProjectServiceDep) -> ProjectOut:
 
 @router.put("/{project_id}/status", response_model=ProjectOut)
 async def update_status(
-    project_id: int, body: ProjectStatusUpdate, svc: ProjectServiceDep
+    project_id: int, body: ProjectStatusUpdate, svc: ProjectServiceDep, force: bool = False
 ) -> ProjectOut:
-    # 非法流转/项目不存在 → ProjectService 抛 DomainError，由边界统一映射
-    return ProjectOut.of(await svc.transition(project_id, body.status))
+    # 非法流转/项目不存在/未完成改稿转已交付 → ProjectService 抛 DomainError(409)，由边界统一映射
+    # 管理者 ?force=true 跳过交付强校验（WP-D）
+    return ProjectOut.of(await svc.transition(project_id, body.status, force=force))

@@ -25,6 +25,7 @@ from design_hub.application.project.project_generation_service import (
     ProjectGenerationService,
 )
 from design_hub.application.project.project_service import ProjectService
+from design_hub.application.revision.revision_service import RevisionService
 from design_hub.application.routing.router import ModelRouter
 from design_hub.application.selection.selection_service import SelectionService
 from design_hub.composition import (
@@ -43,6 +44,7 @@ from design_hub.infrastructure.db.image_repo import SqlAlchemyGeneratedImageRepo
 from design_hub.infrastructure.db.job_repository import SqlAlchemyJobRepository
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.project_repo import SqlAlchemyProjectRepository
+from design_hub.infrastructure.db.revision_repo import SqlAlchemyRevisionRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.events.redis_bus import RedisEventBus
 from design_hub.infrastructure.export.local_export_store import LocalExportStore
@@ -60,6 +62,7 @@ from design_hub.interface.api.routes import (
     export,
     generation,
     projects,
+    revision,
     selection,
 )
 
@@ -98,8 +101,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # WP-A 工作台：客户/项目用例（DB-backed）
     customer_repo = SqlAlchemyCustomerRepository(session_factory)
     project_repo = SqlAlchemyProjectRepository(session_factory)
+    revision_repo = SqlAlchemyRevisionRepository(session_factory)
     app.state.customer_service = CustomerService(customers=customer_repo)
-    app.state.project_service = ProjectService(projects=project_repo, customers=customer_repo)
+    # WP-D：ProjectService 注入 revision_repo，转「已交付」做交付强校验
+    app.state.project_service = ProjectService(
+        projects=project_repo, customers=customer_repo, revisions=revision_repo
+    )
     # WP-B 标准化需求单 + 素材上传 + 项目下出图（挂 project_id+round_no，复用 pipeline）
     brief_repo = SqlAlchemyBriefRepository(session_factory)
     asset_repo = SqlAlchemyAssetRepository(session_factory)
@@ -127,6 +134,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         exporter=PillowExporter(),
         store=LocalExportStore(settings.export_output_dir),
     )
+    # WP-D 改稿单：开单/列单/加条目/逐条勾选（交付强校验经 ProjectService.revisions）
+    app.state.revision_service = RevisionService(revisions=revision_repo, projects=project_repo)
     try:
         yield
     finally:
@@ -146,6 +155,7 @@ def create_production_app() -> FastAPI:
     app.include_router(selection.router)
     app.include_router(admin.router)
     app.include_router(export.router)
+    app.include_router(revision.router)
     register_error_handlers(app)
     return app
 
