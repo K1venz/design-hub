@@ -1,8 +1,14 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-from design_hub.domain.enums import ProjectStatus
-from design_hub.domain.models import CustomerRecord, ProjectRecord
+from design_hub.domain.enums import AssetKind, ProjectStatus
+from design_hub.domain.models import (
+    AssetRecord,
+    BriefRecord,
+    CustomerRecord,
+    ProjectRecord,
+)
 
 
 class CustomerRepository(ABC):
@@ -48,4 +54,45 @@ class ProjectRepository(ABC):
 
     @abstractmethod
     async def set_status(self, project_id: int, status: ProjectStatus) -> ProjectRecord:
+        ...
+
+
+class BriefRepository(ABC):
+    """标准化需求单仓储端口（DIP）。一项目一需求单（upsert 语义）。"""
+
+    @abstractmethod
+    async def upsert(
+        self,
+        *,
+        project_id: int,
+        material_types: Sequence[str] = (),
+        sizes: Sequence[str] = (),
+        styles: Sequence[str] = (),
+        resolution: str | None = None,
+        bleed: str | None = None,
+        copy_text: str | None = None,
+        taboo: str | None = None,
+        delivery: Mapping[str, Any] | None = None,
+    ) -> BriefRecord:
+        ...
+
+    @abstractmethod
+    async def get(self, project_id: int) -> BriefRecord | None:
+        ...
+
+
+class AssetRepository(ABC):
+    """项目素材仓储端口（DIP）：元数据落库，字节走 AssetStore。"""
+
+    @abstractmethod
+    async def create(self, *, project_id: int, kind: AssetKind, url: str) -> AssetRecord:
+        ...
+
+    @abstractmethod
+    async def get_many(self, asset_ids: Sequence[int]) -> list[AssetRecord]:
+        ...
+
+    # `list` 方法名遮蔽内建 list 类型，故置于类末尾，避免后续方法返回注解解析失败
+    @abstractmethod
+    async def list(self, *, project_id: int) -> list[AssetRecord]:
         ...
