@@ -169,3 +169,26 @@ class GenerationConfig:
     size: tuple[int, int]
     n: int = 6
     asset_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class GeneratedImageRecord:
+    """候选图读模型（选稿/评分用，含 score/kept）。"""
+
+    id: int
+    job_id: str
+    url: str
+    seed: int
+    latency_ms: int
+    cost: Decimal
+    score: int | None
+    kept: bool
+
+
+@dataclass(frozen=True)
+class UsableRate:
+    """任务可用率（≥4 星=可用）：usable/total。"""
+
+    usable: int
+    total: int
+    rate: float
