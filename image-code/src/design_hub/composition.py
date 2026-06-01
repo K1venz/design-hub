@@ -3,6 +3,7 @@
 DIP 的落点——把抽象端口绑定到具体适配器都集中在此，其余各层只见抽象。
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -30,8 +31,9 @@ from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageP
 from design_hub.infrastructure.storage.local import LocalImageStore
 from design_hub.infrastructure.vision.mock import MockVisionAssist
 from design_hub.ports.ledger import LedgerRepository
+from design_hub.ports.model_config_repository import ModelConfigRecord
 
-# Mock 单价对齐 PRD §3.5 参考价（仅供本地/CI 估算演示，真实单价由 ModelConfig 提供）
+# Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
 _MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
     ModelName.SEEDREAM_5: Decimal("0.20"),
     ModelName.QWEN_IMAGE_PRO: Decimal("0.10"),
@@ -39,6 +41,14 @@ _MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
     ModelName.WANXIANG_27: Decimal("0.05"),
     ModelName.LINGDONG_2: Decimal("0.04"),
 }
+
+
+def default_model_configs() -> list[ModelConfigRecord]:
+    """默认 5 模型配置（启动 seed 用）：单价取 _MOCK_UNIT_COSTS，默认启用。"""
+    return [
+        ModelConfigRecord(name=name.value, unit_cost=cost, enabled=True, extra={})
+        for name, cost in _MOCK_UNIT_COSTS.items()
+    ]
 
 
 @dataclass
@@ -49,23 +59,31 @@ class Engine:
     preview: CostPreviewService
 
 
-def build_mock_registry() -> ProviderRegistry:
+def build_mock_registry(
+    unit_costs: Mapping[ModelName, Decimal] | None = None,
+) -> ProviderRegistry:
+    """Mock 全模型。unit_costs（来自 model_config 表）覆盖默认价，缺失项回落 Mock 兜底。"""
+    costs = {**_MOCK_UNIT_COSTS, **(unit_costs or {})}
     registry = ProviderRegistry()
-    for name, unit_cost in _MOCK_UNIT_COSTS.items():
+    for name, unit_cost in costs.items():
         registry.register(MockModelProvider(name=name, unit_cost=unit_cost))
     return registry
 
 
-def build_gpt_image_provider(settings: Settings) -> OpenAICompatImageProvider:
+def build_gpt_image_provider(
+    settings: Settings, unit_costs: Mapping[ModelName, Decimal] | None = None
+) -> OpenAICompatImageProvider:
     """真实 gpt-image-2 中转 Provider（apinebula/诗云）。需 .env 提供 GPT_IMAGE_*。
 
+    单价优先取 model_config 表（unit_costs），缺失则用 apinebula 实扣参考价兜底。
     b64 出图经 LocalImageStore 落本地目录（A 方案）；将来换 OSS 只改 image_store。
     """
     if not settings.gpt_image_base_url or not settings.gpt_image_model:
         raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env）")
+    unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.10"))
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
-        unit_cost=Decimal("0.10"),  # apinebula gpt-image-2-vip 实扣参考
+        unit_cost=unit_cost,
         base_url=settings.gpt_image_base_url,
         api_key=settings.gpt_image_api_key.get_secret_value(),
         model=settings.gpt_image_model,
@@ -74,14 +92,20 @@ def build_gpt_image_provider(settings: Settings) -> OpenAICompatImageProvider:
     )
 
 
-def build_registry(settings: Settings, *, real_gpt_image: bool = False) -> ProviderRegistry:
+def build_registry(
+    settings: Settings,
+    *,
+    real_gpt_image: bool = False,
+    unit_costs: Mapping[ModelName, Decimal] | None = None,
+) -> ProviderRegistry:
     """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖 GPT_IMAGE_2。
 
+    unit_costs（model_config 真实单价）注入 Provider，替换写死的 Mock 价；缺失回落兜底。
     仅 gpt-image 有真实 key，其余模型暂仍 Mock；按 LSP 替换，路由/pipeline 无感。
     """
-    registry = build_mock_registry()
+    registry = build_mock_registry(unit_costs)
     if real_gpt_image:
-        registry.register(build_gpt_image_provider(settings))  # 按 name 覆盖 Mock
+        registry.register(build_gpt_image_provider(settings, unit_costs))  # 按 name 覆盖 Mock
     return registry
 
 
@@ -103,14 +127,16 @@ def build_engine(
     ledger: LedgerRepository | None = None,
     real_gpt_image: bool = False,
     settings: Settings | None = None,
+    unit_costs: Mapping[ModelName, Decimal] | None = None,
 ) -> Engine:
     """装配引擎。默认全 Mock（零基础设施）；真实适配器由调用方传入替换（LSP）。
 
     real_gpt_image=True → GPT_IMAGE_2 走真实中转 Provider（需 .env 配 GPT_IMAGE_*）。
+    unit_costs（model_config 真实单价）注入 Provider，缺省则用 Mock 兜底价。
     """
     if registry is None:
         registry = build_registry(
-            settings or Settings(), real_gpt_image=real_gpt_image
+            settings or Settings(), real_gpt_image=real_gpt_image, unit_costs=unit_costs
         )
     ledger = ledger if ledger is not None else InMemoryLedgerRepository()
     router = ModelRouter()
