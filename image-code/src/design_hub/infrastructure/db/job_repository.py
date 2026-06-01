@@ -20,6 +20,7 @@ class SqlAlchemyJobRepository(JobRepository):
         brief: Brief,
         result: GenerationResult,
         project_id: int | None = None,
+        round_no: int = 1,
     ) -> str:
         async with self._session_factory() as session:
             row = GenerationJobRow(
@@ -40,7 +41,7 @@ class SqlAlchemyJobRepository(JobRepository):
                 positive_prompt=result.job_prompt.positive,
                 negative_prompt=result.job_prompt.negative,
                 status=JobStatus.DONE.value,
-                round_no=1,
+                round_no=round_no,
                 extra={},
             )
             row.images = [
