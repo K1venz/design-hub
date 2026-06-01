@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0004
 title: AssetRepository.list 方法遮蔽内置 list，get_many 注解求值崩溃，asgi app 无法 import
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发        # WP-F 集成自检时发现
-owner: 开发           # 球在 WP-B（repositories.py 归 WP-A/WP-B）
+owner: QA             # 已修复待 QA 验证（球交回 QA）
 created: 2026-06-01
 updated: 2026-06-01
 related:
@@ -56,3 +56,7 @@ TypeError: 'function' object is not subscriptable
 
 ## 处理记录
 - 2026-06-01 [开发] WP-F 集成自检时发现并根因定位，开单；状态=已确认，owner→开发(WP-B)，P1
+- 2026-06-01 [开发] WP-B 后续提交已修：将 `get_many`(用 list[...] 注解) 挪到 `list` 方法**之前**，
+  类体求值期 `list` 仍解析为内置 → 遮蔽不再触发（方案 A/B 之外的等价修法）。复验
+  `uv run python -c "from design_hub.interface.api.asgi import app"` 已正常，ruff+mypy 全绿。
+  状态→待验证，owner→QA。（注：方法顺序依赖较脆，建议 QA 顺带确认是否补 `from __future__ import annotations` 以根除同类隐患）
