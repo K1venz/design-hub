@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     gpt_image_model: str = ""
     # 本地出图落点（图生图 b64 解码后写入；gitignored）
     image_output_dir: str = "./generated"
+    # 本地素材落点（上传产品图/参考图写入；gitignored）
+    asset_output_dir: str = "./assets"
 
     @classmethod
     def from_kms(cls) -> "Settings":
