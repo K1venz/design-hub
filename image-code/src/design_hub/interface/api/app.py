@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from design_hub.composition import Engine, build_engine
-from design_hub.domain.errors import BudgetExceeded
+from design_hub.domain.errors import BudgetExceeded, DomainError
 from design_hub.interface.api.routes import generation
 from design_hub.ports.model_provider import ProviderError
 
@@ -21,6 +21,11 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=502, content={"error": "provider_failed", "detail": str(exc)}
         )
+
+    # 通用领域规则违反（如非法状态流转）；BudgetExceeded 子类有更具体的 409 处理
+    @app.exception_handler(DomainError)
+    async def _on_domain(request: Request, exc: DomainError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"error": "domain_error", "detail": str(exc)})
 
     @app.exception_handler(ValueError)
     async def _on_value(request: Request, exc: ValueError) -> JSONResponse:
