@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from design_hub.domain.enums import (
+    AssetKind,
     Category,
     JobStatus,
     ModelName,
@@ -124,3 +125,47 @@ class ProjectRecord:
     name: str
     status: ProjectStatus
     current_round: int
+
+
+@dataclass(frozen=True)
+class BriefRecord:
+    """标准化需求单读模型（PRD 8 字段，多选；D2 方案①：不含 family/品类/子场景/档位）。"""
+
+    id: int
+    project_id: int
+    material_types: tuple[str, ...]
+    sizes: tuple[str, ...]
+    styles: tuple[str, ...]
+    resolution: str | None
+    bleed: str | None
+    copy_text: str | None
+    taboo: str | None
+    delivery: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AssetRecord:
+    """项目素材读模型（产品图/参考图）。"""
+
+    id: int
+    project_id: int
+    kind: AssetKind
+    url: str
+
+
+@dataclass(frozen=True)
+class GenerationConfig:
+    """出图配置（D2 方案①：出图时单独提交，不入需求单表）。
+
+    单值的 family/品类/子场景/档位/尺寸/风格 + 候选数 + 选中素材，
+    与需求单(copy_text/taboo)、素材字节合成域 Brief。
+    """
+
+    subscene: SubScene
+    family: TemplateFamily
+    category: Category
+    tier: Tier
+    style: Style
+    size: tuple[int, int]
+    n: int = 6
+    asset_ids: tuple[int, ...] = ()
