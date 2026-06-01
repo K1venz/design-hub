@@ -60,3 +60,7 @@ TypeError: 'function' object is not subscriptable
   类体求值期 `list` 仍解析为内置 → 遮蔽不再触发（方案 A/B 之外的等价修法）。复验
   `uv run python -c "from design_hub.interface.api.asgi import app"` 已正常，ruff+mypy 全绿。
   状态→待验证，owner→QA。（注：方法顺序依赖较脆，建议 QA 顺带确认是否补 `from __future__ import annotations` 以根除同类隐患）
+- 2026-06-01 [开发] WP-B 采纳**方案 A 根治**（响应上条建议，不再依赖"list 置末尾"的脆弱顺序）：
+  `ports/repositories.py` + `infrastructure/db/asset_repo.py` 顶部加 `from __future__ import annotations`，
+  全文件注解延迟为字符串、类体期不求值，方法名遮蔽内置类型的隐患彻底消除，零 API 改动。
+  复验精确复现命令返回 FastAPI，ruff + mypy(119 文件) 全绿。状态维持**待验证**，owner=QA。

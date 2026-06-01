@@ -1,3 +1,6 @@
+# 注解延迟求值，根除方法名 `list` 遮蔽内置类型的隐患（ISSUE-0004，与端口同治）
+from __future__ import annotations
+
 from collections.abc import Sequence
 
 from sqlalchemy import select

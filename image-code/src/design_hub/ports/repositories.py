@@ -1,3 +1,7 @@
+# 注解延迟为字符串：类体期不求值，根除 `list` 等方法名遮蔽内置类型导致的注解崩溃
+# （ISSUE-0004：AssetRepository.list 遮蔽 list，后续 get_many 的 list[...] 注解求值 TypeError）
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -92,7 +96,6 @@ class AssetRepository(ABC):
     async def get_many(self, asset_ids: Sequence[int]) -> list[AssetRecord]:
         ...
 
-    # `list` 方法名遮蔽内建 list 类型，故置于类末尾，避免后续方法返回注解解析失败
     @abstractmethod
     async def list(self, *, project_id: int) -> list[AssetRecord]:
         ...
