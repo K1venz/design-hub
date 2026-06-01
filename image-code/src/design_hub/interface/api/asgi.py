@@ -16,6 +16,7 @@ from design_hub.application.cost.estimator import CostEstimator
 from design_hub.application.cost.guard import CostGuard
 from design_hub.application.cost.preview import CostPreviewService
 from design_hub.application.dashboard.cost_report import CostReportService
+from design_hub.application.export.export_service import ExportService
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.project.asset_service import AssetService
 from design_hub.application.project.brief_service import BriefService
@@ -37,12 +38,15 @@ from design_hub.infrastructure.db.asset_repo import SqlAlchemyAssetRepository
 from design_hub.infrastructure.db.brief_repo import SqlAlchemyBriefRepository
 from design_hub.infrastructure.db.cost_query import SqlAlchemyCostQuery
 from design_hub.infrastructure.db.customer_repo import SqlAlchemyCustomerRepository
+from design_hub.infrastructure.db.export_query import SqlAlchemyExportQuery
 from design_hub.infrastructure.db.image_repo import SqlAlchemyGeneratedImageRepository
 from design_hub.infrastructure.db.job_repository import SqlAlchemyJobRepository
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.project_repo import SqlAlchemyProjectRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.events.redis_bus import RedisEventBus
+from design_hub.infrastructure.export.local_export_store import LocalExportStore
+from design_hub.infrastructure.export.pillow_exporter import PillowExporter
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
 from design_hub.infrastructure.queue.arq_queue import ArqTaskQueue
 from design_hub.infrastructure.storage.local_asset import LocalAssetStore
@@ -53,6 +57,7 @@ from design_hub.interface.api.routes import (
     brief,
     customers,
     dashboard,
+    export,
     generation,
     projects,
     selection,
@@ -116,6 +121,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # WP-H 模型配置后台：ModelConfig CRUD + 单价热更（已 seed/注入，见上）
     app.state.model_config_service = model_config_service
+    # WP-E 导出归档：多格式/改尺寸/zip + 命名规范 + 项目/子场景/轮次 归档（本地落点）
+    app.state.export_service = ExportService(
+        query=SqlAlchemyExportQuery(session_factory),
+        exporter=PillowExporter(),
+        store=LocalExportStore(settings.export_output_dir),
+    )
     try:
         yield
     finally:
@@ -134,6 +145,7 @@ def create_production_app() -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(selection.router)
     app.include_router(admin.router)
+    app.include_router(export.router)
     register_error_handlers(app)
     return app
 
