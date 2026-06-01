@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -8,6 +9,7 @@ from design_hub.domain.enums import (
     JobStatus,
     ModelName,
     ProjectStatus,
+    RevisionStatus,
     Style,
     SubScene,
     TaskEventType,
@@ -192,3 +194,25 @@ class UsableRate:
     usable: int
     total: int
     rate: float
+
+
+@dataclass(frozen=True)
+class RevisionItem:
+    """改稿条目：逐条勾选，可关联某张候选图。"""
+
+    seq: int
+    text: str
+    done: bool
+    related_image_id: int | None
+
+
+@dataclass(frozen=True)
+class RevisionRecord:
+    """改稿单读模型（一轮一单，items 为逐条改稿）。"""
+
+    id: int
+    project_id: int
+    round_no: int
+    items: tuple[RevisionItem, ...]
+    status: RevisionStatus
+    deadline: datetime | None
