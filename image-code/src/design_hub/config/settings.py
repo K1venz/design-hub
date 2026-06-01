@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     image_output_dir: str = "./generated"
     # 本地素材落点（上传产品图/参考图写入；gitignored）
     asset_output_dir: str = "./assets"
+    # 本地导出归档落点（WP-E：多格式/改尺寸/zip 输出；gitignored）
+    export_output_dir: str = "./exports"
 
     @classmethod
     def from_kms(cls) -> "Settings":
