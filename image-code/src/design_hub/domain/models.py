@@ -6,6 +6,7 @@ from design_hub.domain.enums import (
     Category,
     JobStatus,
     ModelName,
+    ProjectStatus,
     Style,
     SubScene,
     TaskEventType,
@@ -98,3 +99,28 @@ class TaskEvent:
     job_id: str
     type: TaskEventType
     data: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CustomerRecord:
+    """客户档案读模型。"""
+
+    id: int
+    name: str
+    contact: str | None
+    industry: str | None
+    brand_color: str | None
+    common_styles: tuple[str, ...]
+    common_taboos: tuple[str, ...]
+    common_sizes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProjectRecord:
+    """项目读模型（一单一档）。"""
+
+    id: int
+    customer_id: int
+    name: str
+    status: ProjectStatus
+    current_round: int
