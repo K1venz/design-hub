@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0010
 title: SSE 走 Redis Pub/Sub 无事件回放，晚订阅/重连客户端会丢已发事件
-status: 待复现        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P3          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: 开发
+owner: QA             # 已修复待 QA 复验
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -36,3 +36,12 @@ related:
 
 ## 处理记录
 - 2026-06-02 [QA] E2E 验证 SSE 时识别 pub/sub 晚订阅丢事件潜在竞态（本次 happy-path 未触发）。开单，owner→开发。状态=待复现。
+- 2026-06-02 [开发] 已修：`RedisEventBus` 由 Pub/Sub 改 **Redis Stream**——`publish` 用 `XADD`
+  (+`EXPIRE` 3600s 自动清理)，`subscribe` 从 `"0"` 用 `XREAD`(block) 先回放全部历史再等新事件。
+  晚订阅/重连客户端从头拿到该 job 全部事件(含 task_started)，不再丢。端口签名不变，SSE 路由零改。
+  `InMemoryEventBus` 同口径(按 job 缓存历史+订阅先回放，注册队列与快照历史间无 await 保原子)，保 LSP 一致。
+  smoke(临时无密码 redis :6390)验证:先发 4 事件后订阅→全回放;重订阅同 job 幂等再回放;TTL=3600;
+  内存版回放+实时边订边发均收全。ruff+mypy(160) 绿。
+  改动: infrastructure/events/redis_bus.py、infrastructure/events/memory.py。
+  注:任务环境真实 redis 需密码(.env 缺 REDIS_URL),本验证用临时实例;QA 复验可用真实库重跑 SSE 步骤。
+  状态→待验证, owner→QA。
