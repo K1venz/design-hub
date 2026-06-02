@@ -35,6 +35,13 @@ related:
 - 证据：本次 E2E，`cost_ledger`=(1.19, 0.20)，对应 generation_job 实际 (0.20 mock-fallback, 0.20 seedream)。
 - 非数据丢失、不阻断出图，预算偏保守（高估）→ P2。但会让设计师/项目"虚假更早触顶预算"。
 
+## QA 验证步骤（开发建议）
+- 零成本(mock 触发 fallback)：构造"主模型失败→更便宜同档备选成功"的一次出图，断言
+  `cost_ledger` 该 user 当月净额 == 该 job 的 `generation_job.total_cost`（修复前 ledger=主模型预估偏高）。
+  参考：family_4/standard 主 GPT(预扣 1.19) mock 失败 → seedream(0.20) 成功后，ledger 应回正到 **0.20**。
+- 真实库：跑一次会 fallback 的出图后，SQL 对比同 job 的 ledger 流水净额与 total_cost 是否一致。
+- 回归：正常路径(主模型成功)预估==实际，不应出现双扣。
+
 ## 处理记录
 - 2026-06-02 [QA] E2E 落库核对发现 fallback 后 ledger 预扣未回正，与 generation_job 实际成本分叉。开单，owner→开发。状态=待复现。
 - 2026-06-02 [开发] 已修：`CostGuard.reconcile(reserved, actual)` 在成功路径按实际成本补一笔差额

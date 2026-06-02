@@ -34,6 +34,15 @@ related:
 ## 建议方向
 - 换 Redis Stream（XADD/XREAD from 0，天然回放 + Last-Event-ID 续传），或事件落库 + 订阅时先补发历史。
 
+## QA 验证步骤（开发建议）
+- 零成本(临时无密码 redis)：`redis-server --port 6390 --daemonize yes --save "" --appendonly no`；
+  用 `RedisEventBus.from_url("redis://127.0.0.1:6390/0")` 对某 job **先 publish 4 条事件(含
+  task_started) 再 subscribe**，断言全部回放收齐（旧 pub/sub 会丢光）；用完
+  `redis-cli -p 6390 shutdown nosave`。
+- 真实库 e2e：`POST /generate/async` 拿 job_id 后**故意延迟 1s** 再 `GET /generate/{job_id}/events`，
+  确认仍收到 `task_started … task_completed` 全序列（修复前晚订阅会丢 task_started）。
+- 注：真实 redis 需密码(.env 缺 REDIS_URL)，复验前先补 REDIS_URL 或用临时实例。
+
 ## 处理记录
 - 2026-06-02 [QA] E2E 验证 SSE 时识别 pub/sub 晚订阅丢事件潜在竞态（本次 happy-path 未触发）。开单，owner→开发。状态=待复现。
 - 2026-06-02 [开发] 已修：`RedisEventBus` 由 Pub/Sub 改 **Redis Stream**——`publish` 用 `XADD`
