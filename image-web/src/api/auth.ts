@@ -4,22 +4,36 @@ import { api } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
-export interface LoginVars {
-  /** OAuth 提供方：feishu | dingtalk（mock 后端暂不分流）. */
-  provider: string
-  /** OAuth 授权 code（mock：前缀决定角色，见后端 MockOAuthClient）. */
-  code: string
+export interface RegisterVars {
+  email: string
+  password: string
+  name: string
 }
 
-/** POST /auth/{provider}/callback —— 换 JWT 并写入会话. */
+export interface LoginVars {
+  email: string
+  password: string
+}
+
+/** POST /auth/register —— 自助注册（默认设计师）并写入会话. */
+export function useRegister() {
+  const setToken = useAuthStore((s) => s.setToken)
+  return useMutation({
+    mutationFn: async (vars: RegisterVars) => {
+      const { data, error } = await api.POST('/auth/register', { body: vars })
+      if (error || !data) throw new Error(errorMessage(error, '注册失败'))
+      return data
+    },
+    onSuccess: (data) => setToken(data.jwt),
+  })
+}
+
+/** POST /auth/login —— 邮箱密码登录并写入会话. */
 export function useLogin() {
   const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
-    mutationFn: async ({ provider, code }: LoginVars) => {
-      const { data, error } = await api.POST('/auth/{provider}/callback', {
-        params: { path: { provider } },
-        body: { code },
-      })
+    mutationFn: async (vars: LoginVars) => {
+      const { data, error } = await api.POST('/auth/login', { body: vars })
       if (error || !data) throw new Error(errorMessage(error, '登录失败'))
       return data
     },

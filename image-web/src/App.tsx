@@ -10,11 +10,13 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
+import { AdminUsersPage } from '@/pages/AdminUsersPage'
 import { CustomersPage } from '@/pages/CustomersPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
+import { RegisterPage } from '@/pages/RegisterPage'
 import { WorkbenchPage } from '@/pages/WorkbenchPage'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { RoleRoute } from '@/routes/RoleRoute'
@@ -43,6 +45,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route index element={<WorkbenchPage />} />
@@ -63,6 +66,14 @@ function AppRoutes() {
             element={
               <RoleRoute allow={[ROLE_MANAGER]}>
                 <AdminModelsPage />
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="admin/users"
+            element={
+              <RoleRoute allow={[ROLE_MANAGER]}>
+                <AdminUsersPage />
               </RoleRoute>
             }
           />
