@@ -1,6 +1,7 @@
 import {
   LayoutPanelLeftIcon,
   UsersIcon,
+  UsersRoundIcon,
   ChartNoAxesCombinedIcon,
   SlidersHorizontalIcon,
   type LucideIcon,
@@ -23,6 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/customers', label: '客户', icon: UsersIcon },
   { to: '/dashboard', label: '业务仪表盘', icon: ChartNoAxesCombinedIcon, managerOnly: true },
   { to: '/admin/models', label: '模型配置', icon: SlidersHorizontalIcon, managerOnly: true },
+  { to: '/admin/users', label: '用户管理', icon: UsersRoundIcon, managerOnly: true },
 ]
 
 export function navItemsFor(role: Role): NavItem[] {
