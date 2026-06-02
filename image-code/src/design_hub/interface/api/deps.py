@@ -46,11 +46,28 @@ async def get_current_user(
     return get_token_service(request).verify(token)
 
 
+async def get_current_user_sse(
+    request: Request,
+    access_token: str | None = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> AuthUser:
+    """SSE 专用鉴权（ISSUE-0011）：原生 EventSource 不能带 Bearer 头，故接受
+    `?access_token=<JWT>` query 传参（也兼容 Bearer 头）。仅 SSE 端点放宽，其余仍走头。
+    """
+    token = access_token
+    if not token and authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise AuthenticationError("缺少令牌（SSE 经 ?access_token= 或 Bearer 头）")
+    return get_token_service(request).verify(token)
+
+
 EngineDep = Annotated[Engine, Depends(get_engine)]
 UserIdDep = Annotated[str, Header(alias="X-User-Id")]
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service)]
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]
+CurrentUserSseDep = Annotated[AuthUser, Depends(get_current_user_sse)]
 
 
 def require_role(*roles: Role) -> Callable[[AuthUser], Awaitable[AuthUser]]:
