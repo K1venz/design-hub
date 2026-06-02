@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0012
 title: 缺「项目级 jobs/images 列表」端点，FE-3 选稿持久化 + FE-5 导出无法独立枚举
-status: 待复现
+status: 待验证
 severity: P1
 reporter: 前端
-owner: 开发
+owner: QA
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -43,5 +43,19 @@ related:
 ## 环境 / 上下文
 - 前端 FE-0/1/2/6/7 已交付；本缺口与 ISSUE-0011(SSE+JWT) 共同挡住 FE-3/4/5 主链路。
 
+## QA 验证步骤（开发建议）
+- `GET /projects/{id}/jobs[?round_no=]` → 列本项目出图任务(job_id/round_no/subscene/family/tier/
+  category/used_model/candidate_count/total_cost/status/created_at)，按 created_at 倒序；不跨项目。
+- `GET /projects/{id}/images[?round_no=&kept=]` → 列本项目候选图(image_id/job_id/url/seed/score/
+  kept/round_no/subscene)，round_no/kept 可过滤；不跨项目。
+- 端点挂 login_required(需 Bearer)。
+
 ## 处理记录
 - 2026-06-02 [前端] 创建，状态=待复现；FE-5 开工前核实后端无项目级图/任务列举能力，开条目指给开发。
+- 2026-06-02 [开发] **已实现**(两端点都加)：CQRS 读侧——`ports/project_catalog.py`
+  (ProjectCatalogQuery + ProjectJob/ProjectImage 读模型) + `infrastructure/db/project_catalog.py`
+  (generation_job WHERE project_id；generated_image⋈job WHERE job.project_id；round_no/kept 过滤) +
+  `application/project/catalog_service.py` + 独立薄路由 `routes/project_catalog.py`(不动 WP-A 的
+  projects.py，同 /projects 前缀 FastAPI 合并) + asgi 装配/注册(login_required)。未动 schema。
+  验证 ruff+mypy(176)+sqlite smoke(本项目任务/候选图列举 + round_no/kept 过滤 + 不跨项目)。
+  状态→待验证，owner→QA。前端 FE-3 选稿持久化 / FE-5 导出枚举可解锁。
