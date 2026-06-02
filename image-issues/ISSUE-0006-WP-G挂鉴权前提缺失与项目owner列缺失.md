@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0006
 title: WP-G「全量挂鉴权」受阻——鉴权能力层未实现 + project 表无 owner 列无法按本人过滤
-status: 待确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起 | 待确认
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起 | 待确认
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发        # WP-G 挂鉴权窗口
-owner: PM             # 需 PM/用户拍板方向
+owner: QA             # 用户定 A1+B1，已落地；阻塞 1 解除、阻塞 2 转待办，交 QA 验
 created: 2026-06-01
-updated: 2026-06-01
+updated: 2026-06-02
 related:
   - WP: WP-G（认证授权 / 全量挂鉴权）
   - code: image-code/src/design_hub/interface/api/deps.py（现仅 EngineDep/UserIdDep）
@@ -42,3 +42,11 @@ related:
 
 ## 处理记录
 - 2026-06-01 [开发] WP-G 挂鉴权侦察发现能力层缺失 + project 无 owner 列；AskUserQuestion 被 don't-ask 模式拒绝，无法交互澄清。按规则不擅自建 2.5 人天能力层/不擅自动 schema，开单上报，owner→PM/用户。状态=待确认。
+- 2026-06-02 [开发] 用户确认方向 **A1 + B1**，已落地：
+  - **阻塞 1 解除**：建最小鉴权能力层(pyjwt JWT+Role+current_user/require_role+mock OAuth 回调+/me)，
+    并在 asgi include 级全量挂角色矩阵(/auth 公开;业务端点需登录;dashboard·admin 仅管理者)。
+    提交 9ba7d1d/17553c4/393bde2，ruff+mypy(160)+HTTP 全矩阵 smoke 绿。
+  - **阻塞 2 转待办(非阻塞)**：B1 只做角色级门禁；"设计师只见本人项目"因 project 无 owner 列**暂缓**，
+    待加 `project.owner_user_id` 列(需用户批准动 schema)再做。
+  - **遗留待办**(需用户/凭据)：① 真实飞书/钉钉 OAuth(替换 MockOAuthClient，需 app_id/secret 入 .env)；
+    ② project owner 列 + 按本人过滤。状态→待验证，owner→QA。
