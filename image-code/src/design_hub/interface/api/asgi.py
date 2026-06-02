@@ -8,9 +8,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from arq.connections import RedisSettings, create_pool
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from design_hub.application.admin.model_config_service import ModelConfigService
+from design_hub.application.auth.auth_service import AuthService
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.estimator import CostEstimator
 from design_hub.application.cost.guard import CostGuard
@@ -35,6 +36,9 @@ from design_hub.composition import (
     default_model_configs,
 )
 from design_hub.config.settings import Settings
+from design_hub.domain.enums import Role
+from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
+from design_hub.infrastructure.auth.mock_oauth import MockOAuthClient
 from design_hub.infrastructure.db.asset_repo import SqlAlchemyAssetRepository
 from design_hub.infrastructure.db.brief_repo import SqlAlchemyBriefRepository
 from design_hub.infrastructure.db.cost_query import SqlAlchemyCostQuery
@@ -53,9 +57,11 @@ from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerR
 from design_hub.infrastructure.queue.arq_queue import ArqTaskQueue
 from design_hub.infrastructure.storage.local_asset import LocalAssetStore
 from design_hub.interface.api.app import register_error_handlers
+from design_hub.interface.api.deps import get_current_user, require_role
 from design_hub.interface.api.routes import (
     admin,
     async_generation,
+    auth,
     brief,
     customers,
     dashboard,
@@ -136,6 +142,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # WP-D 改稿单：开单/列单/加条目/逐条勾选（交付强校验经 ProjectService.revisions）
     app.state.revision_service = RevisionService(revisions=revision_repo, projects=project_repo)
+    # WP-G 鉴权：JWT 令牌服务 + （mock）OAuth 登录用例（真实飞书/钉钉待用户给凭据）
+    token_service = PyJwtTokenService(
+        secret=settings.jwt_secret.get_secret_value(), ttl_hours=settings.jwt_ttl_hours
+    )
+    app.state.token_service = token_service
+    app.state.auth_service = AuthService(oauth=MockOAuthClient(), tokens=token_service)
     try:
         yield
     finally:
@@ -146,16 +158,22 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_production_app() -> FastAPI:
     app = FastAPI(title="设计中台 · 图生图引擎(async)", version="0.1.0", lifespan=_lifespan)
-    app.include_router(generation.router)
-    app.include_router(async_generation.router)
-    app.include_router(customers.router)
-    app.include_router(projects.router)
-    app.include_router(brief.router)
-    app.include_router(dashboard.router)
-    app.include_router(selection.router)
-    app.include_router(admin.router)
-    app.include_router(export.router)
-    app.include_router(revision.router)
+    # WP-G 角色矩阵：在 include 级统一挂依赖（减少逐函数改动）；/auth 公开
+    login_required = [Depends(get_current_user)]  # 登录即可：设计师 + 管理者
+    manager_only = [Depends(require_role(Role.MANAGER))]  # 仅管理者
+    app.include_router(auth.router)  # 公开：/auth/{provider}/callback；/me 自带 current_user
+    # 需登录（设计师本人/全量过滤待 ISSUE-0006 加 owner 列后细化）
+    app.include_router(generation.router, dependencies=login_required)
+    app.include_router(async_generation.router, dependencies=login_required)
+    app.include_router(customers.router, dependencies=login_required)
+    app.include_router(projects.router, dependencies=login_required)
+    app.include_router(brief.router, dependencies=login_required)
+    app.include_router(selection.router, dependencies=login_required)
+    app.include_router(export.router, dependencies=login_required)
+    app.include_router(revision.router, dependencies=login_required)
+    # 仅管理者：成本仪表盘 + 模型配置
+    app.include_router(dashboard.router, dependencies=manager_only)
+    app.include_router(admin.router, dependencies=manager_only)
     register_error_handlers(app)
     return app
 
