@@ -1,9 +1,10 @@
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeftIcon, ImageIcon, PencilRulerIcon, PackageIcon } from 'lucide-react'
+import { ArrowLeftIcon, PencilRulerIcon, PackageIcon } from 'lucide-react'
 
 import { useCustomer } from '@/api/customers'
 import { useProject } from '@/api/projects'
 import { PagePlaceholder } from '@/components/PagePlaceholder'
+import { GenerateTab } from '@/components/generate/GenerateTab'
 import { BriefTab } from '@/components/project/BriefTab'
 import { ProjectStatusControl } from '@/components/project/ProjectStatusControl'
 import { StatusBadge } from '@/components/project/StatusBadge'
@@ -101,12 +102,9 @@ export function ProjectDetailPage() {
               <BriefTab projectId={project.data.id} />
             </TabsContent>
             <TabsContent value="generate" className="pt-5">
-              <PagePlaceholder
-                icon={ImageIcon}
-                title="出图配置 · 成本预估 · SSE · 选稿"
-                description="出图配置（family/品类/子场景/档位/尺寸/风格）+ 成本预估 → 发起出图 → SSE 实时进度 → 候选图栅格 → 评分(1-5)/保留 → 可用率。"
-                endpoints={['/generate/cost-preview', '/projects/{id}/generate', 'SSE /generate/{job_id}/events', '/jobs/{id}/images']}
-                pkg="FE-3"
+              <GenerateTab
+                projectId={project.data.id}
+                customerName={customer.data?.name ?? `客户 #${project.data.customer_id}`}
               />
             </TabsContent>
             <TabsContent value="revision" className="pt-5">
