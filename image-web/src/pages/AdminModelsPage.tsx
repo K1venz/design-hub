@@ -1,8 +1,10 @@
+import { useMemo } from 'react'
 import { toast } from 'sonner'
 import { PencilIcon } from 'lucide-react'
 
 import { useModels, useUpdateModel, type ModelConfig } from '@/api/admin'
 import { EditPriceDialog } from '@/components/admin/EditPriceDialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,10 +17,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
+import { CONN_META, connStatus } from '@/lib/model-status'
 
 export function AdminModelsPage() {
   const models = useModels()
   const update = useUpdateModel()
+
+  // 已接通 → 备选 → 未接通 排序
+  const sorted = useMemo(() => {
+    return [...(models.data ?? [])].sort(
+      (a, b) => CONN_META[connStatus(a.name)].order - CONN_META[connStatus(b.name)].order,
+    )
+  }, [models.data])
 
   async function toggle(m: ModelConfig, enabled: boolean) {
     try {
@@ -33,7 +44,9 @@ export function AdminModelsPage() {
     <div className="space-y-6">
       <div className="space-y-1">
         <h2 className="text-xl font-semibold tracking-tight text-foreground">模型配置</h2>
-        <p className="text-sm text-muted-foreground">启停模型、调整单价（即时注入 Provider）。仅管理者可见。</p>
+        <p className="text-sm text-muted-foreground">
+          启停模型、调整单价（即时注入 Provider）。未接通的 Provider 已置灰，暂不可配置。仅管理者可见。
+        </p>
       </div>
 
       <Card className="overflow-hidden p-0">
@@ -43,43 +56,58 @@ export function AdminModelsPage() {
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
-        ) : models.data && models.data.length > 0 ? (
+        ) : sorted.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>模型</TableHead>
+                <TableHead>接通状态</TableHead>
                 <TableHead>单价（¥ / 张）</TableHead>
                 <TableHead>启用</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {models.data.map((m) => (
-                <TableRow key={m.name}>
-                  <TableCell className="font-mono font-medium">{m.name}</TableCell>
-                  <TableCell className="tabular font-mono text-sm">
-                    ¥{Number(m.unit_cost).toFixed(2)}
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={m.enabled}
-                      disabled={update.isPending}
-                      onCheckedChange={(v) => void toggle(m, v)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <EditPriceDialog
-                      model={m}
-                      trigger={
-                        <Button variant="ghost" size="sm">
-                          <PencilIcon className="size-3.5" />
-                          改价
-                        </Button>
-                      }
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {sorted.map((m) => {
+                const status = connStatus(m.name)
+                const meta = CONN_META[status]
+                const off = status === 'unconnected'
+                return (
+                  <TableRow key={m.name} className={cn(off && 'opacity-55')}>
+                    <TableCell className="font-mono font-medium">{m.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={cn('font-medium', meta.tone)}>
+                        {meta.label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="tabular font-mono text-sm">
+                      ¥{Number(m.unit_cost).toFixed(2)}
+                    </TableCell>
+                    <TableCell>
+                      <Switch
+                        checked={m.enabled}
+                        disabled={off || update.isPending}
+                        onCheckedChange={(v) => void toggle(m, v)}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {off ? (
+                        <span className="text-muted-foreground text-xs">暂不可配置</span>
+                      ) : (
+                        <EditPriceDialog
+                          model={m}
+                          trigger={
+                            <Button variant="ghost" size="sm">
+                              <PencilIcon className="size-3.5" />
+                              改价
+                            </Button>
+                          }
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         ) : (
