@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { AppUserOut } from '@/api/contract-ext'
 import { errorMessage } from '@/api/errors'
+import type { components } from '@/api/schema'
 import type { Role } from '@/stores/auth-store'
 
-export type AppUser = AppUserOut
+export type AppUser = components['schemas']['UserOut']
 
 export const userKeys = {
   all: ['admin', 'users'] as const,

@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/auth/{provider}/callback": {
+    "/auth/register": {
         parameters: {
             query?: never;
             header?: never;
@@ -13,13 +13,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Oauth Callback
-         * @description OAuth 回调换 JWT（mock：provider 暂不分流，统一走 MockOAuthClient）。
-         *
-         *     部门不许→PermissionDenied 403；授权失败→AuthenticationError 401（边界映射）。
-         */
-        post: operations["oauth_callback_auth__provider__callback_post"];
+        /** Register */
+        post: operations["register_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_auth_login_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -203,6 +215,40 @@ export interface paths {
         get?: never;
         /** Update Status */
         put: operations["update_status_projects__project_id__status_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Jobs */
+        get: operations["list_project_jobs_projects__project_id__jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Images */
+        get: operations["list_project_images_projects__project_id__images_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -464,6 +510,40 @@ export interface paths {
         get?: never;
         /** Update Model */
         put: operations["update_model_admin_models__name__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_admin_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set User Role */
+        put: operations["set_user_role_admin_users__user_id__role_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -733,8 +813,13 @@ export interface components {
         };
         /** LoginRequest */
         LoginRequest: {
-            /** Code */
-            code: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
         };
         /** LoginResponse */
         LoginResponse: {
@@ -864,6 +949,53 @@ export interface components {
             /** Images */
             images: components["schemas"]["GeneratedImageOut"][];
         };
+        /** ProjectImageOut */
+        ProjectImageOut: {
+            /** Image Id */
+            image_id: number;
+            /** Job Id */
+            job_id: string;
+            /** Url */
+            url: string;
+            /** Seed */
+            seed: number;
+            /** Score */
+            score: number | null;
+            /** Kept */
+            kept: boolean;
+            /** Round No */
+            round_no: number;
+            /** Subscene */
+            subscene: string;
+        };
+        /** ProjectJobOut */
+        ProjectJobOut: {
+            /** Job Id */
+            job_id: string;
+            /** Round No */
+            round_no: number;
+            /** Subscene */
+            subscene: string;
+            /** Family */
+            family: string;
+            /** Tier */
+            tier: string;
+            /** Category */
+            category: string;
+            /** Used Model */
+            used_model: string;
+            /** Candidate Count */
+            candidate_count: number;
+            /** Total Cost */
+            total_cost: string;
+            /** Status */
+            status: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /**
          * ProjectStatus
          * @enum {string}
@@ -872,6 +1004,18 @@ export interface components {
         /** ProjectStatusUpdate */
         ProjectStatusUpdate: {
             status: components["schemas"]["ProjectStatus"];
+        };
+        /** RegisterRequest */
+        RegisterRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+            /** Name */
+            name: string;
         };
         /** ResizeRequest */
         ResizeRequest: {
@@ -937,6 +1081,10 @@ export interface components {
          * @enum {string}
          */
         Role: "设计师" | "管理者";
+        /** RoleUpdate */
+        RoleUpdate: {
+            role: components["schemas"]["Role"];
+        };
         /** ScoreRequest */
         ScoreRequest: {
             /** Score */
@@ -987,6 +1135,24 @@ export interface components {
             /** Rate */
             rate: number;
         };
+        /**
+         * UserOut
+         * @description 用户管理列表项。**不含 password_hash**。
+         */
+        UserOut: {
+            /** Id */
+            id: number;
+            /** Email */
+            email: string;
+            /** Name */
+            name: string;
+            role: components["schemas"]["Role"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1034,13 +1200,44 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    oauth_callback_auth__provider__callback_post: {
+    register_auth_register_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                provider: string;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
             };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -1212,7 +1409,9 @@ export interface operations {
     };
     stream_events_generate__job_id__events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                access_token?: string | null;
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -1469,6 +1668,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["design_hub__interface__project_schemas__ProjectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_jobs_projects__project_id__jobs_get: {
+        parameters: {
+            query?: {
+                round_no?: number | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectJobOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_images_projects__project_id__images_get: {
+        parameters: {
+            query?: {
+                round_no?: number | null;
+                kept?: boolean | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectImageOut"][];
                 };
             };
             /** @description Validation Error */
@@ -2110,6 +2380,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_admin_users_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_role_admin_users__user_id__role_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
                 };
             };
             /** @description Validation Error */
