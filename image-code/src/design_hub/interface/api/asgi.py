@@ -94,6 +94,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         registry=registry,
         estimator=estimator,
         guard=CostGuard(ledger=ledger, policy=BudgetPolicy()),
+        require_live_for_edit=True,  # 生产：图生图保真链路不静默降级到 mock（ISSUE-0007）
     )
     preview = CostPreviewService(
         router=router, registry=registry, estimator=estimator, ledger=ledger

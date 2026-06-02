@@ -27,6 +27,9 @@ class GenerationPipeline:
     registry: ProviderRegistry
     estimator: CostEstimator
     guard: CostGuard
+    # 生产开启：图生图保真(EDIT)链路拒绝降级到非真实 Provider，避免静默返回 mock 假成功
+    # （ISSUE-0007）。默认 False 保持全 Mock dev/CI 行为不变。
+    require_live_for_edit: bool = False
 
     async def run(self, brief: Brief, user_id: str) -> GenerationResult:
         if brief.n > MAX_CANDIDATES:
@@ -41,7 +44,7 @@ class GenerationPipeline:
 
         await self.guard.precheck_and_reserve(user_id, estimate)
         try:
-            used_model, images = await self._generate_with_fallback(brief, prompt, decision)
+            used_model, images = await self._generate_with_fallback(brief, prompt, decision, mode)
         except Exception:
             await self.guard.rollback(user_id, estimate)
             raise
@@ -62,10 +65,17 @@ class GenerationPipeline:
         brief: Brief,
         prompt: PromptPair,
         decision: RoutingDecision,
+        mode: GenMode,
     ) -> tuple[ModelName, list[GeneratedImage]]:
         last_error: ProviderError | None = None
         for model in (decision.primary, *decision.fallbacks):
             provider = self.registry.get(model)
+            # 保真主链路(EDIT)不接受占位/Mock Provider 的结果：fail-fast，不静默假成功
+            if mode is GenMode.EDIT and self.require_live_for_edit and not provider.is_live:
+                last_error = ProviderError(
+                    f"{model} 非真实 Provider，图生图保真链路拒绝降级（ISSUE-0007）"
+                )
+                continue
             try:
                 images = await provider.generate(
                     prompt=prompt.positive,

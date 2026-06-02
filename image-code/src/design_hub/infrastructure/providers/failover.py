@@ -17,6 +17,8 @@ class FailoverModelProvider(AbstractModelProvider):
         self.name = providers[0].name
         # 预留取最贵价，切到更贵备用站时预算不被击穿
         self.unit_cost = max(p.unit_cost for p in providers)
+        # 至少一个互备站是真实 Provider 即视为可真实出图
+        self.is_live = any(p.is_live for p in providers)
 
     async def generate(
         self,
