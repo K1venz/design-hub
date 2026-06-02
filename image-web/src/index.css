@@ -1,0 +1,178 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * 设计中台 · 设计语言基线（FE-0 定调，供 FE-1~7 复用）
+ * 方向：「工作室控制台」——暖纸感浅底、青墨主色、琥珀高光。
+ * 中性低彩度 chrome 不与电商成品图配色打架；克制、专业、编辑感。
+ * 字体：Hanken Grotesk(UI 拉丁) + PingFang(中文) / Fraunces(展示) / JetBrains Mono(数字 ID)。
+ */
+@theme inline {
+    --font-sans: 'Hanken Grotesk', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-heading: var(--font-sans);
+    --font-display: 'Fraunces', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+    --color-highlight: var(--highlight);
+    --color-highlight-foreground: var(--highlight-foreground);
+
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --radius: 0.5rem;
+
+    /* 暖纸感底 + 墨黑文字 */
+    --background: oklch(0.971 0.007 83);
+    --foreground: oklch(0.232 0.012 64);
+    --card: oklch(0.992 0.004 84);
+    --card-foreground: oklch(0.232 0.012 64);
+    --popover: oklch(0.992 0.004 84);
+    --popover-foreground: oklch(0.232 0.012 64);
+
+    /* 青墨主色 */
+    --primary: oklch(0.462 0.069 196);
+    --primary-foreground: oklch(0.985 0.005 85);
+
+    --secondary: oklch(0.928 0.011 81);
+    --secondary-foreground: oklch(0.305 0.013 62);
+    --muted: oklch(0.948 0.008 82);
+    --muted-foreground: oklch(0.522 0.012 70);
+
+    /* accent = 主色浅渲染（hover / 选中态） */
+    --accent: oklch(0.927 0.022 191);
+    --accent-foreground: oklch(0.382 0.058 197);
+
+    /* 琥珀高光（强调标记、可用率、关键数值） */
+    --highlight: oklch(0.792 0.132 76);
+    --highlight-foreground: oklch(0.292 0.04 64);
+
+    --destructive: oklch(0.553 0.196 27);
+
+    --border: oklch(0.902 0.008 80);
+    --input: oklch(0.895 0.009 80);
+    --ring: oklch(0.552 0.069 196);
+
+    /* 图表色板（仪表盘 FE-6 用）：青 / 琥珀 / 陶土 / 黛蓝 / 梅 */
+    --chart-1: oklch(0.552 0.094 196);
+    --chart-2: oklch(0.752 0.132 76);
+    --chart-3: oklch(0.602 0.118 42);
+    --chart-4: oklch(0.548 0.072 252);
+    --chart-5: oklch(0.512 0.102 332);
+
+    /* 侧导航：比主底略深一档以分区 */
+    --sidebar: oklch(0.955 0.01 82);
+    --sidebar-foreground: oklch(0.262 0.012 64);
+    --sidebar-primary: oklch(0.462 0.069 196);
+    --sidebar-primary-foreground: oklch(0.985 0.005 85);
+    --sidebar-accent: oklch(0.927 0.022 191);
+    --sidebar-accent-foreground: oklch(0.382 0.058 197);
+    --sidebar-border: oklch(0.9 0.008 80);
+    --sidebar-ring: oklch(0.552 0.069 196);
+}
+
+.dark {
+    /* 深暖墨夜间（默认浅色优先；保留 dark 令牌供后续开关） */
+    --background: oklch(0.196 0.008 66);
+    --foreground: oklch(0.948 0.006 84);
+    --card: oklch(0.236 0.009 66);
+    --card-foreground: oklch(0.948 0.006 84);
+    --popover: oklch(0.236 0.009 66);
+    --popover-foreground: oklch(0.948 0.006 84);
+    --primary: oklch(0.722 0.088 192);
+    --primary-foreground: oklch(0.196 0.02 196);
+    --secondary: oklch(0.302 0.011 66);
+    --secondary-foreground: oklch(0.948 0.006 84);
+    --muted: oklch(0.302 0.011 66);
+    --muted-foreground: oklch(0.712 0.012 76);
+    --accent: oklch(0.342 0.03 194);
+    --accent-foreground: oklch(0.902 0.04 192);
+    --highlight: oklch(0.802 0.13 76);
+    --highlight-foreground: oklch(0.226 0.03 64);
+    --destructive: oklch(0.704 0.176 24);
+    --border: oklch(1 0 0 / 11%);
+    --input: oklch(1 0 0 / 14%);
+    --ring: oklch(0.642 0.078 194);
+    --chart-1: oklch(0.702 0.094 194);
+    --chart-2: oklch(0.792 0.132 78);
+    --chart-3: oklch(0.682 0.118 44);
+    --chart-4: oklch(0.648 0.082 252);
+    --chart-5: oklch(0.622 0.102 332);
+    --sidebar: oklch(0.226 0.009 66);
+    --sidebar-foreground: oklch(0.948 0.006 84);
+    --sidebar-primary: oklch(0.722 0.088 192);
+    --sidebar-primary-foreground: oklch(0.196 0.02 196);
+    --sidebar-accent: oklch(0.342 0.03 194);
+    --sidebar-accent-foreground: oklch(0.902 0.04 192);
+    --sidebar-border: oklch(1 0 0 / 11%);
+    --sidebar-ring: oklch(0.642 0.078 194);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv05";
+  }
+  html {
+    @apply font-sans;
+  }
+  /* 数字、ID、金额走等宽，列对齐更专业 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* 展示体：仅用于品牌字标与大标题（拉丁/数字），不套中文正文 */
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+/* 细颗粒纸纹：极轻噪声叠在底色上制造质感（非花哨，近乎不可见） */
+.paper-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
