@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0008
 title: 「监控」包整包缺失：/metrics 404，无 prometheus 依赖与埋点
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA             # 监控核心能力已落地待 QA 复验（Grafana 面板/worker 自暴露见后续项）
+owner: —              # QA 复验通过关闭（Grafana/worker 自暴露/更多指标见后续 enhancement）
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -57,3 +57,7 @@ related:
   ②worker 进程 /metrics 自暴露(现 worker 已埋点到本进程 registry,但未独立 HTTP 暴露,异步出图指标暂未被抓);
   ③更多业务指标(可用率/改稿率/队列长)需触 WP-C/D 服务,留增量。
   状态→待验证, owner→QA。
+- 2026-06-02 [QA] **复验通过关闭**：真实库起 API，`GET /metrics`→200 + prometheus 格式；mock 出图后
+  `design_hub_generations_total{mode="text2img",model="seedream-5"}=1`、`images_generated_total=1`、
+  `generation_cost_cny_total=0.2`、`generation_latency_seconds` 直方图均 present/增长。证据 image-qa/verify_fixes.py。
+  后续项(Grafana 面板 / worker 进程 /metrics 自暴露 / 可用率·改稿率·队列长 指标)建议 PM 新开 enhancement，不阻塞本单。状态=已关闭。

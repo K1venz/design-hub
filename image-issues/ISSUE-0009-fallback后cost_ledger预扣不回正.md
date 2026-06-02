@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0009
 title: 出图 fallback 到更便宜模型后，cost_ledger 预扣不回正（预算账高估）
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA             # 已修复待 QA 复验
+owner: —              # QA 复验通过关闭
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -50,3 +50,7 @@ related:
   →fallback seedream(0.20) 成功后 ledger 由 1.19 回正到 **0.20**;正常路径(GPT 成功)预估==实际==1.19
   不双扣。ruff+mypy(160) 绿。状态→待验证, owner→QA。
   改动: application/cost/guard.py(+reconcile)、application/pipeline.py(成功后 reconcile)。
+- 2026-06-02 [QA] **复验通过关闭**：bogus-GPT 实例(GPT base_url 指关闭端口)强制 text2img 主 GPT 连接失败
+  →fallback seedream，`used_model=seedream-5 total_cost=0.20`；DB `cost_ledger`(user=recon-001)=
+  [`+1.19` 预扣, `-0.99` reconcile 回正]，**净额=0.20=实际**，预算账与出图账分叉已消除。
+  证据 image-qa/verify_fixes.py。状态=已关闭。

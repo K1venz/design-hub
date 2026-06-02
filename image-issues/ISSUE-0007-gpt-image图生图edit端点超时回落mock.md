@@ -4,7 +4,7 @@ title: gpt-image /images/edits（图生图）真实调用 180s 超时，回落 m
 status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA             # 两半均已修(fail-fast + 超时300s + 瞬时重试)，待 QA 真实库复验 edit 出图
+owner: QA             # 半①fail-fast 已验通过；半②真实 edit 出真图 待用户授权预算后复验
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -82,3 +82,12 @@ related:
   **残留(非代码可解)**：中转站 edit 端点本身慢且间歇过载是**外部供应商问题**，超时+重试已尽量兜住；
   若实测仍频繁过载，属选型问题(见 ISSUE-0003 中转站选型)，需 Ops/PM 评估换站。
   → 状态=待验证，owner→QA(请用真实库复跑步骤4 edit 出图，确认拿到真实 file:// 图、不再回落 mock)。
+- 2026-06-02 [QA] **部分复验**：
+  · **半①「fail-fast 不再静默假成功」验证通过（零成本）**——bogus-GPT 实例(GPT base_url 指关闭端口)走 EDIT
+    (带素材)，真实 gpt provider 连接失败后 `require_live_for_edit` 拒绝降级到 mock seedream，返回
+    **502 provider_failed**「seedream-5 非真实 Provider，图生图保真链路拒绝降级（ISSUE-0007）」；
+    且 `cost_ledger`(failfast-001)=[`+1.19`,`-1.19`] **净额 0**(预扣已回滚)，**无 mock 假成功**。
+    证据 image-qa/verify_0007_failfast.py。
+  · **半②「真实 edit 端点能在 300s+重试 内出真图」未验**——需 1 次真实 edit 调用(~¥0.1–0.4，~187s，
+    可能撞中转站 500「系统繁忙」触发重试)。e2e 原 ≤2 张红线已用满，**此步待用户授权预算后再跑**。
+  → 状态保持=待验证，owner=QA(半②挂起待授权)。
