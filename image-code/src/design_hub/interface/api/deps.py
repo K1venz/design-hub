@@ -3,7 +3,8 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request
 
-from design_hub.application.auth.auth_service import AuthService
+from design_hub.application.admin.user_admin_service import UserAdminService
+from design_hub.application.auth.account_service import AccountService
 from design_hub.composition import Engine
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, PermissionDenied
@@ -23,9 +24,15 @@ def get_token_service(request: Request) -> TokenService:
     return svc
 
 
-def get_auth_service(request: Request) -> AuthService:
-    svc = request.app.state.auth_service
-    assert isinstance(svc, AuthService)
+def get_account_service(request: Request) -> AccountService:
+    svc = request.app.state.account_service
+    assert isinstance(svc, AccountService)
+    return svc
+
+
+def get_user_admin_service(request: Request) -> UserAdminService:
+    svc = request.app.state.user_admin_service
+    assert isinstance(svc, UserAdminService)
     return svc
 
 
@@ -41,7 +48,8 @@ async def get_current_user(
 
 EngineDep = Annotated[Engine, Depends(get_engine)]
 UserIdDep = Annotated[str, Header(alias="X-User-Id")]
-AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
+UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service)]
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]
 
 
