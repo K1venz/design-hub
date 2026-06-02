@@ -9,6 +9,8 @@ from design_hub.ports.model_provider import AbstractModelProvider, ProviderTimeo
 class MockModelProvider(AbstractModelProvider):
     """LSP-substitutable provider for CI: zero real API cost, controllable failure."""
 
+    is_live = False  # 占位/测试替身：保真(EDIT)链路不接受其结果
+
     def __init__(
         self,
         *,

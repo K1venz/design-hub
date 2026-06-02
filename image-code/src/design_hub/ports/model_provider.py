@@ -18,6 +18,7 @@ class AbstractModelProvider(ABC):
 
     name: ModelName
     unit_cost: Decimal  # CNY per image
+    is_live: bool = True  # 真实出图 Provider；占位/测试替身(Mock)置 False，供保真链路拒绝降级
 
     @abstractmethod
     async def generate(

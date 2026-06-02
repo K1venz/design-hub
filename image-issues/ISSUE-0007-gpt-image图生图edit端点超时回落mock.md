@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0007
 title: gpt-image /images/edits（图生图）真实调用 180s 超时，回落 mock；文生图正常
-status: 待复现        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: 开发            # 球在开发
+owner: 开发            # 静默降级半已修；edit 超时真因待真实调用调试(需用户授权预算)
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -46,3 +46,17 @@ related:
 
 ## 处理记录
 - 2026-06-02 [QA] E2E 集成验证发现：edit 真实调用 180s 超时回落 mock，text2img 真实成功。已带证据开单，owner→开发。状态=待复现。
+- 2026-06-02 [开发] 拆两半处理：
+  **半①「静默降级假成功」已修(本提交)**——违反 fail-fast(不得用 mock 假数据掩盖真实失败)。
+  Provider 端口加 `is_live`(真实=True；Mock/占位=False；Failover 取 any)，`GenerationPipeline`
+  加 `require_live_for_edit`(默认 False 保 dev/CI 全 Mock 行为；生产 asgi+worker 置 True)。
+  EDIT 保真链路下，主模型(真实 gpt)失败后**拒绝降级到非真实 Provider**，改为 fail-fast 抛
+  ProviderError→502(并 rollback 预扣)，不再静默返回 mock 假成功。smoke 验证:生产 EDIT gpt 超时→
+  拒 mock→抛错+回滚；dev EDIT 仍接受 mock；生产 TEXT2IMG 不受影响。ruff+mypy(160) 绿。
+  改动: ports/model_provider.py、providers/mock.py、providers/failover.py、application/pipeline.py、
+  interface/api/asgi.py、infrastructure/queue/worker.py。
+  **半②「edit 端点 180s 超时真因」未解决**——代码侧审查 multipart 构造(`image` 文件 + model/
+  prompt/n/size)符合 OpenAI /images/edits 协议，无明显 bug；180s 恰等 client timeout 说明请求连上
+  但中转站不响应，疑中转站 edit 端点排队/弱支持(外部)。需真实 `curl -F` 短超时复现拿原始 HTTP 行为，
+  **会产生真实调用费用+耗时，待用户授权预算后再排查**。在此之前保真主链路出图能力仍缺(现至少不再假成功)。
+  → 状态=修复中，owner=开发(半②挂起待授权)。

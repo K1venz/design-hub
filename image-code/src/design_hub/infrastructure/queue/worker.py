@@ -40,6 +40,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         registry=build_registry(settings, real_gpt_image=True),
         estimator=CostEstimator(),
         guard=CostGuard(ledger=ledger, policy=BudgetPolicy()),
+        require_live_for_edit=True,  # 生产：图生图保真链路不静默降级到 mock（ISSUE-0007）
     )
     events = RedisEventBus.from_url(settings.redis_url)
     ctx["runner"] = GenerationTaskRunner(
