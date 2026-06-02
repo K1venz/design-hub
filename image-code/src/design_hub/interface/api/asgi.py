@@ -22,6 +22,7 @@ from design_hub.application.export.export_service import ExportService
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.project.asset_service import AssetService
 from design_hub.application.project.brief_service import BriefService
+from design_hub.application.project.catalog_service import ProjectCatalogService
 from design_hub.application.project.customer_service import CustomerService
 from design_hub.application.project.project_generation_service import (
     ProjectGenerationService,
@@ -48,6 +49,7 @@ from design_hub.infrastructure.db.export_query import SqlAlchemyExportQuery
 from design_hub.infrastructure.db.image_repo import SqlAlchemyGeneratedImageRepository
 from design_hub.infrastructure.db.job_repository import SqlAlchemyJobRepository
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
+from design_hub.infrastructure.db.project_catalog import SqlAlchemyProjectCatalogQuery
 from design_hub.infrastructure.db.project_repo import SqlAlchemyProjectRepository
 from design_hub.infrastructure.db.revision_repo import SqlAlchemyRevisionRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
@@ -71,6 +73,7 @@ from design_hub.interface.api.routes import (
     dashboard,
     export,
     generation,
+    project_catalog,
     projects,
     revision,
     selection,
@@ -133,6 +136,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         assets=asset_repo, store=asset_store, pipeline=pipeline,
         jobs=SqlAlchemyJobRepository(session_factory),
     )
+    # ISSUE-0012 项目级任务/候选图列举（纯读，支撑选稿/导出持久化枚举）
+    app.state.project_catalog_service = ProjectCatalogService(
+        catalog=SqlAlchemyProjectCatalogQuery(session_factory)
+    )
     # WP-F 成本仪表盘：5 维聚合查询用例（纯读 DB）
     app.state.cost_report_service = CostReportService(query=SqlAlchemyCostQuery(session_factory))
     # WP-C 选稿+评分：候选图打分/保留 + 任务可用率（DB-backed）
@@ -188,6 +195,7 @@ def create_production_app() -> FastAPI:
     app.include_router(async_generation.router, dependencies=login_required)
     app.include_router(customers.router, dependencies=login_required)
     app.include_router(projects.router, dependencies=login_required)
+    app.include_router(project_catalog.router, dependencies=login_required)
     app.include_router(brief.router, dependencies=login_required)
     app.include_router(selection.router, dependencies=login_required)
     app.include_router(export.router, dependencies=login_required)
