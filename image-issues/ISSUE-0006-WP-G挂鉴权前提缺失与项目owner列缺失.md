@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0006
 title: WP-G「全量挂鉴权」受阻——鉴权能力层未实现 + project 表无 owner 列无法按本人过滤
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起 | 待确认
+status: 已修复        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起 | 待确认
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发        # WP-G 挂鉴权窗口
-owner: QA             # 用户定 A1+B1，已落地；阻塞 1 解除、阻塞 2 转待办，交 QA 验
+owner: PM             # 鉴权挂载经 E2E 验证通过；残留"项目owner列隔离"暂缓，待 PM/用户拍板动 schema
 created: 2026-06-01
 updated: 2026-06-02
 related:
@@ -50,3 +50,8 @@ related:
     待加 `project.owner_user_id` 列(需用户批准动 schema)再做。
   - **遗留待办**(需用户/凭据)：① 真实飞书/钉钉 OAuth(替换 MockOAuthClient，需 app_id/secret 入 .env)；
     ② project owner 列 + 按本人过滤。状态→待验证，owner→QA。
+- 2026-06-02 [QA] E2E 集成验证**角色门禁矩阵全绿**（见 image-qa/2026-06-02-e2e-集成验证.md 步骤1-2）：
+  - 设计师/管理者 mock OAuth 登录 200 且角色正确；`out-*` 部门→403；`/me` 两角色正确。
+  - 无 token 打 `/me`·`/customers` 业务端点→**401**；设计师打 `/admin/models`·`/dashboard/cost`→**403**；管理者→**200**。
+  - 结论：**A1+B1 角色级门禁验证通过 → 已修复**。
+  - 残留（非本次可验证，暂缓）：① 真实飞书/钉钉 OAuth（待凭据）；② project owner 列 + "设计师只见本人项目"（待 PM/用户批 schema）。owner→PM 跟进决策。
