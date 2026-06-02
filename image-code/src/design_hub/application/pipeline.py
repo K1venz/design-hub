@@ -47,6 +47,8 @@ class GenerationPipeline:
             raise
 
         total = sum((img.cost for img in images), Decimal("0"))
+        # fallback 后实际模型成本可能 ≠ 主模型预扣，按实际回正 ledger（ISSUE-0009）
+        await self.guard.reconcile(user_id, reserved=estimate, actual=total)
         return GenerationResult(
             job_prompt=prompt,
             decision=decision,

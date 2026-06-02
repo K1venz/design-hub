@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0009
 title: 出图 fallback 到更便宜模型后，cost_ledger 预扣不回正（预算账高估）
-status: 待复现        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: 开发
+owner: QA             # 已修复待 QA 复验
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -37,3 +37,9 @@ related:
 
 ## 处理记录
 - 2026-06-02 [QA] E2E 落库核对发现 fallback 后 ledger 预扣未回正，与 generation_job 实际成本分叉。开单，owner→开发。状态=待复现。
+- 2026-06-02 [开发] 已修：`CostGuard.reconcile(reserved, actual)` 在成功路径按实际成本补一笔差额
+  (append-only)，`pipeline.run` 在 `_generate_with_fallback` 成功后调用，使 ledger 净额=实际成本。
+  覆盖同步+异步(worker 也走 pipeline.run)。smoke 验证:family_4/standard 主 GPT(预扣1.19) mock 失败
+  →fallback seedream(0.20) 成功后 ledger 由 1.19 回正到 **0.20**;正常路径(GPT 成功)预估==实际==1.19
+  不双扣。ruff+mypy(160) 绿。状态→待验证, owner→QA。
+  改动: application/cost/guard.py(+reconcile)、application/pipeline.py(成功后 reconcile)。
