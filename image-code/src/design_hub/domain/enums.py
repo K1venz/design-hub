@@ -95,3 +95,10 @@ class TaskEventType(StrEnum):
 class GenMode(StrEnum):
     TEXT2IMG = "text2img"  # 文生图/造景
     EDIT = "edit"          # 图生图 edit（保持产品不变，仅重绘背景光影）
+
+
+class Role(StrEnum):
+    """系统角色（PRD §6.3.3）：部门=设计部→设计师；管理层/负责人→管理者；其他→拒。"""
+
+    DESIGNER = "设计师"
+    MANAGER = "管理者"
