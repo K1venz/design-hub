@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
 
 from design_hub.domain.models import TaskEvent
+from design_hub.interface.api.deps import CurrentUserDep, CurrentUserSseDep
 from design_hub.interface.schemas import GenerateRequest
 from design_hub.ports.events import EventStream
 from design_hub.ports.task_queue import TaskQueue
@@ -39,6 +40,7 @@ def _sse(event: TaskEvent) -> str:
 async def enqueue(
     req: GenerateRequest,
     queue: QueueDep,
+    _user: CurrentUserDep,  # 需 Bearer（鉴权改逐路由挂，见 asgi）
     user_id: UserIdDep = "designer-anon",
 ) -> dict[str, str]:
     """入队即返回 job_id；进度经 SSE 查询。"""
@@ -48,7 +50,10 @@ async def enqueue(
 
 
 @router.get("/{job_id}/events")
-async def stream_events(job_id: str, stream: StreamDep) -> StreamingResponse:
+async def stream_events(
+    job_id: str, stream: StreamDep, _user: CurrentUserSseDep
+) -> StreamingResponse:
+    # SSE 鉴权经 ?access_token=（原生 EventSource 不能带头，ISSUE-0011）
     async def generator() -> AsyncIterator[str]:
         async for event in stream.subscribe(job_id):
             yield _sse(event)

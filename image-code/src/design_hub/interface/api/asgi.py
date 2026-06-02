@@ -192,7 +192,8 @@ def create_production_app() -> FastAPI:
     app.include_router(auth.router)  # 公开：/auth/register、/auth/login；/me 自带 current_user
     # 需登录（设计师本人/全量过滤待 ISSUE-0006 加 owner 列后细化）
     app.include_router(generation.router, dependencies=login_required)
-    app.include_router(async_generation.router, dependencies=login_required)
+    # async_generation 鉴权改逐路由（ISSUE-0011）：/async 走 Bearer，SSE /events 走 ?access_token=
+    app.include_router(async_generation.router)
     app.include_router(customers.router, dependencies=login_required)
     app.include_router(projects.router, dependencies=login_required)
     app.include_router(project_catalog.router, dependencies=login_required)

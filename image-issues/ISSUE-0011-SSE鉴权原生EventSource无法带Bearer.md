@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0011
 title: SSE 端点需 Bearer，但原生 EventSource 无法设自定义请求头
-status: 待复现        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 前端
-owner: 开发
+owner: QA
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -42,5 +42,19 @@ asgi 全端点（除 `/auth/*`）需 `Authorization: Bearer <JWT>`。前端 FE-3
 - 前端 FE-0 已落地（image-web/），dev proxy `/api` → 127.0.0.1:8000。
 - 本条为 FE-3「出图+SSE+选稿」的**前置阻塞项**，FE-0/1/2 不受影响。
 
+## QA 验证步骤（开发建议）
+- 前端原生 `new EventSource('/api/generate/<job_id>/events?access_token=<JWT>')` → 应能建连收 SSE。
+- `GET /generate/{job_id}/events` 无 token / 坏 token → 401；`?access_token=<有效JWT>` 或 Bearer 头 → 通。
+- `POST /generate/async` 仍需 Bearer 头（无则 401）。
+- 其余端点不受影响：query `?access_token=` **不**在普通端点放行（仅 SSE 端点放宽）。
+- 叠加 ISSUE-0010：建连后从 "0" 回放，晚订阅不丢 task_started。
+
 ## 处理记录
 - 2026-06-02 [前端] 创建，状态=待复现；FE-0 交付时发现的后端协同缺口，owner 指给开发。
+- 2026-06-02 [开发] **采纳方案1**(前端倾向，原生 EventSource 不改)：SSE 端点支持 `?access_token=<JWT>`。
+  新增 `deps.get_current_user_sse`(从 query access_token 或 Bearer 头解析 AuthUser；缺/坏→401)；
+  `async_generation` 鉴权改**逐路由**——`/async` 挂 CurrentUserDep(仍 Bearer)、`/events` 挂
+  CurrentUserSseDep(query token 或头)；asgi 去掉 async_generation 的 include 级 login_required。
+  **仅 SSE 端点放宽**，其余端点 query token 不放行(get_current_user 仍只认 Bearer 头)。
+  验证 ruff+mypy(176)+dep smoke(query/头/无/坏 token + 普通端点不放行)+OpenAPI 确认 /events
+  暴露 access_token query 参数。状态→待验证，owner→QA。前端 FE-3 SSE 订阅解锁。
