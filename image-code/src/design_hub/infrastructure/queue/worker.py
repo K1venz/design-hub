@@ -20,6 +20,7 @@ from design_hub.infrastructure.db.job_repository import SqlAlchemyJobRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.events.redis_bus import RedisEventBus
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
+from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetricsSink
 from design_hub.infrastructure.queue.payload import payload_to_brief
 
 
@@ -41,6 +42,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         estimator=CostEstimator(),
         guard=CostGuard(ledger=ledger, policy=BudgetPolicy()),
         require_live_for_edit=True,  # 生产：图生图保真链路不静默降级到 mock（ISSUE-0007）
+        metrics=PrometheusMetricsSink(),  # 业务指标埋点（ISSUE-0008；worker 自暴露待补）
     )
     events = RedisEventBus.from_url(settings.redis_url)
     ctx["runner"] = GenerationTaskRunner(

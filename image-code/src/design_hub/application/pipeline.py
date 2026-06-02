@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from design_hub.application.cost.estimator import CostEstimator
@@ -15,6 +15,7 @@ from design_hub.domain.models import (
     PromptPair,
     RoutingDecision,
 )
+from design_hub.ports.metrics import MetricsSink, NoopMetricsSink
 from design_hub.ports.model_provider import ProviderError
 
 
@@ -30,6 +31,8 @@ class GenerationPipeline:
     # 生产开启：图生图保真(EDIT)链路拒绝降级到非真实 Provider，避免静默返回 mock 假成功
     # （ISSUE-0007）。默认 False 保持全 Mock dev/CI 行为不变。
     require_live_for_edit: bool = False
+    # 业务指标埋点（ISSUE-0008）；默认 noop，生产注入 PrometheusMetricsSink。
+    metrics: MetricsSink = field(default_factory=NoopMetricsSink)
 
     async def run(self, brief: Brief, user_id: str) -> GenerationResult:
         if brief.n > MAX_CANDIDATES:
@@ -52,6 +55,14 @@ class GenerationPipeline:
         total = sum((img.cost for img in images), Decimal("0"))
         # fallback 后实际模型成本可能 ≠ 主模型预扣，按实际回正 ledger（ISSUE-0009）
         await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        # 业务指标埋点（ISSUE-0008）：出图次数/张数/成本/时延，按模型+模式打标
+        self.metrics.record_generation(
+            model=used_model.value,
+            mode=mode.value,
+            image_count=len(images),
+            cost=total,
+            latency_ms=max((img.latency_ms for img in images), default=0),
+        )
         return GenerationResult(
             job_prompt=prompt,
             decision=decision,
