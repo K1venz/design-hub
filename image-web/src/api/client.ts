@@ -1,11 +1,7 @@
 import createClient, { type Middleware } from 'openapi-fetch'
 
-import type { AuthExtPaths } from '@/api/contract-ext'
 import type { paths } from '@/api/schema'
 import { useAuthStore } from '@/stores/auth-store'
-
-// 过渡：合并自建认证端点（后端就绪 gen:api 后，删 contract-ext 并改回 `paths`）
-type Paths = paths & AuthExtPaths
 
 /** 401 事件：令牌失效/过期时广播，App 顶层据此跳登录并提示。 */
 export const UNAUTHORIZED_EVENT = 'auth:unauthorized'
@@ -41,5 +37,5 @@ const authMiddleware: Middleware = {
  * 类型化契约客户端：baseUrl `/api` 经 Vite dev proxy 转发到后端（绕过 CORS）。
  * 唯一契约源 = `src/api/schema.d.ts`（由后端 OpenAPI 生成，见 `npm run gen:api`）。
  */
-export const api = createClient<Paths>({ baseUrl: '/api' })
+export const api = createClient<paths>({ baseUrl: '/api' })
 api.use(authMiddleware)
