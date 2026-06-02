@@ -220,15 +220,6 @@ class RevisionRecord:
 
 
 @dataclass(frozen=True)
-class OAuthProfile:
-    """OAuth 提供方返回的原始档案（部门→角色由应用层映射）。"""
-
-    user_id: str
-    name: str
-    dept: str
-
-
-@dataclass(frozen=True)
 class AuthUser:
     """已认证用户（JWT 载荷读模型）。"""
 

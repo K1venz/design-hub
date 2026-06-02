@@ -11,7 +11,8 @@ from arq.connections import RedisSettings, create_pool
 from fastapi import Depends, FastAPI
 
 from design_hub.application.admin.model_config_service import ModelConfigService
-from design_hub.application.auth.auth_service import AuthService
+from design_hub.application.admin.user_admin_service import UserAdminService
+from design_hub.application.auth.account_service import AccountService
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.estimator import CostEstimator
 from design_hub.application.cost.guard import CostGuard
@@ -38,7 +39,7 @@ from design_hub.composition import (
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import Role
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
-from design_hub.infrastructure.auth.mock_oauth import MockOAuthClient
+from design_hub.infrastructure.auth.password import BcryptPasswordHasher
 from design_hub.infrastructure.db.asset_repo import SqlAlchemyAssetRepository
 from design_hub.infrastructure.db.brief_repo import SqlAlchemyBriefRepository
 from design_hub.infrastructure.db.cost_query import SqlAlchemyCostQuery
@@ -50,6 +51,7 @@ from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfig
 from design_hub.infrastructure.db.project_repo import SqlAlchemyProjectRepository
 from design_hub.infrastructure.db.revision_repo import SqlAlchemyRevisionRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
+from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
 from design_hub.infrastructure.events.redis_bus import RedisEventBus
 from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.export.pillow_exporter import PillowExporter
@@ -72,6 +74,7 @@ from design_hub.interface.api.routes import (
     projects,
     revision,
     selection,
+    users,
 )
 
 
@@ -146,12 +149,23 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # WP-D 改稿单：开单/列单/加条目/逐条勾选（交付强校验经 ProjectService.revisions）
     app.state.revision_service = RevisionService(revisions=revision_repo, projects=project_repo)
-    # WP-G 鉴权：JWT 令牌服务 + （mock）OAuth 登录用例（真实飞书/钉钉待用户给凭据）
+    # WP-G/ISSUE-0015 鉴权：JWT 令牌服务（复用）+ 自建邮箱密码认证（替换 OAuth）
     token_service = PyJwtTokenService(
         secret=settings.jwt_secret.get_secret_value(), ttl_hours=settings.jwt_ttl_hours
     )
     app.state.token_service = token_service
-    app.state.auth_service = AuthService(oauth=MockOAuthClient(), tokens=token_service)
+    user_repo = SqlAlchemyUserRepository(session_factory)
+    account_service = AccountService(
+        users=user_repo, passwords=BcryptPasswordHasher(), tokens=token_service
+    )
+    # 启动幂等 seed 管理员（邮箱/密码走 .env，未配则不 seed）
+    if settings.seed_admin_email and settings.seed_admin_password.get_secret_value():
+        await account_service.seed_admin(
+            email=settings.seed_admin_email,
+            password=settings.seed_admin_password.get_secret_value(),
+        )
+    app.state.account_service = account_service
+    app.state.user_admin_service = UserAdminService(users=user_repo)
     try:
         yield
     finally:
@@ -168,7 +182,7 @@ def create_production_app() -> FastAPI:
     # WP-G 角色矩阵：在 include 级统一挂依赖（减少逐函数改动）；/auth 公开
     login_required = [Depends(get_current_user)]  # 登录即可：设计师 + 管理者
     manager_only = [Depends(require_role(Role.MANAGER))]  # 仅管理者
-    app.include_router(auth.router)  # 公开：/auth/{provider}/callback；/me 自带 current_user
+    app.include_router(auth.router)  # 公开：/auth/register、/auth/login；/me 自带 current_user
     # 需登录（设计师本人/全量过滤待 ISSUE-0006 加 owner 列后细化）
     app.include_router(generation.router, dependencies=login_required)
     app.include_router(async_generation.router, dependencies=login_required)
@@ -178,9 +192,10 @@ def create_production_app() -> FastAPI:
     app.include_router(selection.router, dependencies=login_required)
     app.include_router(export.router, dependencies=login_required)
     app.include_router(revision.router, dependencies=login_required)
-    # 仅管理者：成本仪表盘 + 模型配置
+    # 仅管理者：成本仪表盘 + 模型配置 + 用户管理
     app.include_router(dashboard.router, dependencies=manager_only)
     app.include_router(admin.router, dependencies=manager_only)
+    app.include_router(users.router, dependencies=manager_only)
     register_error_handlers(app)
     return app
 

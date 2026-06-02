@@ -202,3 +202,16 @@ class CostLedgerEntry(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+
+
+class AppUser(Base):
+    """自建邮箱密码认证用户（ISSUE-0015，替换 OAuth）。"""
+
+    __tablename__ = "app_user"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)  # 登录标识
+    password_hash: Mapped[str] = mapped_column(String(255))  # bcrypt
+    name: Mapped[str] = mapped_column(String(128))
+    role: Mapped[str] = mapped_column(String(16), default="设计师")  # 设计师 | 管理者
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

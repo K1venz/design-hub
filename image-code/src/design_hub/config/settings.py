@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # WP-G 鉴权：JWT HS256 密钥（生产经 .env 覆盖，默认占位仅供本地/CI）+ 有效期
     jwt_secret: SecretStr = SecretStr("dev-insecure-secret-change-me-min-32-bytes")
     jwt_ttl_hours: int = 24
+    # ISSUE-0015 自建认证：启动 seed 管理员（邮箱/密码走 .env，空=不 seed；建议首登后改密）
+    seed_admin_email: str = ""
+    seed_admin_password: SecretStr = SecretStr("")
     # 监控（ISSUE-0008）：Sentry DSN，空则不接入（本地/CI no-op）
     sentry_dsn: str = ""
 
