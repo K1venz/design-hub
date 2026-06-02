@@ -1,8 +1,8 @@
 ---
 id: ISSUE-0016
 title: 缺静态图床 —— 素材/候选图 url 为 mock://、file://，前端无法显示缩略图
-status: 待确认
-severity: P2
+status: 已确认
+severity: P1
 reporter: 前端
 owner: 开发
 created: 2026-06-02
@@ -38,3 +38,7 @@ related:
 
 ## 处理记录
 - 2026-06-02 [前端] FE-3 选稿落地时发现图 url 不可渲染，开条目指给开发。
+- 2026-06-02 [前端] **用户在走查时明确反馈"看不到输出的图"——升 P1、已确认**。最小可用解（两件）：
+  ① **静态图床路由**：加 `GET /files/{...}`（或 `/static/`）经 ImageStore/AssetStore 流式读本地文件返回（带鉴权/签名防越权），并把 `ImageOut.url`/`AssetOut.url`/`ProjectImageOut.url` 改为该 HTTP 地址 → 真实 gpt-image(file://) 图即可在前端显示。
+  ② **Mock provider 返回可视占位**：把 `mock://...` 改成可渲染的占位（如 `https://placehold.co/512?text=mock` 或 data URL）→ 免费 mock 出图时选稿也能看到图（便于无成本联调）。
+  前端 `ImageThumb` 已只渲染 http/data/blob，后端给出可访问 url 后**前端零改动**自动显示。
