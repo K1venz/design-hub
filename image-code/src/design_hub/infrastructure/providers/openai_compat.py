@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import time
 from decimal import Decimal
@@ -36,6 +37,8 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         client: httpx.AsyncClient | None = None,
         timeout: float = 180.0,
         trust_env: bool = True,
+        max_retries: int = 0,
+        retry_backoff: float = 2.0,
     ) -> None:
         self.name = name
         self.unit_cost = unit_cost
@@ -45,6 +48,13 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._image_store = image_store
         self._client = client
         self._timeout = timeout
+        # connect 快失败(≤15s)，read/write 容忍慢响应：gpt-image 图生图 edit 实测 ~187s
+        # （ISSUE-0007：edit 比文生图慢得多，单一短超时会卡在临界点误判超时）
+        self._client_timeout = httpx.Timeout(timeout, connect=min(timeout, 15.0))
+        # 瞬时错误(超时/5xx/429"系统繁忙")重试：中转站 edit 端点间歇过载（ISSUE-0007）。
+        # I/O 域允许重试；默认 0 不重试(保 dev/CI 行为)，生产装配开启。4xx 不重试。
+        self._max_retries = max_retries
+        self._retry_backoff = retry_backoff
         # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
         self._trust_env = trust_env
 
@@ -60,19 +70,29 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     ) -> list[GeneratedImage]:
         composed = self._compose(prompt, negative_prompt)
         size_str = f"{size[0]}x{size[1]}"
-        start = time.perf_counter()
-        try:
-            if reference_images:
-                response = await self._edit(composed, reference_images[0], size_str, n)
+        attempt = 0
+        while True:
+            start = time.perf_counter()
+            try:
+                if reference_images:
+                    response = await self._edit(composed, reference_images[0], size_str, n)
+                else:
+                    response = await self._generate(composed, size_str, n)
+                self._raise_for_status(response)  # 4xx→DomainError(不重试)；5xx/429→ProviderTimeout
+            except httpx.TimeoutException as exc:
+                error: ProviderError = ProviderTimeout(f"{self.name} timeout: {exc}")
+            except httpx.HTTPError as exc:  # 连接/传输层错误
+                error = ProviderTimeout(f"{self.name} transport error: {exc}")
+            except ProviderTimeout as exc:  # _raise_for_status 的 5xx/429（如"系统繁忙"）
+                error = exc
             else:
-                response = await self._generate(composed, size_str, n)
-        except httpx.TimeoutException as exc:
-            raise ProviderTimeout(f"{self.name} timeout: {exc}") from exc
-        except httpx.HTTPError as exc:  # 连接/传输层错误 → 可切备
-            raise ProviderTimeout(f"{self.name} transport error: {exc}") from exc
-        self._raise_for_status(response)
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        return await self._parse(response.json(), seed, latency_ms)
+                latency_ms = int((time.perf_counter() - start) * 1000)
+                return await self._parse(response.json(), seed, latency_ms)
+            # 瞬时网络/服务端错误（I/O 域）：退避后重试，超出上限才抛
+            if attempt >= self._max_retries:
+                raise error
+            attempt += 1
+            await asyncio.sleep(self._retry_backoff * attempt)
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         # 按 status_code 分流（不对错误体调 .json()，诗云 502 是 nginx HTML）
@@ -101,9 +121,11 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         headers = {"Authorization": f"Bearer {self._api_key}"}
         if self._client is not None:
             return await self._client.post(
-                url, json=payload, headers=headers, timeout=self._timeout
+                url, json=payload, headers=headers, timeout=self._client_timeout
             )
-        async with httpx.AsyncClient(timeout=self._timeout, trust_env=self._trust_env) as client:
+        async with httpx.AsyncClient(
+            timeout=self._client_timeout, trust_env=self._trust_env
+        ) as client:
             return await client.post(url, json=payload, headers=headers)
 
     async def _request_multipart(
@@ -115,9 +137,11 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         headers = {"Authorization": f"Bearer {self._api_key}"}
         if self._client is not None:
             return await self._client.post(
-                url, data=data, files=files, headers=headers, timeout=self._timeout
+                url, data=data, files=files, headers=headers, timeout=self._client_timeout
             )
-        async with httpx.AsyncClient(timeout=self._timeout, trust_env=self._trust_env) as client:
+        async with httpx.AsyncClient(
+            timeout=self._client_timeout, trust_env=self._trust_env
+        ) as client:
             return await client.post(url, data=data, files=files, headers=headers)
 
     async def _parse(

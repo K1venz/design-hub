@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0007
 title: gpt-image /images/edits（图生图）真实调用 180s 超时，回落 mock；文生图正常
-status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: 开发            # 静默降级半已修；edit 超时真因待真实调用调试(需用户授权预算)
+owner: QA             # 两半均已修(fail-fast + 超时300s + 瞬时重试)，待 QA 真实库复验 edit 出图
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -60,3 +60,17 @@ related:
   但中转站不响应，疑中转站 edit 端点排队/弱支持(外部)。需真实 `curl -F` 短超时复现拿原始 HTTP 行为，
   **会产生真实调用费用+耗时，待用户授权预算后再排查**。在此之前保真主链路出图能力仍缺(现至少不再假成功)。
   → 状态=修复中，owner=开发(半②挂起待授权)。
+- 2026-06-02 [开发] **用户授权 2 次真实调用排查，半②真因已确诊并修复**：
+  · 探针#1(精确复现 multipart)：edit 返回 **200 + 真实 b64_json**，但耗时 **187.0s** > 代码 `timeout=180.0`
+    → multipart 没错、端点能用，**纯粹超时设太紧**(文生图~64s，图生图 edit~187s，180s 卡临界点)。
+  · 探针#2(走真实 provider 端到端)：edit 在 55s 返回 **500「系统繁忙，请稍后再试」**(traceid…)。
+    → 该中转站 edit 端点**又慢(~187s)又不稳(间歇 500 过载)**，2 次调用 1 慢成功/1 过载。
+  **修复**：① `OpenAICompatImageProvider` 超时放宽并结构化——`httpx.Timeout(timeout, connect≤15s)`
+  (connect 快失败 / read 容忍慢响应)；生产 gpt provider `timeout=300.0`(覆盖 187s+余量)。
+  ② 瞬时错误重试——5xx/429("系统繁忙")/超时/传输错(I/O 域，规则允许重试)退避重试，`max_retries`
+  默认 0(保 dev/CI)、生产 `max_retries=2`；**4xx 坏请求不重试**(立即抛 DomainError)。
+  smoke(MockTransport，0 成本)验证:500→重试→200;busy×2→第3次成功;busy×3 超上限抛;400 不重试;
+  默认不重试。ruff+mypy(165) 绿。改动: providers/openai_compat.py、composition.py。
+  **残留(非代码可解)**：中转站 edit 端点本身慢且间歇过载是**外部供应商问题**，超时+重试已尽量兜住；
+  若实测仍频繁过载，属选型问题(见 ISSUE-0003 中转站选型)，需 Ops/PM 评估换站。
+  → 状态=待验证，owner→QA(请用真实库复跑步骤4 edit 出图，确认拿到真实 file:// 图、不再回落 mock)。
