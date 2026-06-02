@@ -1,15 +1,10 @@
 import { Link, useParams } from 'react-router-dom'
-import {
-  ArrowLeftIcon,
-  ClipboardListIcon,
-  ImageIcon,
-  PencilRulerIcon,
-  PackageIcon,
-} from 'lucide-react'
+import { ArrowLeftIcon, ImageIcon, PencilRulerIcon, PackageIcon } from 'lucide-react'
 
 import { useCustomer } from '@/api/customers'
 import { useProject } from '@/api/projects'
 import { PagePlaceholder } from '@/components/PagePlaceholder'
+import { BriefTab } from '@/components/project/BriefTab'
 import { ProjectStatusControl } from '@/components/project/ProjectStatusControl'
 import { StatusBadge } from '@/components/project/StatusBadge'
 import { Card } from '@/components/ui/card'
@@ -103,20 +98,14 @@ export function ProjectDetailPage() {
               <TabsTrigger value="export">交付导出</TabsTrigger>
             </TabsList>
             <TabsContent value="brief" className="pt-5">
-              <PagePlaceholder
-                icon={ClipboardListIcon}
-                title="标准化需求单 + 出图配置"
-                description="PRD 8 字段需求单 + 素材上传 + 出图配置（family/品类/子场景/档位/尺寸/风格）+ 成本预估。"
-                endpoints={['/projects/{id}/brief', '/projects/{id}/assets', '/generate/cost-preview']}
-                pkg="FE-2"
-              />
+              <BriefTab projectId={project.data.id} />
             </TabsContent>
             <TabsContent value="generate" className="pt-5">
               <PagePlaceholder
                 icon={ImageIcon}
-                title="出图 · SSE 进度 · 选稿评分"
-                description="发起出图 → SSE 实时进度 → 候选图栅格 → 评分(1-5)/保留 → 任务可用率。"
-                endpoints={['/projects/{id}/generate', 'SSE /generate/{job_id}/events', '/jobs/{id}/images']}
+                title="出图配置 · 成本预估 · SSE · 选稿"
+                description="出图配置（family/品类/子场景/档位/尺寸/风格）+ 成本预估 → 发起出图 → SSE 实时进度 → 候选图栅格 → 评分(1-5)/保留 → 可用率。"
+                endpoints={['/generate/cost-preview', '/projects/{id}/generate', 'SSE /generate/{job_id}/events', '/jobs/{id}/images']}
                 pkg="FE-3"
               />
             </TabsContent>
