@@ -14,8 +14,10 @@ __pycache__/
 *.sqlite
 *.sqlite3
 
-# 本地出图产物（图生图 b64 落点）
+# 本地运行时产物落点（出图/素材上传/导出归档，均 gitignored）
 generated/
+assets/
+exports/
 
 # Env
 .env
