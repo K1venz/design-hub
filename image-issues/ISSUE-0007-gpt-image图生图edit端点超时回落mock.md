@@ -44,6 +44,14 @@ related:
 2. 核对 edit multipart 是否需额外字段（如 `response_format`、`image[]` 数组、mask、square/png 限制）。
 3. 超时与"静默降级"策略评估：edit 主链路超时是否应直接上抛而非静默回落 mock（避免假成功）。
 
+## QA 验证步骤（需 1 次真实调用，约 ¥0.1–0.4）
+1. 真实库 + `.env` 配 `GPT_IMAGE_*`（注意 edit 端点慢，单次最长 ~300s）。
+2. 建项目 → 上传 1 张产品图 → `POST /projects/{id}/generate`，body 带 `asset_ids:[...]`（有素材 → 走 EDIT）。
+3. 期望：`used_model=gpt-image-2` 且 `images[].url` 为真实 `file://`（非 `mock://`），不再静默回落。
+4. 若该次恰逢中转站 500「系统繁忙」：已自动重试（max_retries=2）；若 3 次仍过载 → 抛 502（非假成功），
+   属中转站外部过载（见 ISSUE-0003 选型），可隔几分钟重试或评估换站。
+- 回归(零成本)：dev 全 Mock 下 EDIT 仍可用 mock；生产 TEXT2IMG 不受 EDIT 门禁影响。
+
 ## 处理记录
 - 2026-06-02 [QA] E2E 集成验证发现：edit 真实调用 180s 超时回落 mock，text2img 真实成功。已带证据开单，owner→开发。状态=待复现。
 - 2026-06-02 [开发] 拆两半处理：

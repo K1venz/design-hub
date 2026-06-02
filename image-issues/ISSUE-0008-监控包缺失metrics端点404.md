@@ -33,6 +33,13 @@ related:
 - 被测 `main` @ 66c3585，9 包合并后。其余 8 包（WP-A~H）端点齐全，唯「监控」整包未落地。
 - 不阻断核心业务流，故 P2；但属"声明已包含却完全缺失"的范围缺口，需 PM/开发确认是否补做或调范围。
 
+## QA 验证步骤（开发建议）
+- 起 API 后 `curl -s 127.0.0.1:8000/metrics | head` 应见 `# HELP`/`# TYPE`（HTTP 指标，无需鉴权裸抓）。
+- 出图一次后 `curl -s 127.0.0.1:8000/metrics | grep design_hub_generations_total` 对应 model/mode
+  计数 +1；`design_hub_images_generated_total` / `..._generation_cost_cny_total` / `..._latency_seconds` 增长。
+- 注：/metrics 不挂 WP-G 鉴权（instrumentator 直接加路由）；**异步 worker 进程指标暂未独立暴露**
+  （见处理记录"后续项"），同步 `/generate` 的指标可在 API /metrics 看到。
+
 ## 处理记录
 - 2026-06-02 [QA] E2E 验证步骤10 发现监控包整包缺失（端点+依赖+埋点三缺）。开单，owner→开发。状态=待复现。
 - 2026-06-02 [开发] 监控包已落地（六边形/DIP）：
