@@ -54,6 +54,8 @@ from design_hub.infrastructure.events.redis_bus import RedisEventBus
 from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.export.pillow_exporter import PillowExporter
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
+from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetricsSink
+from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.arq_queue import ArqTaskQueue
 from design_hub.infrastructure.storage.local_asset import LocalAssetStore
 from design_hub.interface.api.app import register_error_handlers
@@ -95,6 +97,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         estimator=estimator,
         guard=CostGuard(ledger=ledger, policy=BudgetPolicy()),
         require_live_for_edit=True,  # 生产：图生图保真链路不静默降级到 mock（ISSUE-0007）
+        metrics=PrometheusMetricsSink(),  # 业务指标埋点（ISSUE-0008）
     )
     preview = CostPreviewService(
         router=router, registry=registry, estimator=estimator, ledger=ledger
@@ -159,6 +162,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_production_app() -> FastAPI:
     app = FastAPI(title="设计中台 · 图生图引擎(async)", version="0.1.0", lifespan=_lifespan)
+    # 监控（ISSUE-0008）：Sentry 异常接入 + HTTP 指标采集 + 暴露 GET /metrics（不挂鉴权，供裸抓）
+    init_sentry(Settings().sentry_dsn)
+    instrument_app(app)
     # WP-G 角色矩阵：在 include 级统一挂依赖（减少逐函数改动）；/auth 公开
     login_required = [Depends(get_current_user)]  # 登录即可：设计师 + 管理者
     manager_only = [Depends(require_role(Role.MANAGER))]  # 仅管理者

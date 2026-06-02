@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # WP-G 鉴权：JWT HS256 密钥（生产经 .env 覆盖，默认占位仅供本地/CI）+ 有效期
     jwt_secret: SecretStr = SecretStr("dev-insecure-secret-change-me-min-32-bytes")
     jwt_ttl_hours: int = 24
+    # 监控（ISSUE-0008）：Sentry DSN，空则不接入（本地/CI no-op）
+    sentry_dsn: str = ""
 
     @classmethod
     def from_kms(cls) -> "Settings":
