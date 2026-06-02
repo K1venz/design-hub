@@ -1,11 +1,12 @@
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeftIcon, PencilRulerIcon, PackageIcon } from 'lucide-react'
+import { ArrowLeftIcon } from 'lucide-react'
 
 import { useCustomer } from '@/api/customers'
 import { useProject } from '@/api/projects'
-import { PagePlaceholder } from '@/components/PagePlaceholder'
+import { ExportTab } from '@/components/export/ExportTab'
 import { GenerateTab } from '@/components/generate/GenerateTab'
 import { BriefTab } from '@/components/project/BriefTab'
+import { RevisionTab } from '@/components/revision/RevisionTab'
 import { ProjectStatusControl } from '@/components/project/ProjectStatusControl'
 import { StatusBadge } from '@/components/project/StatusBadge'
 import { Card } from '@/components/ui/card'
@@ -108,22 +109,10 @@ export function ProjectDetailPage() {
               />
             </TabsContent>
             <TabsContent value="revision" className="pt-5">
-              <PagePlaceholder
-                icon={PencilRulerIcon}
-                title="改稿单"
-                description="逐条改稿、勾选完成；交付强校验（未完成条目阻断交付，管理者可强制）。"
-                endpoints={['/projects/{id}/revisions', '/revisions/{rid}/items']}
-                pkg="FE-4"
-              />
+              <RevisionTab projectId={project.data.id} />
             </TabsContent>
             <TabsContent value="export" className="pt-5">
-              <PagePlaceholder
-                icon={PackageIcon}
-                title="交付 / 导出归档"
-                description="多格式导出（JPG/PNG/PDF）、批量改尺寸、zip、命名规范与按轮次归档。"
-                endpoints={['/projects/{id}/export', '/images/{id}/resize']}
-                pkg="FE-5"
-              />
+              <ExportTab projectId={project.data.id} />
             </TabsContent>
           </Tabs>
         </>
