@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     asset_output_dir: str = "./assets"
     # 本地导出归档落点（WP-E：多格式/改尺寸/zip 输出；gitignored）
     export_output_dir: str = "./exports"
+    # WP-G 鉴权：JWT HS256 密钥（生产经 .env 覆盖，默认占位仅供本地/CI）+ 有效期
+    jwt_secret: SecretStr = SecretStr("dev-insecure-secret-change-me-min-32-bytes")
+    jwt_ttl_hours: int = 24
 
     @classmethod
     def from_kms(cls) -> "Settings":

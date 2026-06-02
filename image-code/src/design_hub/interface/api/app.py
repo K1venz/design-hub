@@ -2,7 +2,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from design_hub.composition import Engine, build_engine
-from design_hub.domain.errors import BudgetExceeded, DomainError, NotFoundError
+from design_hub.domain.errors import (
+    AuthenticationError,
+    BudgetExceeded,
+    DomainError,
+    NotFoundError,
+    PermissionDenied,
+)
 from design_hub.interface.api.routes import generation
 from design_hub.ports.model_provider import ProviderError
 
@@ -26,6 +32,18 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(NotFoundError)
     async def _on_not_found(request: Request, exc: NotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"error": "not_found", "detail": str(exc)})
+
+    # 未认证（缺/坏令牌、OAuth 换取失败）→ 401（WP-G）
+    @app.exception_handler(AuthenticationError)
+    async def _on_unauth(request: Request, exc: AuthenticationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=401, content={"error": "unauthenticated", "detail": str(exc)}
+        )
+
+    # 已认证但角色/部门不许 → 403（WP-G）
+    @app.exception_handler(PermissionDenied)
+    async def _on_forbidden(request: Request, exc: PermissionDenied) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"error": "forbidden", "detail": str(exc)})
 
     # 通用领域规则违反（如非法状态流转）；BudgetExceeded/NotFoundError 子类有更具体处理
     @app.exception_handler(DomainError)

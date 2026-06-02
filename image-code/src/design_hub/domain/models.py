@@ -10,6 +10,7 @@ from design_hub.domain.enums import (
     ModelName,
     ProjectStatus,
     RevisionStatus,
+    Role,
     Style,
     SubScene,
     TaskEventType,
@@ -216,3 +217,22 @@ class RevisionRecord:
     items: tuple[RevisionItem, ...]
     status: RevisionStatus
     deadline: datetime | None
+
+
+@dataclass(frozen=True)
+class OAuthProfile:
+    """OAuth 提供方返回的原始档案（部门→角色由应用层映射）。"""
+
+    user_id: str
+    name: str
+    dept: str
+
+
+@dataclass(frozen=True)
+class AuthUser:
+    """已认证用户（JWT 载荷读模型）。"""
+
+    user_id: str
+    name: str
+    role: Role
+    dept: str | None = None
