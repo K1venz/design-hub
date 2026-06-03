@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# design-hub 部署编排（在服务器 203.0.113.10 上执行）。
+# 复用现有 MySQL 8.4(/opt/docker/mysql)；首发 nginx+TLS(自签)；密钥不入库；幂等可重跑。
+set -euo pipefail
+
+DEPLOY_DIR="/opt/docker/design-hub"
+DATA_DIR="/data/docker/design-hub"
+MYSQL_ENV="/opt/docker/mysql/.env"
+SERVER_IP="203.0.113.10"
+
+cd "$DEPLOY_DIR"
+
+read_root_pw() {
+  # 从 mysql 容器配置读取 root 密码（去除可能的引号），不打印
+  grep -E '^MYSQL_ROOT_PASSWORD=' "$MYSQL_ENV" | head -1 | cut -d= -f2- \
+    | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
+}
+
+echo "==> [1/7] 持久化目录"
+mkdir -p "$DATA_DIR"/generated "$DATA_DIR"/assets "$DATA_DIR"/exports
+mkdir -p "$DEPLOY_DIR/nginx/certs"
+
+echo "==> [2/7] 自签 TLS 证书"
+if [[ ! -f nginx/certs/design-hub.crt ]]; then
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout nginx/certs/design-hub.key \
+    -out    nginx/certs/design-hub.crt \
+    -days 825 \
+    -subj "/C=CN/O=design-hub/CN=design-hub.local" \
+    -addext "subjectAltName=IP:${SERVER_IP},DNS:design-hub.local" 2>/dev/null
+  echo "    自签证书已生成"
+else
+  echo "    已存在，跳过"
+fi
+
+echo "==> [3/7] 生成 .env（已存在则保留，不覆盖已有密钥）"
+if [[ ! -f .env ]]; then
+  ROOT_PW="$(read_root_pw)"
+  [[ -n "$ROOT_PW" ]] || { echo "ERROR: 读不到 MYSQL_ROOT_PASSWORD"; exit 1; }
+  ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ROOT_PW")"
+  JWT="$(openssl rand -hex 32)"
+  ADMIN_PW="$(openssl rand -hex 12)"
+  ADMIN_EMAIL="admin@design-hub.local"
+  umask 077
+  cat > .env <<ENV
+DB_URL=mysql+aiomysql://root:${ENC_PW}@mysql:3306/design_hub
+IMAGE_OUTPUT_DIR=/app/generated
+ASSET_OUTPUT_DIR=/app/assets
+EXPORT_OUTPUT_DIR=/app/exports
+JWT_SECRET=${JWT}
+JWT_TTL_HOURS=24
+SEED_ADMIN_EMAIL=${ADMIN_EMAIL}
+SEED_ADMIN_PASSWORD=${ADMIN_PW}
+GPT_IMAGE_BASE_URL=
+GPT_IMAGE_API_KEY=
+GPT_IMAGE_MODEL=
+DASHSCOPE_KEY=
+OPENAI_API_KEY=
+SENTRY_DSN=
+ENV
+  echo "    .env 已生成（含本次生成的管理员凭据，仅打印一次）"
+  echo "    __SEED_ADMIN_EMAIL__=${ADMIN_EMAIL}"
+  echo "    __SEED_ADMIN_PASSWORD__=${ADMIN_PW}"
+else
+  echo "    .env 已存在，保留"
+fi
+
+echo "==> [4/7] 建业务库 design_hub（utf8mb4，幂等）"
+ROOT_PW="$(read_root_pw)"
+docker exec -i -e MYSQL_PWD="$ROOT_PW" mysql mysql -uroot <<'SQL'
+CREATE DATABASE IF NOT EXISTS `design_hub` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+SQL
+echo "    OK"
+
+echo "==> [5/7] 构建镜像"
+docker compose build
+
+echo "==> [6/7] 数据库迁移（建表，先于应用启动）"
+docker compose run --rm --no-deps api alembic upgrade head
+
+echo "==> [7/7] 启动 api + nginx"
+docker compose up -d
+
+echo "==> 等待 api 健康检查..."
+for i in $(seq 1 40); do
+  st="$(docker inspect -f '{{.State.Health.Status}}' design-hub-api 2>/dev/null || echo unknown)"
+  echo "    api health: $st ($i)"
+  [[ "$st" == "healthy" ]] && break
+  [[ "$st" == "unhealthy" ]] && { echo "    api 不健康，输出最近日志:"; docker logs --tail 40 design-hub-api; break; }
+  sleep 5
+done
+
+echo "==> 容器状态:"
+docker compose ps
+echo "==> DEPLOY_DONE"
