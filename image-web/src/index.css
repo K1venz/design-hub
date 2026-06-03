@@ -5,9 +5,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * 设计中台 · 设计语言基线（FE-0 定调，供 FE-1~7 复用）
- * 方向：「工作室控制台」——暖纸感浅底、青墨主色、琥珀高光。
- * 中性低彩度 chrome 不与电商成品图配色打架；克制、专业、编辑感。
+ * 设计中台 · 设计语言基线
+ * 方向：大胆有冲击力的「演示级」视觉——冷调灰白底（非纯白、带一点灰）、青墨主色、
+ * 琥珀高光做冷暖对比；motion 驱动的炫技配饰（极光背景 / 流光描边 / 数字滚动 / 渐变 CTA）。
  * 字体：Hanken Grotesk(UI 拉丁) + PingFang(中文) / Fraunces(展示) / JetBrains Mono(数字 ID)。
  */
 @theme inline {
@@ -60,40 +60,40 @@
 }
 
 :root {
-    --radius: 0.5rem;
+    --radius: 0.625rem;
 
-    /* 暖纸感底 + 墨黑文字 */
-    --background: oklch(0.971 0.007 83);
-    --foreground: oklch(0.232 0.012 64);
-    --card: oklch(0.992 0.004 84);
-    --card-foreground: oklch(0.232 0.012 64);
-    --popover: oklch(0.992 0.004 84);
-    --popover-foreground: oklch(0.232 0.012 64);
+    /* 冷调灰白底 + 墨黑文字（非纯白，带一点灰、偏冷） */
+    --background: oklch(0.967 0.0025 255);
+    --foreground: oklch(0.235 0.013 264);
+    --card: oklch(0.993 0.0015 255);
+    --card-foreground: oklch(0.235 0.013 264);
+    --popover: oklch(0.993 0.0015 255);
+    --popover-foreground: oklch(0.235 0.013 264);
 
     /* 青墨主色 */
     --primary: oklch(0.462 0.069 196);
-    --primary-foreground: oklch(0.985 0.005 85);
+    --primary-foreground: oklch(0.985 0.004 255);
 
-    --secondary: oklch(0.928 0.011 81);
-    --secondary-foreground: oklch(0.305 0.013 62);
-    --muted: oklch(0.948 0.008 82);
-    --muted-foreground: oklch(0.522 0.012 70);
+    --secondary: oklch(0.928 0.004 255);
+    --secondary-foreground: oklch(0.305 0.012 264);
+    --muted: oklch(0.946 0.003 255);
+    --muted-foreground: oklch(0.525 0.011 260);
 
     /* accent = 主色浅渲染（hover / 选中态） */
     --accent: oklch(0.927 0.022 191);
     --accent-foreground: oklch(0.382 0.058 197);
 
-    /* 琥珀高光（强调标记、可用率、关键数值） */
+    /* 琥珀高光（暖色点缀，与冷灰白形成冷暖对比） */
     --highlight: oklch(0.792 0.132 76);
     --highlight-foreground: oklch(0.292 0.04 64);
 
     --destructive: oklch(0.553 0.196 27);
 
-    --border: oklch(0.902 0.008 80);
-    --input: oklch(0.895 0.009 80);
+    --border: oklch(0.906 0.004 255);
+    --input: oklch(0.9 0.005 255);
     --ring: oklch(0.552 0.069 196);
 
-    /* 图表色板（仪表盘 FE-6 用）：青 / 琥珀 / 陶土 / 黛蓝 / 梅 */
+    /* 图表色板：青 / 琥珀 / 陶土 / 黛蓝 / 梅 */
     --chart-1: oklch(0.552 0.094 196);
     --chart-2: oklch(0.752 0.132 76);
     --chart-3: oklch(0.602 0.118 42);
@@ -101,13 +101,13 @@
     --chart-5: oklch(0.512 0.102 332);
 
     /* 侧导航：比主底略深一档以分区 */
-    --sidebar: oklch(0.955 0.01 82);
-    --sidebar-foreground: oklch(0.262 0.012 64);
+    --sidebar: oklch(0.948 0.004 255);
+    --sidebar-foreground: oklch(0.265 0.012 264);
     --sidebar-primary: oklch(0.462 0.069 196);
-    --sidebar-primary-foreground: oklch(0.985 0.005 85);
+    --sidebar-primary-foreground: oklch(0.985 0.004 255);
     --sidebar-accent: oklch(0.927 0.022 191);
     --sidebar-accent-foreground: oklch(0.382 0.058 197);
-    --sidebar-border: oklch(0.9 0.008 80);
+    --sidebar-border: oklch(0.902 0.004 255);
     --sidebar-ring: oklch(0.552 0.069 196);
 }
 
@@ -175,4 +175,39 @@
 /* 细颗粒纸纹：极轻噪声叠在底色上制造质感（非花哨，近乎不可见） */
 .paper-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
+
+/* ── 流动极光：大尺寸模糊色团缓慢漂移（纯 CSS，零 JS） ── */
+@keyframes aurora-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(7%, -5%) scale(1.18); }
+  66%  { transform: translate(-6%, 6%) scale(0.92); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+/* ── 流光渐变文字：背景位移制造流动高光 ── */
+@keyframes aurora-text-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.aurora-text {
+  background-image: linear-gradient(
+    110deg,
+    var(--primary) 0%,
+    var(--chart-5) 28%,
+    var(--chart-4) 50%,
+    var(--highlight) 72%,
+    var(--primary) 100%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: aurora-text-pan 7s ease-in-out infinite;
+}
+
+/* 可访问性：尊重「减少动态效果」系统偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-text { animation: none; }
 }
