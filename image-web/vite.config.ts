@@ -59,7 +59,8 @@ export default defineConfig({
     // Keeps the browser same-origin so the backend never needs CORS locally.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        // 默认 127.0.0.1:8000；多后端实例时可用 VITE_API_TARGET 覆盖（避免端口冲突）
+        target: process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
       },
