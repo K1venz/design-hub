@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0007
 title: gpt-image /images/edits（图生图）真实调用 180s 超时，回落 mock；文生图正常
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA             # 半①fail-fast 已验通过；半②真实 edit 出真图 待用户授权预算后复验
+owner: —              # 半①+半② 均已验通过关闭；中转站间歇过载属外部，归 ISSUE-0003
 created: 2026-06-02
-updated: 2026-06-02
+updated: 2026-06-03
 related:
   - test: image-qa/2026-06-02-e2e-集成验证.md（步骤4）
   - code: image-code/src/design_hub/infrastructure/providers/openai_compat.py（_edit/_request_multipart）
@@ -91,3 +91,11 @@ related:
   · **半②「真实 edit 端点能在 300s+重试 内出真图」未验**——需 1 次真实 edit 调用(~¥0.1–0.4，~187s，
     可能撞中转站 500「系统繁忙」触发重试)。e2e 原 ≤2 张红线已用满，**此步待用户授权预算后再跑**。
   → 状态保持=待验证，owner=QA(半②挂起待授权)。
+- 2026-06-03 [QA] **半②验证通过 → 全单关闭**：用户授权并提供真实花生产品图，跑第一轮**图生图 EDIT 真实出图**：
+  真实库 + 生产 asgi(require_live_for_edit=True)，上传花生产品图(嘴嘴熊高山七彩花生)→
+  `POST /projects/4/generate` 带 asset_ids → 走 `/images/edits`。结果 **HTTP 200 / 117.2s**(在放宽后的 300s 内，
+  本次未撞 500)，`used_model=gpt-image-2`、真实 `file://…/bb25c66b645b704e.png`(PNG 1024² 1.39MB)、
+  cost=1.19、job 挂 project_id=4+round_no=1 落库；**未回落 mock，产物确为该花生产品图**。
+  → 超时放宽(300s)+瞬时重试的修复有效，edit 保真链路真实可用。**状态=已关闭，owner=—。**
+  残留：中转站 edit 端点偶发 500「系统繁忙」属外部供应商稳定性，归 ISSUE-0003(中转站选型)，本单不再跟踪。
+  证据：image-qa/peanut_round1.py、generated/bb25c66b645b704e.png。
