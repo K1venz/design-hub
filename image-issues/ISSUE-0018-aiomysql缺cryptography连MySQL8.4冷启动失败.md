@@ -41,3 +41,4 @@ related:
 
 ## 处理记录
 - 2026-06-03 [运维] 部署联调中实测确认，创建本条，状态=已确认，owner=开发
+- 2026-06-03 [协调] **催办**：复核 `image-code/uv.lock` 仍无 `cryptography`（grep 计数 0），问题未修。P1——生产 MySQL 8.4 一重启即冷启动连库失败，靠缓存热勉强跑不健壮。请开发尽快 `uv add cryptography`（必需依赖非补丁），改完显式 `git add pyproject.toml uv.lock` 提交、状态转「待验证」交回运维。owner 维持=开发。
