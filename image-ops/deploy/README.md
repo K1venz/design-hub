@@ -1,6 +1,7 @@
 # design-hub 部署（运维）
 
-首发形态：**API(FastAPI/uvicorn) + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
+首发形态：**前端 SPA(image-web/dist) + API(FastAPI/uvicorn) + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
+nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics` 直达后端。
 监控（Prometheus/Grafana）、备份、CI/CD 暂未做（首发范围决策见下）。
 
 ## 目标服务器
@@ -40,8 +41,15 @@ cd /opt/docker/design-hub && bash scripts/deploy.sh
 迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
 
 ## 访问
-- `https://203.0.113.10/`（自签证书，浏览器会告警；有域名可换 Let's Encrypt）
-- 需在云安全组放行 **80 + 443**（当前仅 22 放行）；3306/8000 不要对外暴露
+- `https://203.0.113.10/`（前端 UI；自签证书，浏览器会告警；有域名可换 Let's Encrypt）
+- `https://203.0.113.10/docs`（后端接口文档 Swagger）
+- 云安全组需放行 **22 + 80 + 443**（22 限管理 IP；编辑安全组时勿覆盖掉 22）；3306/8000 不要对外暴露
+
+## 更新前端
+前端构建产物来自 image-web（独立构建），rsync 到 `web/` 后 nginx 直接生效（静态文件，无需重启）：
+```bash
+rsync -az --delete image-web/dist/ root@203.0.113.10:/opt/docker/design-hub/web/
+```
 
 ## 已知问题
 - [ISSUE-0018] aiomysql 缺 `cryptography`，MySQL 重启后冷启动连库会失败（当前靠缓存热可跑）。
