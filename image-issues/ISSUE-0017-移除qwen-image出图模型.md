@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0017
 title: 移除 qwen-image-pro 出图模型（用户定：多余，不接）
-status: 待确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: 开发            # 改产品代码，QA 不动 image-code；F7 改投目标需开发/PM 拍板
+owner: QA             # 已移除+F7 改投 gpt(选项A)，待 QA 复验
 created: 2026-06-03
 updated: 2026-06-03
 related:
@@ -45,5 +45,19 @@ qwen-image-pro 当前只是 Mock 占位（无真实 key），实测真实模型�
 - 不阻断现有出图（gpt/seedream 等不受影响）；属模型范围收窄 + 路由表清理。
 - F7 改投目标定了即可一次性改完。
 
+## QA 验证步骤（开发建议）
+- 全树 `grep -rn "QWEN_IMAGE_PRO\|qwen-image" image-code/src` → 应无残留。
+- ModelName 集合 = {gpt-image-2, seedream-5, wanxiang-2.7-pro, lingdong-2}（4 个，无 qwen）。
+- 路由：F7 标准档 primary = gpt-image-2；F3/F5 primary=seedream，fallback=(gpt-image-2,)。
+- `/admin/models`（真实库）：seed 不再插 qwen-image-pro；若历史已有该行，待 DB 清理（置 enabled=false/删）。
+- 出图回归：各族出图正常，无 qwen 路由。
+
 ## 处理记录
 - 2026-06-03 [QA] 用户定「去掉 qwen-image 出图」。QA 不改 image-code，开单指给开发，含牵连点与 F7 改投决策。状态=待确认，owner→开发。
+- 2026-06-03 [开发] **已移除**(commit ef3b190)：删 ModelName.QWEN_IMAGE_PRO + 路由表 F7 改投/seedream
+  备选改投/删 qwen fallback 条 + composition `_MOCK_UNIT_COSTS`(seed 随之少一个) + quality.py qwen 串。
+  **F7 改投决策**：取 QA 推荐**选项 A**——F7→gpt-image-2、`FALLBACKS[SEEDREAM_5]`→(gpt-image-2,)
+  （唯一真实模型，与"只接 gpt-image-2"范围一致；don't-ask 模式无法弹窗，按工程判断拍板，用户可否决）。
+  qwen-vl-max 视觉辅助不在范围未动。验证 ruff+mypy(173)+smoke(无残留/模型集合=4/F7→gpt/F3 fallback gpt/
+  seed 4 模型)。**遗留**：真实 MySQL 若已 seed qwen 行，待 DB_URL 就绪后清理(置 enabled=false 或删)。
+  状态→待验证，owner→QA。
