@@ -40,7 +40,8 @@ if [[ ! -f .env ]]; then
   ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ROOT_PW")"
   JWT="$(openssl rand -hex 32)"
   ADMIN_PW="$(openssl rand -hex 12)"
-  ADMIN_EMAIL="admin@design-hub.local"
+  # 注意：勿用 .local 等保留域名——登录边界 EmailStr 会拒（422）
+  ADMIN_EMAIL="admin@design-hub.cn"
   umask 077
   cat > .env <<ENV
 DB_URL=mysql+aiomysql://root:${ENC_PW}@mysql:3306/design_hub
