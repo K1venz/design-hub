@@ -6,6 +6,7 @@
 
 import asyncio
 import io
+import sys
 import time
 
 import httpx
@@ -14,6 +15,8 @@ from PIL import Image
 BASE = "http://127.0.0.1:8000"
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 DESIGNER = ("qa-designer@test.com", "qa-designer-12345")
+# 可选：传已有项目 id，则挂到该项目出图（否则新建项目）。例：uv run python peanut_round1.py 1
+TARGET_PROJECT = int(sys.argv[1]) if len(sys.argv) > 1 else None
 
 
 def to_square_png(path: str, side: int = 1024) -> bytes:
@@ -37,10 +40,14 @@ async def main() -> None:
         h = {"Authorization": f"Bearer {jwt}"}
         gh = {**h, "X-User-Id": "qa-designer-001"}
 
-        cid = (await c.post("/customers", headers=h, json={
-            "name": "嘴嘴熊食品", "industry": "食品", "common_styles": ["清新自然"]})).json()["id"]
-        pid = (await c.post("/projects", headers=h, json={
-            "customer_id": cid, "name": "嘴嘴熊高山七彩花生-主图"})).json()["id"]
+        if TARGET_PROJECT is not None:
+            pid = TARGET_PROJECT
+            print(f"[setup] 挂到已有项目 project={pid}（不新建）")
+        else:
+            cid = (await c.post("/customers", headers=h, json={
+                "name": "嘴嘴熊食品", "industry": "食品", "common_styles": ["清新自然"]})).json()["id"]
+            pid = (await c.post("/projects", headers=h, json={
+                "customer_id": cid, "name": "嘴嘴熊高山七彩花生-主图"})).json()["id"]
         await c.put(f"/projects/{pid}/brief", headers=h, json={
             "material_types": ["主图"], "sizes": ["1024x1024"], "styles": ["清新自然"],
             "resolution": "300dpi", "bleed": "0", "copy_text": "嘴嘴熊 高山七彩花生 66g",
@@ -48,7 +55,7 @@ async def main() -> None:
         png = to_square_png(SRC)
         aid = (await c.post(f"/projects/{pid}/assets", headers=h, data={"kind": "产品图"},
                             files={"file": ("peanut.png", png, "image/png")})).json()["id"]
-        print(f"[setup] customer={cid} project={pid} asset={aid}（产品图 {len(png)//1024}KB PNG）")
+        print(f"[setup] project={pid} asset={aid}（产品图 {len(png)//1024}KB PNG）")
 
         body = {"subscene": "S1", "family": "family_4", "category": "食品", "tier": "standard",
                 "style": "清新自然", "width": 1024, "height": 1024, "n": 1, "asset_ids": [aid]}
