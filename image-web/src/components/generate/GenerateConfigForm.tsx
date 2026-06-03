@@ -1,5 +1,17 @@
-import { useState } from 'react'
-import { CalculatorIcon, SparklesIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import {
+  CalculatorIcon,
+  GaugeIcon,
+  HashIcon,
+  LayersIcon,
+  type LucideIcon,
+  MoveHorizontalIcon,
+  MoveVerticalIcon,
+  PaletteIcon,
+  SparklesIcon,
+  SquareStackIcon,
+  TagIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { useAssets } from '@/api/assets'
@@ -18,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { GradientButton } from '@/components/visual/GradientButton'
 import { cn } from '@/lib/utils'
 import { yuan } from '@/lib/format'
 
@@ -85,24 +98,47 @@ export function GenerateConfigForm({
   }
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="子场景">
+    <section className="group/card border-border/70 bg-card relative overflow-hidden rounded-2xl border p-6 shadow-[0_1px_2px_oklch(0.2_0.02_255_/_0.04)] transition-shadow duration-300 hover:shadow-[0_18px_44px_-22px_oklch(0.45_0.07_255_/_0.28)]">
+      {/* 顶角渐变光晕（ai-gen 同款氛围） */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 -right-16 size-64 rounded-full bg-gradient-to-br from-violet-500/15 via-fuchsia-500/10 to-transparent blur-2xl"
+      />
+
+      <header className="relative mb-5 flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <span className="from-primary inline-flex size-7 items-center justify-center rounded-lg bg-gradient-to-br to-violet-500 text-white shadow-sm">
+              <SparklesIcon className="size-4" />
+            </span>
+            AI 出图
+          </h3>
+          <p className="text-muted-foreground text-xs">
+            配置参数 → 先成本预估再开始出图（草稿 / family_3 走 Mock，免费）。
+          </p>
+        </div>
+        <span className="border-border/70 text-muted-foreground hidden shrink-0 rounded-full border px-2.5 py-1 font-mono text-[11px] sm:inline-block">
+          {customerName}
+        </span>
+      </header>
+
+      <div className="relative grid gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Field icon={LayersIcon} label="子场景">
           <Picker value={cfg.subscene} onChange={(v) => set('subscene', v as GenerateConfig['subscene'])} options={SUBSCENES.map((s) => ({ v: s.v, label: s.label }))} />
         </Field>
-        <Field label="模板族">
+        <Field icon={SquareStackIcon} label="模板族">
           <Picker value={cfg.family} onChange={(v) => set('family', v as GenerateConfig['family'])} options={FAMILIES.map((f) => ({ v: f, label: f }))} />
         </Field>
-        <Field label="品类">
+        <Field icon={TagIcon} label="品类">
           <Picker value={cfg.category} onChange={(v) => set('category', v as GenerateConfig['category'])} options={CATEGORIES.map((c) => ({ v: c, label: c }))} />
         </Field>
-        <Field label="档位">
+        <Field icon={GaugeIcon} label="档位">
           <Picker value={cfg.tier} onChange={(v) => set('tier', v as GenerateConfig['tier'])} options={TIERS.map((t) => ({ v: t.v, label: t.label }))} />
         </Field>
-        <Field label="风格">
+        <Field icon={PaletteIcon} label="风格">
           <Picker value={cfg.style} onChange={(v) => set('style', v as GenerateConfig['style'])} options={STYLES.map((s) => ({ v: s, label: s }))} />
         </Field>
-        <Field label="数量">
+        <Field icon={HashIcon} label="数量">
           <Input
             type="number"
             min={1}
@@ -111,17 +147,17 @@ export function GenerateConfigForm({
             onChange={(e) => set('n', Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
           />
         </Field>
-        <Field label="宽 (px)">
+        <Field icon={MoveHorizontalIcon} label="宽 (px)">
           <Input type="number" value={cfg.width} onChange={(e) => set('width', Number(e.target.value) || 0)} />
         </Field>
-        <Field label="高 (px)">
+        <Field icon={MoveVerticalIcon} label="高 (px)">
           <Input type="number" value={cfg.height} onChange={(e) => set('height', Number(e.target.value) || 0)} />
         </Field>
       </div>
 
       {assets.data && assets.data.length > 0 && (
-        <div className="space-y-2">
-          <Label>参考素材（选中走图生图保真）</Label>
+        <div className="relative mt-5 space-y-2">
+          <Label className="text-muted-foreground text-xs">参考素材（选中走图生图保真）</Label>
           <div className="flex flex-wrap gap-2">
             {assets.data.map((a) => {
               const on = assetIds.includes(a.id)
@@ -147,17 +183,17 @@ export function GenerateConfigForm({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="border-border/60 relative mt-6 flex flex-wrap items-center gap-3 border-t pt-5">
         <Button variant="outline" onClick={() => void estimate()} disabled={preview.isPending}>
           <CalculatorIcon className="size-4" />
           {preview.isPending ? '预估中…' : '成本预估'}
         </Button>
-        <Button onClick={() => void run()} disabled={generate.isPending}>
+        <GradientButton onClick={() => void run()} disabled={generate.isPending}>
           <SparklesIcon className="size-4" />
           {generate.isPending ? '出图中…' : '开始出图'}
-        </Button>
+        </GradientButton>
         {preview.data && (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-muted-foreground text-sm">
             预估 <span className="text-foreground font-semibold">{yuan(preview.data.estimated_cost)}</span>
             <span className="text-muted-foreground/60"> · </span>
             {preview.data.model} · {preview.data.candidate_count} 张
@@ -166,14 +202,17 @@ export function GenerateConfigForm({
           </span>
         )}
       </div>
-    </div>
+    </section>
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+        <Icon className="size-3.5 opacity-70" />
+        {label}
+      </Label>
       {children}
     </div>
   )

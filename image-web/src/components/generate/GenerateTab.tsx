@@ -20,17 +20,11 @@ export function GenerateTab({
 
   return (
     <div className="space-y-6">
-      <Card className="space-y-4 p-6">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold text-foreground">出图配置</h3>
-          <p className="text-xs text-muted-foreground">配置后可先成本预估，再开始出图（草稿/family_3 路由 Mock，免费）。</p>
-        </div>
-        <GenerateConfigForm
-          projectId={projectId}
-          customerName={customerName}
-          onGenerated={(jobId) => setPicked(jobId)}
-        />
-      </Card>
+      <GenerateConfigForm
+        projectId={projectId}
+        customerName={customerName}
+        onGenerated={(jobId) => setPicked(jobId)}
+      />
 
       {jobs.data && jobs.data.length > 0 && (
         <Card className="space-y-4 p-6">
