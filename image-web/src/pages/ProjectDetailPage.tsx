@@ -7,40 +7,12 @@ import { ExportTab } from '@/components/export/ExportTab'
 import { GenerateTab } from '@/components/generate/GenerateTab'
 import { BriefTab } from '@/components/project/BriefTab'
 import { RevisionTab } from '@/components/revision/RevisionTab'
+import { ProjectPipeline } from '@/components/project/ProjectPipeline'
 import { ProjectStatusControl } from '@/components/project/ProjectStatusControl'
 import { StatusBadge } from '@/components/project/StatusBadge'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { PROJECT_STATUSES, type ProjectStatus } from '@/lib/project-status'
-
-function StatusFlow({ current }: { current: ProjectStatus }) {
-  const currentIdx = PROJECT_STATUSES.indexOf(current)
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      {PROJECT_STATUSES.map((s, i) => {
-        const active = s === current
-        const passed = currentIdx > i
-        return (
-          <span key={s} className="flex items-center gap-1.5">
-            {i > 0 && <span className="text-muted-foreground/40">→</span>}
-            <span
-              className={
-                active
-                  ? 'text-primary font-medium'
-                  : passed
-                    ? 'text-muted-foreground'
-                    : 'text-muted-foreground/50'
-              }
-            >
-              {s}
-            </span>
-          </span>
-        )
-      })}
-    </div>
-  )
-}
 
 export function ProjectDetailPage() {
   const { id } = useParams()
@@ -86,8 +58,8 @@ export function ProjectDetailPage() {
                 </p>
               </div>
             </div>
-            <div className="border-border/70 flex flex-wrap items-center justify-between gap-4 border-t pt-5">
-              <StatusFlow current={project.data.status} />
+            <div className="border-border/70 flex flex-wrap items-center justify-between gap-6 border-t pt-5">
+              <ProjectPipeline current={project.data.status} />
               <ProjectStatusControl project={project.data} />
             </div>
           </Card>

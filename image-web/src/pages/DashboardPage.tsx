@@ -20,7 +20,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { percent, yuan } from '@/lib/format'
 
 const PERIOD_LABEL: Record<Period, string> = { month: '本月', week: '本周', day: '今日' }
 
@@ -55,27 +54,36 @@ export function DashboardPage() {
         <KpiCard
           icon={ImagesIcon}
           label="总出图数"
+          accent="teal"
           loading={overview.isLoading}
-          value={overview.data ? String(overview.data.total_images) : '—'}
+          value={Number(overview.data?.total_images ?? 0)}
         />
         <KpiCard
           icon={CoinsIcon}
           label="总成本"
+          accent="amber"
+          prefix="¥"
+          decimals={2}
           loading={overview.isLoading}
-          value={overview.data ? yuan(overview.data.total_cost) : '—'}
+          value={Number(overview.data?.total_cost ?? 0)}
         />
         <KpiCard
           icon={ReceiptTextIcon}
           label="单张均价"
+          accent="terracotta"
+          prefix="¥"
+          decimals={2}
           loading={overview.isLoading}
-          value={overview.data ? yuan(overview.data.avg_cost) : '—'}
+          value={Number(overview.data?.avg_cost ?? 0)}
         />
         <KpiCard
           icon={TrendingUpIcon}
           label="可用率"
+          accent="violet"
+          suffix="%"
           hint="评分 ≥4 星占比"
           loading={overview.isLoading}
-          value={overview.data ? percent(overview.data.usable_rate) : '—'}
+          value={Number(overview.data?.usable_rate ?? 0) * 100}
         />
       </div>
 
