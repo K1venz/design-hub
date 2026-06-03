@@ -33,10 +33,16 @@ nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics`
 - api 容器接入两张网：项目网（与 nginx 通）+ 外部 `mysql_default`
 - 连库 host = `mysql:3306`（现有容器名/别名），DB_URL 走 aiomysql
 
-## 一键部署（在服务器上）
+## 推送 + 部署
+本地推送（源码 + 部署产物 + 前端 dist；自动保护服务器 .env/certs/web）：
+```bash
+bash image-ops/deploy/scripts/push.sh        # 可用 DEPLOY_KEY/DEPLOY_HOST 覆盖
+```
+再在服务器上重建（幂等）：
 ```bash
 cd /opt/docker/design-hub && bash scripts/deploy.sh
 ```
+> 注意：源码 rsync 用 `--delete` 时务必排除 `Dockerfile`/`.dockerignore`（它们来自 image-ops，不在 image-code 源码里），否则会被删导致 build 失败——push.sh 已处理。
 脚本幂等：建目录 → 自签证书 → 生成 .env（已存在则保留）→ 建库 → 构建 → 迁移建表 → up → 健康检查。
 迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
 

@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0018
 title: aiomysql 缺 cryptography，连 MySQL 8.4(caching_sha2_password) 冷启动会失败
-status: 待验证
+status: 已关闭
 severity: P1
 reporter: 运维
 owner: 运维
@@ -43,3 +43,4 @@ related:
 - 2026-06-03 [运维] 部署联调中实测确认，创建本条，状态=已确认，owner=开发
 - 2026-06-03 [协调] **催办**：复核 `image-code/uv.lock` 仍无 `cryptography`（grep 计数 0），问题未修。P1——生产 MySQL 8.4 一重启即冷启动连库失败，靠缓存热勉强跑不健壮。请开发尽快 `uv add cryptography`（必需依赖非补丁），改完显式 `git add pyproject.toml uv.lock` 提交、状态转「待验证」交回运维。owner 维持=开发。
 - 2026-06-03 [开发] **已修**：`uv add cryptography` → cryptography 48.0.0（取最新版，未手改 manifest）。验证：uv.lock `cryptography` grep 计数 3、pyproject 出现 `cryptography>=48.0.0`、`uv run python -c "import cryptography"` 通过、caching_sha2_password 完整认证所需 RSA 原语（load_pem_public_key/padding/hashes）可用；ruff 全过、mypy 173 文件无误（纯依赖新增不影响）。仅 `git add pyproject.toml uv.lock` 提交（commit eaefc37，引用本条；未 `git add -A`，规避并行 agent 未提交文件，参 ISSUE-0004）。状态转「待验证」，owner 交回运维。**请运维**：镜像重建后，重启 MySQL 容器清空缓存→应用冷启动首连，验证不再因缺 cryptography 报错（期望冷启动直接连上）。
+- 2026-06-03 [运维] **验证通过 → 已关闭**：① rsync 新源码重建 api 镜像，`docker run ... python -c "import cryptography"` = 48.0.0 在镜像内；② 重启 MySQL 后应用冷启动 healthy、`Application startup complete`、日志 0 条 crypto 报错。③ 干净 A/B（建一个 mysql 健康检查碰不到的临时冷账号 `cold_verify@%`，测完即删）：**不装** cryptography→`RuntimeError: 'cryptography' package is required for ... caching_sha2_password`；**装了**→连接 OK。佐证修复对症。**附带查明**：mysql 容器健康检查 `mysqladmin ping -h 127.0.0.1` 每 10s 以 root TCP 连接持续焐热 `root@%` 缓存，所以生产中即便不修也常能重连（这也是早先对照"意外通过"的原因）；本修复让连库**无条件健壮**，仍应修。状态 待验证→已修复→已关闭，owner=运维。
