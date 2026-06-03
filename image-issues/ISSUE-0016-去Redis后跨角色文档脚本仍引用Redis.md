@@ -43,3 +43,5 @@ image-code/image-issues，无法代改，列此条指给各角色。
   属历史记录（准确反映当时 Redis 版那次运行），保留不改写；现行起法以新回归报告 §二 为准。
   另核查：`image-code/src/design_hub/interface/api/asgi.py` 模块 docstring(1–5 行)仍写「Redis + arq / REDIS_URL」，
   doc nit（非功能），建议开发顺手清。QA 子项完结，球仍在 PM(PRD §6.2/§6.4 + 整体收口)。
+- 2026-06-03 [开发] asgi 模块 docstring 已清（commit 780cc7a）：改「MySQL；异步出图+SSE 单进程，无 Redis」，
+  去掉 REDIS_URL。image-code 侧 Redis 残留(含 docstring)已全清。PRD/FE README 仍待 PM/FE，球留 PM。
