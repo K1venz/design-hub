@@ -36,7 +36,6 @@ from design_hub.ports.model_config_repository import ModelConfigRecord
 # Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
 _MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
     ModelName.SEEDREAM_5: Decimal("0.20"),
-    ModelName.QWEN_IMAGE_PRO: Decimal("0.10"),
     ModelName.GPT_IMAGE_2: Decimal("1.19"),
     ModelName.WANXIANG_27: Decimal("0.05"),
     ModelName.LINGDONG_2: Decimal("0.04"),

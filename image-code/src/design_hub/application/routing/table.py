@@ -16,7 +16,7 @@ FAMILY_PRIMARY: dict[TemplateFamily, ModelName] = {
     TemplateFamily.F3: ModelName.SEEDREAM_5,
     TemplateFamily.F4: ModelName.GPT_IMAGE_2,
     TemplateFamily.F5: ModelName.SEEDREAM_5,
-    TemplateFamily.F7: ModelName.QWEN_IMAGE_PRO,
+    TemplateFamily.F7: ModelName.GPT_IMAGE_2,  # 原 qwen 移除(ISSUE-0017)，中式节庆改投 gpt
 }
 
 REFINE_MODEL: ModelName = ModelName.GPT_IMAGE_2
@@ -28,8 +28,7 @@ MAX_CANDIDATES = 12
 
 # 同档位备选链（绝不跨档升级）
 FALLBACKS: dict[ModelName, tuple[ModelName, ...]] = {
-    ModelName.SEEDREAM_5: (ModelName.QWEN_IMAGE_PRO,),
-    ModelName.QWEN_IMAGE_PRO: (ModelName.SEEDREAM_5,),
+    ModelName.SEEDREAM_5: (ModelName.GPT_IMAGE_2,),  # 原 qwen 已移除(ISSUE-0017)→降级到真实 gpt
     ModelName.GPT_IMAGE_2: (ModelName.SEEDREAM_5,),
     ModelName.LINGDONG_2: (ModelName.WANXIANG_27,),
     ModelName.WANXIANG_27: (ModelName.LINGDONG_2,),
