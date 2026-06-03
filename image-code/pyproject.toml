@@ -10,7 +10,6 @@ requires-python = ">=3.12"
 dependencies = [
     "aiomysql>=0.3.2",
     "alembic>=1.18.4",
-    "arq>=0.28.0",
     "bcrypt>=5.0.0",
     "email-validator>=2.3.0",
     "fastapi>=0.136.3",
@@ -54,8 +53,3 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 files = ["src"]
-
-# redis.asyncio 部分接口未带类型标注，仅对该适配器放宽"调用未类型化函数"检查
-[[tool.mypy.overrides]]
-module = "design_hub.infrastructure.events.redis_bus"
-disallow_untyped_calls = false

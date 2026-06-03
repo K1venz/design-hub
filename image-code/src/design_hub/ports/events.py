@@ -5,7 +5,7 @@ from design_hub.domain.models import TaskEvent
 
 
 class EventPublisher(ABC):
-    """发布任务进度事件（worker 侧）。"""
+    """发布任务进度事件（任务执行侧）。"""
 
     @abstractmethod
     async def publish(self, event: TaskEvent) -> None:

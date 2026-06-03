@@ -7,7 +7,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from arq.connections import RedisSettings, create_pool
 from fastapi import Depends, FastAPI
 
 from design_hub.application.admin.model_config_service import ModelConfigService
@@ -31,6 +30,7 @@ from design_hub.application.project.project_service import ProjectService
 from design_hub.application.revision.revision_service import RevisionService
 from design_hub.application.routing.router import ModelRouter
 from design_hub.application.selection.selection_service import SelectionService
+from design_hub.application.task_runner import GenerationTaskRunner
 from design_hub.composition import (
     Engine,
     build_orchestrator,
@@ -54,13 +54,13 @@ from design_hub.infrastructure.db.project_repo import SqlAlchemyProjectRepositor
 from design_hub.infrastructure.db.revision_repo import SqlAlchemyRevisionRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
-from design_hub.infrastructure.events.redis_bus import RedisEventBus
+from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.export.pillow_exporter import PillowExporter
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
 from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetricsSink
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
-from design_hub.infrastructure.queue.arq_queue import ArqTaskQueue
+from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.infrastructure.storage.local_asset import LocalAssetStore
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import get_current_user, require_role
@@ -108,12 +108,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     preview = CostPreviewService(
         router=router, registry=registry, estimator=estimator, ledger=ledger
     )
-    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-    stream = RedisEventBus.from_url(settings.redis_url)
+    # 单进程异步（去 Redis/arq）：同一 InMemoryEventBus 既给 runner 发布、又给 /events 订阅
+    event_bus = InMemoryEventBus()
+    runner = GenerationTaskRunner(
+        pipeline=pipeline,
+        jobs=SqlAlchemyJobRepository(session_factory),
+        events=event_bus,
+    )
 
     app.state.engine = Engine(pipeline=pipeline, preview=preview)
-    app.state.task_queue = ArqTaskQueue(pool)
-    app.state.event_stream = stream
+    app.state.task_queue = InProcessTaskQueue(runner)
+    app.state.event_stream = event_bus
     # WP-A 工作台：客户/项目用例（DB-backed）
     customer_repo = SqlAlchemyCustomerRepository(session_factory)
     project_repo = SqlAlchemyProjectRepository(session_factory)
@@ -177,8 +182,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await db.dispose()
-        await pool.aclose()
-        await stream.aclose()
 
 
 def create_production_app() -> FastAPI:
