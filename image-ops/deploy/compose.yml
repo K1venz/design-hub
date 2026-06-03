@@ -1,0 +1,48 @@
+name: design-hub
+
+# 复用现有 MySQL(/opt/docker/mysql, 网络 mysql_default)；首发 nginx+TLS 反代。
+services:
+  api:
+    build:
+      context: ./app
+    image: design-hub-api:latest
+    container_name: design-hub-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - /data/docker/design-hub/generated:/app/generated
+      - /data/docker/design-hub/assets:/app/assets
+      - /data/docker/design-hub/exports:/app/exports
+    networks:
+      - default        # 与 nginx 同网
+      - mysql_default   # 连现有 MySQL（host=mysql:3306）
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/metrics',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: design-hub-nginx
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - default
+
+networks:
+  default:
+  mysql_default:
+    external: true
