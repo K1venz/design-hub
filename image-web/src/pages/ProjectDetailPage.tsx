@@ -4,8 +4,7 @@ import { ArrowLeftIcon } from 'lucide-react'
 import { useCustomer } from '@/api/customers'
 import { useProject } from '@/api/projects'
 import { ExportTab } from '@/components/export/ExportTab'
-import { GenerateTab } from '@/components/generate/GenerateTab'
-import { BriefTab } from '@/components/project/BriefTab'
+import { GenerateStudio } from '@/components/generate/GenerateStudio'
 import { RevisionTab } from '@/components/revision/RevisionTab'
 import { ProjectPipeline } from '@/components/project/ProjectPipeline'
 import { ProjectStatusControl } from '@/components/project/ProjectStatusControl'
@@ -64,18 +63,14 @@ export function ProjectDetailPage() {
             </div>
           </Card>
 
-          <Tabs defaultValue="brief">
+          <Tabs defaultValue="studio">
             <TabsList>
-              <TabsTrigger value="brief">需求单</TabsTrigger>
-              <TabsTrigger value="generate">出图与选稿</TabsTrigger>
+              <TabsTrigger value="studio">出图工作台</TabsTrigger>
               <TabsTrigger value="revision">改稿</TabsTrigger>
               <TabsTrigger value="export">交付导出</TabsTrigger>
             </TabsList>
-            <TabsContent value="brief" className="pt-5">
-              <BriefTab projectId={project.data.id} />
-            </TabsContent>
-            <TabsContent value="generate" className="pt-5">
-              <GenerateTab
+            <TabsContent value="studio" className="pt-5">
+              <GenerateStudio
                 projectId={project.data.id}
                 customerName={customer.data?.name ?? `客户 #${project.data.customer_id}`}
               />
