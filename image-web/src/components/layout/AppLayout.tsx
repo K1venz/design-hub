@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { navItemsFor } from '@/components/layout/nav'
+import { DotPattern } from '@/components/visual/DotPattern'
 import { cn } from '@/lib/utils'
 import { useAuthStore, useCurrentUser } from '@/stores/auth-store'
 
@@ -130,8 +131,9 @@ export function AppLayout() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
-        <main className="flex-1 px-6 py-7">
-          <div className="mx-auto w-full max-w-6xl">
+        <main className="relative flex-1 px-6 py-7">
+          <DotPattern className="[mask-image:radial-gradient(ellipse_at_top,white,transparent_72%)]" />
+          <div className="relative mx-auto w-full max-w-6xl">
             <Outlet />
           </div>
         </main>

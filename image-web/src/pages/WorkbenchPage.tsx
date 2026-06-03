@@ -7,6 +7,7 @@ import { useProjects } from '@/api/projects'
 import { CreateCustomerDialog } from '@/components/project/CreateCustomerDialog'
 import { CreateProjectDialog } from '@/components/project/CreateProjectDialog'
 import { StatusBadge } from '@/components/project/StatusBadge'
+import { GradientButton } from '@/components/visual/GradientButton'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -58,10 +59,10 @@ export function WorkbenchPage() {
           />
           <CreateProjectDialog
             trigger={
-              <Button>
+              <GradientButton>
                 <PlusIcon className="size-4" />
                 新建项目
-              </Button>
+              </GradientButton>
             }
           />
         </div>
