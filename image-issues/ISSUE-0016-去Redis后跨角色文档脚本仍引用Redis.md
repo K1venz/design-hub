@@ -37,3 +37,9 @@ image-code/image-issues，无法代改，列此条指给各角色。
 ## 处理记录
 - 2026-06-03 [开发] 去 Redis 重构落地（fc41318）；扫到跨角色仍有 Redis 引用，开条目指给 PM/FE/QA。
   开发侧（image-code + docs/项目状态与接口清单、工期与进度跟踪）已同步更新。状态=待确认，owner→PM。
+- 2026-06-03 [QA] **QA 清理项已落实**：`e2e_driver.py` 重写为单进程版（无 Redis/worker/REDIS_URL，起服务
+  只需 `uvicorn asgi:app`；适配自建邮箱密码认证 + SSE `?access_token=`），并据此跑通去 Redis 全流程回归
+  **35/35**（见 image-qa/2026-06-03-去redis单进程回归.md）。`verify_fixes.py` 与 `2026-06-02-e2e-集成验证.md`
+  属历史记录（准确反映当时 Redis 版那次运行），保留不改写；现行起法以新回归报告 §二 为准。
+  另核查：`image-code/src/design_hub/interface/api/asgi.py` 模块 docstring(1–5 行)仍写「Redis + arq / REDIS_URL」，
+  doc nit（非功能），建议开发顺手清。QA 子项完结，球仍在 PM(PRD §6.2/§6.4 + 整体收口)。
