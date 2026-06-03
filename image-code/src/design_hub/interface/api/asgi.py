@@ -1,7 +1,7 @@
-"""生产 ASGI 应用：lifespan 装配真实基础设施（MySQL + Redis + arq）。
+"""生产 ASGI 应用：lifespan 装配真实基础设施（MySQL；异步出图+SSE 单进程，无 Redis）。
 
 运行：`uv run uvicorn design_hub.interface.api.asgi:app`
-（需 DB_URL / REDIS_URL 指向真实 MySQL / Redis）。同步与异步端点同时提供。
+（需 DB_URL 指向真实 MySQL）。同步与异步端点同时提供。
 """
 
 from collections.abc import AsyncIterator
