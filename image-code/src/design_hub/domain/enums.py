@@ -54,7 +54,6 @@ class MaterialType(StrEnum):
 
 class ModelName(StrEnum):
     GPT_IMAGE_2 = "gpt-image-2"
-    QWEN_IMAGE_PRO = "qwen-image-pro"
     SEEDREAM_5 = "seedream-5"
     WANXIANG_27 = "wanxiang-2.7-pro"
     LINGDONG_2 = "lingdong-2"
