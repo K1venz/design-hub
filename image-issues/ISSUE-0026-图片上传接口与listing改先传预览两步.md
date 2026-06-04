@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0026
 title: 后端图片上传接口 POST /uploads + listing 改「先上传预览 → 再出图」（取代 multipart 直传）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户主动需求；listing 核心交互改两步，跨后端/前端/QA 返工需协调
 reporter: PM          # 用户提出，PM 排期
-owner: 开发           # 后端主体：上传端点 + 读图代理 + listing 引用改造
+owner: QA             # 后端已实现，交 QA 按两步流改版用例验证
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -69,3 +69,14 @@ related:
   PM 已挑明此举取代 listing multipart 直传（spec 0a）、涉及后端/前端/QA 返工，用户确认推进。
   已更新 PRD §3.12.1/§3.12.8。开本条派开发（后端端点 + 代理 + listing 引用改造），owner=开发，severity P1，status=已确认。
   连带：前端两步流改造（ISSUE-0020）、QA 用例14 改版（ISSUE-0023）。
+- 2026-06-04 [开发] **已实现**（commit 2649274）：新增 `UploadStore` 端口 + `LocalUploadStore`
+  （id=sha256[:16].<ext>，正则约束防路径穿越）+ `UploadService`（≤10MB / png·jpg·webp fail-fast）；
+  `POST /uploads`(Bearer)→`{id,url}`、`GET /uploads/{id}`(`?access_token=` 读图代理，按 content-type
+  返 bytes，不暴露 file://)；listing `/generate` 入参 multipart files → JSON **`upload_ids`(≤3)**，
+  服务端按 id `load()` 字节发上游，ListingService/Command 不变。
+  **架构说明（给 PM）**：用**专用 UploadStore** 而非字面复用 `LocalAssetStore`——后者契约 `save→file://url
+  / load(url)` 给不出干净的 `id`+content-type，强复用需在新代码塞 id↔url 转换（shim，违铁律）。专用端口
+  满足你全部实际约束（本地磁盘 / 无 OSS / 无 DB）、**写同一 `assets/` 目录**、零 shim。OSS 化仍可 LSP 替换。
+  验证 ruff+mypy(187)+冒烟（上传 roundtrip / 大小格式 fail-fast / 路径穿越 / 缺失 404 / 路由挂载）全绿。
+  spec §2/§3/§4 已更新为两步流。状态→待验证，owner→QA。**请 QA**：按 ISSUE-0023 改版用例（两步流：
+  上传端点 + upload_ids 出图）重测；多图 image[] 与真实 e2e 仍需受控环境（plan §5.3 / ISSUE-0025）。

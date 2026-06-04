@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0024
 title: listing /generate 边界校验未 fail-fast——n/ratio/未知下拉/空prompt 返 200+job_id 而非 4xx
-status: 待复现        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: 开发
+owner: QA             # 开发已修，交回 QA 回归
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -54,3 +54,13 @@ related:
 ## 处理记录
 - 2026-06-04 [QA] 测 ISSUE-0023 用例 3/5/6 发现边界未 fail-fast（200+job_id）；附错误码 409/422≠400 与 4:3 超集。
   带 Mock 复现脚本开单，owner→开发。状态=待复现。
+- 2026-06-04 [开发] **已修**（commit 2649274，随 ISSUE-0026 路由改造一并落地）：
+  · **主（P2）**：路由 `generate_listing` 入队前**同步**跑完所有边界校验——upload_ids 数(1..3)、n(1..7)、
+    `ratio_to_size(ratio)`、`compose_prompt(prompt, modifiers, registry)`（含空 prompt + 未知下拉）；
+    任一非法 → 4xx，**不入队、不发 job_id**。service 内同款校验保留做纵深防御。
+  · **缺陷②（P3）**：输入校验错误统一 **ValueError→400**（`prompt_composer`/`sizing`/`listing_service`
+    由 `DomainError`→`ValueError`），`DomainError`(409) 留给真实领域冲突；注：listing 路由随 0026 由
+    multipart 改 JSON `upload_ids`，0 图/数量越界现走路由显式 ValueError→400（非 FastAPI 422）。
+  · **缺陷③（P3）**：移除 `sizing._RATIO_TO_SIZE` 的 `4:3` 超集，比例集对齐 ISSUE-0021（1:1/3:4/9:16/16:9）。
+  验证 ruff+mypy(187)+冒烟（ratio_to_size/compose_prompt/service 边界均抛 ValueError）全绿。
+  状态→待验证，owner→QA 回归。**请 QA**：用 `listing_test_http.py` 复跑用例 3/5/6（现应 4xx，错误码 400）。
