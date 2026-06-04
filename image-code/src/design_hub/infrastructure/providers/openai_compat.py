@@ -75,7 +75,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             start = time.perf_counter()
             try:
                 if reference_images:
-                    response = await self._edit(composed, reference_images[0], size_str, n)
+                    response = await self._edit(composed, reference_images, size_str, n)
                 else:
                     response = await self._generate(composed, size_str, n)
                 self._raise_for_status(response)  # 4xx→DomainError(不重试)；5xx/429→ProviderTimeout
@@ -111,10 +111,14 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         return await self._request_json(f"{self._base_url}/images/generations", payload)
 
     async def _edit(
-        self, prompt: str, image: bytes, size: str, n: int
+        self, prompt: str, images: list[bytes], size: str, n: int
     ) -> httpx.Response:
+        # gpt-image edits 多图：同名重复字段 image[]（OpenAI gpt-image-1 协议）。
+        # 中转站若不支持多图，ListingGenerationService 会在上层退化为逐图调用（见 spec §6.1 风险）。
         data = {"model": self._model, "prompt": prompt, "n": str(n), "size": size}
-        files = {"image": ("product.png", image, "image/png")}
+        files = [
+            ("image[]", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
+        ]
         return await self._request_multipart(f"{self._base_url}/images/edits", data, files)
 
     async def _request_json(self, url: str, payload: dict[str, Any]) -> httpx.Response:
@@ -132,7 +136,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self,
         url: str,
         data: dict[str, str],
-        files: dict[str, tuple[str, bytes, str]],
+        files: list[tuple[str, tuple[str, bytes, str]]],
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {self._api_key}"}
         if self._client is not None:
