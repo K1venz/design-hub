@@ -30,7 +30,6 @@ from design_hub.application.project.project_service import ProjectService
 from design_hub.application.revision.revision_service import RevisionService
 from design_hub.application.routing.router import ModelRouter
 from design_hub.application.selection.selection_service import SelectionService
-from design_hub.application.task_runner import GenerationTaskRunner
 from design_hub.composition import (
     Engine,
     build_orchestrator,
@@ -110,14 +109,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # 单进程异步（去 Redis/arq）：同一 InMemoryEventBus 既给 runner 发布、又给 /events 订阅
     event_bus = InMemoryEventBus()
-    runner = GenerationTaskRunner(
-        pipeline=pipeline,
-        jobs=SqlAlchemyJobRepository(session_factory),
-        events=event_bus,
-    )
-
     app.state.engine = Engine(pipeline=pipeline, preview=preview)
-    app.state.task_queue = InProcessTaskQueue(runner)
+    app.state.job_repository = SqlAlchemyJobRepository(session_factory)
+    app.state.task_queue = InProcessTaskQueue()
     app.state.event_stream = event_bus
     # WP-A 工作台：客户/项目用例（DB-backed）
     customer_repo = SqlAlchemyCustomerRepository(session_factory)

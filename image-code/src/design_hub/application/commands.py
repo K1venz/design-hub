@@ -5,25 +5,30 @@ from design_hub.domain.enums import TaskEventType
 from design_hub.domain.models import Brief, TaskEvent
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.job_repository import JobRepository
+from design_hub.ports.task_queue import GenerationCommand
 
 
 @dataclass
-class GenerationTaskRunner:
-    """异步出图任务编排（SRP）：跑 pipeline → 落库 → 沿途发进度事件。
+class PosterGenerationCommand(GenerationCommand):
+    """海报流异步命令：跑 pipeline → 落库 → 沿途发进度事件（原 GenerationTaskRunner 逻辑）。
 
-    依赖 pipeline（M1，零改动）+ JobRepository/EventPublisher 端口（DIP）。
+    brief/user_id 在构造时绑定，满足 GenerationCommand.run(job_id) 统一签名。
     """
 
     pipeline: GenerationPipeline
     jobs: JobRepository
     events: EventPublisher
+    brief: Brief
+    user_id: str
 
-    async def run(self, *, job_id: str, brief: Brief, user_id: str) -> str:
+    async def run(self, job_id: str) -> None:
         await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
-            result = await self.pipeline.run(brief, user_id)
+            result = await self.pipeline.run(self.brief, self.user_id)
             await self.events.publish(
-                TaskEvent(job_id, TaskEventType.MODEL_CALLED, {"model": result.used_model.value})
+                TaskEvent(
+                    job_id, TaskEventType.MODEL_CALLED, {"model": result.used_model.value}
+                )
             )
             for image in result.images:
                 await self.events.publish(
@@ -34,7 +39,7 @@ class GenerationTaskRunner:
                     )
                 )
             await self.jobs.save_completed(
-                job_id=job_id, user_id=user_id, brief=brief, result=result
+                job_id=job_id, user_id=self.user_id, brief=self.brief, result=result
             )
             await self.events.publish(
                 TaskEvent(
@@ -43,7 +48,6 @@ class GenerationTaskRunner:
                     {"total_cost": str(result.total_cost)},
                 )
             )
-            return job_id
         except Exception as exc:
             await self.events.publish(
                 TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})

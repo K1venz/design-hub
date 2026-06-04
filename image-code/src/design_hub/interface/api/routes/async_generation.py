@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
 
+from design_hub.application.commands import PosterGenerationCommand
 from design_hub.domain.models import TaskEvent
 from design_hub.interface.api.deps import CurrentUserDep, CurrentUserSseDep
 from design_hub.interface.schemas import GenerateRequest
@@ -39,13 +40,21 @@ def _sse(event: TaskEvent) -> str:
 @router.post("/async")
 async def enqueue(
     req: GenerateRequest,
+    request: Request,
     queue: QueueDep,
     _user: CurrentUserDep,  # 需 Bearer（鉴权改逐路由挂，见 asgi）
     user_id: UserIdDep = "designer-anon",
 ) -> dict[str, str]:
     """入队即返回 job_id；进度经 SSE 查询。"""
     job_id = uuid.uuid4().hex
-    await queue.enqueue(job_id=job_id, brief=req.to_brief(), user_id=user_id)
+    command = PosterGenerationCommand(
+        pipeline=request.app.state.engine.pipeline,
+        jobs=request.app.state.job_repository,
+        events=request.app.state.event_stream,
+        brief=req.to_brief(),
+        user_id=user_id,
+    )
+    await queue.enqueue(job_id=job_id, command=command)
     return {"job_id": job_id}
 
 
