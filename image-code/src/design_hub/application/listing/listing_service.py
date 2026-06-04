@@ -9,7 +9,6 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName
-from design_hub.domain.errors import DomainError
 from design_hub.domain.models import ListingResult
 
 _MAX_IMAGES = 3
@@ -38,9 +37,9 @@ class ListingGenerationService:
         user_id: str,
     ) -> ListingResult:
         if not 1 <= len(images) <= _MAX_IMAGES:
-            raise DomainError(f"参考图数量需为 1..{_MAX_IMAGES}，实际 {len(images)}")
+            raise ValueError(f"参考图数量需为 1..{_MAX_IMAGES}，实际 {len(images)}")
         if not 1 <= n <= _MAX_N:
-            raise DomainError(f"张数需为 1..{_MAX_N}，实际 {n}")
+            raise ValueError(f"张数需为 1..{_MAX_N}，实际 {n}")
         final_prompt = compose_prompt(prompt, modifiers, self.modifier_registry)
         size = ratio_to_size(ratio)
         provider = self.registry.get(ModelName.GPT_IMAGE_2)

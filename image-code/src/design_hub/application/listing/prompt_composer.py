@@ -1,7 +1,5 @@
 from dataclasses import dataclass, field
 
-from design_hub.domain.errors import DomainError
-
 # 种子片段表：(field, value) -> 注入 prompt 的中文话术。正式文案由 image-prompt 出（ISSUE-0022）。
 # 覆盖 ISSUE-0021 用户确认的首版下拉枚举全部取值，否则正常选项会 fail-fast 400。
 _SEED_FRAGMENTS: dict[tuple[str, str], str] = {
@@ -39,7 +37,7 @@ class PromptModifierRegistry:
         try:
             return self.fragments[(field_name, value)]
         except KeyError:
-            raise DomainError(
+            raise ValueError(
                 f"未知下拉值：{field_name}={value}（未在话术表登记）"
             ) from None
 
@@ -50,7 +48,7 @@ def compose_prompt(
     """最终 prompt = 用户自由文本 + 各 modifier 片段拼接（用户文本为主体）。"""
     base = prompt.strip()
     if not base:
-        raise DomainError("prompt 不能为空")
+        raise ValueError("prompt 不能为空")
     fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
     if not fragments:
         return base

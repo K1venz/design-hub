@@ -30,7 +30,7 @@
 
 | # | 决策 | 结论 |
 |---|---|---|
-| 0a | 图片传输 | **multipart 直传 ≤3 张**（非 asset_ids / 资产库）。后果：本链路**不支持"从资产库选已有图"** |
+| 0a | 图片传输 | ~~multipart 直传~~ → **两步上传（ISSUE-0026 取代直传，不并存）**：先 `POST /uploads` 拿 id，`generate` 带 `upload_ids`(≤3)；仍不走 asset_ids/资产库 |
 | 0b | 生成语义 | **纯用户 prompt 直出**——绕过老 PromptOrchestrator / category / style / 模板族；提示词是唯一杠杆 |
 | 1 | prompt 拼接放前端还是后端 | **后端**（质量命脉，需版本化 / 可测 / 多端一致） |
 | 2 | 下拉如何传输 | **当数据传**：通用 `modifiers` key→value 袋子，增删下拉不改 schema |
@@ -39,6 +39,7 @@
 | 5 | 出图历史 | MVP **不持久化**，但留端口口子，将来换实现即可 |
 | 6 | 同步 vs 异步 | **异步**：gpt-image-2 edit 单次 ~187s，N 张更久，必走队列 + SSE |
 | 7 | 自由文本字段名 | `prompt`（对齐前端 / ISSUE-0019；它就是"商品卖点&要求"文本框，直出唯一杠杆） |
+| 8 | 边界校验位置/错误码 | 全部输入(upload_ids 数/n/ratio/未知下拉/空 prompt)**在路由入队前同步 fail-fast**；输入错误统一 **400(ValueError)**，领域冲突才 409（ISSUE-0024） |
 
 > **与前端 v2 spec 的对齐结论（2026-06-04）**：本设计经用户拍板 0a+0b 后，**取代**前端 `出图工作台-v2-商品套图重做-设计.md` 中分叉的契约选择——
 > 即前端需从 `asset_ids` 改为 multipart 直传、去掉"从资产库选"、去掉 category/style（编排器不再参与）。详见 §8 派单。
@@ -51,8 +52,9 @@
 
 ```
 前端(image-web)
-  └─ POST /listing/generate (multipart) ──► interface/api/routes/listing.py
-                                              │ 解析 → ListingGenerateRequest
+  ├─ POST /uploads (multipart file) ──► routes/uploads.py → UploadStore（返回 id；预览 GET /uploads/{id}）
+  └─ POST /listing/generate (JSON: upload_ids) ──► interface/api/routes/listing.py
+                                              │ 边界 fail-fast → 按 upload_ids load 字节
                                               ▼
                                   application/listing/listing_service.py
                                               │ 1) prompt_composer 组装 prompt
@@ -66,20 +68,31 @@
 
 ## 4. API 契约
 
-### 4.1 出图（异步，立即返回 job_id）
+### 4.1 两步流（ISSUE-0026 取代 multipart 直传）
+
+**① 上传 + 预览**
 ```
-POST /listing/generate            Content-Type: multipart/form-data
-  鉴权：Bearer（复用现有）
-  字段：
-    images:         file × (1..3)        # 同一产品原图；超过 3 或为 0 → 400
-    prompt:         str                  # "商品卖点&要求"文本框 = 用户自由 prompt（直出，唯一杠杆）
-    ratio:          str                  # 形如 "1:1"；映射到 size，见 §4.3
-    n:              int   1..7           # "张数"下拉；越界 → 400
-    modifiers:      str(JSON)            # {"platform":"亚马逊","region":"美国","language":"英文"}
+POST /uploads        multipart/form-data，字段 file，鉴权 Bearer
+  fail-fast：大小 ≤10MB、格式 png/jpg/webp，违例 → 400
+  返回：{ "id": "<sha256前16>.<ext>", "url": "/uploads/<id>" }
+GET  /uploads/{id}   鉴权 ?access_token=（支持 <img src> 预览，同 SSE/ISSUE-0011）
+  后端读图代理按 content-type 返回 bytes（不暴露 file://）；id 非法→400 / 不存在→404
+```
+
+**② 出图（异步，立即返回 job_id）**
+```
+POST /listing/generate            application/json，鉴权 Bearer
+  {
+    "upload_ids": ["<id>", ...],   # 1..3，引用①的上传图；数量越界→400，id 不存在→404
+    "prompt":     "...",           # 用户自由 prompt（直出，唯一杠杆）；空→400
+    "ratio":      "1:1",           # 映射 size，见 §4.3；非法→400
+    "n":          6,               # 1..7；越界→400
+    "modifiers":  {"platform":"亚马逊","region":"美国","language":"英文"}  # 未知下拉值→400
+  }
   返回：{ "job_id": "<hex>" }
 ```
-- `modifiers` 是通用 key→value 袋子。**增删 / 复用下拉框 = 只改后端片段表（§5），契约不动、schema 不动**，前端只多/少塞一个 key。
-- 校验在边界完成（fail-fast）：images 数量、n 范围、ratio 合法、modifiers 可解析。
+- `modifiers` 是通用 key→value 袋子，增删/复用下拉只改后端片段表（§5），契约不动、schema 不动。
+- **边界 fail-fast（ISSUE-0024）**：upload_ids 数 / n / ratio / 未知下拉 / 空 prompt 全部在**入队前同步**校验，任一非法 → **4xx，不入队、不发 job_id**；输入错误统一 **400**。
 
 ### 4.2 进度（SSE，复用现有方案）
 ```
