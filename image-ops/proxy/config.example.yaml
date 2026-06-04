@@ -1,5 +1,6 @@
-# mihomo(Clash.Meta) headless 配置模板。
-# 真实文件在服务器 /opt/docker/mihomo/config/config.yaml（含订阅 URL，绝不入库）。
+# mihomo(Clash.Meta) headless 配置模板（原生 systemd 安装，非 docker）。
+# 真实文件在服务器 /etc/mihomo/config.yaml（含订阅 URL，绝不入库）。
+# 二进制 /usr/local/bin/mihomo，服务 mihomo.service，`mihomo -d /etc/mihomo`。
 # 策略：GitHub 相关域名走代理，其余一律直连（国内/镜像流量不绕弯）。
 
 mixed-port: 7890          # http + socks5 合并端口
