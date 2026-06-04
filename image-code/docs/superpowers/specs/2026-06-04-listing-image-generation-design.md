@@ -30,12 +30,18 @@
 
 | # | 决策 | 结论 |
 |---|---|---|
+| 0a | 图片传输 | **multipart 直传 ≤3 张**（非 asset_ids / 资产库）。后果：本链路**不支持"从资产库选已有图"** |
+| 0b | 生成语义 | **纯用户 prompt 直出**——绕过老 PromptOrchestrator / category / style / 模板族；提示词是唯一杠杆 |
 | 1 | prompt 拼接放前端还是后端 | **后端**（质量命脉，需版本化 / 可测 / 多端一致） |
 | 2 | 下拉如何传输 | **当数据传**：通用 `modifiers` key→value 袋子，增删下拉不改 schema |
 | 3 | 比例(ratio) | **单独成字段**，落成真实 `size` 参数（光写进 prompt 文字模型不可靠） |
 | 4 | 未知下拉值 | **fail-fast 报错**；种子表覆盖所有下拉值，正常不触发 |
 | 5 | 出图历史 | MVP **不持久化**，但留端口口子，将来换实现即可 |
 | 6 | 同步 vs 异步 | **异步**：gpt-image-2 edit 单次 ~187s，N 张更久，必走队列 + SSE |
+| 7 | 自由文本字段名 | `prompt`（对齐前端 / ISSUE-0019；它就是"商品卖点&要求"文本框，直出唯一杠杆） |
+
+> **与前端 v2 spec 的对齐结论（2026-06-04）**：本设计经用户拍板 0a+0b 后，**取代**前端 `出图工作台-v2-商品套图重做-设计.md` 中分叉的契约选择——
+> 即前端需从 `asset_ids` 改为 multipart 直传、去掉"从资产库选"、去掉 category/style（编排器不再参与）。详见 §8 派单。
 
 ## 3. 架构总览
 
@@ -66,10 +72,10 @@ POST /listing/generate            Content-Type: multipart/form-data
   鉴权：Bearer（复用现有）
   字段：
     images:         file × (1..3)        # 同一产品原图；超过 3 或为 0 → 400
-    selling_points: str                  # "商品卖点&要求"文本
+    prompt:         str                  # "商品卖点&要求"文本框 = 用户自由 prompt（直出，唯一杠杆）
     ratio:          str                  # 形如 "1:1"；映射到 size，见 §4.3
     n:              int   1..7           # "张数"下拉；越界 → 400
-    modifiers:      str(JSON)            # {"platform":"亚马逊","country":"中国","language":"中文"}
+    modifiers:      str(JSON)            # {"platform":"亚马逊","region":"美国","language":"英文"}
   返回：{ "job_id": "<hex>" }
 ```
 - `modifiers` 是通用 key→value 袋子。**增删 / 复用下拉框 = 只改后端片段表（§5），契约不动、schema 不动**，前端只多/少塞一个 key。
@@ -100,11 +106,12 @@ gpt-image-2 实际支持的尺寸有限，先给一份能跑的种子映射：
 
 - `PromptModifierRegistry`：`(field, value) → 片段模板`。种子值（最终文案由 image-prompt 出）：
   - `("platform","亚马逊") → "用于亚马逊电商平台的商品展示图"`
-  - `("country","中国") → "商品适用于中国市场"`
-  - `("language","中文") → "广告文字使用中文"`
+  - `("region","美国") → "商品面向美国市场"`
+  - `("language","英文") → "广告文字使用英文"`
   - …（覆盖前端首版所有下拉值）
-- `compose(selling_points: str, modifiers: dict[str,str]) -> str`：
-  `final = selling_points.strip() + "。" + "；".join(片段 for 每个 modifier)`
+- `compose(prompt: str, modifiers: dict[str,str]) -> str`：
+  `final = prompt.strip() + "。" + "；".join(片段 for 每个 modifier)`
+  - `prompt` 即用户在"商品卖点&要求"框写的自由文本，是出图主体；modifiers 片段是补充约束。
 - **未知 `(field,value)` → 抛 `DomainError`（fail-fast）**，不静默跳过。前后端版本不同步当场暴露。
 - 纯函数、无 I/O → 单元测试直接覆盖（QA 可验证质量命脉）。
 
@@ -157,8 +164,17 @@ gpt-image-2 实际支持的尺寸有限，先给一份能跑的种子映射：
 1. **PM**：本功能补进 PRD；标注 §3.1/§3.2 两阶段合成已被"直出"取代；定下拉选项清单
    （平台/国家/语言/比例的取值）、张数上限、ratio 支持范围、验收标准。
 2. **image-prompt**：产出「下拉值 → 话术片段」正式中文文案（替换 §5 种子表）。
-3. **image-web**：按 §4 契约实现前端 UI（≤3 图上传、4 下拉、卖点文本、张数、SSE 进度）。
+3. **image-web**（重点对齐，**修订其 v2 spec**）：用户拍板 multipart 直传 + 纯 prompt 直出后，
+   前端 `出图工作台-v2-商品套图重做-设计.md` 的以下分叉点需改：
+   - 图片：`asset_ids`（资产库）→ **multipart 直传 ≤3 张**；**去掉"从资产库选"(AssetPickerInline)**。
+   - **去掉 category / style 下拉**（编排器不再参与；如需仍可作为普通 modifier 下拉，但后端不特殊对待）。
+   - 出图端点：现有 `/generate/async`（基于 project）→ 改对接 **`POST /listing/generate`(multipart)** + `GET /listing/{job_id}/events`(SSE)。
+   - 自由文本框 → 传 `prompt` 字段（ISSUE-0019 的 prompt 在本链路升级为**核心入参**，非可选增强）。
+   - `subscene/family/tier/asset_ids/project/快速任务` 在本链路**都不需要**。
 4. **QA**：本功能测试用例（待 PM 出验收标准后）。
+
+> ISSUE-0019 善后：其第 1 点（出图加自由 prompt）已被本链路核心化满足；第 2 点（`AssetOut.description`）
+> 与本 multipart 链路无关（本链路不走资产库），归到"老项目流"另议。
 
 ## 9. 受影响 / 新增文件清单（预估）
 新增：
