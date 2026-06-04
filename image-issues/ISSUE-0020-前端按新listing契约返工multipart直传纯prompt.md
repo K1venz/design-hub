@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0020
 title: 前端出图工作台按新 listing 契约返工（multipart 直传 + 纯 prompt 直出）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发
-owner: 前端           # 球回前端：multipart 被 ISSUE-0026 取代，改两步流（先上传预览→出图带 upload_ids）
+owner: QA             # 两步流前端已改完；待后端 /uploads(ISSUE-0026) 就绪后 QA e2e 验收
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -58,3 +58,14 @@ related:
   ② 出图改带 `upload_ids`（≤3，JSON）而非 multipart files；③ 加上传中/失败态、预览缩略图、可删除重传。
   其余（下拉枚举/prompt/SSE 逐张/结果画廊）不变。契约见 PRD §3.12.8 + ISSUE-0026；后端端点就绪后即可对接。
   原 multipart e2e 验收作废 → 转两步流验收。状态=已确认，owner=前端。
+- 2026-06-04 [前端] **两步流返工完成**（commit 4672535 + adf2563，按 NO 兼容直接替换 multipart）：
+  - `api/listing`：新增 `useUploadImage`（`POST /uploads` multipart 单文件，字段名 **`file`**，→ `{id,url}`）；
+    `useListingGenerate` 改 **JSON body** `{upload_ids,prompt,ratio,n,modifiers}`（不再 multipart）。
+  - `lib/listing`：`UploadedImage{id,url}`；`ListingGenerateInput.images→uploadIds`；`buildListingFormData→buildListingBody`（vitest 9 过）。
+  - `ImageUploader` 重做：选图即逐张上传，**本地 blob 即时预览**（非 file:///非代理）+ 上传中(转圈)/失败(可重传)/完成态 + 删除，≤3。
+  - `WorkbenchPage`：`uploaded` 态 + 出图传 `upload_ids` + 「新建任务」resetKey 重挂清空上传器；`ListingConfigPanel` files→uploaded、canGenerate 按已上传数。
+  - **自验**：typecheck/lint/build/vitest(9) 全过。可视：本轮后端(8000)宕(/api/me 502)无法登录态截图，登录页正常渲染、前端无崩溃。
+  - **待 QA 注意的契约假设**（后端 /uploads 未实现，我先按最合理假设隔离在 api 层 + buildListingBody，一处可改）：
+    ① `POST /uploads` 上传字段名 = `file`（沿用 brief.py 约定）；② `/listing/generate` 为 JSON body、`modifiers` 取**嵌套对象**（非 JSON 字符串）；
+    ③ 预览用前端本地 blob（更稳即时；`uploaded.url` 已存留待用）。后端就绪后若字段/形态不同，仅改 `api/listing.ts` + `buildListingBody`。
+  - **待 QA**：后端 `/uploads`+`/listing` upload_ids（ISSUE-0026）就绪后，e2e 验「上传→预览→出图带 id→SSE 逐张→下载」（n=1 控成本）。状态=待验证，owner=QA。
