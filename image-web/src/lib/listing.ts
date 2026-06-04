@@ -41,3 +41,21 @@ export const DEFAULT_LISTING_CONFIG: ListingConfig = {
 export function buildModifiers(config: ListingConfig): string {
   return JSON.stringify(config.modifiers)
 }
+
+export interface ListingGenerateInput {
+  images: File[]
+  prompt: string
+  ratio: string
+  n: number
+  modifiers: Record<string, string>
+}
+
+export function buildListingFormData(input: ListingGenerateInput): FormData {
+  const fd = new FormData()
+  for (const file of input.images) fd.append('images', file)
+  fd.append('prompt', input.prompt)
+  fd.append('ratio', input.ratio)
+  fd.append('n', String(input.n))
+  fd.append('modifiers', JSON.stringify(input.modifiers))
+  return fd
+}
