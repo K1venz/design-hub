@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0029
 title: listing 出图结果图无法显示——前端直塞 file:// 到 <img>，浏览器禁止加载本地资源（线上也坏）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 出图成功但结果完全看不到；listing 核心交付不可用，且线上必坏
 reporter: QA
-owner: 开发           # 用户定方案：nginx 静态 + 后端返绝对 url，不鉴权。后端改 url=开发；nginx/compose=Ops；dev /img=前端
+owner: Ops            # 后端①已实现(7df59bb)；球交 Ops 做②nginx+prod env，前端做③dev /img，齐后 QA 验
 created: 2026-06-04
 related:
   - 前端: image-web/src/components/listing/ResultGallery.tsx:65（`<img src={s.url}>` 直接用 file://）
@@ -77,3 +77,13 @@ listing「商品套图」点出图 → **出图成功**（`POST /api/listing/gen
   · 已合入 .github CI（push main 会带上），并直接部署生效。
   **仍待**：① 后端返 `…/img/<sha>.png`（开发，image-code）+ ③ dev 一致性（前端）。
   其中 prod `IMAGE_PUBLIC_BASE_URL=https://203.0.113.10` 这条 env 由运维在①落地后注入服务器 .env（我的域，待开发加好 settings 字段即注入）。owner 维持=开发。
+- 2026-06-04 [开发] **①后端已实现**（commit 7df59bb）：`settings` 加 `image_public_base_url`(env
+  `IMAGE_PUBLIC_BASE_URL`)；`LocalImageStore` 返回 `{base}/img/<sha16>.png`（base 空→相对 `/img/<name>`），
+  不再 file://；`composition` 注入。所有出图 url（listing SSE + 项目候选）统一 `/img/<name>`，前端 `<img src>`
+  零改动可显示。**附带必改（QA ①规格漏的跨流耦合）**：出图 url 同时被项目导出读回字节，`LocalExportStore.read`
+  只认 file://，改 url 会炸导出 → 改为按 url 文件名从注入的 `source_dir`(出图目录)读，兼容 file://与 web 路径，
+  asgi 注入 source_dir。验证 ruff+mypy(187)+冒烟（绝对/相对 url、导出三形态 url 读回同字节、防穿越、app 构建）全绿。
+  **②nginx 运维已完成(curl 200)👍。状态→修复中，owner→Ops。仍待**：
+  (a) **运维**：注入 prod `.env` `IMAGE_PUBLIC_BASE_URL=https://203.0.113.10` + **用含本提交的代码重建 api 镜像**
+  （否则容器内仍是旧 file:// 逻辑）；(b) **前端③**：dev `vite.config.ts` 加 `/img/<name>` 中间件 + dev
+  `IMAGE_PUBLIC_BASE_URL=http://localhost:3000`（仅 dev 一致性，prod 不依赖）。(a) 就位后 QA 按本条验收 prod。
