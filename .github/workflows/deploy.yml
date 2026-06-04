@@ -27,7 +27,9 @@ jobs:
       - name: Build frontend (image-web)
         working-directory: image-web
         run: |
-          npm ci
+          # --legacy-peer-deps 临时绕开 typescript 6 vs openapi-typescript peer 冲突
+          # 根因属前端域，见 ISSUE-0027（前端提交 .npmrc 或调版本后可去掉本 flag）
+          npm ci --legacy-peer-deps
           npm run build
 
       - name: Setup SSH
