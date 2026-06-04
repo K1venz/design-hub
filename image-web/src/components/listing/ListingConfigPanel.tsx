@@ -4,31 +4,31 @@ import { GradientButton } from '@/components/visual/GradientButton'
 import { ConfigSelect } from '@/components/listing/ConfigSelect'
 import { ImageUploader } from '@/components/listing/ImageUploader'
 import {
-  MODIFIER_FIELDS, RATIOS, N_MIN, N_MAX, estimateCost, type ListingConfig,
+  MODIFIER_FIELDS, RATIOS, N_MIN, N_MAX, estimateCost, type ListingConfig, type UploadedImage,
 } from '@/lib/listing'
 
 interface ListingConfigPanelProps {
   config: ListingConfig
-  files: File[]
+  uploaded: UploadedImage[]
   pending: boolean
   onConfigChange: (next: ListingConfig) => void
-  onFilesChange: (files: File[]) => void
+  onUploadedChange: (uploaded: UploadedImage[]) => void
   onGenerate: () => void
 }
 
 const N_OPTIONS = Array.from({ length: N_MAX - N_MIN + 1 }, (_, i) => String(N_MIN + i))
 
 export function ListingConfigPanel(props: ListingConfigPanelProps) {
-  const { config, files, pending, onConfigChange, onFilesChange, onGenerate } = props
+  const { config, uploaded, pending, onConfigChange, onUploadedChange, onGenerate } = props
   const setModifier = (key: string, value: string) =>
     onConfigChange({ ...config, modifiers: { ...config.modifiers, [key]: value } })
-  const canGenerate = files.length > 0 && config.prompt.trim().length > 0 && !pending
+  const canGenerate = uploaded.length > 0 && config.prompt.trim().length > 0 && !pending
 
   return (
     <div className="flex w-[392px] shrink-0 flex-col border-r border-[#ece8e2] bg-white">
       <div className="flex-1 overflow-auto p-5">
         <h4 className="mb-2.5 text-[13px] font-bold">产品原图（最多 3 张）</h4>
-        <ImageUploader files={files} onChange={onFilesChange} max={3} />
+        <ImageUploader onChange={onUploadedChange} max={3} />
 
         <h4 className="mb-2.5 mt-5 text-[13px] font-bold">生成设置</h4>
         <div className="grid grid-cols-2 gap-2.5">

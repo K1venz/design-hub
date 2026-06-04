@@ -2,20 +2,41 @@ import { useEffect, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 
 import {
-  LISTING_EVENT_TYPES, buildListingFormData, parseListingEvent,
-  type ListingEvent, type ListingGenerateInput,
+  LISTING_EVENT_TYPES, buildListingBody, parseListingEvent,
+  type ListingEvent, type ListingGenerateInput, type UploadedImage,
 } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
-/** POST /listing/generate (multipart) -> { job_id }. fail-fast: non-2xx throws. */
+/** POST /uploads (multipart, single file field `file`, Bearer) -> { id, url }. fail-fast. */
+export function useUploadImage() {
+  return useMutation({
+    mutationFn: async (file: File): Promise<UploadedImage> => {
+      const token = useAuthStore.getState().token
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/uploads', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      })
+      if (!res.ok) throw new Error(`上传失败（${res.status}）：${await res.text()}`)
+      return res.json() as Promise<UploadedImage>
+    },
+  })
+}
+
+/** POST /listing/generate (JSON body, upload_ids) -> { job_id }. fail-fast: non-2xx throws. */
 export function useListingGenerate() {
   return useMutation({
     mutationFn: async (input: ListingGenerateInput): Promise<{ job_id: string }> => {
       const token = useAuthStore.getState().token
       const res = await fetch('/api/listing/generate', {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: buildListingFormData(input),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(buildListingBody(input)),
       })
       if (!res.ok) throw new Error(`出图请求失败（${res.status}）：${await res.text()}`)
       return res.json() as Promise<{ job_id: string }>

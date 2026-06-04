@@ -5,12 +5,13 @@ import { useListingGenerate, useListingEvents } from '@/api/listing'
 import { ListingConfigPanel } from '@/components/listing/ListingConfigPanel'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
-import { DEFAULT_LISTING_CONFIG, type ListingConfig } from '@/lib/listing'
+import { DEFAULT_LISTING_CONFIG, type ListingConfig, type UploadedImage } from '@/lib/listing'
 
-/** 商品套图工作台：左配置 / 右画布。无 project；出图走 /listing/* 异步 + SSE。 */
+/** 商品套图工作台：左配置 / 右画布。两步流——先上传预览(uploaded)，出图带 upload_ids；SSE 逐张到达。 */
 export function WorkbenchPage() {
   const [config, setConfig] = useState<ListingConfig>(DEFAULT_LISTING_CONFIG)
-  const [files, setFiles] = useState<File[]>([])
+  const [uploaded, setUploaded] = useState<UploadedImage[]>([])
+  const [resetKey, setResetKey] = useState(0) // bump → 重挂 ConfigPanel 清空上传器内部态
   const [jobId, setJobId] = useState<string | null>(null)
   const [slots, setSlots] = useState<ResultSlot[]>([])
   const [done, setDone] = useState(0)
@@ -21,7 +22,8 @@ export function WorkbenchPage() {
     () =>
       newTaskBus.subscribe(() => {
         setConfig(DEFAULT_LISTING_CONFIG)
-        setFiles([])
+        setUploaded([])
+        setResetKey((k) => k + 1)
         setJobId(null)
         setSlots([])
         setDone(0)
@@ -53,7 +55,7 @@ export function WorkbenchPage() {
     setDone(0)
     try {
       const { job_id } = await generate.mutateAsync({
-        images: files,
+        uploadIds: uploaded.map((u) => u.id),
         prompt: config.prompt,
         ratio: config.ratio,
         n: config.n,
@@ -71,11 +73,12 @@ export function WorkbenchPage() {
   return (
     <>
       <ListingConfigPanel
+        key={resetKey}
         config={config}
-        files={files}
+        uploaded={uploaded}
         pending={generating}
         onConfigChange={setConfig}
-        onFilesChange={setFiles}
+        onUploadedChange={setUploaded}
         onGenerate={onGenerate}
       />
       <ResultGallery title="商品套图" slots={slots} done={done} total={config.n} generating={generating} />
