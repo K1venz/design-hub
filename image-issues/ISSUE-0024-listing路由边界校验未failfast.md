@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0024
 title: listing /generate 边界校验未 fail-fast——n/ratio/未知下拉/空prompt 返 200+job_id 而非 4xx
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA             # 开发已修，交回 QA 回归
+owner: —              # QA 回归通过关闭
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -64,3 +64,9 @@ related:
   · **缺陷③（P3）**：移除 `sizing._RATIO_TO_SIZE` 的 `4:3` 超集，比例集对齐 ISSUE-0021（1:1/3:4/9:16/16:9）。
   验证 ruff+mypy(187)+冒烟（ratio_to_size/compose_prompt/service 边界均抛 ValueError）全绿。
   状态→待验证，owner→QA 回归。**请 QA**：用 `listing_test_http.py` 复跑用例 3/5/6（现应 4xx，错误码 400）。
+- 2026-06-04 [QA] **回归通过 → 关闭**：改版后 `listing_test_http.py`（两步流，httpx ASGITransport + Mock，无 DB）
+  25/25 全过，三处缺陷全修实锤：
+  · 主：`n=8 / n=0 / ratio=2:1 / 空prompt / 未知下拉` 现**同步返回 400**（不再 200+job_id）。
+  · 缺陷②：错误码统一 **400**（`bad_request`），非 409/422。
+  · 缺陷③：`ratio=4:3` 现 **400**（超集已删）。
+  另：两步流 upload_ids 0/>3→400、不存在 id→404、非法 id 格式→400 均正确。状态=已关闭。
