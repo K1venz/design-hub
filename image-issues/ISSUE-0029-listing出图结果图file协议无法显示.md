@@ -70,3 +70,10 @@ listing「商品套图」点出图 → **出图成功**（`POST /api/listing/gen
   状态=已确认，owner→开发（①为主）；②→Ops、③→前端。改完通知 QA。
   **QA 验收（我）**：① 真服务器 `curl https://203.0.113.10/img/<name>.png` → 200 image/png；
   ② Playwright 本地复跑「上传→出图→结果区浏览器正常回显（不再裂图、无 file:// 报错）」；prod 同验。
+- 2026-06-04 [运维] **②(Ops/nginx) 已完成并部署到生产**：
+  · compose nginx 加只读卷 `/data/docker/design-hub/generated:/usr/share/nginx/img:ro`
+  · nginx 443 加 `location /img/ { alias /usr/share/nginx/img/; autoindex off; expires 7d; access_log off; }`
+  · `nginx -t` 通过、重建生效；实测 `curl https://203.0.113.10/img/14ca4f72bb087e83.png` → **200 image/png**（QA 验收①先行达成），`/img/`(目录) → 403 防遍历。
+  · 已合入 .github CI（push main 会带上），并直接部署生效。
+  **仍待**：① 后端返 `…/img/<sha>.png`（开发，image-code）+ ③ dev 一致性（前端）。
+  其中 prod `IMAGE_PUBLIC_BASE_URL=https://203.0.113.10` 这条 env 由运维在①落地后注入服务器 .env（我的域，待开发加好 settings 字段即注入）。owner 维持=开发。
