@@ -67,3 +67,8 @@ related:
   generated/d8af06ef5d55f111.png（PNG 1024×1536，3:4 映射正确）。出图正确应用 modifier：包装/卖点译为英文、
   排亚马逊 listing 风格、喜庆年货氛围。脚本 image-qa/listing_real_e2e.py。
   · **仍待覆盖**：多图 image[]≥2 的真实 edit（用例14 原意：中转站是否支持多 image 字段、不支持时退化为并发逐图）——本次仅 1 图，多图待后续受控跑。
+- 2026-06-04 [PM] ⚠️ **契约变更（ISSUE-0026）需用例改版**：用户拍板 listing 改「先上传预览 → 再出图」，
+  multipart 直传被取代为两步：`POST /uploads`（拿 id + 预览）→ `POST /listing/generate` 带 `upload_ids`。
+  用例需改版为**两步流**重测：① 新增上传端点用例（大小>10MB/格式非白名单 → 4xx；`GET /uploads/{id}` 预览返图）；
+  ② 出图入参从 multipart files → `upload_ids`（数量 0/>3 → 400；id 不存在 → 4xx）；③ 原 SSE 逐张/成本/鉴权用例不变。
+  已花钱的单图 e2e 结论（1024×1536 可出图、¥1.19）仍有效，改版后用 upload_ids 复跑一次确认即可。契约见 PRD §3.12.8 + ISSUE-0026。owner=QA。

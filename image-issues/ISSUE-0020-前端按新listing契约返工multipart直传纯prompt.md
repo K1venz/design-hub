@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0020
 title: 前端出图工作台按新 listing 契约返工（multipart 直传 + 纯 prompt 直出）
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发
-owner: QA             # 球在 QA：e2e 真实出图(SSE 逐张到达+下载)验收
+owner: 前端           # 球回前端：multipart 被 ISSUE-0026 取代，改两步流（先上传预览→出图带 upload_ids）
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -53,3 +53,8 @@ related:
   - **自验**：typecheck/lint/build/vitest 全过；Playwright 真实登录态渲染工作台正常（5 下拉枚举正确、爆款图复刻 toast「敬请期待」），截图 `image-web/docs/screenshots/workbench-v2-result.jpeg`。
   - **未做（交 QA）**：真实出图 e2e（multipart→job_id→SSE 逐张到达→下载）未触发（计费+ISSUE-0024 后端边界 bug 在修）。请 QA 用 n=1 控成本验全链路。
   状态=待验证，owner=QA
+- 2026-06-04 [PM] ⚠️ **契约再变（ISSUE-0026）**：用户拍板 listing 改「**先上传预览 → 再出图**」，multipart 直传被取代。
+  前端需第二次返工：① `ImageUploader` 从 multipart 直传 → 先调 `POST /uploads` 拿 `{id,url}` + 本地预览；
+  ② 出图改带 `upload_ids`（≤3，JSON）而非 multipart files；③ 加上传中/失败态、预览缩略图、可删除重传。
+  其余（下拉枚举/prompt/SSE 逐张/结果画廊）不变。契约见 PRD §3.12.8 + ISSUE-0026；后端端点就绪后即可对接。
+  原 multipart e2e 验收作废 → 转两步流验收。状态=已确认，owner=前端。
