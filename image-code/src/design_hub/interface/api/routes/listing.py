@@ -3,14 +3,17 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Header, Request, UploadFile
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 
 from design_hub.application.listing.commands import ListingGenerationCommand
 from design_hub.application.listing.listing_service import ListingGenerationService
-from design_hub.domain.errors import DomainError
+from design_hub.application.listing.prompt_composer import compose_prompt
+from design_hub.application.listing.sizing import ratio_to_size
+from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.models import TaskEvent
 from design_hub.interface.api.deps import CurrentUserDep, CurrentUserSseDep
+from design_hub.interface.listing_schemas import ListingGenerateRequest
 from design_hub.ports.events import EventPublisher, EventStream
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.task_queue import TaskQueue
@@ -24,37 +27,38 @@ def _sse(event: TaskEvent) -> str:
 
 @router.post("/generate")
 async def generate_listing(
+    req: ListingGenerateRequest,
     request: Request,
     _user: CurrentUserDep,  # 需 Bearer
-    images: list[UploadFile],
-    prompt: Annotated[str, Form()],
-    ratio: Annotated[str, Form()],
-    n: Annotated[int, Form()],
-    modifiers: Annotated[str, Form()] = "{}",
     user_id: Annotated[str, Header(alias="X-User-Id")] = "designer-anon",
 ) -> dict[str, str]:
-    """listing 一键出图：multipart 直传 ≤3 图 + prompt + modifiers，异步返回 job_id。"""
-    if not 1 <= len(images) <= 3:
-        raise DomainError(f"图片数量需为 1..3，实际 {len(images)}")
-    parsed = json.loads(modifiers)  # 非法 JSON → ValueError → 400
-    if not isinstance(parsed, dict):
-        raise DomainError("modifiers 必须是 JSON 对象")
-    image_bytes = tuple([await f.read() for f in images])
-    queue: TaskQueue = request.app.state.task_queue
+    """listing 一键出图（两步流，ISSUE-0026）：入参经 upload_ids 引用已上传图，异步返回 job_id。"""
     service: ListingGenerationService = request.app.state.listing_service
-    history: ListingHistory = request.app.state.listing_history
+    uploads: UploadService = request.app.state.upload_service
+    # 边界 fail-fast（ISSUE-0024）：入队前同步校验完所有输入，任一非法 → 4xx，不入队、不发 job_id。
+    # 输入错误统一 ValueError→400（区别于领域冲突 DomainError→409）。
+    if not 1 <= len(req.upload_ids) <= 3:
+        raise ValueError(f"upload_ids 数量需为 1..3，实际 {len(req.upload_ids)}")
+    if not 1 <= req.n <= 7:
+        raise ValueError(f"张数需为 1..7，实际 {req.n}")
+    ratio_to_size(req.ratio)  # 非法比例 → ValueError(400)
+    compose_prompt(req.prompt, req.modifiers, service.modifier_registry)  # 空 prompt/未知下拉 → 400
+    # id 非法→400 / 不存在→404
+    images = tuple([(await uploads.load(uid))[0] for uid in req.upload_ids])
     events: EventPublisher = request.app.state.event_stream
+    history: ListingHistory = request.app.state.listing_history
+    queue: TaskQueue = request.app.state.task_queue
     job_id = uuid.uuid4().hex
     command = ListingGenerationCommand(
         service=service,
         events=events,
         history=history,
         user_id=user_id,
-        prompt=prompt,
-        modifiers={str(k): str(v) for k, v in parsed.items()},
-        images=image_bytes,
-        ratio=ratio,
-        n=n,
+        prompt=req.prompt,
+        modifiers=req.modifiers,
+        images=images,
+        ratio=req.ratio,
+        n=req.n,
     )
     await queue.enqueue(job_id=job_id, command=command)
     return {"job_id": job_id}

@@ -20,6 +20,7 @@ from design_hub.application.dashboard.cost_report import CostReportService
 from design_hub.application.export.export_service import ExportService
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import PromptModifierRegistry
+from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.project.asset_service import AssetService
 from design_hub.application.project.brief_service import BriefService
@@ -64,6 +65,7 @@ from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetri
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.infrastructure.storage.local_asset import LocalAssetStore
+from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import get_current_user, require_role
 from design_hub.interface.api.routes import (
@@ -80,6 +82,7 @@ from design_hub.interface.api.routes import (
     projects,
     revision,
     selection,
+    uploads,
     users,
 )
 
@@ -123,6 +126,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         registry=registry, guard=guard, modifier_registry=PromptModifierRegistry()
     )
     app.state.listing_history = NoOpListingHistory()
+    # 图片上传两步流（ISSUE-0026）：上传图落本地 assets/，预览经 GET /uploads/{id} 代理
+    app.state.upload_service = UploadService(store=LocalUploadStore(settings.asset_output_dir))
     # WP-A 工作台：客户/项目用例（DB-backed）
     customer_repo = SqlAlchemyCustomerRepository(session_factory)
     project_repo = SqlAlchemyProjectRepository(session_factory)
@@ -203,6 +208,8 @@ def create_production_app() -> FastAPI:
     app.include_router(async_generation.router)
     # listing 一键出图：鉴权同 async_generation（Bearer + SSE ?access_token=）
     app.include_router(listing.router)
+    # 图片上传两步流（ISSUE-0026）：POST /uploads + GET /uploads/{id} 预览代理
+    app.include_router(uploads.router)
     app.include_router(customers.router, dependencies=login_required)
     app.include_router(projects.router, dependencies=login_required)
     app.include_router(project_catalog.router, dependencies=login_required)
