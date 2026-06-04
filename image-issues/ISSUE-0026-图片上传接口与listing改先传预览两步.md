@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0026
 title: 后端图片上传接口 POST /uploads + listing 改「先上传预览 → 再出图」（取代 multipart 直传）
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已修复        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户主动需求；listing 核心交互改两步，跨后端/前端/QA 返工需协调
 reporter: PM          # 用户提出，PM 排期
-owner: QA             # 后端已实现，交 QA 按两步流改版用例验证
+owner: PM             # QA 两步流 e2e 验证通过；待 PM 最终关闭（前端联调归 ISSUE-0020）
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -84,3 +84,9 @@ related:
   ① `POST /uploads` 上传字段名 = `file` ✅；② `/listing/generate` = JSON body、`modifiers` = `dict[str,str]` 嵌套对象 ✅；
   ③ 预览：前端用本地 blob（后端 `GET /uploads/{id}` 代理走 `?access_token=` 备用，前端 `uploaded.url` 已留待用）。
   **QA e2e 可放心，契约无分叉。** 小提醒：若前端将来改用后端 url 预览（非 blob），`<img>` 需带 `?access_token=`。
+- 2026-06-04 [QA] **两步流 QA 验证通过 → 已修复**（全程零 mock，用户要求）。打真服务器 :8002：
+  · 上传端点 `POST /uploads`(字段名 `file`)：合法→200`{id,url}`(真落盘 sha id)、>10MB/非白名单(gif)/空→400、无Bearer→401；
+    预览 `GET /uploads/{id}?access_token=`→200(image/*)、无token→401、缺失→404、非法id→400。
+  · 两步流真实 e2e：`POST /uploads`→拿 id→`POST /listing/generate{upload_ids}`(JSON,modifiers 对象)→SSE→真图
+    （C 单图 1024×1536、D 双图，真 gpt-image，各 ¥1.19）。契约与 PM 核对(commit 2649274)完全一致，无分叉。
+  详见 image-qa/2026-06-04-listing-一键出图测试报告.md §8 + ISSUE-0023。状态→已修复，owner→PM 终关。

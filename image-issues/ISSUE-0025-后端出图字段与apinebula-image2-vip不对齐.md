@@ -4,7 +4,7 @@ title: 后端出图字段与 apinebula image2-vip 对比（实测推翻 size/ima
 status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # 原判 P1 三致命经 QA 实测推翻 2 个；残留多图 image[] 验证 + quality 省钱
 reporter: PM          # 受命对 /generate 做可用性判断时发现
-owner: QA             # 残留①多图 image[]≥2 实测(QA 受控)；残留②quality 省钱(开发，见记录)
+owner: 开发           # 残留①多图 image[] QA 已受控实测(上游接受/未失败,见记录)；残留②quality 省钱归开发
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -82,3 +82,11 @@ ISSUE-0007 记「文生图实测正常出图」。若 size=1024 真被 vip 硬�
     ② quality 未传 → 走 high 档（实测 ¥1.19/张偏贵），显式传 `medium` 可显著降本（owner→开发，省钱优化，非阻断）。
   · vip 实价已知：high 档 ¥1.19/张。severity P1→P2，owner→QA（多图实测优先）。
   · **教训**：上一轮仅据文档下"致命"结论并改了 PRD/sizing 方向，未先核 QA 已有实测——**实测优先于文档**，下次先翻 image-qa 再下判断。
+- 2026-06-04 [QA] **残留① 多图 image[]≥2 受控实测（真服务器 :8002 真 gpt-image，n=1，¥1.19）**：
+  传 2 张不同花生图(两步流 upload → upload_ids[2]) → `provider._edit` 以 `image[]` 重复字段发上游 →
+  **apinebula 接受、出图成功（HTTP 200，gpt-image-2，1024×1024，312s）、未失败/未退化报错** →
+  **推翻文档推测「image[] 被忽略→出图失败」**；故后端**无需退化为并发逐图**（spec §6.1 兜底暂不必要）。
+  脚本 image-qa/listing_real_e2e.py（D），报告 §8.2。
+  ⚠️ **存疑（黑盒局限）**：2 张输入均花生包装、外观相近，无法 100% 确认第 2 张真被合成使用（312s>单图 116s 为旁证）。
+  如需确证「多图真融合」，建议用 2 张**视觉差异大**的输入做 A/B 受控复跑（再花 1 张）。
+  残留① 功能层面已通（不阻断）；残留②（显式传 quality=medium 省钱）仍归开发。owner→开发（残留②）。

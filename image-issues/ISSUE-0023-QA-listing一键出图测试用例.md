@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0023
 title: QA——listing 一键出图（multipart 直传 + 纯 prompt）测试用例
-status: 待验证
+status: 已修复
 severity: P2
 reporter: 开发
-owner: QA             # 自动化用例已交付执行；待真实 e2e(用例14) + ISSUE-0024 修复后回归终验
+owner: PM             # 两步流用例改版+真服务器执行+真实e2e 全过；统计验收(§3.12.6 可用率/P95)需 PM 定采样
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -72,3 +72,13 @@ related:
   用例需改版为**两步流**重测：① 新增上传端点用例（大小>10MB/格式非白名单 → 4xx；`GET /uploads/{id}` 预览返图）；
   ② 出图入参从 multipart files → `upload_ids`（数量 0/>3 → 400；id 不存在 → 4xx）；③ 原 SSE 逐张/成本/鉴权用例不变。
   已花钱的单图 e2e 结论（1024×1536 可出图、¥1.19）仍有效，改版后用 upload_ids 复跑一次确认即可。契约见 PRD §3.12.8 + ISSUE-0026。owner=QA。
+- 2026-06-04 [QA] **两步流改版完成 + 全套零 mock 验收（用户要求不 mock）**。报告 image-qa/2026-06-04-listing-一键出图测试报告.md §8。
+  · **边界/契约：打真服务器 :8002（真路由+真 provider+真鉴权+真落盘，无 mock）21/21 全过**（脚本 listing_real_boundary.py）——
+    上传(大小/格式/空/鉴权/预览/404/非法id)、出图入参(upload_ids 0/>3→400、不存在→404、非法格式→400)、
+    ISSUE-0024 回归(n/ratio/空prompt/未知下拉→全 400、错误码 400、4:3 已删)、鉴权 401。非法入参边界全 fail-fast，未出图零成本。
+  · **真实 e2e（真 gpt-image，n=1，共 ¥2.38）**：C 单图两步流 upload→upload_ids→SSE→真图 1024×1536(116s)；
+    D 双图 upload_ids[2]→真图(312s)。SSE happy 全序列真实覆盖。脚本 listing_real_e2e.py。
+  · **ISSUE-0024 已修复并回归通过 → 已关闭**；**4:3 超集已删**。
+  · **多图 image[]≥2**：上游 apinebula 接受、未失败（详见 ISSUE-0025 残留①；视觉确证待差异化输入）。
+  · **残留（非 QA 功能项）**：验收口径 §3.12.6 的「首次可用率 50–60% / P95≤5min」需多样本真实出图采样（成本）+ PM 定口径——
+    本轮只验「非法入参全 4xx」✅，统计阈值未跑。状态→已修复，owner→PM（统计验收 + 最终关闭）。
