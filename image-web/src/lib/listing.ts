@@ -42,22 +42,37 @@ export function buildModifiers(config: ListingConfig): string {
   return JSON.stringify(config.modifiers)
 }
 
+/** Result of POST /uploads — `id` is the storage key, `url` the proxy GET /uploads/{id}. */
+export interface UploadedImage {
+  id: string
+  url: string
+}
+
 export interface ListingGenerateInput {
-  images: File[]
+  uploadIds: string[]
   prompt: string
   ratio: string
   n: number
   modifiers: Record<string, string>
 }
 
-export function buildListingFormData(input: ListingGenerateInput): FormData {
-  const fd = new FormData()
-  for (const file of input.images) fd.append('images', file)
-  fd.append('prompt', input.prompt)
-  fd.append('ratio', input.ratio)
-  fd.append('n', String(input.n))
-  fd.append('modifiers', JSON.stringify(input.modifiers))
-  return fd
+/** JSON body for POST /listing/generate (two-step: upload first, reference by id). */
+export interface ListingGenerateBody {
+  upload_ids: string[]
+  prompt: string
+  ratio: string
+  n: number
+  modifiers: Record<string, string>
+}
+
+export function buildListingBody(input: ListingGenerateInput): ListingGenerateBody {
+  return {
+    upload_ids: input.uploadIds,
+    prompt: input.prompt,
+    ratio: input.ratio,
+    n: input.n,
+    modifiers: input.modifiers,
+  }
 }
 
 /** TaskEventType values emitted by backend (design_hub/domain/enums.py). */

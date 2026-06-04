@@ -3,7 +3,7 @@ import {
   MODIFIER_FIELDS,
   DEFAULT_LISTING_CONFIG,
   buildModifiers,
-  buildListingFormData,
+  buildListingBody,
   parseListingEvent,
   estimateCost,
   type ListingConfig,
@@ -30,27 +30,23 @@ describe('buildModifiers', () => {
   })
 })
 
-describe('buildListingFormData', () => {
+describe('buildListingBody', () => {
   const input: ListingGenerateInput = {
-    images: [new File(['a'], 'a.png', { type: 'image/png' }),
-             new File(['b'], 'b.png', { type: 'image/png' })],
+    uploadIds: ['u1', 'u2'],
     prompt: '早餐桌场景',
     ratio: '3:4',
     n: 6,
     modifiers: { platform: '亚马逊', region: '美国', language: '英文' },
   }
 
-  it('appends each image under the same "images" key', () => {
-    const fd = buildListingFormData(input)
-    expect(fd.getAll('images')).toHaveLength(2)
-  })
-
-  it('appends scalar fields and JSON-stringified modifiers', () => {
-    const fd = buildListingFormData(input)
-    expect(fd.get('prompt')).toBe('早餐桌场景')
-    expect(fd.get('ratio')).toBe('3:4')
-    expect(fd.get('n')).toBe('6')
-    expect(fd.get('modifiers')).toBe('{"platform":"亚马逊","region":"美国","language":"英文"}')
+  it('maps uploadIds → upload_ids and passes prompt/ratio/n/modifiers through', () => {
+    expect(buildListingBody(input)).toEqual({
+      upload_ids: ['u1', 'u2'],
+      prompt: '早餐桌场景',
+      ratio: '3:4',
+      n: 6,
+      modifiers: { platform: '亚马逊', region: '美国', language: '英文' },
+    })
   })
 })
 
