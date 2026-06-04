@@ -4,6 +4,8 @@ import {
   DEFAULT_LISTING_CONFIG,
   buildModifiers,
   buildListingFormData,
+  parseListingEvent,
+  estimateCost,
   type ListingConfig,
   type ListingGenerateInput,
 } from '@/lib/listing'
@@ -49,5 +51,33 @@ describe('buildListingFormData', () => {
     expect(fd.get('ratio')).toBe('3:4')
     expect(fd.get('n')).toBe('6')
     expect(fd.get('modifiers')).toBe('{"platform":"亚马逊","region":"美国","language":"英文"}')
+  })
+})
+
+describe('parseListingEvent', () => {
+  it('maps image_generated (url+seed, no index) to an image event', () => {
+    const e = parseListingEvent('image_generated', JSON.stringify({ url: 'http://x/2.png', seed: 7 }))
+    expect(e).toEqual({ kind: 'image', url: 'http://x/2.png', seed: 7 })
+  })
+  it('maps task_completed (with total_cost) to completed', () => {
+    expect(parseListingEvent('task_completed', JSON.stringify({ total_cost: '7.14' })))
+      .toEqual({ kind: 'completed', totalCost: '7.14' })
+  })
+  it('maps task_failed to failed with message', () => {
+    expect(parseListingEvent('task_failed', JSON.stringify({ error: '超时' })))
+      .toEqual({ kind: 'failed', error: '超时' })
+  })
+  it('maps task_started / model_called to meta', () => {
+    expect(parseListingEvent('task_started', '{}')).toEqual({ kind: 'meta' })
+    expect(parseListingEvent('model_called', JSON.stringify({ model: 'gpt-image-2' }))).toEqual({ kind: 'meta' })
+  })
+  it('returns unknown for unrecognized type', () => {
+    expect(parseListingEvent('whatever', '{}')).toEqual({ kind: 'unknown' })
+  })
+})
+
+describe('estimateCost', () => {
+  it('multiplies n by unit cost', () => {
+    expect(estimateCost(6)).toBeCloseTo(6 * 1.19, 2)
   })
 })
