@@ -5,6 +5,8 @@ export const newTaskBus = {
   emit: () => listeners.forEach((l) => l()),
   subscribe: (l: Listener) => {
     listeners.add(l)
-    return () => listeners.delete(l)
+    return () => {
+      listeners.delete(l)
+    }
   },
 }
