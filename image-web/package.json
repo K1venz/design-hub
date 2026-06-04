@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "gen:api": "openapi-typescript ./openapi.json -o ./src/api/schema.d.ts",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
@@ -45,6 +47,7 @@
     "openapi-typescript": "^7.13.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.8"
   }
 }
