@@ -61,3 +61,9 @@ related:
     200+job_id 而非 4xx，违反 spec §4.1/§7）；附带错误码 409/422≠spec 的 400、sizing 多接受 4:3 两处小不一致。
   · **用例 14（真实多图 edit）待受控环境**：需 GPT_IMAGE_* key + MySQL + 花钱，与 Dev/运维协调（plan §5.3），本轮未跑。
   · 状态→待验证，owner=QA（持单待 ISSUE-0024 修复回归 + 真实 e2e）。
+- 2026-06-04 [QA] **用例14 真实 e2e（单图）已跑通**（受控，真花钱 ¥1.19）：本地起含 listing 的当前代码后端(:8002,
+  真实 GPT+MySQL)，`POST /listing/generate`(1 图 + 平台=亚马逊/地区=美国/语言=英文 + ratio=3:4 + 卖点 prompt) → job_id →
+  SSE `task_started→model_called(gpt-image-2,163s)→image_generated→task_completed(¥1.19)` → 真实出图
+  generated/d8af06ef5d55f111.png（PNG 1024×1536，3:4 映射正确）。出图正确应用 modifier：包装/卖点译为英文、
+  排亚马逊 listing 风格、喜庆年货氛围。脚本 image-qa/listing_real_e2e.py。
+  · **仍待覆盖**：多图 image[]≥2 的真实 edit（用例14 原意：中转站是否支持多 image 字段、不支持时退化为并发逐图）——本次仅 1 图，多图待后续受控跑。
