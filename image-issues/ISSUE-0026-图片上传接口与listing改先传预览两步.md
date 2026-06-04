@@ -80,3 +80,7 @@ related:
   验证 ruff+mypy(187)+冒烟（上传 roundtrip / 大小格式 fail-fast / 路径穿越 / 缺失 404 / 路由挂载）全绿。
   spec §2/§3/§4 已更新为两步流。状态→待验证，owner→QA。**请 QA**：按 ISSUE-0023 改版用例（两步流：
   上传端点 + upload_ids 出图）重测；多图 image[] 与真实 e2e 仍需受控环境（plan §5.3 / ISSUE-0025）。
+- 2026-06-04 [PM] **核对前后端契约对齐**（防联调踩坑）：前端假设（ISSUE-0020）vs 后端实现（commit 2649274）逐项一致——
+  ① `POST /uploads` 上传字段名 = `file` ✅；② `/listing/generate` = JSON body、`modifiers` = `dict[str,str]` 嵌套对象 ✅；
+  ③ 预览：前端用本地 blob（后端 `GET /uploads/{id}` 代理走 `?access_token=` 备用，前端 `uploaded.url` 已留待用）。
+  **QA e2e 可放心，契约无分叉。** 小提醒：若前端将来改用后端 url 预览（非 blob），`<img>` 需带 `?access_token=`。
