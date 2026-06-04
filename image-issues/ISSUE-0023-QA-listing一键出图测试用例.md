@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0023
 title: QA——listing 一键出图（multipart 直传 + 纯 prompt）测试用例
-status: 已确认
+status: 待验证
 severity: P2
 reporter: 开发
-owner: QA             # 球在 QA：出并执行测试用例
+owner: QA             # 自动化用例已交付执行；待真实 e2e(用例14) + ISSUE-0024 修复后回归终验
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -51,3 +51,13 @@ related:
 
 ## 处理记录
 - 2026-06-04 [开发] listing 后端 MVP 完成，创建本条派 QA。状态=已确认，owner=QA
+- 2026-06-04 [QA] 测试用例已出并执行（Mock，零成本），报告见 image-qa/2026-06-04-listing-一键出图测试报告.md，
+  脚本 listing_test_unit.py / listing_test_http.py。
+  · **测试方式决策**：未引入 pytest（基础设施变更需 PM 对齐，不擅自加）；沿用 image-qa 既有风格——
+    纯逻辑层直接 import 跑（无 DB）、HTTP/SSE 用 httpx ASGITransport in-process + Mock provider + token 直 mint（无 DB）。
+  · **结果**：Layer1 单元 22/22 全过；Layer2 HTTP/SSE 12/16。业务逻辑(prompt 组装/ratio→size/成本预扣回正回滚)、
+    SSE 全序列逐张/晚订阅回放/provider 失败 task_failed、鉴权 401 —— 均✅。
+  · **发现 1 个真实 bug → 开 ISSUE-0024(P2, owner=开发)**：边界校验未 fail-fast（n/ratio/未知下拉/空prompt 返
+    200+job_id 而非 4xx，违反 spec §4.1/§7）；附带错误码 409/422≠spec 的 400、sizing 多接受 4:3 两处小不一致。
+  · **用例 14（真实多图 edit）待受控环境**：需 GPT_IMAGE_* key + MySQL + 花钱，与 Dev/运维协调（plan §5.3），本轮未跑。
+  · 状态→待验证，owner=QA（持单待 ISSUE-0024 修复回归 + 真实 e2e）。
