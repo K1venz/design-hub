@@ -59,3 +59,44 @@ export function buildListingFormData(input: ListingGenerateInput): FormData {
   fd.append('modifiers', JSON.stringify(input.modifiers))
   return fd
 }
+
+/** TaskEventType values emitted by backend (design_hub/domain/enums.py). */
+export const LISTING_EVENT_TYPES = [
+  'task_started', 'model_called', 'image_generated', 'task_completed', 'task_failed',
+] as const
+
+export type ListingEvent =
+  | { kind: 'image'; url: string; seed?: number }
+  | { kind: 'completed'; totalCost?: string }
+  | { kind: 'failed'; error: string }
+  | { kind: 'meta' } // task_started / model_called — nothing to render
+  | { kind: 'unknown' }
+
+/**
+ * Map a named SSE event to a typed ListingEvent.
+ * `type` = SSE `event:` line; `rawData` = `data:` line JSON (payload only, NO type field).
+ * Backend contract: routes/listing.py `_sse()` + application/listing/commands.py.
+ */
+export function parseListingEvent(type: string, rawData: string): ListingEvent {
+  const d = JSON.parse(rawData) as Record<string, unknown>
+  switch (type) {
+    case 'image_generated':
+      // Backend sends no index; caller fills slots in arrival order.
+      return { kind: 'image', url: String(d.url ?? ''), seed: d.seed == null ? undefined : Number(d.seed) }
+    case 'task_completed':
+      return { kind: 'completed', totalCost: d.total_cost == null ? undefined : String(d.total_cost) }
+    case 'task_failed':
+      return { kind: 'failed', error: String(d.error ?? '出图失败') }
+    case 'task_started':
+    case 'model_called':
+      return { kind: 'meta' }
+    default:
+      return { kind: 'unknown' }
+  }
+}
+
+/** ⚠️ Placeholder unit price pending PM/backend (ISSUE-0021). CTA estimate only; show total_cost on completion. */
+export const LISTING_UNIT_COST = 1.19
+export function estimateCost(n: number): number {
+  return n * LISTING_UNIT_COST
+}
