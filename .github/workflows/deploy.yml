@@ -1,0 +1,64 @@
+name: deploy
+
+# push 到 main 自动部署到生产服务器（方案 A：GitHub 托管 runner → SSH/rsync 推到服务器）。
+# 由运维(image-ops)维护。secrets：DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS / DEPLOY_HOST / DEPLOY_USER
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false   # 部署排队，不互相打断
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: image-web/.nvmrc
+          cache: npm
+          cache-dependency-path: image-web/package-lock.json
+
+      - name: Build frontend (image-web)
+        working-directory: image-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Sync code + artifacts to server
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          RSH="ssh -i $HOME/.ssh/id_deploy -o IdentitiesOnly=yes -o ConnectTimeout=30"
+          DEST=/opt/docker/design-hub
+          # 后端源码 → app/（--delete 保净；保护 Dockerfile/.dockerignore 不被删）
+          rsync -az --delete \
+            --exclude '.venv/' --exclude '__pycache__/' --exclude '*.pyc' \
+            --exclude '.mypy_cache/' --exclude '.ruff_cache/' --exclude '.pytest_cache/' \
+            --exclude '*.db' --exclude 'generated/' --exclude 'assets/' --exclude 'exports/' \
+            --exclude '.env' --exclude '.env.development' --exclude '.DS_Store' --exclude '.git/' \
+            --exclude 'Dockerfile' --exclude '.dockerignore' \
+            -e "$RSH" image-code/ "$TARGET:$DEST/app/"
+          # 部署产物（含 app/Dockerfile、compose、nginx、scripts；不删服务器 .env/certs/web）
+          rsync -az -e "$RSH" image-ops/deploy/ "$TARGET:$DEST/"
+          # 前端构建产物
+          rsync -az --delete -e "$RSH" image-web/dist/ "$TARGET:$DEST/web/"
+
+      - name: Deploy on server
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh -i "$HOME/.ssh/id_deploy" -o IdentitiesOnly=yes -o ConnectTimeout=30 \
+            "$TARGET" 'cd /opt/docker/design-hub && bash scripts/deploy.sh'
