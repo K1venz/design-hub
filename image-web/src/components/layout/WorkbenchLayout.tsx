@@ -1,6 +1,7 @@
-import { Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { PlusIcon, LogOutIcon } from 'lucide-react'
 
+import { cn } from '@/lib/utils'
 import { queryClient } from '@/api/query-client'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -43,30 +44,44 @@ export function WorkbenchLayout() {
             <PlusIcon className="size-4" /> 新建任务
           </button>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#cdbfff]">
-            <Avatar className="size-8">
-              <AvatarFallback className="bg-[#f4f0ff] text-xs font-semibold text-[#4733b8]">
-                {user.name.slice(-1)}
-              </AvatarFallback>
-            </Avatar>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel>
-              {user.name} · {user.role}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
+        <div className="flex items-center gap-1.5">
+          <nav className="flex items-center gap-0.5">
             {manageItems.map((i) => (
-              <DropdownMenuItem key={i.to} onClick={() => navigate(i.to)}>
-                <i.icon className="size-4" /> {i.label}
-              </DropdownMenuItem>
+              <NavLink
+                key={i.to}
+                to={i.to}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[13px] text-[#5b554e] transition-colors hover:bg-[#f4f0ff] hover:text-[#4733b8]',
+                    isActive && 'bg-[#f4f0ff] font-medium text-[#4733b8]',
+                  )
+                }
+              >
+                <i.icon className="size-4" />
+                {i.label}
+              </NavLink>
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={logout}>
-              <LogOutIcon className="size-4" /> 退出登录
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </nav>
+          <div className="mx-1.5 h-5 w-px bg-[#ece8e2]" />
+          <DropdownMenu>
+            <DropdownMenuTrigger className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#cdbfff]">
+              <Avatar className="size-8">
+                <AvatarFallback className="bg-[#f4f0ff] text-xs font-semibold text-[#4733b8]">
+                  {user.name.slice(-1)}
+                </AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel>
+                {user.name} · {user.role}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={logout}>
+                <LogOutIcon className="size-4" /> 退出登录
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </header>
       <div className="flex min-h-0 flex-1">
         <WorkbenchRail />
