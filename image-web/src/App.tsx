@@ -7,6 +7,7 @@ import { UNAUTHORIZED_EVENT } from '@/api/client'
 import { queryClient } from '@/api/query-client'
 import { FullPageLoader } from '@/components/feedback/FullPageLoader'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
@@ -15,7 +16,6 @@ import { CustomersPage } from '@/pages/CustomersPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
-import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
 import { RegisterPage } from '@/pages/RegisterPage'
 import { WorkbenchPage } from '@/pages/WorkbenchPage'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
@@ -47,10 +47,11 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route element={<ProtectedRoute />}>
-        <Route element={<AppLayout />}>
+        <Route element={<WorkbenchLayout />}>
           <Route index element={<WorkbenchPage />} />
+        </Route>
+        <Route element={<AppLayout />}>
           <Route path="customers" element={<CustomersPage />} />
-          <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route
             path="dashboard"
             element={
