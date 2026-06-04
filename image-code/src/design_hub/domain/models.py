@@ -76,6 +76,16 @@ class GenerationResult:
 
 
 @dataclass(frozen=True)
+class ListingResult:
+    """listing 轻量出图结果（不含路由/编排，区别于 GenerationResult）。"""
+
+    prompt: str
+    used_model: ModelName
+    images: tuple[GeneratedImage, ...]
+    total_cost: Decimal
+
+
+@dataclass(frozen=True)
 class BudgetSnapshot:
     user_month_used: Decimal
     user_monthly_quota: Decimal
