@@ -18,6 +18,8 @@ from design_hub.application.cost.guard import CostGuard
 from design_hub.application.cost.preview import CostPreviewService
 from design_hub.application.dashboard.cost_report import CostReportService
 from design_hub.application.export.export_service import ExportService
+from design_hub.application.listing.listing_service import ListingGenerationService
+from design_hub.application.listing.prompt_composer import PromptModifierRegistry
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.project.asset_service import AssetService
 from design_hub.application.project.brief_service import BriefService
@@ -57,6 +59,7 @@ from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.export.pillow_exporter import PillowExporter
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
+from design_hub.infrastructure.listing.noop_history import NoOpListingHistory
 from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetricsSink
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
@@ -72,6 +75,7 @@ from design_hub.interface.api.routes import (
     dashboard,
     export,
     generation,
+    listing,
     project_catalog,
     projects,
     revision,
@@ -95,12 +99,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     unit_costs = await model_config_service.unit_cost_map()
     # GPT_IMAGE_2 走真实中转 Provider（需 .env 配 GPT_IMAGE_*），其余模型暂 Mock
     registry = build_registry(settings, real_gpt_image=True, unit_costs=unit_costs)
+    guard = CostGuard(ledger=ledger, policy=BudgetPolicy())
     pipeline = GenerationPipeline(
         router=router,
         orchestrator=build_orchestrator(),
         registry=registry,
         estimator=estimator,
-        guard=CostGuard(ledger=ledger, policy=BudgetPolicy()),
+        guard=guard,
         require_live_for_edit=True,  # 生产：图生图保真链路不静默降级到 mock（ISSUE-0007）
         metrics=PrometheusMetricsSink(),  # 业务指标埋点（ISSUE-0008）
     )
@@ -113,6 +118,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.job_repository = SqlAlchemyJobRepository(session_factory)
     app.state.task_queue = InProcessTaskQueue()
     app.state.event_stream = event_bus
+    # listing 一键出图：轻量链路（multipart 直传 + 纯 prompt 直出），复用 guard/queue/event_bus
+    app.state.listing_service = ListingGenerationService(
+        registry=registry, guard=guard, modifier_registry=PromptModifierRegistry()
+    )
+    app.state.listing_history = NoOpListingHistory()
     # WP-A 工作台：客户/项目用例（DB-backed）
     customer_repo = SqlAlchemyCustomerRepository(session_factory)
     project_repo = SqlAlchemyProjectRepository(session_factory)
@@ -191,6 +201,8 @@ def create_production_app() -> FastAPI:
     app.include_router(generation.router, dependencies=login_required)
     # async_generation 鉴权改逐路由（ISSUE-0011）：/async 走 Bearer，SSE /events 走 ?access_token=
     app.include_router(async_generation.router)
+    # listing 一键出图：鉴权同 async_generation（Bearer + SSE ?access_token=）
+    app.include_router(listing.router)
     app.include_router(customers.router, dependencies=login_required)
     app.include_router(projects.router, dependencies=login_required)
     app.include_router(project_catalog.router, dependencies=login_required)
