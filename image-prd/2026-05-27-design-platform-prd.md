@@ -440,12 +440,12 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 比「项目 → 需求单 → 选模板族 → 重编排」更轻的**一键直出**形态。MVP 用同一份合成 prompt 出 N 张候选，**不做镜头分型**。
 
 **输入**：
-- 同一产品原图 **≤3 张**（multipart 直传，不走资产库）
+- 同一产品原图 **≤3 张**：先经 `POST /uploads` 独立上传（拿 `{id,url}`、前端预览），出图时带 **`upload_ids` 引用**（2026-06-04 用户改：**先上传预览 → 再出图**，取代原 multipart 直传；接口见 §3.12.8）
 - 下拉：电商平台 / 国家地区 / 语言 / 比例
 - 自由文本「商品卖点 & 要求」= 用户 prompt（**直出的唯一质量杠杆**）
 - 张数下拉
 
-**链路**：`POST /listing/generate`(multipart) → 服务端拼 prompt → gpt-image-2-vip `/images/edits` → 异步队列 + SSE 出 N 张。**复用**基础设施（CostGuard / SSE / 落库口子），**不复用**两阶段合成与编排器（直出链路无需路由，live edit 模型仅 gpt-image-2 一个）。
+**链路**：`POST /uploads`（上传 ≤3 图、预览）→ `POST /listing/generate`（带 `upload_ids`）→ 服务端按 id 读回图 + 拼 prompt → gpt-image-2-vip `/images/edits` → 异步队列 + SSE 出 N 张。**复用**基础设施（CostGuard / SSE / 落库口子），**不复用**两阶段合成与编排器（直出链路无需路由，live edit 模型仅 gpt-image-2 一个）。
 
 #### 3.12.2 下拉枚举（首版）
 | 下拉 | 取值 |
@@ -491,6 +491,23 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 #### 3.12.7 镜头分型（押后第二迭代）
 主图白底 / 特写细节 / 使用场景 / 卖点信息图 / 尺寸说明 / 生活方式 / 对比图——**MVP 不做**，列入**第二迭代**（listing 套图核心价值，待 MVP 直出链路验证后排期）。其他押后：从资产库选图、category/style 智能匹配、「AI 帮写」、出图历史持久化（仅留架构口子）。
+
+#### 3.12.8 图片上传接口（先上传预览 → 再出图）
+2026-06-04 用户拍板 listing 改**两步**——先独立上传、预览，再出图引用，**取代** spec 决策 0a 的「multipart 直传」。
+
+- `POST /uploads`（鉴权 Bearer）：`UploadFile` → 存储 → `{id, url}`。
+  - fail-fast 校验：大小 ≤ 10MB、格式白名单（png/jpg/webp）、违例 → 4xx。
+- `GET /uploads/{id}`：后端读图代理，返回图片 bytes 供前端预览（不暴露 `file://`）。
+- `POST /listing/generate` 改带 `upload_ids`（≤3），后端按 id 从存储读回 bytes 发上游 edit。
+- **存储 = 服务器本地磁盘**（已规划，挂进 docker api 容器持久化卷）：
+  | 用途 | 路径 |
+  |---|---|
+  | 上传产品图/参考图 | `/data/docker/design-hub/assets/` |
+  | AI 出图落点 | `/data/docker/design-hub/generated/` |
+  | 导出归档 | `/data/docker/design-hub/exports/` |
+  - 沿用 `LocalAssetStore`（base_dir 指向 `assets/`），**不引入 OSS**；预览经 `GET /uploads/{id}` 代理。OSS 公网/CDN 作后续增强（需凭据）。
+
+> 落地见 ISSUE-0026（开发）；前端两步流改造见 ISSUE-0020；QA 用例14 改版。
 
 ## 4. 周边模块
 
