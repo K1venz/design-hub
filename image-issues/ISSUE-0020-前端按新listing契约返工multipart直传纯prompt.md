@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0020
 title: 前端出图工作台按新 listing 契约返工（multipart 直传 + 纯 prompt 直出）
-status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发
-owner: 前端           # 球在前端：按新契约改 v2 设计与实现
+owner: QA             # 球在 QA：e2e 真实出图(SSE 逐张到达+下载)验收
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -45,3 +45,11 @@ related:
 ## 处理记录
 - 2026-06-04 [开发] 创建并派给前端；契约见 spec §4，背景见 spec §2(0a/0b)/§8。状态=已确认，owner=前端
 - 2026-06-04 [前端] 按 spec §4 新契约**重写** v2 设计稿：multipart 直传≤3 / 纯 prompt 直出 / 删 category·style·尺寸·资产库(AssetPickerInline) / 彻底无 project / 端点改 `/listing/generate`+`/listing/{job_id}/events` / 候选选稿改「结果画廊直接下载」(去评分·保留)。mockup 同步更新(v4)。待用户复核设计稿后进实现。状态=修复中，owner=前端
+- 2026-06-04 [前端] **实现完成**（计划 `image-web/docs/plans/2026-06-04-listing-workbench-frontend.md`，14 任务 commit 432aa27→ccd6835）。落地：
+  - `src/lib/listing.ts`（枚举+buildModifiers+buildListingFormData+parseListingEvent+estimateCost，vitest 10 测试全过）
+  - `src/api/listing.ts`（useListingGenerate multipart fetch；useListingEvents **命名事件** addEventListener，对齐后端 `event:<type>`+`data:payload`，非 onmessage）
+  - 组件 `components/listing/*`（ConfigSelect/ImageUploader/ListingConfigPanel/ResultGallery/WorkbenchRail）+ `layout/WorkbenchLayout`；重写 `pages/WorkbenchPage`；路由 `/` 改 WorkbenchLayout、删 projects/:id；删旧链路 16 文件。
+  - **关键对齐**：SSE 命名事件、`image_generated{url,seed}` 无 index→按到达顺序填槽、`task_completed{total_cost}`。
+  - **自验**：typecheck/lint/build/vitest 全过；Playwright 真实登录态渲染工作台正常（5 下拉枚举正确、爆款图复刻 toast「敬请期待」），截图 `image-web/docs/screenshots/workbench-v2-result.jpeg`。
+  - **未做（交 QA）**：真实出图 e2e（multipart→job_id→SSE 逐张到达→下载）未触发（计费+ISSUE-0024 后端边界 bug 在修）。请 QA 用 n=1 控成本验全链路。
+  状态=待验证，owner=QA
