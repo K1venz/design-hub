@@ -86,7 +86,9 @@ def build_gpt_image_provider(
         base_url=settings.gpt_image_base_url,
         api_key=settings.gpt_image_api_key.get_secret_value(),
         model=settings.gpt_image_model,
-        image_store=LocalImageStore(settings.image_output_dir),
+        image_store=LocalImageStore(
+            settings.image_output_dir, public_base_url=settings.image_public_base_url
+        ),
         trust_env=False,  # 境内中转站直连，绕开本机梯子代理
         timeout=300.0,  # 图生图 edit 实测 ~187s（ISSUE-0007），180s 太紧；放宽到 300s 留余量
         max_retries=2,  # 中转站 edit 端点间歇 500"系统繁忙"，瞬时错误重试（ISSUE-0007）

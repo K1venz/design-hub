@@ -166,7 +166,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.export_service = ExportService(
         query=SqlAlchemyExportQuery(session_factory),
         exporter=PillowExporter(),
-        store=LocalExportStore(settings.export_output_dir),
+        store=LocalExportStore(settings.export_output_dir, source_dir=settings.image_output_dir),
     )
     # WP-D 改稿单：开单/列单/加条目/逐条勾选（交付强校验经 ProjectService.revisions）
     app.state.revision_service = RevisionService(revisions=revision_repo, projects=project_repo)
