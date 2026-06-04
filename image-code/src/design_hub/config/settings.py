@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     gpt_image_model: str = ""
     # 本地出图落点（图生图 b64 解码后写入；gitignored）
     image_output_dir: str = "./generated"
+    # 出图 url 公网前缀（ISSUE-0029）：非空→绝对 https://host/img/<name>；空→相对 /img/<name>
+    image_public_base_url: str = ""
     # 本地素材落点（上传产品图/参考图写入；gitignored）
     asset_output_dir: str = "./assets"
     # 本地导出归档落点（WP-E：多格式/改尺寸/zip 输出；gitignored）

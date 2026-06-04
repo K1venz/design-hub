@@ -1,25 +1,29 @@
-"""ExportStore 的本地实现（WP-E）：读 file:// 源图、按相对路径归档写出返回 file://。
+"""ExportStore 的本地实现（WP-E）：按文件名从出图目录读源图、归档写出返回 file://。
 
+源 url 自 ISSUE-0029 起为 web 路径（/img/<name> 或 https://host/img/<name>），不再 file://；
+read 统一取 url 文件名从 source_dir（出图目录）读字节，兼容历史 file://。
 OSS 实现按 LSP 替换：read 下载、write 上传返回 https://。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 from design_hub.ports.exporter import ExportStore
 
 
 class LocalExportStore(ExportStore):
-    def __init__(self, base_dir: str) -> None:
+    def __init__(self, base_dir: str, *, source_dir: str) -> None:
         self._base = Path(base_dir).resolve()
+        self._source = Path(source_dir).resolve()
 
     async def read(self, url: str) -> bytes:
-        parsed = urlparse(url)
-        if parsed.scheme != "file":
-            raise ValueError(f"LocalExportStore 只支持 file:// 源，收到：{url}")
-        return Path(unquote(parsed.path)).read_bytes()
+        # 出图 url 为 web 路径(/img/<name>) 或历史 file://；统一按文件名从出图目录读
+        name = Path(urlparse(url).path).name
+        if not name:
+            raise ValueError(f"无法从 url 解析文件名：{url}")
+        return (self._source / name).read_bytes()
 
     async def write(self, data: bytes, *, rel_path: str) -> str:
         target = (self._base / rel_path).resolve()
