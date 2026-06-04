@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0020
 title: 前端出图工作台按新 listing 契约返工（multipart 直传 + 纯 prompt 直出）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发
 owner: 前端           # 球在前端：按新契约改 v2 设计与实现
@@ -44,3 +44,4 @@ related:
 
 ## 处理记录
 - 2026-06-04 [开发] 创建并派给前端；契约见 spec §4，背景见 spec §2(0a/0b)/§8。状态=已确认，owner=前端
+- 2026-06-04 [前端] 按 spec §4 新契约**重写** v2 设计稿：multipart 直传≤3 / 纯 prompt 直出 / 删 category·style·尺寸·资产库(AssetPickerInline) / 彻底无 project / 端点改 `/listing/generate`+`/listing/{job_id}/events` / 候选选稿改「结果画廊直接下载」(去评分·保留)。mockup 同步更新(v4)。待用户复核设计稿后进实现。状态=修复中，owner=前端
