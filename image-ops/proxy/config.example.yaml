@@ -1,0 +1,35 @@
+# mihomo(Clash.Meta) headless 配置模板。
+# 真实文件在服务器 /opt/docker/mihomo/config/config.yaml（含订阅 URL，绝不入库）。
+# 策略：GitHub 相关域名走代理，其余一律直连（国内/镜像流量不绕弯）。
+
+mixed-port: 7890          # http + socks5 合并端口
+bind-address: 127.0.0.1   # 只给本机用，不暴露到 LAN/公网
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+
+proxy-providers:
+  sub:
+    type: http
+    url: "__SUBSCRIPTION_URL__"          # ← 服务器上替换为真实订阅链接
+    interval: 86400                       # 每日自动更新订阅
+    path: ./providers/sub.yaml
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    use: [sub]
+
+rules:
+  - DOMAIN-SUFFIX,github.com,PROXY
+  - DOMAIN-SUFFIX,githubusercontent.com,PROXY
+  - DOMAIN-SUFFIX,githubassets.com,PROXY
+  - DOMAIN-SUFFIX,ghcr.io,PROXY
+  - DOMAIN-SUFFIX,pkg-containers.githubusercontent.com,PROXY
+  - MATCH,DIRECT
