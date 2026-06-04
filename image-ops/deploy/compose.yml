@@ -40,6 +40,7 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       - ./web:/usr/share/nginx/html:ro   # image-web/dist（前端构建产物，rsync 上来）
+      - /data/docker/design-hub/generated:/usr/share/nginx/img:ro   # 出图结果静态服务(ISSUE-0029)
     networks:
       - default
 
