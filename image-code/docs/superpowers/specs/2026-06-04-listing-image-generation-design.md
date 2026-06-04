@@ -167,7 +167,7 @@ gpt-image-2 实际支持的尺寸有限，先给一份能跑的种子映射：
 3. **image-web**（重点对齐，**修订其 v2 spec**）：用户拍板 multipart 直传 + 纯 prompt 直出后，
    前端 `出图工作台-v2-商品套图重做-设计.md` 的以下分叉点需改：
    - 图片：`asset_ids`（资产库）→ **multipart 直传 ≤3 张**；**去掉"从资产库选"(AssetPickerInline)**。
-   - **去掉 category / style 下拉**（编排器不再参与；如需仍可作为普通 modifier 下拉，但后端不特殊对待）。
+   - **删除 category / style 下拉**（用户拍板删除；编排器不再参与本链路）。
    - 出图端点：现有 `/generate/async`（基于 project）→ 改对接 **`POST /listing/generate`(multipart)** + `GET /listing/{job_id}/events`(SSE)。
    - 自由文本框 → 传 `prompt` 字段（ISSUE-0019 的 prompt 在本链路升级为**核心入参**，非可选增强）。
    - `subscene/family/tier/asset_ids/project/快速任务` 在本链路**都不需要**。
