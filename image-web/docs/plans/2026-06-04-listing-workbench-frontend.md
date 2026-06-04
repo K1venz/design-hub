@@ -12,9 +12,13 @@
 
 **全局约束（来自 CLAUDE.md）：** 老代码适配新架构、禁兼容层；fail-fast、不静默吞错；依赖只用 CLI 装、不手改 manifest；注释英文、面向用户中文；每完成一个任务**立即提交**（共享工作树：`git add` 只加自己明确路径，**禁 `git add -A`**）；提交信息无 co-author。
 
-**⚠️ 待对齐的契约不确定点（实现期需与后端核对，已隔离便于改）：**
-1. **SSE 事件 JSON 形状**：后端复用现有异步/SSE 层（spec §3/§6.2），事件名沿用 ISSUE-0018 观测到的 `task_started / model_called / image_generated / task_completed`（+失败）。本计划据此写 `parseListingEvent`；若后端实际字段不同，**只改这一个纯函数 + 其单测**。
-2. **成本预估**：listing 链路后端**无** cost-preview 端点；CTA 用客户端常量 `LISTING_UNIT_COST` 估算并标注"约"，待 PM/后端给真实单价（ISSUE-0021）。
+**✅ SSE 契约已核实（read image-code `routes/listing.py` + `application/listing/commands.py` + `domain/enums.py`）：**
+- 传输 = **命名 SSE 事件**：`event: <type>\ndata: <json(payload)>\n\n`（`data` **不含** type）。前端**必须** `es.addEventListener(<type>, ...)`；原生 `EventSource.onmessage` 收不到命名事件。
+- 事件序（`TaskEventType`）：`task_started{}` → `model_called{model}` → `image_generated{url,seed}` × N → `task_completed{total_cost}`；异常 `task_failed{error}`。
+- **`image_generated` 无 index** → 前端按**到达顺序**填槽（非按下标）。
+- 后端 `await service.generate()`（全部 N 张）后才连发事件 → 图"一波到达"，但 POST 立即返回 job_id，已解同步阻塞（ISSUE-0018）。
+
+**⚠️ 仍待对齐：成本预估** —— listing 链路后端**无** cost-preview 端点；CTA 用客户端常量 `LISTING_UNIT_COST` 估算并标注"约"，待 PM/后端给真实单价（ISSUE-0021）。`task_completed.total_cost` 可在完成后显示真实总价。
 
 ---
 
@@ -303,29 +307,30 @@ git commit -m "feat(web): buildListingFormData 组装 multipart 出图入参"
 
 - [ ] **Step 1: 追加失败测试**
 
+> 签名 = `parseListingEvent(type, rawData)`：type 来自 SSE `event:` 行，rawData 是 `data:` 行的 JSON。
+
 ```ts
 import { parseListingEvent, estimateCost } from '@/lib/listing'
 
 describe('parseListingEvent', () => {
-  it('maps image_generated to an image event', () => {
-    const e = parseListingEvent(JSON.stringify({
-      type: 'image_generated', index: 2, url: 'http://x/2.png', seed: 7, latency: 1800, cost: 1.19,
-    }))
-    expect(e).toEqual({ kind: 'image', index: 2, url: 'http://x/2.png', seed: 7, latency: 1800, cost: 1.19 })
+  it('maps image_generated (url+seed, no index) to an image event', () => {
+    const e = parseListingEvent('image_generated', JSON.stringify({ url: 'http://x/2.png', seed: 7 }))
+    expect(e).toEqual({ kind: 'image', url: 'http://x/2.png', seed: 7 })
   })
-  it('maps task_completed to completed', () => {
-    expect(parseListingEvent(JSON.stringify({ type: 'task_completed' }))).toEqual({ kind: 'completed' })
+  it('maps task_completed (with total_cost) to completed', () => {
+    expect(parseListingEvent('task_completed', JSON.stringify({ total_cost: '7.14' })))
+      .toEqual({ kind: 'completed', totalCost: '7.14' })
   })
   it('maps task_failed to failed with message', () => {
-    expect(parseListingEvent(JSON.stringify({ type: 'task_failed', error: '超时' })))
+    expect(parseListingEvent('task_failed', JSON.stringify({ error: '超时' })))
       .toEqual({ kind: 'failed', error: '超时' })
   })
-  it('maps progress-ish events to progress kind', () => {
-    expect(parseListingEvent(JSON.stringify({ type: 'task_started', total: 6 })))
-      .toEqual({ kind: 'progress', done: 0, total: 6 })
+  it('maps task_started / model_called to meta', () => {
+    expect(parseListingEvent('task_started', '{}')).toEqual({ kind: 'meta' })
+    expect(parseListingEvent('model_called', JSON.stringify({ model: 'gpt-image-2' }))).toEqual({ kind: 'meta' })
   })
   it('returns unknown for unrecognized type', () => {
-    expect(parseListingEvent(JSON.stringify({ type: 'whatever' }))).toEqual({ kind: 'unknown' })
+    expect(parseListingEvent('whatever', '{}')).toEqual({ kind: 'unknown' })
   })
 })
 
@@ -344,39 +349,42 @@ Expected: FAIL。
 - [ ] **Step 3: 追加实现**
 
 ```ts
+/** TaskEventType values emitted by backend (design_hub/domain/enums.py). */
+export const LISTING_EVENT_TYPES = [
+  'task_started', 'model_called', 'image_generated', 'task_completed', 'task_failed',
+] as const
+
 export type ListingEvent =
-  | { kind: 'progress'; done: number; total: number }
-  | { kind: 'image'; index: number; url: string; seed?: number; latency?: number; cost?: number }
-  | { kind: 'completed' }
+  | { kind: 'image'; url: string; seed?: number }
+  | { kind: 'completed'; totalCost?: string }
   | { kind: 'failed'; error: string }
+  | { kind: 'meta' } // task_started / model_called — 无需渲染
   | { kind: 'unknown' }
 
-/** Parse one SSE `data:` payload. Event names follow the shared async layer (see ISSUE-0018). */
-export function parseListingEvent(raw: string): ListingEvent {
-  const e = JSON.parse(raw) as Record<string, unknown>
-  switch (e.type) {
+/**
+ * Map a named SSE event to a typed ListingEvent.
+ * `type` = SSE `event:` line; `rawData` = `data:` line JSON (payload only, NO type field).
+ * Backend contract: routes/listing.py `_sse()` + application/listing/commands.py.
+ */
+export function parseListingEvent(type: string, rawData: string): ListingEvent {
+  const d = JSON.parse(rawData) as Record<string, unknown>
+  switch (type) {
     case 'image_generated':
-      return {
-        kind: 'image',
-        index: Number(e.index ?? 0),
-        url: String(e.url ?? ''),
-        seed: e.seed == null ? undefined : Number(e.seed),
-        latency: e.latency == null ? undefined : Number(e.latency),
-        cost: e.cost == null ? undefined : Number(e.cost),
-      }
+      // 注意：后端不带 index；调用方按到达顺序填槽。
+      return { kind: 'image', url: String(d.url ?? ''), seed: d.seed == null ? undefined : Number(d.seed) }
     case 'task_completed':
-      return { kind: 'completed' }
+      return { kind: 'completed', totalCost: d.total_cost == null ? undefined : String(d.total_cost) }
     case 'task_failed':
-      return { kind: 'failed', error: String(e.error ?? '出图失败') }
+      return { kind: 'failed', error: String(d.error ?? '出图失败') }
     case 'task_started':
     case 'model_called':
-      return { kind: 'progress', done: Number(e.done ?? 0), total: Number(e.total ?? 0) }
+      return { kind: 'meta' }
     default:
       return { kind: 'unknown' }
   }
 }
 
-/** ⚠️ 占位单价，待 PM/后端确认（ISSUE-0021）。仅用于 CTA「约 ¥x」估算，非权威。 */
+/** ⚠️ 占位单价，待 PM/后端确认（ISSUE-0021）。仅用于 CTA「约 ¥x」估算，非权威；完成后用 total_cost 显示真实总价。 */
 export const LISTING_UNIT_COST = 1.19
 export function estimateCost(n: number): number {
   return n * LISTING_UNIT_COST
@@ -410,7 +418,10 @@ git commit -m "feat(web): SSE 事件解析与成本估算（纯函数）"
 import { useEffect, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 
-import { buildListingFormData, parseListingEvent, type ListingEvent, type ListingGenerateInput } from '@/lib/listing'
+import {
+  LISTING_EVENT_TYPES, buildListingFormData, parseListingEvent,
+  type ListingEvent, type ListingGenerateInput,
+} from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
 /** POST /listing/generate (multipart) -> { job_id }. fail-fast：非 2xx 抛错。 */
@@ -431,8 +442,8 @@ export function useListingGenerate() {
 
 /**
  * 订阅 GET /listing/{jobId}/events (SSE)。jobId 为空时不连接。
- * onEvent 拿到已解析的 ListingEvent。组件卸载/换 job 时断开。
- * I/O 容错：onerror 时 EventSource 自带重连；这里只在收到 completed/failed 后主动关闭。
+ * 后端发**命名事件**（event: <type>），故须对每个 type 注册 addEventListener；
+ * onmessage 不会触发。组件卸载/换 job 时断开；收到 completed/failed 主动关闭。
  */
 export function useListingEvents(jobId: string | null, onEvent: (e: ListingEvent) => void) {
   const cb = useRef(onEvent)
@@ -442,10 +453,12 @@ export function useListingEvents(jobId: string | null, onEvent: (e: ListingEvent
     const token = useAuthStore.getState().token ?? ''
     const url = `/api/listing/${jobId}/events?access_token=${encodeURIComponent(token)}`
     const es = new EventSource(url)
-    es.onmessage = (ev) => {
-      const parsed = parseListingEvent(ev.data)
-      cb.current(parsed)
-      if (parsed.kind === 'completed' || parsed.kind === 'failed') es.close()
+    for (const type of LISTING_EVENT_TYPES) {
+      es.addEventListener(type, (ev: MessageEvent) => {
+        const parsed = parseListingEvent(type, ev.data)
+        cb.current(parsed)
+        if (parsed.kind === 'completed' || parsed.kind === 'failed') es.close()
+      })
     }
     return () => es.close()
   }, [jobId])
@@ -993,10 +1006,18 @@ export function WorkbenchPage() {
 
   useListingEvents(jobId, (e) => {
     if (e.kind === 'image') {
-      setSlots((prev) => prev.map((s, i) => (i === e.index ? { url: e.url } : s)))
+      // 后端 image_generated 不带 index：按到达顺序填第一个空槽
+      setSlots((prev) => {
+        const i = prev.findIndex((s) => s.url === null)
+        if (i < 0) return prev
+        const next = [...prev]
+        next[i] = { url: e.url }
+        return next
+      })
       setDone((d) => d + 1)
     } else if (e.kind === 'failed') {
-      toast.error(`出图失败：${e.error}`); setJobId(null)
+      toast.error(`出图失败：${e.error}`)
+      setJobId(null)
     } else if (e.kind === 'completed') {
       setJobId(null)
     }
