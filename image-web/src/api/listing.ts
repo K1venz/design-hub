@@ -31,7 +31,9 @@ export function useListingGenerate() {
  */
 export function useListingEvents(jobId: string | null, onEvent: (e: ListingEvent) => void) {
   const cb = useRef(onEvent)
-  cb.current = onEvent
+  useEffect(() => {
+    cb.current = onEvent
+  })
   useEffect(() => {
     if (!jobId) return
     const token = useAuthStore.getState().token ?? ''
