@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0025
-title: 后端出图字段与 apinebula image2-vip 不对齐（size/n/edits 图字段名 三处致命）
+title: 后端出图字段与 apinebula image2-vip 对比（实测推翻 size/image[]，残留多图edit+quality）
 status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
-severity: P1          # 核心出图链路对 image2-vip 默认参数不可用；listing 链路必挂
+severity: P2          # 原判 P1 三致命经 QA 实测推翻 2 个；残留多图 image[] 验证 + quality 省钱
 reporter: PM          # 受命对 /generate 做可用性判断时发现
-owner: 开发           # 球交开发：按上游真实规格改对齐（勿加兼容层）
+owner: QA             # 残留①多图 image[]≥2 实测(QA 受控)；残留②quality 省钱(开发，见记录)
 created: 2026-06-04
 updated: 2026-06-04
 related:
@@ -72,3 +72,13 @@ ISSUE-0007 记「文生图实测正常出图」。若 size=1024 真被 vip 硬�
   **② 比例映射定为上游真实 2048 系列**：1:1→2048×2048、3:4/9:16→2160×3840、16:9→3840×2160（已写入 PRD §3.12.3，开发据此改 `sizing.py`）；
   **③ `image[]`→`image`、显式传 `quality`、核 vip 实价** 维持原修复方向。
   PRD §3.12 已据此定稿，开发可开工。
+- 2026-06-04 [PM] ⚠️ **重大更正（翻 QA 用例14 实测后，自我纠错）**——本条原判 size/image[] 为"致命"是**仅凭上游文档的误判**，被真实 e2e 推翻：
+  ISSUE-0023 用例14（2026-06-04 真花钱）：`.env=gpt-image-2-vip+apinebula`，单图 + ratio=3:4 → **真实出图 `1024×1536` 成功、质量正常、¥1.19/张**（脚本 image-qa/listing_real_e2e.py）。
+  逐条修正：
+  · **size 非问题**：1024 系列实测可用，文档"仅 2048"不准 → **撤回"改 sizing.py 为 2048"**（上一条 ② 作废）。PRD §3.12.3 已改回 1024 系列。
+  · **edits 字段名 image[] 非致命**：单图 `image[]` 上游已接受并出图；**仅多图 image[]≥2 仍待验证**（用例14 残留，QA 标"仍待覆盖"）。
+  · **n**：用户已定上游恒 1 + 后端 N 次单图，不依赖上游一次返回多张（上一条 ① 仍有效）。
+  · **真正残留**：① 多图 `image[]`≥2 真实 edit 上游是否支持（owner→QA 受控跑；不支持则后端退化为并发逐图，契约不变）；
+    ② quality 未传 → 走 high 档（实测 ¥1.19/张偏贵），显式传 `medium` 可显著降本（owner→开发，省钱优化，非阻断）。
+  · vip 实价已知：high 档 ¥1.19/张。severity P1→P2，owner→QA（多图实测优先）。
+  · **教训**：上一轮仅据文档下"致命"结论并改了 PRD/sizing 方向，未先核 QA 已有实测——**实测优先于文档**，下次先翻 image-qa 再下判断。
