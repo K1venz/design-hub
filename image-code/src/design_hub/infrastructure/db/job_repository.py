@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from design_hub.domain.enums import JobStatus, ModelName
+from design_hub.domain.media import image_key_from_url
 from design_hub.domain.models import Brief, GeneratedImage, GenerationResult, JobRecord
 from design_hub.infrastructure.db.models import GeneratedImageRow, GenerationJobRow
 from design_hub.ports.job_repository import JobRepository
@@ -46,7 +47,11 @@ class SqlAlchemyJobRepository(JobRepository):
             )
             row.images = [
                 GeneratedImageRow(
-                    url=img.url, seed=img.seed, latency_ms=img.latency_ms, cost=img.cost
+                    # 存 image_key 不存签名 url（ISSUE-0034）：读时经 signer 重签，url 过期不影响
+                    url=image_key_from_url(img.url),
+                    seed=img.seed,
+                    latency_ms=img.latency_ms,
+                    cost=img.cost,
                 )
                 for img in result.images
             ]

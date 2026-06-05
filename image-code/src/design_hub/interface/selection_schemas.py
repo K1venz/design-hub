@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from design_hub.domain.models import GeneratedImageRecord, UsableRate
+from design_hub.ports.media_url_signer import MediaUrlSigner
 
 
 class ImageOut(BaseModel):
@@ -11,8 +12,11 @@ class ImageOut(BaseModel):
     kept: bool
 
     @classmethod
-    def of(cls, r: GeneratedImageRecord) -> "ImageOut":
-        return cls(id=r.id, url=r.url, seed=r.seed, score=r.score, kept=r.kept)
+    def of(cls, r: GeneratedImageRecord, signer: MediaUrlSigner) -> "ImageOut":
+        # r.url 实为 image_key；经签名器解析成可访问 url（ISSUE-0034）
+        return cls(
+            id=r.id, url=signer.generated_url(r.url), seed=r.seed, score=r.score, kept=r.kept
+        )
 
 
 class ScoreRequest(BaseModel):
