@@ -490,7 +490,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 | 出图正确性 | ≤3 张参考图真实送达上游 `image` 字段；prompt 含卖点文本 + 下拉话术片段 |
 
 #### 3.12.7 镜头分型（押后第二迭代）
-主图白底 / 特写细节 / 使用场景 / 卖点信息图 / 尺寸说明 / 生活方式 / 对比图——**MVP 不做**，列入**第二迭代**（listing 套图核心价值，待 MVP 直出链路验证后排期）。其他押后：从资产库选图、category/style 智能匹配、「AI 帮写」、出图历史持久化（仅留架构口子）。
+主图白底 / 特写细节 / 使用场景 / 卖点信息图 / 尺寸说明 / 生活方式 / 对比图——**MVP 不做**，列入**第二迭代**（listing 套图核心价值，待 MVP 直出链路验证后排期）。其他押后：从资产库选图、category/style 智能匹配、「AI 帮写」。（出图历史持久化已升级为生产级，见 §3.12.9。）
 
 #### 3.12.8 图片上传接口（先上传预览 → 再出图）
 2026-06-04 用户拍板 listing 改**两步**——先独立上传、预览，再出图引用，**取代** spec 决策 0a 的「multipart 直传」。
@@ -508,6 +508,27 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
   - 沿用 `LocalAssetStore`（base_dir 指向 `assets/`），**不引入 OSS**；预览经 `GET /uploads/{id}` 代理。OSS 公网/CDN 作后续增强（需凭据）。
 
 > 落地见 ISSUE-0026（开发）；前端两步流改造见 ISSUE-0020；QA 用例14 改版。
+
+#### 3.12.9 任务持久化与历史（生产级）
+2026-06-05 用户拍板：listing 每次出图**持久化**（任务 + 每张生成记录 + 输入图）+ **历史查看**。生产级、非 MVP。
+**硬约束：全独立新增、零改动现有接口**（不碰 `generation_job`/`image_store`/海报流/项目流）。表方案 **B（新建 listing 专表）**。
+
+**新建 3 表**：
+- `listing_job`：id / user_id / prompt / modifiers(JSON) / platform(冗余,筛选) / ratio / size / n / status(生成中·完成·部分完成·失败) / total_cost / error / created_at / completed_at
+- `listing_image`：id / job_id / **image_key（文件名,不存绝对 url）** / seed / cost / status / created_at
+- `listing_job_input`：job_id / upload_key / ord（输入产品图回显）
+
+**持久化**：`ListingHistory` 端口的 DB 实现替 `NoOpListingHistory`（仅改 listing 装配）；出图结束写任务+图+输入。部分失败 → 任务 `部分完成`，成功图照存。
+
+**历史端点**（listing 独立，user_id 隔离，只看自己的）：
+- `GET /listing/jobs?limit=&offset=` → 任务列表（时间倒序、分页）
+- `GET /listing/jobs/{id}` → 详情（元数据 + 全部候选图 + 输入图）；**纯浏览 + 重新下载**（无收藏/选稿）
+
+**图片访问**：复用 **ISSUE-0029** 的 nginx `/img/<sha>.png`（已上生产、公开读）；`image_key` 展示时拼 `{IMAGE_PUBLIC_BASE_URL}/img/{key}`。**不新增图片端点**。
+
+**OSS（阶段 2，押后）**：`LocalImageStore`→`OssImageStore` LSP 替换 + 凭据；因 DB 存 key 不存 url，历史老图自动 OSS、**零迁移**。
+
+> 落地见 ISSUE-0030（开发：建表 + 持久化 + 历史端点）、前端历史页（ISSUE-0020 延伸）；图片访问承 ISSUE-0029。
 
 ## 4. 周边模块
 
