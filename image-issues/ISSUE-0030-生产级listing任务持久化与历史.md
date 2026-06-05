@@ -4,7 +4,7 @@ title: 生产级 listing 任务持久化 + 历史查看（B 专表，全独立�
 status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户要求的生产级核心功能；listing 出完图无留存/无历史，生产不可交付
 reporter: PM          # 用户提出，PM 设计 + 排期
-owner: 前端           # 历史页（ISSUE-0020 延伸）主执行；QA e2e 并行；Ops 部署跑迁移。详见处理记录
+owner: QA             # 前端历史页已完成(commits b52dac2+fa5dacd)；待 QA 在带 /listing/jobs 的环境验数据态(列表/详情/分页/越权404/下载)
 created: 2026-06-05
 updated: 2026-06-05
 related:
@@ -140,3 +140,11 @@ job_id str FK INDEX / upload_key str / ord int
   · **key 配置（已查清+已修）**：`.env` `GPT_IMAGE_API_KEY` 两个 key 逗号分隔；**旧代码**当单个 Bearer 发 → `401 Invalid token` 出图全败。
     **已被 `ee260d0` 多 key round-robin（composition.py 按逗号 split）修复**——两 key 轮用。QA 逐个单测：**key1、key2 单独都有效**（各出图成功）→ round-robin 可靠。无需改 .env。
   QA 后端 e2e 已通过（仅 ISSUE-0031 待修）。owner 维持=前端（历史页）。
+- 2026-06-05 [前端] **历史页实现完成**（commits b52dac2 + fa5dacd），按 ② 真实契约对接：
+  - `api/listing`：`useListingJobs(limit,offset)`(裸数组,分页) + `useListingJob(jobId)`；`authGet` 仅带 **Bearer**（已无 X-User-Id，身份走 JWT ✓）。
+  - `pages/HistoryPage`：任务卡(首图缩略 + 平台/比例/张数/成本 + 状态徽章 + 时间)，offset 分页(无 total → 返回数<limit 禁下一页)，加载/空/错误态。
+  - `pages/HistoryDetailPage`：元数据(prompt/modifiers/size/n/成本/时间/error) + 候选图网格(重新下载) + 输入产品图；**仅本人**(404 → 显"任务不存在或无权查看")。
+  - 路由 `/history`、`/history/:jobId`(挂 AppLayout)；顶栏加「历史」入口(全角色)；下载走 `lib/download`(跨域 blob 兜底)。
+  - **ISSUE-0031 兜底**：输入产品图 `<img onError>` 隐藏失效图，不致详情页破相；待 0031 修复后输入图自然回显。
+  - **自验**：typecheck/lint/build/vitest(9) 全过；Playwright 真实登录态渲染——「历史」导航高亮、列表页 shell + 错误态优雅(本地 8000 为**中间 build 无 `/listing/jobs`**故走错误态，非前端 bug)。截图 `image-web/docs/screenshots/history-page-render.jpeg`。
+  - **待 QA**：本地 8000 缺历史端点，数据填充态(列表卡/详情/分页/下载/越权 404)需在**带 `/listing/jobs` 的环境**(prod 已迁移 / QA 受控)验。前端按契约对齐，端点就绪即应工作。owner→QA（历史页 e2e）。状态=待验证。
