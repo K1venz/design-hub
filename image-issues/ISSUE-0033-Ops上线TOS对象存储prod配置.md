@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0033
 title: 运维上线火山引擎 TOS 对象存储——prod 注入 TOS_* + 重建 api 镜像
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已修复        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # 生产配置/部署；不配则 prod 仍走本地磁盘+nginx /img（功能可用，未上 TOS）
 reporter: 开发
 owner: 运维           # prod .env 注入 + 镜像重建 + 验证
@@ -55,3 +55,10 @@ related:
 ## 处理记录
 - 2026-06-05 [开发] TOS 接入完成（b308556）+ 本地真实出图端到端验证通过；开本条派运维上 prod。
   AK/SK 值找用户拿（密钥不入库）。owner=运维，status=已确认。
+- 2026-06-05 [运维] **已上 prod 并验证通过 → 已修复**：
+  · 用户提供 AK/SK（子账号），连同 region/endpoint/两桶/ttl 注入服务器 `.env`（base64 传、chmod 600、不入库、不回显）
+  · `b308556`(含 `tos==2.9.1`) 随 main push，self-hosted CI 重建 api 镜像并 force-recreate（healthy）
+  · 验证（容器内、app 自身代码）：`_tos_enabled=True`；image_store/signer/upload_store 均为 `Tos*` 适配器；
+    真实往返：`TosImageStore.save()` 上传测试对象→generate 桶→预签名 url `https://bucket-design-hub-generate.tos-cn-shanghai.volces.com/<sha>?X-Tos-...`→**fetch 200**→已删测试对象。AK/SK 有效、两桶读写+预签名+取回全链路通。
+  · 唯 gpt-image 真实出图那一步未跑（省成本），TOS 存储路径已确证；真实出图端到端由 QA/前端联调自然覆盖。
+  Ops 侧完成 ✅。**知会**：①老图（之前落本地 generated/）不在 TOS，经签名 url 会 404（prod 真实数据极少，影响可忽略）；②nginx `/img/` 变冗余（留着无害，老图本地仍可访问）；③**海报流共用 ImageStore，切 TOS 后 `generated_image.url` 存的是会过期的签名 url，海报历史回看会过期**——已知，开发侧另议（本期 listing 优先）。
