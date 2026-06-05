@@ -137,7 +137,6 @@ job_id str FK INDEX / upload_key str / ord int
   · **权限隔离 ✅（重点全过）**：越权 B 取 A 的 job→**404**、不存在→404、无 Bearer→401、B 列表不含 A。
   · **图 url**：输出候选图 `…/img/<sha>.png` GET→**200 image/png** ✅。
   · **❌ 唯一 FAIL → ISSUE-0031(P2)**：历史详情**输入产品图回显 404**（input_urls 指 /img/(generated)，但上传落 assets/）。
-  · **⚠️ key 配置坑**：`.env` `GPT_IMAGE_API_KEY` 是**两个 key 逗号分隔** → provider 当单个 Bearer 发 → 上游 `401 Invalid token`、
-    **出图全失败**；QA 逐个单测确认 **key1 单独有效**（用它出图成功），key2 未测。建议 .env 用单个有效 key（或开发加多 key failover）；
-    **prod .env 若同样逗号双 key 会整体坏，请 Ops 核**。
+  · **key 配置（已查清+已修）**：`.env` `GPT_IMAGE_API_KEY` 两个 key 逗号分隔；**旧代码**当单个 Bearer 发 → `401 Invalid token` 出图全败。
+    **已被 `ee260d0` 多 key round-robin（composition.py 按逗号 split）修复**——两 key 轮用。QA 逐个单测：**key1、key2 单独都有效**（各出图成功）→ round-robin 可靠。无需改 .env。
   QA 后端 e2e 已通过（仅 ISSUE-0031 待修）。owner 维持=前端（历史页）。
