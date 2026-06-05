@@ -21,6 +21,7 @@ from design_hub.interface.listing_schemas import ListingGenerateRequest
 from design_hub.ports.events import EventPublisher, EventStream
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.task_queue import TaskQueue
 
 router = APIRouter(prefix="/listing", tags=["listing"])
@@ -78,9 +79,9 @@ async def list_jobs(
     if offset < 0:
         raise ValueError(f"offset 不能为负，实际 {offset}")
     query: ListingHistoryQuery = request.app.state.listing_query
-    base_url: str = request.app.state.image_public_base_url
+    signer: MediaUrlSigner = request.app.state.media_signer
     summaries = await query.list_jobs(user_id=user.user_id, limit=limit, offset=offset)
-    return [ListingJobSummaryOut.of(s, base_url) for s in summaries]
+    return [ListingJobSummaryOut.of(s, signer) for s in summaries]
 
 
 @router.get("/jobs/{job_id}")
@@ -89,11 +90,11 @@ async def get_job(
 ) -> ListingJobDetailOut:
     """listing 任务详情（仅本人；非本人 / 不存在 → 404，不泄露存在性）。"""
     query: ListingHistoryQuery = request.app.state.listing_query
-    base_url: str = request.app.state.image_public_base_url
+    signer: MediaUrlSigner = request.app.state.media_signer
     detail = await query.get_job(job_id=job_id, user_id=user.user_id)
     if detail is None:
         raise NotFoundError(f"listing 任务不存在或无权访问：{job_id}")
-    return ListingJobDetailOut.of(detail, base_url)
+    return ListingJobDetailOut.of(detail, signer)
 
 
 @router.get("/{job_id}/events")

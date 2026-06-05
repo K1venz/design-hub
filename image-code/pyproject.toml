@@ -24,6 +24,7 @@ dependencies = [
     "sentry-sdk>=2.61.1",
     "sqlalchemy[asyncio]>=2.0.50",
     "structlog>=25.5.0",
+    "tos>=2.9.1",
     "uvicorn>=0.48.0",
 ]
 
@@ -54,3 +55,8 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 files = ["src"]
+
+# 火山引擎 TOS SDK 无类型 stub，忽略其缺失导入（仅本第三方库，业务代码仍 strict）
+[[tool.mypy.overrides]]
+module = "tos.*"
+ignore_missing_imports = true

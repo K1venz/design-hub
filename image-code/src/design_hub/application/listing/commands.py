@@ -11,8 +11,12 @@ from design_hub.ports.task_queue import GenerationCommand
 
 
 def _image_key(url: str) -> str:
-    """出图 url（/img/<sha>.png 或 https://host/img/<sha>.png）→ 文件名 <sha>.png。"""
-    return url.rsplit("/", 1)[-1]
+    """出图 url → 存储 key（文件名）。
+
+    兼容 /img/<sha>.png、https://host/img/<sha>.png、以及 TOS 预签名 url
+    （https://bucket.endpoint/<sha>.png?X-Tos-...）——先去 ?query 再取末段文件名。
+    """
+    return url.split("?")[0].rsplit("/", 1)[-1]
 
 
 @dataclass
