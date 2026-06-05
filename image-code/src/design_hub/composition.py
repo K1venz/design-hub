@@ -84,7 +84,10 @@ def build_gpt_image_provider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=unit_cost,
         base_url=settings.gpt_image_base_url,
-        api_key=settings.gpt_image_api_key.get_secret_value(),
+        # 多 key：GPT_IMAGE_API_KEY 逗号分隔；provider 按请求 round-robin 分发（缓解单 key 限流）
+        api_keys=[
+            k.strip() for k in settings.gpt_image_api_key.get_secret_value().split(",") if k.strip()
+        ],
         model=settings.gpt_image_model,
         image_store=LocalImageStore(
             settings.image_output_dir, public_base_url=settings.image_public_base_url
