@@ -120,3 +120,10 @@ job_id str FK INDEX / upload_key str / ord int
   ② **QA**（并行）：持久化 + 历史 + 分页 + 权限隔离 e2e；**重点验越权**（A 用户的 token 取 B 的 `job_id` → 404）；受控环境先 `alembic upgrade head` 建表再真 MySQL e2e。
   ③ **Ops**（部署时）：`alembic upgrade head`（迁移 `6420ac5f02e7`）应用到 prod MySQL（沿用现连接，纯建表）。
   PM 已据契约写三方 prompt 转交。owner→前端（历史页主执行），QA e2e 并行、Ops 部署时跟进。
+- 2026-06-05 [运维] **③ prod 迁移已应用完成**：用含后端最新 commit（GitHub main `15cb36b`，含 `2cbb7d3` 等）的代码重建 api 后跑 `alembic upgrade head`。
+  · 迁移 `4a2a261611d9 → 6420ac5f02e7 (listing job persistence)` 应用成功
+  · 3 张新表 `listing_job`(13列)/`listing_image`/`listing_job_input` 已建；表总数 12→15，**原有 12 表未动**（纯新增，符合预期）
+  · `alembic_version = 6420ac5f02e7`；api healthy、站点 `/`→200
+  · 迁移前已 `mysqldump` 全量备份 → `/data/docker/design-hub/backups/design_hub_20260605_161830.sql`（兜底回滚点）
+  · 注：CI(方案A) 这次因 **GitHub runner→上海服务器 SSH 跨境超时**失败，改**本地直连部署**（代码与 GitHub main 完全一致），结果无差异。CI 抖动属方案 A 已知短板，另议（self-hosted runner 走代理可根治）。
+  Ops 部署侧完成 ✅。仍待前端历史页 + QA e2e（prod 表已就绪可对照）。
