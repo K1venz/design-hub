@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0029
 title: listing 出图结果图无法显示——前端直塞 file:// 到 <img>，浏览器禁止加载本地资源（线上也坏）
-status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 出图成功但结果完全看不到；listing 核心交付不可用，且线上必坏
 reporter: QA
-owner: Ops            # 后端①已实现(7df59bb)；球交 Ops 做②nginx+prod env，前端做③dev /img，齐后 QA 验
+owner: QA             # ①后端+②nginx+prod env 均已部署生效，prod 端到端就绪待 QA 验；仅剩③dev /img(前端,dev-only)
 created: 2026-06-04
 related:
   - 前端: image-web/src/components/listing/ResultGallery.tsx:65（`<img src={s.url}>` 直接用 file://）
@@ -87,3 +87,9 @@ listing「商品套图」点出图 → **出图成功**（`POST /api/listing/gen
   (a) **运维**：注入 prod `.env` `IMAGE_PUBLIC_BASE_URL=https://14.103.51.191` + **用含本提交的代码重建 api 镜像**
   （否则容器内仍是旧 file:// 逻辑）；(b) **前端③**：dev `vite.config.ts` 加 `/img/<name>` 中间件 + dev
   `IMAGE_PUBLIC_BASE_URL=http://localhost:3000`（仅 dev 一致性，prod 不依赖）。(a) 就位后 QA 按本条验收 prod。
+- 2026-06-05 [运维] **(a) 完成——按 GitHub main 重新部署 prod**：
+  · 注入服务器 `.env` `IMAGE_PUBLIC_BASE_URL=https://14.103.51.191`（chmod 600，不入库）
+  · CI(`workflow_dispatch`, ref main=3325615 含后端 7df59bb) 重建 api 镜像并重启
+  · 验证：容器内 `Settings().image_public_base_url == 'https://14.103.51.191'`（新代码+env 双生效）、api healthy、`/img/<sha>.png`→200、站点 200
+  · **prod 端到端就绪**：新出图 url=`https://14.103.51.191/img/<sha>.png` → nginx 200 → 前端 `<img>` 可显示
+  状态→待验证，owner→QA（按本条 prod 验收：上传→出图→结果区正常回显、无 file:// 报错）。仅剩 ③ 前端 dev `/img` 一致性（dev-only，不阻塞 prod）。
