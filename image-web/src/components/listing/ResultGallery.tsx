@@ -1,6 +1,8 @@
 import { DownloadIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 
+import { downloadImage } from '@/lib/download'
+
 export interface ResultSlot {
   url: string | null // null = generating
 }
@@ -13,13 +15,6 @@ interface ResultGalleryProps {
   generating: boolean
 }
 
-function download(url: string, name: string) {
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-}
-
 export function ResultGallery({ title, slots, done, total, generating }: ResultGalleryProps) {
   const ready = slots.filter((s) => s.url)
   return (
@@ -28,7 +23,7 @@ export function ResultGallery({ title, slots, done, total, generating }: ResultG
         <h2 className="text-[22px] font-semibold">{title}</h2>
         {ready.length > 0 && (
           <button
-            onClick={() => ready.forEach((s, i) => download(s.url!, `listing-${i + 1}.png`))}
+            onClick={() => ready.forEach((s, i) => void downloadImage(s.url!, `listing-${i + 1}.png`))}
             className="rounded-[10px] border border-[#ece8e2] bg-white px-3.5 py-2 text-[13px] text-[#4a443d]"
           >
             <DownloadIcon className="mr-1 inline size-4" /> 下载全部
@@ -64,7 +59,7 @@ export function ResultGallery({ title, slots, done, total, generating }: ResultG
               >
                 <img src={s.url} alt="" className="size-full object-cover" />
                 <button
-                  onClick={() => download(s.url!, `listing-${i + 1}.png`)}
+                  onClick={() => void downloadImage(s.url!, `listing-${i + 1}.png`)}
                   className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
                 >
                   <DownloadIcon className="mr-1 inline size-3.5" /> 下载

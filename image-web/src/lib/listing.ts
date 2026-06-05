@@ -139,6 +139,16 @@ export interface ListingJobImage {
   status: string
 }
 
+/** 历史展示用格式化（纯函数）。 */
+export function fmtListingTime(s: string): string {
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleString('zh-CN', { hour12: false })
+}
+export function fmtListingCost(c: string | number): string {
+  const n = Number(c)
+  return Number.isNaN(n) ? String(c) : `¥${n.toFixed(2)}`
+}
+
 /** GET /listing/jobs/{id} 详情。 */
 export interface ListingJobDetail {
   job_id: string

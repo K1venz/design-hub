@@ -14,6 +14,8 @@ import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
 import { CustomersPage } from '@/pages/CustomersPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
+import { HistoryPage } from '@/pages/HistoryPage'
+import { HistoryDetailPage } from '@/pages/HistoryDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { RegisterPage } from '@/pages/RegisterPage'
@@ -51,6 +53,8 @@ function AppRoutes() {
           <Route index element={<WorkbenchPage />} />
         </Route>
         <Route element={<AppLayout />}>
+          <Route path="history" element={<HistoryPage />} />
+          <Route path="history/:jobId" element={<HistoryDetailPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route
             path="dashboard"
