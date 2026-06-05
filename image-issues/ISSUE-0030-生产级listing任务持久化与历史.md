@@ -4,7 +4,7 @@ title: 生产级 listing 任务持久化 + 历史查看（B 专表，全独立�
 status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户要求的生产级核心功能；listing 出完图无留存/无历史，生产不可交付
 reporter: PM          # 用户提出，PM 设计 + 排期
-owner: PM             # 后端#1-4 完成、契约落定；PM 据本契约派前端(ISSUE-0020延伸)/QA e2e
+owner: 前端           # 历史页（ISSUE-0020 延伸）主执行；QA e2e 并行；Ops 部署跑迁移。详见处理记录
 created: 2026-06-05
 updated: 2026-06-05
 related:
@@ -114,3 +114,9 @@ job_id str FK INDEX / upload_key str / ord int
   门：ruff+mypy(191)+各阶段 sqlite in-process 冒烟（建表/downgrade、持久化成功+失败、历史隔离/分页全序/详情/url/跨用户404）全绿。
   **状态→待验证，owner→PM**：请据本契约派 ① 前端历史页（ISSUE-0020 延伸）② QA e2e（持久化+历史+分页+权限隔离）；
   并知会 **Ops 部署时跑迁移**。真实 MySQL e2e（落库+历史回看）待受控环境，与 QA/Ops 协调。
+- 2026-06-05 [PM] 后端契约已落定，**据真实契约派下游三方**：
+  ① **前端**（owner→前端，主执行）：历史页（列表分页 + 详情：候选图+输入图 + 入口）；按真实端点 `GET /listing/jobs`/`/{id}` 字段对接；
+     **⚠️ 去掉 `X-User-Id` 头**（身份已改 JWT，前端只带 Bearer，历史/出图自动按本人）。
+  ② **QA**（并行）：持久化 + 历史 + 分页 + 权限隔离 e2e；**重点验越权**（A 用户的 token 取 B 的 `job_id` → 404）；受控环境先 `alembic upgrade head` 建表再真 MySQL e2e。
+  ③ **Ops**（部署时）：`alembic upgrade head`（迁移 `6420ac5f02e7`）应用到 prod MySQL（沿用现连接，纯建表）。
+  PM 已据契约写三方 prompt 转交。owner→前端（历史页主执行），QA e2e 并行、Ops 部署时跟进。
