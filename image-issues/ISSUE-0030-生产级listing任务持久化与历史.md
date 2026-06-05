@@ -127,3 +127,17 @@ job_id str FK INDEX / upload_key str / ord int
   · 迁移前已 `mysqldump` 全量备份 → `/data/docker/design-hub/backups/design_hub_20260605_161830.sql`（兜底回滚点）
   · 注：CI(方案A) 这次因 **GitHub runner→上海服务器 SSH 跨境超时**失败，改**本地直连部署**（代码与 GitHub main 完全一致），结果无差异。CI 抖动属方案 A 已知短板，另议（self-hosted runner 走代理可根治）。
   Ops 部署侧完成 ✅。仍待前端历史页 + QA e2e（prod 表已就绪可对照）。
+- 2026-06-05 [QA] **后端持久化+历史 e2e 验证完成（真 MySQL + 真 gpt-image，n=1 控成本）：16/17 通过**。
+  脚本 image-qa/listing_history_e2e.py、listing_history_fail_e2e.py。
+  · **持久化 ✅**：成功 job → `listing_job(status=完成, total_cost=1.19, completed_at)` + `listing_image`(1 行,
+    `image_key=<sha>.png` **文件名非绝对url**, status=成功) + `listing_job_input`(upload_key=文件名, ord=0)；
+    **失败 job**(bogus-GPT 真实失败) → `status=失败, total_cost=0, error=…, 0 图, 输入图已存` ✅。
+    `部分完成`(len<n) 为命令派生，n=1 真实站点不可强制，代码已确认。
+  · **列表 ✅** 字段齐 + 分页边界(limit 0/101→400、offset<0→400、正常→200)；**详情 ✅** 元数据+images[]+input_urls[]。
+  · **权限隔离 ✅（重点全过）**：越权 B 取 A 的 job→**404**、不存在→404、无 Bearer→401、B 列表不含 A。
+  · **图 url**：输出候选图 `…/img/<sha>.png` GET→**200 image/png** ✅。
+  · **❌ 唯一 FAIL → ISSUE-0031(P2)**：历史详情**输入产品图回显 404**（input_urls 指 /img/(generated)，但上传落 assets/）。
+  · **⚠️ key 配置坑**：`.env` `GPT_IMAGE_API_KEY` 是**两个 key 逗号分隔** → provider 当单个 Bearer 发 → 上游 `401 Invalid token`、
+    **出图全失败**；QA 逐个单测确认 **key1 单独有效**（用它出图成功），key2 未测。建议 .env 用单个有效 key（或开发加多 key failover）；
+    **prod .env 若同样逗号双 key 会整体坏，请 Ops 核**。
+  QA 后端 e2e 已通过（仅 ISSUE-0031 待修）。owner 维持=前端（历史页）。
