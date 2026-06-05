@@ -87,3 +87,6 @@ job_id str FK INDEX / upload_key str / ord int
   `listing_image` 存 key 便于 OSS 零迁移；撤掉原草案里会波及海报流的「image_store url→key 重构」。
   已更新 PRD §3.12.9（删押后的「历史不持久化」）。开本条派开发，owner=开发，severity P1，status=已确认。
   连带：前端历史页（ISSUE-0020 延伸）、QA e2e。OSS 为阶段2（待凭据另排）。
+- 2026-06-05 [PM] **节奏：后端先行**。前端历史页 / QA e2e **暂不启动**——待开发把 3 表 + 历史端点
+  （`GET /listing/jobs`、`/{id}`）契约落定（返回字段 / 分页参数 / url 形态）后，PM 据真实契约再派前端/QA，
+  避免对未定契约返工（鉴 listing 前两次前端返工教训）。**前端/QA 现阶段请勿提前对接 listing 历史。**
