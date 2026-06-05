@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
+from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.project_catalog import ProjectImage, ProjectJob
 
 
@@ -49,11 +50,11 @@ class ProjectImageOut(BaseModel):
     subscene: str
 
     @classmethod
-    def of(cls, i: ProjectImage) -> "ProjectImageOut":
+    def of(cls, i: ProjectImage, signer: MediaUrlSigner) -> "ProjectImageOut":
         return cls(
             image_id=i.image_id,
             job_id=i.job_id,
-            url=i.url,
+            url=signer.generated_url(i.url),  # i.url 实为 image_key（ISSUE-0034）
             seed=i.seed,
             score=i.score,
             kept=i.kept,

@@ -7,6 +7,7 @@ GET /projects/{id}/images[?round_no=&kept=]  列项目下候选图（导出/交�
 
 from fastapi import APIRouter
 
+from design_hub.interface.api.deps import MediaSignerDep
 from design_hub.interface.api.project_catalog_deps import ProjectCatalogServiceDep
 from design_hub.interface.project_catalog_schemas import ProjectImageOut, ProjectJobOut
 
@@ -24,10 +25,11 @@ async def list_project_jobs(
 async def list_project_images(
     project_id: int,
     svc: ProjectCatalogServiceDep,
+    signer: MediaSignerDep,
     round_no: int | None = None,
     kept: bool | None = None,
 ) -> list[ProjectImageOut]:
     return [
-        ProjectImageOut.of(i)
+        ProjectImageOut.of(i, signer)
         for i in await svc.images(project_id, round_no=round_no, kept=kept)
     ]

@@ -4,19 +4,11 @@ from decimal import Decimal
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.domain.enums import TaskEventType
+from design_hub.domain.media import image_key_from_url
 from design_hub.domain.models import ListingJobImage, ListingJobOutcome, TaskEvent
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.task_queue import GenerationCommand
-
-
-def _image_key(url: str) -> str:
-    """出图 url → 存储 key（文件名）。
-
-    兼容 /img/<sha>.png、https://host/img/<sha>.png、以及 TOS 预签名 url
-    （https://bucket.endpoint/<sha>.png?X-Tos-...）——先去 ?query 再取末段文件名。
-    """
-    return url.split("?")[0].rsplit("/", 1)[-1]
 
 
 @dataclass
@@ -67,7 +59,7 @@ class ListingGenerationCommand(GenerationCommand):
             )
         images = tuple(
             ListingJobImage(
-                image_key=_image_key(im.url), seed=im.seed, cost=im.cost, status="成功"
+                image_key=image_key_from_url(im.url), seed=im.seed, cost=im.cost, status="成功"
             )
             for im in result.images
         )
