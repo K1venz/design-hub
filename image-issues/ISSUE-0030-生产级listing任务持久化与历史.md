@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0030
 title: 生产级 listing 任务持久化 + 历史查看（B 专表，全独立新增、零影响现有接口）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户要求的生产级核心功能；listing 出完图无留存/无历史，生产不可交付
 reporter: PM          # 用户提出，PM 设计 + 排期
-owner: 开发           # 后端主体：建表 + 持久化 + 历史端点
+owner: PM             # 后端#1-4 完成、契约落定；PM 据本契约派前端(ISSUE-0020延伸)/QA e2e
 created: 2026-06-05
 updated: 2026-06-05
 related:
@@ -90,3 +90,27 @@ job_id str FK INDEX / upload_key str / ord int
 - 2026-06-05 [PM] **节奏：后端先行**。前端历史页 / QA e2e **暂不启动**——待开发把 3 表 + 历史端点
   （`GET /listing/jobs`、`/{id}`）契约落定（返回字段 / 分页参数 / url 形态）后，PM 据真实契约再派前端/QA，
   避免对未定契约返工（鉴 listing 前两次前端返工教训）。**前端/QA 现阶段请勿提前对接 listing 历史。**
+- 2026-06-05 [开发] **后端 #1–#4 全部完成**（commits f8c99d2 / ab641a2 / 2cbb7d3），契约落定如下，PM 可据此派前端/QA：
+
+  **① 建表 + 迁移**（f8c99d2）：3 表 `listing_job`/`listing_image`/`listing_job_input`，Alembic
+  `6420ac5f02e7`（down_revision=4a2a261611d9）；手删 autogenerate 夹带的 app_user 假 diff，零改动现有表。
+  临时 sqlite 验证表/列/downgrade 可逆。**⚠️ 需 Ops 部署时 `alembic upgrade head` 应用到 prod MySQL**（建表，沿用现连接）。
+
+  **② 持久化**（ab641a2）：`SqlAlchemyListingHistory` 替 NoOp（仅 listing 装配，不碰海报流 JobRepository）；
+  出图**成功与失败都落库**——成功写 `完成`（len(图)<n→`部分完成`），失败发 task_failed 后写 `失败`(0成本+error)；
+  `image_key`/`upload_key` 存文件名（不存绝对 url，OSS 零迁移）。不改 image_store。
+
+  **③ 历史端点**（2cbb7d3，**契约**）：
+  - `POST /listing/generate`（**契约微调**）：入参 JSON `{upload_ids[≤3], prompt, ratio, n, modifiers{}}`，Bearer。
+    **身份改用 JWT（`AuthUser.user_id`），弃 `X-User-Id` 头**——历史"只看自己的"必须按认证身份，否则按可伪造的头过滤是越权漏洞；成本/落库/历史同钉认证用户。前端**无需再传 X-User-Id**。
+  - `GET /listing/jobs?limit=&offset=`（Bearer，默认 limit=20，1..100；offset≥0）→ 本人任务、时间倒序、全序分页。
+    列表项：`{job_id, status, platform, ratio, n, total_cost, created_at, first_image_url, image_count}`。
+  - `GET /listing/jobs/{job_id}`（Bearer）→ 详情，**仅本人**，非本人/不存在→**404**（不泄露存在性）：
+    `{job_id, prompt, modifiers, platform, ratio, size, n, status, total_cost, error, created_at, completed_at,
+    images:[{url, seed, cost, status}], input_urls:[...]}`。
+  - **图 url**：后端已把 `image_key`/`upload_key` 拼成 `{IMAGE_PUBLIC_BASE_URL}/img/{key}`（复用 ISSUE-0029，零新增图片端点）。前端直接 `<img src=url>`。
+  - `status` 取值：`完成|部分完成|失败`（`生成中` 为 schema 预留，本期"出图结束写"不产生；实时进度仍走 SSE）。
+
+  门：ruff+mypy(191)+各阶段 sqlite in-process 冒烟（建表/downgrade、持久化成功+失败、历史隔离/分页全序/详情/url/跨用户404）全绿。
+  **状态→待验证，owner→PM**：请据本契约派 ① 前端历史页（ISSUE-0020 延伸）② QA e2e（持久化+历史+分页+权限隔离）；
+  并知会 **Ops 部署时跑迁移**。真实 MySQL e2e（落库+历史回看）待受控环境，与 QA/Ops 协调。
