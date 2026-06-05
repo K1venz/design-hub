@@ -1,11 +1,22 @@
 import { useEffect, useRef } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 
 import {
   LISTING_EVENT_TYPES, buildListingBody, parseListingEvent,
   type ListingEvent, type ListingGenerateInput, type UploadedImage,
+  type ListingJobSummary, type ListingJobDetail,
 } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
+
+/** Authenticated GET helper for listing JSON endpoints. fail-fast on non-2xx. */
+async function authGet<T>(path: string): Promise<T> {
+  const token = useAuthStore.getState().token
+  const res = await fetch(`/api${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`请求失败（${res.status}）：${await res.text()}`)
+  return res.json() as Promise<T>
+}
 
 /** POST /uploads (multipart, single file field `file`, Bearer) -> { id, url }. fail-fast. */
 export function useUploadImage() {
@@ -69,4 +80,21 @@ export function useListingEvents(jobId: string | null, onEvent: (e: ListingEvent
     }
     return () => es.close()
   }, [jobId])
+}
+
+/** GET /listing/jobs?limit=&offset= → 本人任务列表（裸数组，时间倒序）。 */
+export function useListingJobs(limit: number, offset: number) {
+  return useQuery({
+    queryKey: ['listing', 'jobs', limit, offset],
+    queryFn: () => authGet<ListingJobSummary[]>(`/listing/jobs?limit=${limit}&offset=${offset}`),
+  })
+}
+
+/** GET /listing/jobs/{jobId} → 详情（仅本人；非本人/不存在 → 404 抛错）。 */
+export function useListingJob(jobId: string | undefined) {
+  return useQuery({
+    queryKey: ['listing', 'job', jobId],
+    queryFn: () => authGet<ListingJobDetail>(`/listing/jobs/${jobId}`),
+    enabled: Boolean(jobId),
+  })
 }

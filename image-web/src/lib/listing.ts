@@ -115,3 +115,44 @@ export const LISTING_UNIT_COST = 1.19
 export function estimateCost(n: number): number {
   return n * LISTING_UNIT_COST
 }
+
+// ── listing 历史（ISSUE-0030）──────────────────────────────
+// 后端已把 image_key/upload_key 拼成完整 url（{IMAGE_PUBLIC_BASE_URL}/img/{key}，复用 ISSUE-0029），前端直接 <img src>。
+
+/** GET /listing/jobs 列表项（裸数组）。 */
+export interface ListingJobSummary {
+  job_id: string
+  status: string
+  platform: string
+  ratio: string
+  n: number
+  total_cost: string | number
+  created_at: string
+  first_image_url: string | null
+  image_count: number
+}
+
+export interface ListingJobImage {
+  url: string
+  seed: number | null
+  cost: string | number
+  status: string
+}
+
+/** GET /listing/jobs/{id} 详情。 */
+export interface ListingJobDetail {
+  job_id: string
+  prompt: string
+  modifiers: Record<string, string>
+  platform: string
+  ratio: string
+  size: string
+  n: number
+  status: string
+  total_cost: string | number
+  error: string | null
+  created_at: string
+  completed_at: string | null
+  images: ListingJobImage[]
+  input_urls: string[]
+}
