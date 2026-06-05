@@ -28,10 +28,20 @@ from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.ledger.memory import InMemoryLedgerRepository
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
-from design_hub.infrastructure.storage.local import LocalImageStore
+from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
+from design_hub.infrastructure.storage.local_upload import LocalUploadStore
+from design_hub.infrastructure.storage.tos import (
+    TosImageStore,
+    TosMediaUrlSigner,
+    TosUploadStore,
+    build_tos_client,
+)
 from design_hub.infrastructure.vision.mock import MockVisionAssist
+from design_hub.ports.image_store import ImageStore
 from design_hub.ports.ledger import LedgerRepository
+from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.model_config_repository import ModelConfigRecord
+from design_hub.ports.upload_store import UploadStore
 
 # Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
 _MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
@@ -89,13 +99,51 @@ def build_gpt_image_provider(
             k.strip() for k in settings.gpt_image_api_key.get_secret_value().split(",") if k.strip()
         ],
         model=settings.gpt_image_model,
-        image_store=LocalImageStore(
-            settings.image_output_dir, public_base_url=settings.image_public_base_url
-        ),
+        image_store=build_image_store(settings),
         trust_env=False,  # 境内中转站直连，绕开本机梯子代理
         timeout=300.0,  # 图生图 edit 实测 ~187s（ISSUE-0007），180s 太紧；放宽到 300s 留余量
         max_retries=2,  # 中转站 edit 端点间歇 500"系统繁忙"，瞬时错误重试（ISSUE-0007）
     )
+
+
+def _tos_enabled(settings: Settings) -> bool:
+    return bool(
+        settings.tos_access_key.get_secret_value()
+        and settings.tos_generate_bucket
+        and settings.tos_upload_bucket
+    )
+
+
+def build_media_signer(settings: Settings) -> MediaUrlSigner:
+    """配了 TOS → 预签名 url 签名器；否则本地静态拼接（nginx /img，ISSUE-0029）。"""
+    if _tos_enabled(settings):
+        return TosMediaUrlSigner(
+            build_tos_client(settings),
+            settings.tos_generate_bucket,
+            settings.tos_upload_bucket,
+            settings.tos_signed_url_ttl,
+        )
+    return LocalMediaUrlSigner(settings.image_public_base_url)
+
+
+def build_image_store(settings: Settings) -> ImageStore:
+    """出图结果落点：配了 TOS → generate 桶；否则本地目录。"""
+    if _tos_enabled(settings):
+        return TosImageStore(
+            build_tos_client(settings),
+            settings.tos_generate_bucket,
+            build_media_signer(settings),
+        )
+    return LocalImageStore(
+        settings.image_output_dir, public_base_url=settings.image_public_base_url
+    )
+
+
+def build_upload_store(settings: Settings) -> UploadStore:
+    """上传图落点：配了 TOS → upload 桶；否则本地 assets/ 目录。"""
+    if _tos_enabled(settings):
+        return TosUploadStore(build_tos_client(settings), settings.tos_upload_bucket)
+    return LocalUploadStore(settings.asset_output_dir)
 
 
 def build_registry(

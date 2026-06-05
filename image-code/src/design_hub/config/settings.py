@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # 监控（ISSUE-0008）：Sentry DSN，空则不接入（本地/CI no-op）
     sentry_dsn: str = ""
 
+    # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储
+    tos_access_key: SecretStr = SecretStr("")
+    tos_secret_key: SecretStr = SecretStr("")
+    tos_region: str = ""  # 如 cn-shanghai
+    tos_endpoint: str = ""  # 如 tos-cn-shanghai.volces.com
+    tos_generate_bucket: str = ""  # 出图结果桶
+    tos_upload_bucket: str = ""  # 用户上传图桶
+    tos_signed_url_ttl: int = 3600  # 预签名 url 有效期（秒）
+
     @classmethod
     def from_kms(cls) -> "Settings":
         # Production secrets pulled from Aliyun KMS at startup; not on disk.

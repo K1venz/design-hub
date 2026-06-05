@@ -2,6 +2,7 @@ import hashlib
 from pathlib import Path
 
 from design_hub.ports.image_store import ImageStore
+from design_hub.ports.media_url_signer import MediaUrlSigner
 
 
 class LocalImageStore(ImageStore):
@@ -22,3 +23,20 @@ class LocalImageStore(ImageStore):
         name = hashlib.sha256(data).hexdigest()[:16] + suffix
         (self._dir / name).write_bytes(data)
         return f"{self._public_base_url}/img/{name}"
+
+
+class LocalMediaUrlSigner(MediaUrlSigner):
+    """本地/dev 签名器：静态拼 {base}/img/{key}（复用 ISSUE-0029 的 nginx /img）。
+
+    本地上传图回显沿用 /img/{key}（与 ISSUE-0030 现状一致，归并为已知项）；
+    TOS 实现按桶分别签名，正确区分两桶。
+    """
+
+    def __init__(self, base_url: str) -> None:
+        self._base = base_url.rstrip("/")
+
+    def generated_url(self, key: str) -> str:
+        return f"{self._base}/img/{key}"
+
+    def upload_url(self, key: str) -> str:
+        return f"{self._base}/img/{key}"

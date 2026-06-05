@@ -35,8 +35,10 @@ from design_hub.application.routing.router import ModelRouter
 from design_hub.application.selection.selection_service import SelectionService
 from design_hub.composition import (
     Engine,
+    build_media_signer,
     build_orchestrator,
     build_registry,
+    build_upload_store,
     default_model_configs,
 )
 from design_hub.config.settings import Settings
@@ -66,7 +68,6 @@ from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetri
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.infrastructure.storage.local_asset import LocalAssetStore
-from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import get_current_user, require_role
 from design_hub.interface.api.routes import (
@@ -128,9 +129,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.listing_history = SqlAlchemyListingHistory(session_factory)
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)
-    app.state.image_public_base_url = settings.image_public_base_url  # 历史拼图 url（ISSUE-0029）
+    # 历史/SSE 图 url 签名器（TOS 私有→预签名；本地→/img 静态，ISSUE-0029）
+    app.state.media_signer = build_media_signer(settings)
     # 图片上传两步流（ISSUE-0026）：上传图落本地 assets/，预览经 GET /uploads/{id} 代理
-    app.state.upload_service = UploadService(store=LocalUploadStore(settings.asset_output_dir))
+    app.state.upload_service = UploadService(store=build_upload_store(settings))
     # WP-A 工作台：客户/项目用例（DB-backed）
     customer_repo = SqlAlchemyCustomerRepository(session_factory)
     project_repo = SqlAlchemyProjectRepository(session_factory)
