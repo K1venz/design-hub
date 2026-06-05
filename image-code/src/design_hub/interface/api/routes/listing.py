@@ -57,6 +57,7 @@ async def generate_listing(
         prompt=req.prompt,
         modifiers=req.modifiers,
         images=images,
+        upload_keys=tuple(req.upload_ids),
         ratio=req.ratio,
         n=req.n,
     )
