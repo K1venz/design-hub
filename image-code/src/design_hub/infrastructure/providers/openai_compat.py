@@ -31,7 +31,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         name: ModelName,
         unit_cost: Decimal,
         base_url: str,
-        api_key: str,
+        api_keys: list[str],
         model: str,
         image_store: ImageStore | None = None,
         client: httpx.AsyncClient | None = None,
@@ -43,7 +43,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self.name = name
         self.unit_cost = unit_cost
         self._base_url = base_url.rstrip("/")
-        self._api_key = api_key
+        if not api_keys:
+            raise ValueError("api_keys 不能为空")
+        self._api_keys = api_keys
+        self._key_idx = 0  # 多 key round-robin 游标
         self._model = model
         self._image_store = image_store
         self._client = client
@@ -121,8 +124,14 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         ]
         return await self._request_multipart(f"{self._base_url}/images/edits", data, files)
 
+    def _next_key(self) -> str:
+        # 多 key round-robin（asyncio 单线程，自增不跨 await，无需锁）；并发请求自动散到多 key
+        key = self._api_keys[self._key_idx % len(self._api_keys)]
+        self._key_idx += 1
+        return key
+
     async def _request_json(self, url: str, payload: dict[str, Any]) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+        headers = {"Authorization": f"Bearer {self._next_key()}"}
         if self._client is not None:
             return await self._client.post(
                 url, json=payload, headers=headers, timeout=self._client_timeout
@@ -138,7 +147,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         data: dict[str, str],
         files: list[tuple[str, tuple[str, bytes, str]]],
     ) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+        headers = {"Authorization": f"Bearer {self._next_key()}"}
         if self._client is not None:
             return await self._client.post(
                 url, data=data, files=files, headers=headers, timeout=self._client_timeout
