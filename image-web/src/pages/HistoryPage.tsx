@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { InboxIcon } from 'lucide-react'
 
 import { useListingJobs } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
@@ -32,8 +33,15 @@ export function HistoryPage() {
           加载失败，请稍后重试。
         </div>
       ) : items.length === 0 && offset === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[#e4ddd2] bg-white p-12 text-center text-sm text-[#bdb6ab]">
-          还没有出图记录 —— 去工作台出第一张图吧。
+        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-[#ece8e2] bg-white py-20">
+          <InboxIcon className="size-12 text-[#cabfb0]" strokeWidth={1.5} />
+          <p className="text-sm text-[#8a857e]">还没有出图记录</p>
+          <button
+            onClick={() => navigate('/')}
+            className="rounded-[10px] bg-gradient-to-r from-[#7c6cff] to-[#ff9a62] px-5 py-2 text-[13px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(124,108,255,.55)]"
+          >
+            去出图
+          </button>
         </div>
       ) : (
         <>
