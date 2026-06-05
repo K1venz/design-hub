@@ -1,11 +1,15 @@
 from abc import ABC, abstractmethod
 
-from design_hub.domain.models import ListingResult
+from design_hub.domain.models import ListingJobOutcome
 
 
 class ListingHistory(ABC):
-    """listing 出图历史持久化端口（架构口子）。MVP 绑 NoOp 不存；将来换 DB 实现，业务零改动。"""
+    """listing 出图历史持久化端口（写侧）。
+
+    MVP 曾绑 NoOp 不存；ISSUE-0030 起绑 DB 实现，落 listing_job + listing_image +
+    listing_job_input（与海报流的 JobRepository 彻底分开）。OSS 化只换 image_store，不动本端口。
+    """
 
     @abstractmethod
-    async def record(self, *, user_id: str, result: ListingResult) -> None:
+    async def record(self, outcome: ListingJobOutcome) -> None:
         ...

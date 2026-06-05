@@ -50,6 +50,7 @@ from design_hub.infrastructure.db.customer_repo import SqlAlchemyCustomerReposit
 from design_hub.infrastructure.db.export_query import SqlAlchemyExportQuery
 from design_hub.infrastructure.db.image_repo import SqlAlchemyGeneratedImageRepository
 from design_hub.infrastructure.db.job_repository import SqlAlchemyJobRepository
+from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.project_catalog import SqlAlchemyProjectCatalogQuery
 from design_hub.infrastructure.db.project_repo import SqlAlchemyProjectRepository
@@ -60,7 +61,6 @@ from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.export.pillow_exporter import PillowExporter
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
-from design_hub.infrastructure.listing.noop_history import NoOpListingHistory
 from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetricsSink
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
@@ -125,7 +125,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.listing_service = ListingGenerationService(
         registry=registry, guard=guard, modifier_registry=PromptModifierRegistry()
     )
-    app.state.listing_history = NoOpListingHistory()
+    app.state.listing_history = SqlAlchemyListingHistory(session_factory)
     # 图片上传两步流（ISSUE-0026）：上传图落本地 assets/，预览经 GET /uploads/{id} 代理
     app.state.upload_service = UploadService(store=LocalUploadStore(settings.asset_output_dir))
     # WP-A 工作台：客户/项目用例（DB-backed）

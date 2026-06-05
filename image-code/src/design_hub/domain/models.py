@@ -86,6 +86,34 @@ class ListingResult:
 
 
 @dataclass(frozen=True)
+class ListingJobImage:
+    """listing 历史持久化：单张候选图（image_key=文件名，不存绝对 url）。"""
+
+    image_key: str
+    seed: int
+    cost: Decimal
+    status: str  # 成功 | 失败
+
+
+@dataclass(frozen=True)
+class ListingJobOutcome:
+    """listing 一次出图任务的可持久化快照（ISSUE-0030，写历史用）。"""
+
+    job_id: str
+    user_id: str
+    prompt: str
+    modifiers: dict[str, str]
+    ratio: str
+    size: str  # 形如 1024x1536
+    n: int
+    status: str  # 完成 | 部分完成 | 失败
+    total_cost: Decimal
+    error: str | None
+    images: tuple[ListingJobImage, ...]
+    upload_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class BudgetSnapshot:
     user_month_used: Decimal
     user_monthly_quota: Decimal

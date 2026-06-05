@@ -1,9 +1,9 @@
-from design_hub.domain.models import ListingResult
+from design_hub.domain.models import ListingJobOutcome
 from design_hub.ports.listing_history import ListingHistory
 
 
 class NoOpListingHistory(ListingHistory):
-    """MVP：不持久化 listing 历史（服务器空间充足后换 DB 实现，业务零改动）。"""
+    """不持久化的占位实现（dev/CI 全 Mock 装配用；生产装配 SqlAlchemyListingHistory）。"""
 
-    async def record(self, *, user_id: str, result: ListingResult) -> None:
+    async def record(self, outcome: ListingJobOutcome) -> None:
         return None
