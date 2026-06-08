@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0012
 title: 缺「项目级 jobs/images 列表」端点，FE-3 选稿持久化 + FE-5 导出无法独立枚举
-status: 待验证
+status: 已关闭
 severity: P1
 reporter: 前端
-owner: QA
+owner: —              # QA 复验通过关闭
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -59,3 +59,4 @@ related:
   projects.py，同 /projects 前缀 FastAPI 合并) + asgi 装配/注册(login_required)。未动 schema。
   验证 ruff+mypy(176)+sqlite smoke(本项目任务/候选图列举 + round_no/kept 过滤 + 不跨项目)。
   状态→待验证，owner→QA。前端 FE-3 选稿持久化 / FE-5 导出枚举可解锁。
+- 2026-06-08 [QA] **复验通过关闭**：`GET /projects/{id}/jobs`、`GET /projects/{id}/images` 端点已存在并工作（去Redis e2e `e2e_driver.py` 实测 200、返回该项目任务/候选图）。FE-3 选稿/FE-5 导出枚举可用。状态=已关闭。

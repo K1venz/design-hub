@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0004
 title: AssetRepository.list 方法遮蔽内置 list，get_many 注解求值崩溃，asgi app 无法 import
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 开发        # WP-F 集成自检时发现
-owner: QA             # 已修复待 QA 验证（球交回 QA）
+owner: —              # QA 复验通过关闭
 created: 2026-06-01
 updated: 2026-06-01
 related:
@@ -64,3 +64,4 @@ TypeError: 'function' object is not subscriptable
   `ports/repositories.py` + `infrastructure/db/asset_repo.py` 顶部加 `from __future__ import annotations`，
   全文件注解延迟为字符串、类体期不求值，方法名遮蔽内置类型的隐患彻底消除，零 API 改动。
   复验精确复现命令返回 FastAPI，ruff + mypy(119 文件) 全绿。状态维持**待验证**，owner=QA。
+- 2026-06-08 [QA] **复验通过关闭**：`uv run python -c "from design_hub.interface.api.asgi import app"` → asgi import OK；`asset_repo.py` 第2行已加 `from __future__ import annotations`（采纳 QA 建议根治，注解延迟求值不再因 list 方法遮蔽内置而崩）。本会话多次真实起 asgi（去Redis/listing/0030 e2e）均正常启动。状态=已关闭。

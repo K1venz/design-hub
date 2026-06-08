@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0017
 title: 移除 qwen-image-pro 出图模型（用户定：多余，不接）
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA             # 已移除+F7 改投 gpt(选项A)，待 QA 复验
+owner: —              # QA 复验通过关闭
 created: 2026-06-03
 updated: 2026-06-03
 related:
@@ -61,3 +61,4 @@ qwen-image-pro 当前只是 Mock 占位（无真实 key），实测真实模型�
   qwen-vl-max 视觉辅助不在范围未动。验证 ruff+mypy(173)+smoke(无残留/模型集合=4/F7→gpt/F3 fallback gpt/
   seed 4 模型)。**遗留**：真实 MySQL 若已 seed qwen 行，待 DB_URL 就绪后清理(置 enabled=false 或删)。
   状态→待验证，owner→QA。
+- 2026-06-08 [QA] **复验通过关闭**：`grep` 全树无 `QWEN_IMAGE/qwen-image` 残留（qwen-vl 视觉辅助不在范围）；`ModelName` = {gpt-image-2, seedream-5, wanxiang-2.7-pro, lingdong-2}（4 个无 qwen）；路由表 `F7 primary = GPT_IMAGE_2`（中式节庆改投 gpt）。状态=已关闭。
