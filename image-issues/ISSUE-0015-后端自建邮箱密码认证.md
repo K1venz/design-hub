@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0015
 title: 后端：自建邮箱密码 注册/登录 + 用户管理 + 移除 OAuth（app_user 表）
-status: 待验证
+status: 已关闭
 severity: P1
 reporter: 前端
-owner: QA             # 后端已实现+sqlite 验证；真实库迁移 apply + .env seed 后 QA 复验
+owner: —              # QA 复验通过关闭
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -60,3 +60,4 @@ related:
   无 MySQL 凭据)——这是 QA 复验的前置(同 0007/0010 的 .env 缺口)，需 Ops 配 DB_URL 后 apply。
   状态→待验证，owner→QA。
   > 前端契约已就绪(§契约/spec §5)，前端三页(注册/登录改造/用户管理)可并行。
+- 2026-06-08 [QA] **复验通过关闭**：真实 MySQL 下 `/auth/register`(默认设计师)、`/auth/login`、`/me`、`/admin/users`(仅管理者) 全实测通过；角色矩阵(设计师/管理者 403/200)、无 token→401、错密码→401、SEED_ADMIN seed 管理者均验过（去Redis 全流程 35/35 + listing e2e）。OAuth 已移除。状态=已关闭。

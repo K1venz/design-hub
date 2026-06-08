@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0011
 title: SSE 端点需 Bearer，但原生 EventSource 无法设自定义请求头
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: 前端
-owner: QA
+owner: —              # QA 复验通过关闭
 created: 2026-06-02
 updated: 2026-06-02
 related:
@@ -58,3 +58,4 @@ asgi 全端点（除 `/auth/*`）需 `Authorization: Bearer <JWT>`。前端 FE-3
   **仅 SSE 端点放宽**，其余端点 query token 不放行(get_current_user 仍只认 Bearer 头)。
   验证 ruff+mypy(176)+dep smoke(query/头/无/坏 token + 普通端点不放行)+OpenAPI 确认 /events
   暴露 access_token query 参数。状态→待验证，owner→QA。前端 FE-3 SSE 订阅解锁。
+- 2026-06-08 [QA] **复验通过关闭**：SSE 端点 `/generate/{job_id}/events`、`/listing/{job_id}/events` 均支持 `?access_token=<jwt>` query 鉴权；实测无 token → **401**，带 `?access_token=` → 正常订阅收事件（去Redis e2e、listing_real_boundary/history e2e 多次实测）。原生 EventSource 鉴权问题解决。状态=已关闭。
