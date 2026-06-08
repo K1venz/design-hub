@@ -25,18 +25,21 @@ from design_hub.application.registry import ProviderRegistry
 from design_hub.application.routing.router import ModelRouter
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
+from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.ledger.memory import InMemoryLedgerRepository
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.infrastructure.storage.tos import (
+    TosExportStore,
     TosImageStore,
     TosMediaUrlSigner,
     TosUploadStore,
     build_tos_client,
 )
 from design_hub.infrastructure.vision.mock import MockVisionAssist
+from design_hub.ports.exporter import ExportStore
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.media_url_signer import MediaUrlSigner
@@ -144,6 +147,15 @@ def build_upload_store(settings: Settings) -> UploadStore:
     if _tos_enabled(settings):
         return TosUploadStore(build_tos_client(settings), settings.tos_upload_bucket)
     return LocalUploadStore(settings.asset_output_dir)
+
+
+def build_export_store(settings: Settings) -> ExportStore:
+    """导出读源图：配了 TOS → 从 generate 桶读（ISSUE-0034）；否则本地出图目录。产物落本地导出目录。"""
+    if _tos_enabled(settings):
+        return TosExportStore(
+            build_tos_client(settings), settings.tos_generate_bucket, settings.export_output_dir
+        )
+    return LocalExportStore(settings.export_output_dir, source_dir=settings.image_output_dir)
 
 
 def build_registry(

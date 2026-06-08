@@ -35,6 +35,7 @@ from design_hub.application.routing.router import ModelRouter
 from design_hub.application.selection.selection_service import SelectionService
 from design_hub.composition import (
     Engine,
+    build_export_store,
     build_media_signer,
     build_orchestrator,
     build_registry,
@@ -61,7 +62,6 @@ from design_hub.infrastructure.db.revision_repo import SqlAlchemyRevisionReposit
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
 from design_hub.infrastructure.events.memory import InMemoryEventBus
-from design_hub.infrastructure.export.local_export_store import LocalExportStore
 from design_hub.infrastructure.export.pillow_exporter import PillowExporter
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
 from design_hub.infrastructure.monitoring.prometheus_sink import PrometheusMetricsSink
@@ -171,7 +171,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.export_service = ExportService(
         query=SqlAlchemyExportQuery(session_factory),
         exporter=PillowExporter(),
-        store=LocalExportStore(settings.export_output_dir, source_dir=settings.image_output_dir),
+        store=build_export_store(settings),
     )
     # WP-D 改稿单：开单/列单/加条目/逐条勾选（交付强校验经 ProjectService.revisions）
     app.state.revision_service = RevisionService(revisions=revision_repo, projects=project_repo)
