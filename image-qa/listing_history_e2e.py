@@ -7,12 +7,13 @@ cd image-code && uv run python ../image-qa/listing_history_e2e.py
 import asyncio
 import io
 import json
+import os
 import time
 
 import httpx
 from PIL import Image
 
-BASE = "http://127.0.0.1:8002"
+BASE = os.environ.get("QA_BASE", "http://127.0.0.1:8002")  # server qa 实例经隧道时设 QA_BASE
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 A = ("qa-hist-a@test.com", "qa-hist-a-123", "用户A")
 B = ("qa-hist-b@test.com", "qa-hist-b-123", "用户B")

@@ -6,10 +6,11 @@ cd image-code && uv run python ../image-qa/listing_real_boundary.py
 """
 
 import asyncio
+import os
 
 import httpx
 
-BASE = "http://127.0.0.1:8002"
+BASE = os.environ.get("QA_BASE", "http://127.0.0.1:8002")  # server qa 实例经隧道时设 QA_BASE
 DESIGNER = ("qa-designer@test.com", "qa-designer-12345")
 PNG = b"\x89PNG\r\n\x1a\n" + b"qa-real-boundary" * 4  # 合法 content-type 即可，上传不校验图像可解码
 
@@ -80,6 +81,17 @@ async def main() -> None:
         check("B11.无Bearer→401", r.status_code == 401, f"HTTP {r.status_code}")
         r = await c.get("/listing/none/events")
         check("B11b.SSE无access_token→401", r.status_code == 401, f"HTTP {r.status_code}")
+
+        # ---------- C. 上传归属隔离（ISSUE-0032，listing.py owns() 校验，零成本 fail-fast）----------
+        r2 = await c.post("/auth/register", json={"email": "qa-designer2@test.com", "password": "qa-designer2-12345", "name": "QA设计师2"})
+        if r2.status_code != 200:
+            r2 = await c.post("/auth/login", json={"email": "qa-designer2@test.com", "password": "qa-designer2-12345"})
+        token2 = r2.json()["jwt"]
+        H2 = {"Authorization": f"Bearer {token2}"}
+        uid2 = (await c.post("/uploads", headers=H2, files={"file": ("b.png", PNG, "image/png")})).json().get("id")
+        # 用户1(H) 引用用户2(H2) 的 upload_id 出图 → 边界拦截 400（owns 校验失败，不入队、不出图）
+        r = await c.post("/listing/generate", headers=H, json=body([uid2]))
+        check("C1.引用他人upload_id→400(归属隔离)", r.status_code == 400, f"HTTP {r.status_code} {r.text[:60]}")
 
         n = sum(1 for _, ok in R if ok)
         print(f"\n==== 真服务器边界: {n}/{len(R)} passed（全程真路由真鉴权，无 mock，未出图零成本）====")
