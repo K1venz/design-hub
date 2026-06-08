@@ -54,8 +54,9 @@ class ListingHistoryQuery(ABC):
 
     @abstractmethod
     async def list_jobs(
-        self, *, user_id: str, limit: int, offset: int
+        self, *, user_id: str, limit: int, offset: int, q: str | None = None
     ) -> list[ListingJobSummary]:
+        """q 非空 → 按 prompt / platform 模糊匹配（仍限本人、时间倒序、分页）。"""
         ...
 
     @abstractmethod

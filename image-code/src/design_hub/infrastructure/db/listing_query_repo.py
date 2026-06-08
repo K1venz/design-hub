@@ -1,4 +1,4 @@
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -18,14 +18,18 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
         self._session_factory = session_factory
 
     async def list_jobs(
-        self, *, user_id: str, limit: int, offset: int
+        self, *, user_id: str, limit: int, offset: int, q: str | None = None
     ) -> list[ListingJobSummary]:
         async with self._session_factory() as session:
+            stmt = select(ListingJobRow).where(ListingJobRow.user_id == user_id)
+            if q:
+                like = f"%{q}%"  # 模糊匹配 prompt / platform（ISSUE-0032 搜索）
+                stmt = stmt.where(
+                    or_(ListingJobRow.prompt.ilike(like), ListingJobRow.platform.ilike(like))
+                )
             stmt = (
-                select(ListingJobRow)
-                .where(ListingJobRow.user_id == user_id)
                 # created_at 秒级精度，加 id 次级保证全序、分页稳定（无跨页重/漏）
-                .order_by(desc(ListingJobRow.created_at), desc(ListingJobRow.id))
+                stmt.order_by(desc(ListingJobRow.created_at), desc(ListingJobRow.id))
                 .limit(limit)
                 .offset(offset)
                 .options(selectinload(ListingJobRow.images))
