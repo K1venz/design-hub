@@ -49,7 +49,8 @@ from design_hub.ports.upload_store import UploadStore
 # Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
 _MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
     ModelName.SEEDREAM_5: Decimal("0.20"),
-    ModelName.GPT_IMAGE_2: Decimal("1.19"),
+    # base 上线档($0.05实扣)；¥0.40=锁汇率~7.2的¥占位估算(非真实账单,季度复核)
+    ModelName.GPT_IMAGE_2: Decimal("0.40"),
     ModelName.WANXIANG_27: Decimal("0.05"),
     ModelName.LINGDONG_2: Decimal("0.04"),
 }
@@ -87,12 +88,12 @@ def build_gpt_image_provider(
 ) -> OpenAICompatImageProvider:
     """真实 gpt-image-2 中转 Provider（apinebula/诗云）。需 .env 提供 GPT_IMAGE_*。
 
-    单价优先取 model_config 表（unit_costs），缺失则用 apinebula 实扣参考价兜底。
+    单价优先取 model_config 表（unit_costs），缺失则回落 ¥占位估算（与 seed 一致）。
     b64 出图经 LocalImageStore 落本地目录（A 方案）；将来换 OSS 只改 image_store。
     """
     if not settings.gpt_image_base_url or not settings.gpt_image_model:
         raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env）")
-    unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.10"))
+    unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.40"))
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=unit_cost,
