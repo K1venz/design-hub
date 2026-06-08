@@ -94,7 +94,7 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
       </div>
       <div className="space-y-1 p-3">
         <div className="flex items-center justify-between text-[13px]">
-          <span className="font-medium text-[#2c2824]">{job.platform}</span>
+          <span className="font-medium text-[#2c2824]">{job.platform ?? '通用'}</span>
           <span className="text-[#8a857e]">{job.ratio} · {job.n}张</span>
         </div>
         <div className="flex items-center justify-between text-[12px] text-[#8a857e]">

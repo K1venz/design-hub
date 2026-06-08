@@ -135,6 +135,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listing/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Listing
+         * @description listing 一键出图（两步流，ISSUE-0026）：入参经 upload_ids 引用已上传图，异步返回 job_id。
+         */
+        post: operations["generate_listing_listing_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/listing/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jobs
+         * @description 当前用户的 listing 历史（时间倒序、分页）；q 非空按 prompt/platform 模糊搜本人任务。
+         */
+        get: operations["list_jobs_listing_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/listing/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job
+         * @description listing 任务详情（仅本人；非本人 / 不存在 → 404，不泄露存在性）。
+         */
+        get: operations["get_job_listing_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/listing/{job_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listing Events */
+        get: operations["listing_events_listing__job_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Image
+         * @description 上传产品图（Bearer）：校验大小/格式 → 落本人命名空间 → 返回 {id, url}。
+         */
+        post: operations["upload_image_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview */
+        get: operations["preview_uploads__upload_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/customers": {
         parameters: {
             query?: never;
@@ -583,6 +697,11 @@ export interface components {
             file: string;
             kind: components["schemas"]["AssetKind"];
         };
+        /** Body_upload_image_uploads_post */
+        Body_upload_image_uploads_post: {
+            /** File */
+            file: string;
+        };
         /** BriefOut */
         BriefOut: {
             /** Id */
@@ -811,6 +930,98 @@ export interface components {
             /** Kept */
             kept: boolean;
         };
+        /**
+         * ListingGenerateRequest
+         * @description listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。
+         *
+         *     数量/范围/比例/下拉的具体边界在路由同步 fail-fast 校验（统一 400），不靠 Pydantic 约束
+         *     （避免 422 与 spec 的 400 口径不一致，ISSUE-0024）。
+         */
+        ListingGenerateRequest: {
+            /** Upload Ids */
+            upload_ids: string[];
+            /** Prompt */
+            prompt: string;
+            /** Ratio */
+            ratio: string;
+            /** N */
+            n: number;
+            /** Modifiers */
+            modifiers?: {
+                [key: string]: string;
+            };
+        };
+        /** ListingImageOut */
+        ListingImageOut: {
+            /** Url */
+            url: string;
+            /** Seed */
+            seed: number;
+            /** Cost */
+            cost: string;
+            /** Status */
+            status: string;
+        };
+        /** ListingJobDetailOut */
+        ListingJobDetailOut: {
+            /** Job Id */
+            job_id: string;
+            /** Prompt */
+            prompt: string;
+            /** Modifiers */
+            modifiers: {
+                [key: string]: string;
+            };
+            /** Platform */
+            platform: string | null;
+            /** Ratio */
+            ratio: string;
+            /** Size */
+            size: string;
+            /** N */
+            n: number;
+            /** Status */
+            status: string;
+            /** Total Cost */
+            total_cost: string;
+            /** Error */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Images */
+            images: components["schemas"]["ListingImageOut"][];
+            /** Input Urls */
+            input_urls: string[];
+        };
+        /** ListingJobSummaryOut */
+        ListingJobSummaryOut: {
+            /** Job Id */
+            job_id: string;
+            /** Status */
+            status: string;
+            /** Platform */
+            platform: string | null;
+            /** Ratio */
+            ratio: string;
+            /** N */
+            n: number;
+            /** Total Cost */
+            total_cost: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** First Image Url */
+            first_image_url: string | null;
+            /** Image Count */
+            image_count: number;
+        };
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -870,7 +1081,7 @@ export interface components {
          * ModelName
          * @enum {string}
          */
-        ModelName: "gpt-image-2" | "qwen-image-pro" | "seedream-5" | "wanxiang-2.7-pro" | "lingdong-2";
+        ModelName: "gpt-image-2" | "seedream-5" | "wanxiang-2.7-pro" | "lingdong-2";
         /** ModelOut */
         ModelOut: {
             /** Model */
@@ -1417,6 +1628,218 @@ export interface operations {
             };
             path: {
                 job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_listing_listing_generate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_jobs_listing_jobs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                q?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingJobSummaryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_listing_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingJobDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listing_events_listing__job_id__events_get: {
+        parameters: {
+            query?: {
+                access_token?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_image_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_image_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_uploads__upload_id__get: {
+        parameters: {
+            query?: {
+                access_token?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                upload_id: string;
             };
             cookie?: never;
         };
