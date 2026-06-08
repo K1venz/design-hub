@@ -1,6 +1,7 @@
 import { DownloadIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 
+import { PipelineBeam } from '@/components/listing/PipelineBeam'
 import { downloadImage } from '@/lib/download'
 
 export interface ResultSlot {
@@ -44,8 +45,11 @@ export function ResultGallery({ title, slots, done, total, generating }: ResultG
       )}
 
       {slots.length === 0 ? (
-        <div className="grid min-h-[40vh] place-items-center text-[14px] text-[#bdb6ab]">
-          上传产品图、写下卖点，点「开始出图」
+        <div className="grid min-h-[62vh] place-items-center">
+          <div className="flex flex-col items-center gap-7">
+            <PipelineBeam />
+            <p className="text-[14px] text-[#bdb6ab]">上传产品图、写下卖点，点「开始出图」</p>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
