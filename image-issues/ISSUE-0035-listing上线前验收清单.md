@@ -65,7 +65,36 @@ A–E 全绿 + F 统计达标（F1 样本若不足 50%，PM 据样本重定口�
 - C2/C3 等 dev 翻牌 0034→待验证、核 0016 残留（dev 群内承诺）。
 - C1/C2/C3 真数据走查与 frontend-b 联动（其 schema.d.ts 对齐后）。
 
+## QA 第一轮验收进度（2026-06-08 · server qa 实例 QA_BASE=localhost:8444 · 镜像 main HEAD 612d474）
+
+> 环境：独立 `design_hub_qa` 库 + 独立 qa TOS 桶（`bucket-design-hub-qa-generate/-upload`）+ TTL=10，prod 零触碰（安全闸已 fingerprint 复核）。脚本：`image-qa/listing_real_boundary.py`、`listing_history_e2e.py`、`listing_acceptance_batch.py`。
+
+| 项 | 结果 | 证据 / 说明 |
+|---|---|---|
+| A1 两步上传 | ✅ | boundary：合法→200{id,url}、>10MB/gif/空→400、预览 200/401/404 |
+| A2 入参 fail-fast | ✅ | boundary：upload_ids 0/>3、n=0/8、ratio 非法/4:3、空 prompt、未知下拉 → 全 400；无 Bearer/SSE 无 token→401 |
+| A2+ 上传归属隔离(新增) | ✅ | 引用他人 upload_id→400（ISSUE-0032 `owns()`） |
+| A3 SSE happy | ⛔ 阻塞 | **ISSUE-0037**：gpt key 401 Invalid token，出图即时失败 |
+| A4 N 张并发 | ⛔ 阻塞 | 同 0037 |
+| B1 落库 | 🟡 半绿 | **失败也落库✅**（status=失败/cost=0/img=0）；成功落库等 0037 |
+| B2 历史列表 | ✅ | 本人/倒序/分页(limit 1..100、offset≥0)/字段齐 |
+| B3 历史详情 | ✅ | 本人 200，元数据+input_urls 齐 |
+| C1 输入图回显(0031) | ✅ | **server TOS 上 200**：input_url=qa-upload 桶签名 url GET 200 image。0031 在 server 闭环（本地 dev 残留不影响 server） |
+| C2 海报签名 url(0034) | ⛔ 阻塞 | 需 generation 出 1 张（等 0037）；验法=DB `generated_image.url` 裸 key + TTL=10 真复现 |
+| C3 图床(0016) | 🟡 半绿 | 输入图签名 url 200✅；输出图 url 等 0037 |
+| D1 越权隔离 | ✅ | A 取 B 的 job→404；B 列表不含 A 的 job |
+| D2 鉴权 | ✅ | 无 Bearer→401；SSE 无 access_token→401 |
+| E1 成本守门 | 🟡 半绿 | 失败回滚→cost=0✅；成功预扣→回正等 0037 |
+| F1 首次可用率 | ⛔ 阻塞 | 等 0037（真实样本）；可用率需视觉评分（与 PM 共评） |
+| F2 时延 P95 | ⛔ 阻塞 | 等 0037 |
+| F3 非法入参 | ✅ | = A2，全 4xx fail-fast、零成本 |
+
+**边界码 nuance（dev #93 已处置）**：A9 `GET /uploads/badid`→404 = 防枚举预期、保留不改；B4 `generate` 不存在 upload_id→已由 400 升级为统一 **404**（commit 797ca06）「不存在或无权访问」，**待 ops 重 build 后零成本复测**。
+
+**当前唯一阻塞 = ISSUE-0037（gpt key 失效）**；非出图链路全健康。key 修复后续跑 A3/A4/C2/F + B/E 成功态 + B4 复测即可闭环。
+
 ## 处理记录
 - 2026-06-08 [PM] 据 coordinator 群内确认「listing 验收清单由 PM 出」，将 PRD §3.12.6 验收口径扩成本上线 checklist（A 链路/B 持久化历史/C 回显复验/D 权限/E 成本/F 质量口径）。
   纳入群里 dev 读码核对的真实状态：0031 prod 已闭环(本地 dev 残留不修)、0034 代码已改存 key+现签(待翻牌)、0016 核心已解决(残留 mock 占位低优先)。
   owner=QA，待 QA 进群接单逐项跑。**当前主线瓶颈 = QA 未进群**（需用户在 QA 窗口 join）。
+- 2026-06-08 [QA] 进群接单，server qa 实例第一轮跑：非出图链路全绿（boundary 20/22、B 失败落库、B2/B3、**C1 输入图回显 200**、D1/D2、E 失败回滚），出图链路（A3/A4/C2/F + B/E 成功态）被 **ISSUE-0037（gpt key 401 失效）阻塞、零成本撞出**（双阶段成本闸：失败不计费 total_cost=0）。边界 A9 确认预期、B4 已修(797ca06)待复测。owner=QA，等 0037 key 修复（ops）+ 容器从 HEAD 797ca06 重 build 后续跑。
