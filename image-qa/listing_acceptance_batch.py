@@ -33,8 +33,8 @@ MAX_IMAGES = int(os.environ.get("QA_MAX_IMAGES", "50"))
 SRC = os.environ.get(
     "QA_SRC", "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 )
-A = ("qa-acc-a@test.local", "qa-acc-a-123", "验收用户A")
-B = ("qa-acc-b@test.local", "qa-acc-b-123", "验收用户B")
+A = ("qa-acc-a@example.com", "qa-acc-a-123", "验收用户A")  # 避开保留 TLD .local/.test(422, ops #88)
+B = ("qa-acc-b@example.com", "qa-acc-b-123", "验收用户B")
 
 # F1 happy 采样：覆盖几个平台×比例组合（n=1），凑可用率样本
 HAPPY_MATRIX = [
@@ -43,6 +43,9 @@ HAPPY_MATRIX = [
     {"ratio": "16:9", "modifiers": {"platform": "Temu", "region": "欧洲", "language": "英文"}},
     {"ratio": "9:16", "modifiers": {"platform": "TikTok Shop", "region": "东南亚", "language": "英文"}},
     {"ratio": "1:1", "modifiers": {"platform": "拼多多", "region": "中国", "language": "中文"}},
+    {"ratio": "3:4", "modifiers": {"platform": "京东", "region": "中国", "language": "中文"}},
+    {"ratio": "9:16", "modifiers": {"platform": "抖音电商", "region": "中国", "language": "中文"}},
+    {"ratio": "16:9", "modifiers": {"platform": "亚马逊", "region": "美国", "language": "英文"}},
 ]
 PROMPT = "电商主图：颗粒饱满的花生产品，主体清晰、背景干净、质感突出"
 
