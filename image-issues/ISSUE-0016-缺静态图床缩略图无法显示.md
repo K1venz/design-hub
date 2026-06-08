@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0016
 title: 缺静态图床 —— 素材/候选图 url 为 mock://、file://，前端无法显示缩略图
-status: 已确认
-severity: P1
+status: 待验证
+severity: P3          # 方案①(图能HTTP加载)已达成,P1核心痛点消解;仅余方案②(mock占位)低优先
 reporter: 前端
-owner: 开发
+owner: QA
 created: 2026-06-02
-updated: 2026-06-02
+updated: 2026-06-08
 related:
   - code: image-code/infrastructure/storage/ · providers（图 url 生成）
   - 前端: image-web/src/components/generate/ImageThumb.tsx
@@ -42,3 +42,9 @@ related:
   ① **静态图床路由**：加 `GET /files/{...}`（或 `/static/`）经 ImageStore/AssetStore 流式读本地文件返回（带鉴权/签名防越权），并把 `ImageOut.url`/`AssetOut.url`/`ProjectImageOut.url` 改为该 HTTP 地址 → 真实 gpt-image(file://) 图即可在前端显示。
   ② **Mock provider 返回可视占位**：把 `mock://...` 改成可渲染的占位（如 `https://placehold.co/512?text=mock` 或 data URL）→ 免费 mock 出图时选稿也能看到图（便于无成本联调）。
   前端 `ImageThumb` 已只渲染 http/data/blob，后端给出可访问 url 后**前端零改动**自动显示。
+- 2026-06-08 [开发] 读码核对残留范围：**方案①已达成，仅余方案②低优先**。
+  · 方案①（图能 HTTP 加载）✅：`LocalImageStore` 不再吐 `file://`，改 web 路径 `/img/<key>`（ISSUE-0029）；prod 走火山 TOS 签名 url（ISSUE-0033）。
+    选稿/出图/项目候选/listing 各 Out（selection / generation / project_catalog / listing 路由）读时均经 `MediaUrlSigner` 现签 → 真实出图图前端可直显，`ImageThumb` 零改动。
+  · 方案②（mock provider 可视占位）⏳ 未做：`providers/mock.py:43` 仍吐 `mock://` → 免费 mock 联调时选稿看不到占位图。**仅影响零成本 mock 联调，真实出图/真数据联调不受影响**，押后（低优先，等 PM 拍优先级）。
+  P1 核心痛点（真实输出图看不到）已由方案①消解 → severity P1→P3、status 已确认→**待验证**、owner 开发→QA：
+  请 QA 在真数据下确认选稿/历史/项目候选的真实出图图能正常显示（mock 占位非阻塞，单列低优先）。
