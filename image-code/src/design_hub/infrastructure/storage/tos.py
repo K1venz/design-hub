@@ -103,7 +103,7 @@ class TosExportStore(ExportStore):
         self._base = Path(base_dir).resolve()
 
     async def read(self, url: str) -> bytes:
-        key = url.split("?")[0].rsplit("/", 1)[-1]  # 源图 image_key（generated_image.url 存的即 key）
+        key = url.split("?")[0].rsplit("/", 1)[-1]  # 源图 image_key
         obj = await asyncio.to_thread(self._client.get_object, self._bucket, key)
         data: bytes = await asyncio.to_thread(obj.read)
         return data
