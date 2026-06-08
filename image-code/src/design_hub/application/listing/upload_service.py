@@ -12,14 +12,14 @@ class UploadService:
 
     store: UploadStore
 
-    async def save(self, *, data: bytes, content_type: str) -> str:
+    async def save(self, *, data: bytes, content_type: str, user_id: str) -> str:
         if not data:
             raise ValueError("上传文件为空")
         if len(data) > _MAX_BYTES:
             raise ValueError(f"图片超过 10MB（{len(data)} 字节）")
         if content_type not in _ALLOWED_CONTENT_TYPES:
             raise ValueError(f"不支持的图片格式：{content_type or '未知'}（仅 png/jpg/webp）")
-        return await self.store.save(data, content_type=content_type)
+        return await self.store.save(data, content_type=content_type, user_id=user_id)
 
     async def load(self, upload_id: str) -> tuple[bytes, str]:
         return await self.store.load(upload_id)

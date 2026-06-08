@@ -1,17 +1,28 @@
+import hashlib
 from abc import ABC, abstractmethod
 
 
-class UploadStore(ABC):
-    """上传图临时落点端口（DIP）：存字节返回路径安全的 id，按 id 读回 (bytes, content_type)。
+def upload_ns(user_id: str) -> str:
+    """用户命名空间 = sha256(user_id)[:12]。上传图 key 以此为前缀，实现按用户隔离（无需建表）。"""
+    return hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:12]
 
-    与项目素材的 AssetStore 区分：本端口服务「先上传预览 → 再出图」两步流（ISSUE-0026），
-    原生以 (id, content_type) 语义工作，供 GET /uploads/{id} 代理预览。
-    本地实现写磁盘，OSS 实现按 LSP 替换。
+
+def owns(upload_id: str, user_id: str) -> bool:
+    """upload_id 是否属于该用户（key 前缀 == 其命名空间）。"""
+    return upload_id.startswith(f"{upload_ns(user_id)}/")
+
+
+class UploadStore(ABC):
+    """上传图落点端口（DIP）：存字节返回 id（含用户命名空间），按 id 读回 (bytes, content_type)。
+
+    服务「先上传预览 → 再出图」两步流（ISSUE-0026）；id = `<userNs>/<sha>.<ext>`，
+    归属隔离（ISSUE-0032）由前缀承载，取图前经 owns() 校验。
+    本地实现写磁盘，TOS 实现按 LSP 替换。
     """
 
     @abstractmethod
-    async def save(self, data: bytes, *, content_type: str) -> str:
-        """存字节，返回 upload id（路径安全的存储键）。"""
+    async def save(self, data: bytes, *, content_type: str, user_id: str) -> str:
+        """存字节，返回 upload id（`<userNs>/<sha>.<ext>`）。"""
         ...
 
     @abstractmethod
