@@ -33,7 +33,7 @@ export function HistoryDetailPage() {
           <div className="rounded-2xl border border-[#ece8e2] bg-white p-5">
             <div className="mb-3 flex items-center gap-3">
               <h2 className="text-lg font-semibold text-[#1c1b1a]">
-                {d.platform} · {d.ratio}
+                {d.platform ? `${d.platform} · ${d.ratio}` : d.ratio}
               </h2>
               <JobStatusBadge status={d.status} />
             </div>
@@ -63,7 +63,7 @@ export function HistoryDetailPage() {
                   >
                     <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
                     <button
-                      onClick={() => downloadImage(img.url, `${d.platform}-${i + 1}.png`)}
+                      onClick={() => downloadImage(img.url, `${d.platform ?? 'listing'}-${i + 1}.png`)}
                       className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
                     >
                       <DownloadIcon className="mr-1 inline size-3.5" /> 下载

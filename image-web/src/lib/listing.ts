@@ -1,5 +1,11 @@
 // Domain types & pure helpers for the listing one-shot generation flow.
 // No React, no IO — unit-tested in listing.test.ts.
+// Request/response shapes are derived from the generated OpenAPI schema (single
+// source of truth); only frontend-only shapes (form input, SSE events) stay local.
+
+import type { components } from '@/api/schema'
+
+type Schemas = components['schemas']
 
 export const PLATFORMS = [
   '亚马逊', '淘宝天猫1688', '拼多多', '京东', 'Temu', 'TikTok Shop', '抖音电商',
@@ -56,14 +62,8 @@ export interface ListingGenerateInput {
   modifiers: Record<string, string>
 }
 
-/** JSON body for POST /listing/generate (two-step: upload first, reference by id). */
-export interface ListingGenerateBody {
-  upload_ids: string[]
-  prompt: string
-  ratio: string
-  n: number
-  modifiers: Record<string, string>
-}
+/** JSON body for POST /listing/generate — the backend contract (two-step: upload first, reference by id). */
+export type ListingGenerateBody = Schemas['ListingGenerateRequest']
 
 export function buildListingBody(input: ListingGenerateInput): ListingGenerateBody {
   return {
@@ -120,24 +120,9 @@ export function estimateCost(n: number): number {
 // 后端已把 image_key/upload_key 拼成完整 url（{IMAGE_PUBLIC_BASE_URL}/img/{key}，复用 ISSUE-0029），前端直接 <img src>。
 
 /** GET /listing/jobs 列表项（裸数组）。 */
-export interface ListingJobSummary {
-  job_id: string
-  status: string
-  platform: string
-  ratio: string
-  n: number
-  total_cost: string | number
-  created_at: string
-  first_image_url: string | null
-  image_count: number
-}
+export type ListingJobSummary = Schemas['ListingJobSummaryOut']
 
-export interface ListingJobImage {
-  url: string
-  seed: number | null
-  cost: string | number
-  status: string
-}
+export type ListingJobImage = Schemas['ListingImageOut']
 
 /** 历史展示用格式化（纯函数）。 */
 export function fmtListingTime(s: string): string {
@@ -150,19 +135,4 @@ export function fmtListingCost(c: string | number): string {
 }
 
 /** GET /listing/jobs/{id} 详情。 */
-export interface ListingJobDetail {
-  job_id: string
-  prompt: string
-  modifiers: Record<string, string>
-  platform: string
-  ratio: string
-  size: string
-  n: number
-  status: string
-  total_cost: string | number
-  error: string | null
-  created_at: string
-  completed_at: string | null
-  images: ListingJobImage[]
-  input_urls: string[]
-}
+export type ListingJobDetail = Schemas['ListingJobDetailOut']
