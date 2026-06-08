@@ -48,11 +48,8 @@ export function buildModifiers(config: ListingConfig): string {
   return JSON.stringify(config.modifiers)
 }
 
-/** Result of POST /uploads — `id` is the storage key, `url` the proxy GET /uploads/{id}. */
-export interface UploadedImage {
-  id: string
-  url: string
-}
+/** POST /uploads 响应（具名 UploadResponse{id,url}）：id=存储 key，url=预览代理 GET /uploads/{id}. */
+export type UploadedImage = Schemas['UploadResponse']
 
 export interface ListingGenerateInput {
   uploadIds: string[]
