@@ -1337,6 +1337,16 @@ export interface components {
             /** Done */
             done: boolean;
         };
+        /**
+         * UploadResponse
+         * @description POST /uploads 响应：上传图 id + 预览代理 url（GET /uploads/{id}）。
+         */
+        UploadResponse: {
+            /** Id */
+            id: string;
+            /** Url */
+            url: string;
+        };
         /** UsableRateOut */
         UsableRateOut: {
             /** Usable */
@@ -1814,9 +1824,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["UploadResponse"];
                 };
             };
             /** @description Validation Error */
