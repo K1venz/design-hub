@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0031
 title: listing 历史详情「输入产品图」回显 404——input_urls 指 /img/(generated) 但上传文件落 assets/
-status: 待确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # 历史详情里输入图永远裂图（输出候选图正常）；不阻断出图，但历史回看不完整
 reporter: QA
-owner: 开发           # input_urls 路径=后端；图床服务目录=Ops；二者协调，主开发
+owner: QA             # prod 已被 TOS 迁移顺带修；交 QA 复验。本地 dev 残留低优先
 created: 2026-06-05
 related:
   - test: image-qa/listing_history_e2e.py（用例5 输入图 url GET→404）
@@ -36,3 +36,9 @@ listing 历史详情 `GET /listing/jobs/{id}` 的 `input_urls`（输入产品图
 ## 处理记录
 - 2026-06-05 [QA] ISSUE-0030 历史 e2e（真 MySQL+真 gpt-image）发现：输出图回显 200、**输入图回显 404**。
   定位 input_urls→/img/(generated) 与上传落点 assets/ 不一致。开单，owner=开发（与 Ops 协调图床目录）。
+- 2026-06-08 [开发] **prod 已被 TOS 迁移顺带修**（commit b308556，随 ISSUE-0033 上 prod）：
+  历史 schema 的 `input_urls` 已从写死 `/img/{key}` 改为 **`signer.upload_url(key)`**——TOS 部署下签的是
+  **upload 桶**（上传图就在那）→ 输入图可显示，根因（input/输出指错目录）消除。
+  · **本地 dev 残留（低优先）**：`LocalMediaUrlSigner.upload_url` 仍返 `/img/{key}`（=generated/），本地上传在
+    assets/ → 仍 404；且私有上传 `<img>` 无法带 token，本地预览本就受限。dev-only，prod 不受影响。
+  状态→待验证，owner→QA。**请 QA**：在 prod/TOS 环境复验历史详情**输入图**——url 应为 upload 桶预签名、GET 200。
