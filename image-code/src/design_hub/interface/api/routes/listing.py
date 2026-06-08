@@ -23,6 +23,7 @@ from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.listing_query import ListingHistoryQuery
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.task_queue import TaskQueue
+from design_hub.ports.upload_store import owns
 
 router = APIRouter(prefix="/listing", tags=["listing"])
 
@@ -47,6 +48,9 @@ async def generate_listing(
         raise ValueError(f"张数需为 1..7，实际 {req.n}")
     ratio_to_size(req.ratio)
     compose_prompt(req.prompt, req.modifiers, service.modifier_registry)
+    for uid in req.upload_ids:
+        if not owns(uid, user.user_id):  # 只能用本人上传的图（ISSUE-0032 归属隔离）
+            raise ValueError(f"upload 不属于本人：{uid}")
     # id 非法→400 / 不存在→404
     images = tuple([(await uploads.load(uid))[0] for uid in req.upload_ids])
     events: EventPublisher = request.app.state.event_stream

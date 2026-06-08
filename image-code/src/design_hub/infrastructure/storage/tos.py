@@ -14,7 +14,7 @@ from design_hub.config.settings import Settings
 from design_hub.domain.errors import NotFoundError
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.media_url_signer import MediaUrlSigner
-from design_hub.ports.upload_store import UploadStore
+from design_hub.ports.upload_store import UploadStore, upload_ns
 
 _EXT_BY_CONTENT_TYPE = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 _CONTENT_TYPE_BY_EXT = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
@@ -69,11 +69,11 @@ class TosUploadStore(UploadStore):
         self._client = client
         self._bucket = bucket
 
-    async def save(self, data: bytes, *, content_type: str) -> str:
+    async def save(self, data: bytes, *, content_type: str, user_id: str) -> str:
         ext = _EXT_BY_CONTENT_TYPE.get(content_type)
         if ext is None:
             raise ValueError(f"不支持的图片类型：{content_type}")
-        key = f"{hashlib.sha256(data).hexdigest()[:16]}.{ext}"
+        key = f"{upload_ns(user_id)}/{hashlib.sha256(data).hexdigest()[:16]}.{ext}"
         await asyncio.to_thread(self._client.put_object, self._bucket, key, content=data)
         return key
 
