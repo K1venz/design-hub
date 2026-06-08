@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0035
 title: listing 一键出图 · 上线前验收清单（QA 逐项跑，全绿放行）
-status: 已修复        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起（A–F 全绿、放行标准达标）
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起（A–F 全绿 + 用户拍定 base 档位 → 验收收官）
 severity: P1          # listing 上线闸门：QA 系统性验收，决定能否交付
 reporter: PM
-owner: QA             # A–F 全绿放行达标；待用户拍定上线档位(PM 建议 base)后 QA 翻「已关闭」
+owner: QA             # 已关闭。⚠️ 验收闭环≠能上线，上线前硬 gate 见 ISSUE-0037(prod 换 key+QA 复验) + PM 上线清单(文案质控/单价)
 created: 2026-06-08
 updated: 2026-06-08
 related:
@@ -101,3 +101,4 @@ A–E 全绿 + F 统计达标（F1 样本若不足 50%，PM 据样本重定口�
   owner=QA，待 QA 进群接单逐项跑。**当前主线瓶颈 = QA 未进群**（需用户在 QA 窗口 join）。
 - 2026-06-08 [QA] 进群接单，server qa 实例第一轮跑：非出图链路全绿（boundary 20/22、B 失败落库、B2/B3、**C1 输入图回显 200**、D1/D2、E 失败回滚），出图链路（A3/A4/C2/F + B/E 成功态）被 **ISSUE-0037（gpt key 401 失效）阻塞、零成本撞出**（双阶段成本闸：失败不计费 total_cost=0）。边界 A9 确认预期、B4 已修(797ca06)待复测。owner=QA，等 0037 key 修复（ops）+ 容器从 HEAD 797ca06 重 build 后续跑。
 - 2026-06-08 [QA] **验收闭环**：ISSUE-0037 解决后（ops 换有效 key + 改 base `gpt-image-2` + 容器 797ca06 重建）续跑全绿——A3 见真章 17/17、A4 n=3/5/7 候选齐 distinct seeds、B 成功/失败落库、C1 输入图回显 200、**C2/0034 双证(DB 裸 key `8e61a4b3…png` + TTL=10 复读 200)**、C3 图床现签、D1 404、D2 401、E1 成本一致、**F1 完成率 100%/可用率 87.5-100%、F2 P95 193s PASS**、boundary 22/22(upload-id 错误态统一 404 防枚举)。8 花生样张落盘 `image-qa/共评样张/` + index.md(QA 5 维初判)供共评；PM 逐字核 7/8 文案全对(样张8 `PRENIUM` typo 转上线前质控待办)。**A–F 全绿、放行标准达标**。上线档位 PM 建议 base、待用户拍。验收全程真实出图 0 浪费(失败不计费)、守 60 张硬顶(实用 24 张)。owner=QA，待用户定档后翻「已修复→已关闭」。
+- 2026-06-08 [QA] 用户拍板 **base 锁定为 listing 上线档位**（coordinator #163）→ listing 验收全线收官，本条翻**「已关闭」**。⚠️ 提醒：**验收闭环 ≠ 能上线**——上线前硬 gate 见 ISSUE-0037（prod 换有效 key + QA 复验 prod 真出图，否则用户上线即 401）+ PM 上线清单（文案质控治 PRENIUM 类 typo / 系统占位单价 ¥1.19→base 真实 $0.05 更新）。详见 memory [[project_listing_launch_gates]]。
