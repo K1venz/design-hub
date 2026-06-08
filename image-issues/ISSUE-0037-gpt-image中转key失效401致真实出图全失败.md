@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0037
 title: gpt-image-2 中转 key 失效（401 Invalid token）致真实出图全失败（qa+prod 同一把死 key）
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起（换 key 后撞出第二层 403 model-access，仍阻塞）
-severity: P1          # 阻断 listing 上线验收的真实出图链路；prod 同 key 潜伏
+status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起（qa 侧 base 已打通=验收解阻；prod 侧 key 仍死、待用户拍）
+severity: P1          # 阻断 listing 上线验收的真实出图链路（qa 已解）；prod 同 key 潜伏（仍开）
 reporter: QA
-owner: QA             # A 已执行(ops 改 qa model=gpt-image-2 重建)；QA 复跑 1 张验证；不通再上 B(vip key=用户层)
+owner: coordinator    # qa 侧已解(base 出图 200)；遗留 = prod 死 key 修复(生产变更) + 上线档位 vip/base 决策，coordinator 报用户拍
 created: 2026-06-08
 updated: 2026-06-08
 related:
@@ -60,3 +60,5 @@ server 14.103.51.191，design-hub-qa-api 容器（172.18.0.4:8000，main HEAD 61
 - 2026-06-08 [QA] 首张 n=1 见真章**仍失败**，但根因前进一层：错误由 `401 Invalid token` → **`403 This token has no access to model gpt-image-2-vip`**。即新 key 鉴权已通过，但其中转站账号**仅有 `gpt-image-2` 权限、无 `gpt-image-2-vip`**。QA `/models` 实测（零成本、key 脱敏）：新 key 可见 gpt-image 模型 = **仅 `gpt-image-2`**。而 qa 容器 `GPT_IMAGE_MODEL=gpt-image-2-vip` → 403。
   **待决策**：A) ops 改 qa 容器 `GPT_IMAGE_MODEL=gpt-image-2`（前提 dev 确认 base 支持 /images/edits；pm 注意 F1 口径变 base 非 vip），QA 复跑 1 张验证；B) 中转站账号给 vip 权限 key（coordinator 找用户）。QA 倾向先试 A。状态=已确认（仍阻塞），owner=运维。
 - 2026-06-08 [运维] 执行 A：qa 容器 `GPT_IMAGE_MODEL` 由 `gpt-image-2-vip` 改 `gpt-image-2` 并重建（172.18.0.4，localhost:8444 不变，容器内 model 确认=gpt-image-2，openapi 200）。交 QA 复跑 1 张验证。前提 dev 确认 base 支持 /images/edits、F1 口径归 pm；若 base 仍不通则上 B（vip key=用户层）。prod 仍未碰。owner=QA。
+- 2026-06-08 [QA] **qa 侧已解决 ✅**：base `gpt-image-2` 复跑 n=1 **200 出图成功**（127s，task_completed，真图 TOS qa-generate 桶，¥1.19）→ 证 base 支持 /images/edits + 余额够（dev #116 判对：vip 仅计费档、base 同底模同端点）。0035 验收 A–F 全绿（F1 可用率 87.5-100%、F2 P95 193s PASS）。**qa 出图阻塞彻底解除**。
+  ⚠️ 遗留两条（非 qa 验收阻塞）：① **prod 侧 key 仍是死的 4f3abbc6**——prod listing 真实出图现在仍会 401，coordinator 报用户拍（救 prod=生产变更）；② 上线档位 vip vs base 决策（PM 建议 base：成本省½ $0.05 vs $0.10 + 便利现成 key + 速度 PASS）。owner→**coordinator**（prod key + 档位决策）。qa 验收侧此条可视为已闭环。
