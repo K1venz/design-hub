@@ -60,3 +60,8 @@ related:
     issue 已接受）。**残留（低优先）**：`GET /uploads/{id}` 代理是"已登录 + 不可猜 sha id"、非严格 per-user 归属校验；
     如要更严可加 image↔user 归属校验，单列跟进。
   状态→待验证，owner→QA。**请 QA/前端**：验搜索契约 + 确认签名 url 隔离达标。
+- 2026-06-08 [开发] **需求2 收尾——上传图按用户严格隔离已补**（commit 9c8dd0f）：原"`/uploads/{id}` 代理仅
+  已登录、不校验归属"的跟进缺口已闭合（零 DB）。上传 key 改 `<userNs>/<sha>.<ext>`（userNs=sha256(user_id)[:12]）；
+  `GET /uploads/{id:path}` 先 `owns()` 校验本人否则 404；listing `/generate` 校验 upload_ids 均属本人否则 400；
+  同内容跨用户隔离到不同命名空间。至此**生成图(私有桶+签名url+历史owner门)+上传图(命名空间+owns校验)**双双按用户隔离，
+  0029 公开读彻底收紧。验证 ruff+mypy(194)+冒烟全绿。**需求2 视为完成**，连同需求1 一并交 QA 终验。
