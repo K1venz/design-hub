@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0034
 title: 海报流 generated_image.url 落库的是会过期的 TOS 预签名 url，历史回看/导出会失效
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # 海报流历史/导出随 TTL 过期成死链；listing 不受影响。若海报流产线活跃使用请 PM/开发升 P1
 reporter: 运维
-owner: 开发
+owner: QA
 created: 2026-06-05
-updated: 2026-06-05
+updated: 2026-06-08
 related:
   - code: image-code/src/design_hub/infrastructure/storage/tos.py:59-62（TosImageStore.save 返回预签名 url）
   - code: image-code/src/design_hub/infrastructure/db/job_repository.py:49,75（海报流把 url 直接落 generated_image.url）
@@ -55,3 +55,10 @@ TOS 未激活（本地 `/img`，ISSUE-0029）时无此问题——这是**激活
 - 2026-06-05 [运维] ISSUE-0033 激活生产 TOS 后暴露本问题；按代码定位根因（海报流落库签名 url，
   非 key），对照 listing 正确范式，开本条派开发。owner=开发，severity P2（若海报流产线活跃使用请升 P1）。
   运维侧：方案定后若涉及迁移，部署时由运维跑 `alembic upgrade head`（同 ISSUE-0030/0033 流程）。
+- 2026-06-08 [开发] 读码核对：修复已在代码落地，**未新建列、无需迁移**（复用 `generated_image.url` 列存文件名 key）。
+  · 写：海报/项目流落库改存 key 不存签名 url——`job_repository.py:51` 用 `image_key_from_url(img.url)`（commit 8b5360f）。
+  · 读：选稿/项目候选 Out 读时经 `MediaUrlSigner` 现签（selection/generation/project_catalog 路由均注入 signer）。
+  · 导出：改为按文件名从 TOS generate 桶现读源图（commit 210aba7 + `tos.py` 收尾、830017e），不再依赖落库 url。
+  · 兼容历史：`image_key_from_url` 同时吃 `/img/<sha>.png`、`https://host/img/...`、TOS 预签名 url（去 `?query` 取末段文件名），旧库不误判。
+  代码侧闭环，status 已确认→**待验证**，owner 开发→QA。与同根问题 ISSUE-0034「回看404」条（已 owner=QA 待验）一起验：
+  请 QA 验海报流历史回看 / 项目候选 / 导出在 TTL（默认 3600s）过后仍可读、不再 403。listing 不受影响。
