@@ -750,11 +750,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Upload Image Uploads Post"
+                  "$ref": "#/components/schemas/UploadResponse"
                 }
               }
             }
@@ -4713,6 +4709,25 @@
           "done"
         ],
         "title": "ToggleItemRequest"
+      },
+      "UploadResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "url"
+        ],
+        "title": "UploadResponse",
+        "description": "POST /uploads 响应：上传图 id + 预览代理 url（GET /uploads/{id}）。"
       },
       "UsableRateOut": {
         "properties": {

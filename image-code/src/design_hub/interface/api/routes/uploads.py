@@ -4,6 +4,7 @@ from fastapi.responses import Response
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.errors import NotFoundError
 from design_hub.interface.api.deps import CurrentUserDep, CurrentUserSseDep
+from design_hub.interface.listing_schemas import UploadResponse
 from design_hub.ports.upload_store import owns
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
@@ -18,13 +19,13 @@ def _service(request: Request) -> UploadService:
 @router.post("")
 async def upload_image(
     request: Request, user: CurrentUserDep, file: UploadFile
-) -> dict[str, str]:
+) -> UploadResponse:
     """上传产品图（Bearer）：校验大小/格式 → 落本人命名空间 → 返回 {id, url}。"""
     data = await file.read()
     upload_id = await _service(request).save(
         data=data, content_type=file.content_type or "", user_id=user.user_id
     )
-    return {"id": upload_id, "url": f"/uploads/{upload_id}"}
+    return UploadResponse(id=upload_id, url=f"/uploads/{upload_id}")
 
 
 @router.get("/{upload_id:path}")
