@@ -110,7 +110,8 @@ async def main() -> None:
             check("3.成功 job 详情含 1 张候选图", len(imgs) == 1 and imgs[0].get("status") == "成功", f"images={len(imgs)}")
             if imgs:
                 out_url = imgs[0].get("url", "")
-                check("3.输出图 url 形态 /img/<key>.png", "/img/" in out_url and out_url.endswith(".png"), out_url)
+                # 输出图 url 现签：本地模式=/img/<key>.png，server TOS 模式=https 签名 url；两者都接受（真正可服性由步骤5 GET 验）
+                check("3.输出图 url 可服(/img 或 TOS 签名)", bool(out_url) and ("/img/" in out_url or out_url.startswith("http")), out_url)
         in_url = (d.get("input_urls") or [""])[0]
 
         # 4. 权限隔离（重点）
