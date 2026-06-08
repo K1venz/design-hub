@@ -30,7 +30,15 @@ export function useUploadImage() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,
       })
-      if (!res.ok) throw new Error(`上传失败（${res.status}）：${await res.text()}`)
+      if (!res.ok) {
+        let detail = ''
+        try {
+          detail = ((await res.json()) as { detail?: string }).detail ?? ''
+        } catch {
+          // 响应体非 JSON —— 保持空，回退到状态码文案
+        }
+        throw new Error(detail || `上传失败（${res.status}）`)
+      }
       return res.json() as Promise<UploadedImage>
     },
   })

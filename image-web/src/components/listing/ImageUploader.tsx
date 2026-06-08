@@ -1,8 +1,21 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { UploadIcon, XIcon, Loader2Icon, RotateCwIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { useUploadImage } from '@/api/listing'
 import type { UploadedImage } from '@/lib/listing'
+
+// 与后端 UploadService 对齐（_MAX_BYTES=10MB；白名单 png/jpeg/webp，见 ISSUE-0028）
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+const ACCEPT_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const ACCEPT_HINT = '≤10MB · png/jpg/webp'
+
+/** 客户端预校验，返回拒绝原因（合法返 null）——大小/格式不对就别发请求。 */
+function rejectReason(file: File): string | null {
+  if (!ACCEPT_TYPES.includes(file.type)) return `${file.name}：不支持的格式（仅 png/jpg/webp）`
+  if (file.size > MAX_UPLOAD_BYTES) return `${file.name}：超过 10MB`
+  return null
+}
 
 interface UploadItem {
   key: string
@@ -10,6 +23,7 @@ interface UploadItem {
   previewUrl: string // local blob: URL — instant preview, not file://
   status: 'uploading' | 'done' | 'error'
   uploaded?: UploadedImage
+  error?: string
 }
 
 interface ImageUploaderProps {
@@ -19,8 +33,9 @@ interface ImageUploaderProps {
 }
 
 /**
- * Two-step upload (ISSUE-0026): on pick, POST each file to /uploads, show blob preview
- * with uploading / error(retry) / done states, deletable; reports done {id,url} upward.
+ * Two-step upload (ISSUE-0026): on pick, client-validate then POST each file to /uploads,
+ * show blob preview with uploading / error(reason+retry) / done states, deletable;
+ * surfaces backend failure reason (ISSUE-0028). Reports done {id,url} upward.
  */
 export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -42,20 +57,31 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
   function start(key: string, file: File) {
     upload
       .mutateAsync(file)
-      .then((uploaded) => patch(key, { status: 'done', uploaded }))
-      .catch(() => patch(key, { status: 'error' }))
+      .then((uploaded) => patch(key, { status: 'done', uploaded, error: undefined }))
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : '上传失败'
+        patch(key, { status: 'error', error: msg })
+        toast.error(msg)
+      })
   }
 
   function onPick(e: ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files ?? [])
     e.target.value = ''
-    const fresh: UploadItem[] = picked.slice(0, max - items.length).map((file) => ({
+    const room = max - items.length
+    const valid: File[] = []
+    for (const file of picked.slice(0, room)) {
+      const reason = rejectReason(file)
+      if (reason) toast.error(reason)
+      else valid.push(file)
+    }
+    if (valid.length === 0) return
+    const fresh: UploadItem[] = valid.map((file) => ({
       key: crypto.randomUUID(),
       file,
       previewUrl: URL.createObjectURL(file),
       status: 'uploading',
     }))
-    if (fresh.length === 0) return
     setItems((prev) => [...prev, ...fresh])
     fresh.forEach((it) => start(it.key, it.file))
   }
@@ -83,9 +109,12 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={items.length >= max}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#d8d1c6] bg-[#fbfaf8] px-4 py-5 text-[13px] text-[#9b958c] transition-colors hover:border-[#cdbfff] disabled:opacity-50"
+        className="flex w-full flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-[#d8d1c6] bg-[#fbfaf8] px-4 py-5 text-[13px] text-[#9b958c] transition-colors hover:border-[#cdbfff] disabled:opacity-50"
       >
-        <UploadIcon className="size-4" /> 上传图片（最多 {max} 张）
+        <span className="flex items-center gap-2">
+          <UploadIcon className="size-4" /> 上传图片（最多 {max} 张）
+        </span>
+        <span className="text-[11px] text-[#b8b2a8]">{ACCEPT_HINT}</span>
       </button>
       <input
         ref={inputRef}
@@ -109,6 +138,7 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
                 <button
                   type="button"
                   onClick={() => retry(it.key)}
+                  title={it.error}
                   className="absolute inset-0 grid place-items-center gap-0.5 bg-[#2c2824]/70 text-[10px] text-white"
                 >
                   <RotateCwIcon className="size-4" /> 重传

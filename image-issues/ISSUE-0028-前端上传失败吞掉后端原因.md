@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0028
 title: 前端图片上传失败只显示"error"，吞掉后端 400 原因（>10MB/格式不支持），用户不知为何失败
-status: 待确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # 不阻断功能，但用户无法自助排错；体验问题
 reporter: QA
-owner: 前端
+owner: QA             # 前端已修(透传 detail + 客户端预校验 + 限制提示)，待 QA 验
 created: 2026-06-04
 related:
   - 前端: image-web/src/components/listing/ImageUploader.tsx（.catch(() => patch(key,{status:'error'})) 丢弃 error）
@@ -35,3 +35,9 @@ related:
 ## 处理记录
 - 2026-06-04 [QA] 本地起整栈供用户自测，用户报「点上传失败」。后端日志 4×`POST /uploads 400`；
   复现确认=后端校验拒（>10MB 或非 png/jpg/webp），但前端 `.catch` 吞掉 detail 致用户无从排错。开单指前端。owner=前端。
+- 2026-06-08 [前端] **已修**（建议 3 条全做）：
+  ① `useUploadImage` 解析后端 `{detail}`，抛清晰文案（非 `res.text()` 裹原文）；
+  ② `ImageUploader` 失败 `.catch` 读 err.message → 写到该图条目(error 态 title 悬停) + `toast.error` 弹原因；
+  ③ **客户端预校验** `rejectReason`：`type∉{png,jpeg,webp}` 或 `size>10MB` 直接 toast 拒、不发请求；
+  ④ 上传区加限制提示「≤10MB · png/jpg/webp」。HEIC 转码归后端/PM（本期仅提示不支持）。
+  typecheck/lint/build/vitest 全过。状态=待验证，owner=QA（请验 >10MB / HEIC / 正常 三态文案）。
