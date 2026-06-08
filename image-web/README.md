@@ -3,8 +3,9 @@
 设计师 AI 副驾驶中台的 Web 前端。独立项目，与 `image-code`（后端 `design_hub`）同级，
 经 **dev proxy** 消费后端 26 个端点的契约。**不碰后端代码**；需后端改动 → 去 `image-issues` 开条目。
 
-> 当前进度：**FE-0 完成** —— 脚手架 + 类型化契约客户端 + 登录 + 应用骨架（按角色导航 + 401 跳登录）。
-> 业务页面 FE-1~7 拆分见 `../docs/前端工作包拆分.md`。
+> 当前进度：**listing 一键出图工作台全链路落地** —— 两步上传 → 纯 prompt 直出 → SSE 逐张到达 → 历史/详情；
+> 登录走自建邮箱密码（注册/登录）；管理页（仪表盘 / 模型 / 用户 / 客户）统一顶栏导航。
+> 出图工作台 v2 设计见 `docs/出图工作台-v2-商品套图重做-设计.md`。
 
 ## 技术栈（PRD §6.1）
 
@@ -22,13 +23,11 @@ npm run dev             # http://localhost:3000
 需要**同时跑后端**（dev proxy 把 /api 转给它）：
 
 ```bash
-# 在 image-code/ 下，真实基础设施（MySQL+Redis+.env 配 GPT_IMAGE_*）：
+# 在 image-code/ 下（异步出图 / SSE 走单进程，无 Redis）：
+#   首次空库先建表： uv run alembic upgrade head      （默认本机 sqlite design_hub.db）
 uv run uvicorn design_hub.interface.api.asgi:app --port 8000
-# 或零基础设施快速验证（临时 sqlite + 无认证 redis）：
-#   DB_URL=sqlite+aiosqlite:////tmp/dh.db uv run alembic upgrade head
-#   redis-server --port 6380 &
-#   DB_URL=sqlite+aiosqlite:////tmp/dh.db REDIS_URL=redis://127.0.0.1:6380/0 \
-#     uv run uvicorn design_hub.interface.api.asgi:app --port 8000
+#   真实出图需 .env 配 GPT_IMAGE_*（presence-based：配了就真出图、不配启动即崩）
+#   起法 / 凭据以 image-code 为准
 ```
 
 ## 脚本
@@ -61,8 +60,9 @@ src/
   api/         schema.d.ts(生成) · client.ts(openapi-fetch+中间件) · auth.ts(hooks) · query-client.ts · errors.ts
   stores/      auth-store.ts(Zustand persist: token→localStorage)
   routes/      ProtectedRoute(鉴权闸门+/me引导) · RoleRoute(角色闸门→403)
-  components/   ui/(shadcn) · layout/(AppLayout 按角色导航) · brand/ · feedback/ · PagePlaceholder
-  pages/       Login · Workbench · Dashboard(管理者) · AdminModels(管理者) · Forbidden(403) · NotFound(404)
+  components/   ui/(shadcn) · layout/(顶栏导航壳) · listing/(上传/配置/画廊/rail) · visual/(配饰) · dashboard/ · brand/ · feedback/
+  pages/       Login/Register · Workbench(listing 两栏出图) · History/HistoryDetail · Customers ·
+               Dashboard·AdminModels·AdminUsers(管理者) · Forbidden(403) · NotFound(404)
   App.tsx      Providers(Query/Tooltip/Router/Toaster) + 路由 + 401 监听
 ```
 
@@ -72,11 +72,12 @@ src/
 令牌集中在 `src/index.css`（oklch + `@theme`，含 dashboard 图表色板）。
 字体：Hanken Grotesk(UI 拉丁) + PingFang(中文) / Fraunces(展示) / JetBrains Mono(数字 ID)。
 
-## 登录（mock OAuth）
+## 登录（自建邮箱密码）
 
-后端 `POST /auth/{provider}/callback` 当前是 mock：按 `code` 前缀映射角色
-（`mgr-*`→管理者、`out-*`→403、其余→设计师）。前端登录页**开发态**提供「设计师/管理者」
-身份切换以验证按角色导航；生产态隐藏（真实飞书/钉钉 OAuth 待后端接凭据）。
+后端 `POST /auth/register`（邮箱 + 密码≥8 + 姓名 → `{jwt, role, name}`，自注册默认 role=设计师）、
+`POST /auth/login`（邮箱 + 密码）。前端登录/注册页据此走邮箱密码流；token 持久化到 localStorage。
+SSE 鉴权走 query `?access_token=<jwt>`（原生 EventSource 不能带头，见 [ISSUE-0011]）。
+（原 mock OAuth code-前缀映射已废弃；真实飞书/钉钉 OAuth 待后端接凭据，见 [ISSUE-0013]。）
 
 ## 依赖说明
 
@@ -86,7 +87,7 @@ src/
   （本仓策略未落 `.npmrc`——如需团队统一，可由有权限者加 `legacy-peer-deps=true`。）
 - 依赖一律用 CLI（`npm install <pkg>`）增删，勿手改 `package.json` 版本。
 
-## 已知事项（移交 FE-1~7）
+## 已知事项
 
-- **SSE + JWT（FE-3）**：原生 `EventSource` 无法设自定义请求头，而 `GET /generate/{job_id}/events`
-  需 `Authorization: Bearer`。需后端支持 query 传 token（或改用 fetch-stream）——见 `image-issues`。
+- **SSE + JWT** ✅：原生 `EventSource` 不能带请求头 → 已改 query 鉴权 `?access_token=<jwt>`（后端已支持，[ISSUE-0011]）。
+- listing 历史已持久化（后端落 DB + 前端历史/详情页，[ISSUE-0030]）；图 url 读时签名现签（[ISSUE-0029] / 火山 TOS）。
