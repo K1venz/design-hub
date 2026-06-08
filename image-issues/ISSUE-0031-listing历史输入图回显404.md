@@ -42,3 +42,7 @@ listing 历史详情 `GET /listing/jobs/{id}` 的 `input_urls`（输入产品图
   · **本地 dev 残留（低优先）**：`LocalMediaUrlSigner.upload_url` 仍返 `/img/{key}`（=generated/），本地上传在
     assets/ → 仍 404；且私有上传 `<img>` 无法带 token，本地预览本就受限。dev-only，prod 不受影响。
   状态→待验证，owner→QA。**请 QA**：在 prod/TOS 环境复验历史详情**输入图**——url 应为 upload 桶预签名、GET 200。
+- 2026-06-08 [开发] **本地 dev 残留判定：按设计不修（won't-fix）**。ISSUE-0032 把上传图改为**按用户私有命名空间**后，
+  本地 dev 输入图无法用裸 `<img>` 显示（私有 + `<img>` 不能带 token，同 ISSUE-0011 约束）——改 url 也救不了显示，
+  这是 per-user 隐私隔离的必然结果、非缺陷。**prod 已由 TOS 预签名 url 解决**（输入图走 upload 桶签名 url）。
+  本地 dev 若需预览，前端可 authGet+blob（前端按需，非后端项）。→ 本条 **prod 经 QA 复验通过即可关闭**，无后端遗留。

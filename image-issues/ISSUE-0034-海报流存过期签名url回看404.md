@@ -49,3 +49,8 @@ related:
   存 key→读签出 url、app 构建）全绿。**导出 TOS 读源图**仍为跟进项（项目流已弱化，单独排）。
   状态→待验证，owner→QA。**请 QA**（若海报/项目流仍联调）：回看选稿/候选图，url 应为重新签名（本地=/img）、
   不再 1h 过期 404；新出图存的是 key（DB 查 generated_image.url 应为 `<sha>.png` 而非带 ?X-Tos 的长 url）。
+- 2026-06-08 [开发] **导出读 TOS 源图收尾**（commit 210aba7 + 605393c lint）：原标"跟进"的导出项已补——
+  新增 `TosExportStore`：导出 `read` 从 generate 桶按 image_key `get_object`（去 ?query 取文件名）；
+  `composition.build_export_store` 按是否配 TOS 切 Tos/Local；asgi 装配改用之。**导出在 TOS 下恢复源图读取**
+  （切 TOS 曾让其读本地 404，现回到可用态）。导出产物 web 下载（file://）是更早的独立限制、本次未变。
+  ruff(exit0)+mypy(194)+冒烟（Tos/Local 切换、app 构建）全绿。至此 0034 后端全部完成，待 QA 验。
