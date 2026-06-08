@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0002
 title: M3-a 中转 adapter 缺陷集（错误切换/预算口径/b64/图生图未实现/超时）
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: PM
-owner: QA
+owner: —              # QA 复验通过关闭
 created: 2026-05-28
 updated: 2026-05-29
 related:
@@ -83,3 +83,4 @@ M3-a (fe1e77b) 已实现 `OpenAICompatImageProvider` + `FailoverModelProvider`�
   - **真实联调（1 张，apinebula gpt-image-2-vip，~¥0.10）**：`/images/edits` 出 1024×1024 有效 PNG(1.28MB)、耗时 115s。
   - 仍属 mock 验证的错误分流(400/429/502/failover 不切备/最贵预留/同模型断言)已全绿；**留给 QA 真实验证**：① 真实 400/422 不切备、429/5xx 切备行为；④图生图换背景质量；以及 composition 接线后端到端。
   - ⚠️ 注：`build_gpt_image_provider` 已就绪但**尚未接进 build_engine 路由**（GPT_IMAGE_2 在 build_engine 里仍是 Mock）。按草案接线是下一步，可另开 issue 或并入本 issue 验证。
+- 2026-06-08 [QA] **复验通过关闭**（五项均由本季真实测试覆盖）：①错误切换：实测真实出图错误 `gpt-image-2 401 (不切备)`/`400 (不切备)`/`503`(切备) status_code 分流正确，502 不调 .json()。②预算口径：fallback 后 `CostGuard.reconcile` 回正，ledger 净额=实际成本（ISSUE-0009 已验关闭）。③b64_json→ImageStore：真实出图 b64 解码经 `LocalImageStore` 落 `generated/<sha>.png`，多次真图(花生/listing)。④图生图 `/images/edits`：reference_images 非空走 edit multipart，真实图生图多次成功(保产品换背景准确)。⑤超时：provider 180→300s，实测 edit ~117–247s 在窗口内成功；旧 180s 误触 failover 已修。状态=已关闭。
