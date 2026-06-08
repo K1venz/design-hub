@@ -49,9 +49,10 @@ async def generate_listing(
     ratio_to_size(req.ratio)
     compose_prompt(req.prompt, req.modifiers, service.modifier_registry)
     for uid in req.upload_ids:
-        if not owns(uid, user.user_id):  # 只能用本人上传的图（ISSUE-0032 归属隔离）
-            raise ValueError(f"upload 不属于本人：{uid}")
-    # id 非法→400 / 不存在→404
+        # 非自有/不存在 upload → 404：防枚举、对齐 GET /uploads 与 get_job（ISSUE-0032）
+        if not owns(uid, user.user_id):
+            raise NotFoundError(f"upload 不存在或无权访问：{uid}")
+    # 本人命名空间内：load() 对非法格式→400、缺文件→404
     images = tuple([(await uploads.load(uid))[0] for uid in req.upload_ids])
     events: EventPublisher = request.app.state.event_stream
     history: ListingHistory = request.app.state.listing_history
