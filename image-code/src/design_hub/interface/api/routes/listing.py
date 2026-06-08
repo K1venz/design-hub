@@ -71,16 +71,23 @@ async def generate_listing(
 
 @router.get("/jobs")
 async def list_jobs(
-    request: Request, user: CurrentUserDep, limit: int = 20, offset: int = 0
+    request: Request,
+    user: CurrentUserDep,
+    limit: int = 20,
+    offset: int = 0,
+    q: str | None = None,
 ) -> list[ListingJobSummaryOut]:
-    """当前用户的 listing 历史（时间倒序、分页）。"""
+    """当前用户的 listing 历史（时间倒序、分页）；q 非空按 prompt/platform 模糊搜本人任务。"""
     if not 1 <= limit <= 100:
         raise ValueError(f"limit 需为 1..100，实际 {limit}")
     if offset < 0:
         raise ValueError(f"offset 不能为负，实际 {offset}")
     query: ListingHistoryQuery = request.app.state.listing_query
     signer: MediaUrlSigner = request.app.state.media_signer
-    summaries = await query.list_jobs(user_id=user.user_id, limit=limit, offset=offset)
+    keyword = q.strip() if q else None
+    summaries = await query.list_jobs(
+        user_id=user.user_id, limit=limit, offset=offset, q=keyword or None
+    )
     return [ListingJobSummaryOut.of(s, signer) for s in summaries]
 
 
