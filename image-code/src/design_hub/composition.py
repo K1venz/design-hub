@@ -150,7 +150,7 @@ def build_upload_store(settings: Settings) -> UploadStore:
 
 
 def build_export_store(settings: Settings) -> ExportStore:
-    """导出读源图：配了 TOS → 从 generate 桶读（ISSUE-0034）；否则本地出图目录。产物落本地导出目录。"""
+    """导出读源图：配 TOS → generate 桶读（ISSUE-0034）；否则本地。产物落本地导出目录。"""
     if _tos_enabled(settings):
         return TosExportStore(
             build_tos_client(settings), settings.tos_generate_bucket, settings.export_output_dir
