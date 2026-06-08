@@ -54,7 +54,7 @@ async def main() -> None:
         r = await c.get("/uploads/0000000000000000.png", params={"access_token": token})
         check("A8.缺失id→404", r.status_code == 404, f"HTTP {r.status_code}")
         r = await c.get("/uploads/badid", params={"access_token": token})
-        check("A9.非法id格式→400", r.status_code == 400, f"HTTP {r.status_code}")
+        check("A9.非法id格式→404(防枚举,0032/797ca06)", r.status_code == 404, f"HTTP {r.status_code}")
 
         # ---------- B. 出图入参（真服务器，非法→边界拦截，不出图）----------
         r = await c.post("/listing/generate", headers=H, json=body([]))
@@ -64,7 +64,7 @@ async def main() -> None:
         r = await c.post("/listing/generate", headers=H, json=body(["0000000000000000.png"]))
         check("B4.不存在id→404", r.status_code == 404, f"HTTP {r.status_code} {r.text[:50]}")
         r = await c.post("/listing/generate", headers=H, json=body(["badid"]))
-        check("B5.非法id格式→400", r.status_code == 400, f"HTTP {r.status_code}")
+        check("B5.非法id格式→404(防枚举,0032/797ca06)", r.status_code == 404, f"HTTP {r.status_code}")
         r = await c.post("/listing/generate", headers=H, json=body([uid], n=8))
         check("B6.n=8→400(0024)", r.status_code == 400, f"HTTP {r.status_code}")
         r = await c.post("/listing/generate", headers=H, json=body([uid], n=0))
@@ -91,7 +91,7 @@ async def main() -> None:
         uid2 = (await c.post("/uploads", headers=H2, files={"file": ("b.png", PNG, "image/png")})).json().get("id")
         # 用户1(H) 引用用户2(H2) 的 upload_id 出图 → 边界拦截 400（owns 校验失败，不入队、不出图）
         r = await c.post("/listing/generate", headers=H, json=body([uid2]))
-        check("C1.引用他人upload_id→400(归属隔离)", r.status_code == 400, f"HTTP {r.status_code} {r.text[:60]}")
+        check("C1.引用他人upload_id→404(归属隔离,0032/797ca06)", r.status_code == 404, f"HTTP {r.status_code} {r.text[:60]}")
 
         n = sum(1 for _, ok in R if ok)
         print(f"\n==== 真服务器边界: {n}/{len(R)} passed（全程真路由真鉴权，无 mock，未出图零成本）====")
