@@ -21,7 +21,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="animate-in fade-in slide-in-from-left-3 relative max-w-md space-y-5 duration-700">
-          <h1 className="font-display text-[3rem] leading-[1.06] tracking-tight">
+          <h1 className="font-display text-[3.6rem] font-semibold leading-[1.04] tracking-tight">
             <span className="text-foreground">设计师的</span>
             <br />
             <span className="aurora-text">AI 副驾驶</span>
@@ -40,9 +40,9 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
       {/* 表单（灰白底）：卡片 + 流光描边 */}
       <main className="bg-background flex items-center justify-center px-6 py-12">
-        <div className="animate-in fade-in slide-in-from-bottom-2 bg-card border-border/70 relative w-full max-w-sm overflow-hidden rounded-2xl border p-7 shadow-[0_18px_50px_-24px_oklch(0.45_0.07_240_/_0.35)] duration-500">
-          <BorderBeam size={90} duration={8} />
-          <BorderBeam size={90} duration={8} delay={4} />
+        <div className="animate-in fade-in slide-in-from-bottom-2 bg-card border-border/70 relative w-full max-w-sm overflow-hidden rounded-2xl border p-7 shadow-[0_30px_80px_-30px_oklch(0.42_0.08_250_/_0.5),0_10px_28px_-18px_oklch(0.42_0.08_250_/_0.32)] duration-500">
+          <BorderBeam size={110} duration={8} borderWidth={2} />
+          <BorderBeam size={110} duration={8} delay={4} borderWidth={2} />
           <div className="relative space-y-7">
             <div className="lg:hidden">
               <Wordmark />

@@ -8,10 +8,10 @@ import { cn } from '@/lib/utils'
 export function AuroraBackground({ className }: { className?: string }) {
   return (
     <div aria-hidden className={cn('pointer-events-none absolute inset-0 overflow-hidden', className)}>
-      <div className="absolute -top-[18%] -left-[12%] size-[58%] rounded-full bg-primary opacity-40 blur-[100px] will-change-transform [animation:aurora-drift_15s_ease-in-out_infinite]" />
-      <div className="absolute -top-[8%] -right-[10%] size-[50%] rounded-full bg-chart-5 opacity-35 blur-[110px] will-change-transform [animation:aurora-drift_19s_ease-in-out_infinite_reverse]" />
-      <div className="absolute -bottom-[20%] left-[14%] size-[62%] rounded-full bg-chart-4 opacity-35 blur-[120px] will-change-transform [animation:aurora-drift_23s_ease-in-out_infinite]" />
-      <div className="absolute right-[10%] bottom-[2%] size-[36%] rounded-full bg-highlight opacity-40 blur-[90px] will-change-transform [animation:aurora-drift_17s_ease-in-out_infinite_reverse]" />
+      <div className="absolute -top-[18%] -left-[12%] size-[58%] rounded-full bg-primary opacity-55 blur-[85px] will-change-transform [animation:aurora-drift_15s_ease-in-out_infinite]" />
+      <div className="absolute -top-[8%] -right-[10%] size-[50%] rounded-full bg-chart-5 opacity-50 blur-[90px] will-change-transform [animation:aurora-drift_19s_ease-in-out_infinite_reverse]" />
+      <div className="absolute -bottom-[20%] left-[14%] size-[62%] rounded-full bg-chart-4 opacity-50 blur-[95px] will-change-transform [animation:aurora-drift_23s_ease-in-out_infinite]" />
+      <div className="absolute right-[10%] bottom-[2%] size-[38%] rounded-full bg-highlight opacity-60 blur-[72px] will-change-transform [animation:aurora-drift_17s_ease-in-out_infinite_reverse]" />
     </div>
   )
 }
