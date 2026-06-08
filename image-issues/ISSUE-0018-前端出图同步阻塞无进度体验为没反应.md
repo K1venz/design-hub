@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0018
 title: 前端「出图」走同步阻塞 + 默认 n=6 真实 GPT + 无进度，体验为"点了没反应"
-status: 待验证        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # P0阻断 | P1严重 | P2一般 | P3轻微
 reporter: QA
-owner: QA              # 旧同步流已被 listing 异步+SSE 整体取代，待 QA 确认关闭
+owner: —              # QA 复验通过关闭
 created: 2026-06-03
 updated: 2026-06-03
 related:
@@ -52,3 +52,4 @@ QA 在线上探测确认：
   **已全部删除**（grep 确认 src 无残留）。新 `/`（listing 工作台）走 **异步 + SSE**：`POST /listing/generate` 立即返回 `job_id`
   → `EventSource /listing/{id}/events` 逐张到达 + 进度条（`ResultGallery` 显「已出 N/总」）→ 不再阻塞、有进度反馈。
   「点了没反应」的两个根因（同步阻塞 + 无进度）均不复存在。状态=待验证，owner=QA（QA 的 listing e2e 已实测异步出图+逐张到达通过，请据此确认关闭本条）。
+- 2026-06-08 [QA] **复验通过关闭**：① 旧同步出图组件 `GenerateConfigForm/useProjectGenerate/GenerateStudio` 全树 grep **无残留**（已删）；② 新 listing 走**异步**(`POST /listing/generate`→job_id) + **进度 UI**(`ResultGallery` 显「已出 N/总 张…」、generating 态)；③ 后端异步+SSE 逐张到达(`task_started→model_called→image_generated×n→task_completed`)经 listing e2e 多次实测通过。「同步阻塞 + 无进度」两根因均消除。状态=已关闭。
