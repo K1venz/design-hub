@@ -586,6 +586,28 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - 连带消除 **ISSUE-0039**（旧流 X-User-Id 成本越权归属漏洞）。**客户档案功能保留**（CustomersPage）。
 - §3.1–§3.11 的海报/两阶段/项目流描述**全部退役、仅留作历史**；现 prod 仅 listing 直出。
 
+#### 3.12.13 二次编辑：基于结果迭代再生成（草稿 · 2026-06-09，ISSUE-0040）
+> **状态=草稿**。用户已勾选为下一个要做的功能（coordinator 审计 + #394），coordinator 拉齐 PM/prompt/dev/frontend-b/QA 设计。**唯一 gating 决策（交互模型 delta/full）待用户拍**，拍定后 PM 补验收标准 + 排期，再动手。本节先承载设计骨架与已定方向。
+
+**形态**：用户在 listing 历史/结果区选**自己**的一张生成结果图 + 写新提示词 → 再过一次 `/images/edits` → 出新图，可迭代多轮。复用后端既有图生图能力（ISSUE-0007），缺的是 listing 的「基于结果再编辑」编排流（async job + SSE + 持久化 + 计费）。
+
+**已定方向（架构决定、契约骨架）：**
+- **入口契约**：以**结果图稳定 id（`source_image_id`）**为入口，后端由该 id 解析 owner + image_key + 父 job —— **不让客户端拼 `parent_job_id + image_index`**（避免越界/畸形校验面，owner 直接命中记录 user_id）。具体字段名 dev 按现有持久化模型定。
+- **源图来源**：后端用 **image_key 从 TOS generate 桶取对象**（服务端凭证即时签/直读），**不依赖客户端持的可能过期的签名 url**（对齐 ISSUE-0034 教训）。
+- **owner 隔离（P0 安全）**：只能基于**自己**的结果迭代。他人 / 不存在 / 畸形 source id → **404**（沿用 ISSUE-0032 anti-enumeration，不泄漏存在性）。身份用 Bearer（`CurrentUserDep`），**不重蹈 ISSUE-0039** 可伪造 X-User-Id。
+- **job 关系 + 落桶**：每次二次编辑 = **独立新 job + `parent_job_id` 父指针**（独立 cost/SSE/status，parent 链表达迭代谱系、天然支持分叉），新图落 **generate 桶**（与首次产物同桶同 image_key 体系）。复用现有 job/SSE/计费机制、对其他接口零改造（满足用户「可行性高、不影响其他接口」要求）。
+- **成本**：**ledger 按次单计**（每次 edits = 一次真实出图、各计一份、入预算守门，不漏计不重复计）；**UI 展示单次 + 该迭代链累计**。
+- **迭代深度/分叉**：**无硬深度上限、允许一张结果多次分叉**（每次独立 job+计费，成本由既有预算闸守，YAGNI 不预设限制）。多轮累积失真是质量风险（QA TC-05 盯），非契约限制。
+- **async + SSE**：二次编辑同走 async job + SSE（task_started→model_called→image_generated→task_completed），`?access_token=` 鉴权同 ISSUE-0011。
+- **失败 fail-fast**：provider/key 错 → job=失败、不静默吞、不回落假图、计费可追溯。
+
+**🚪 gating 决策（待用户拍 → 决定 prompt 编辑模式组装规则）：交互模型 = 用户给的是「改动指令」还是「重写需求」？**
+- **delta（prompt 建议默认）**：增量微调（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。此模式下 **ratio/category 继承父 job**（换比例=重构图≠编辑），prompt/modifiers 可叠新。
+- **full（重写需求）**：全新场景 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图），此模式下 ratio/category 可改。
+- **都要**：delta 默认 + full 可选。
+> 这是 `compose_prompt` 的**模式分支（首次 vs 编辑·delta/full）**，归 prompt 提示词层设计（prompt #404）。用户拍定前 prompt 组装规则与 Q4 参数继承无法定稿。
+> **实现前置**：job/持久化新增 `parent_job_id`、`source_image_id` 等字段属 schema 变更 → dev 动手前须经用户签字（DB 变更须先征求用户，铁律）。
+
 ## 4. 周边模块
 
 ### 4.1 项目工作台（一单一档）
