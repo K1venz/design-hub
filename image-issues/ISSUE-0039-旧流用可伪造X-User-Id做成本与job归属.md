@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0039
 title: 旧流(generation/async_generation/brief)用可伪造 X-User-Id header 做 cost/job 归属，非 Bearer 身份
-status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已修复        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P2          # 需登录才能利用 + 主线 listing 已安全;用户拍下线(路线A)、旧流退役
 reporter: 开发
-owner: 开发           # 用户拍下线(路线A)，dev 执行删 ~23 旧流路由；PM 步骤6 收尾(PRD+转已修复)
+owner: PM             # 下线验真完成(退役 prod→404 19/19)、漏洞从 prod 消除；待用户测最终版后 coordinator 终关
 created: 2026-06-09
 updated: 2026-06-09
 related:
@@ -57,3 +57,4 @@ related:
 - 2026-06-09 [PM] **用户拍板下线（路线 A）**，旧流 ~23 路由退役。转下线链路（自主推进）：
   ① dev 删 asgi include + 旧流 route/handler/service + 依赖核查(listing 不断 import) + 更新 openapi → ② frontend-b 清前端孤儿(摘 CreateProjectDialog + 删 api/projects.ts/lib/project-status.ts + 重生成 schema、保留客户功能) → ③ QA 回归(listing 完好 + 旧流→404 + app 构造) → ④ ops 重部署(37→~14) → ⑤ QA prod smoke(旧端点 prod→404、漏洞消除)。
   **PM 步骤6 收尾（下线 smoke 过后）**：落 PRD(listing 唯一出图主线、旧流退役) + 本条转「已修复」。**owner→开发（执行下线）、status→修复中。**
+- 2026-06-09 [PM] **下线完成、漏洞消除 → 已修复**（coordinator #342 批可转）：dev `92de93c`(路由层下线) + `062c32c`(死代码清 -2454 行)，ops 部署 062c32c 终版，QA 验真——退役端点 prod→404 **19/19** + listing 真出图(job 419b2dd0/¥0.40) + 花生卡生效。**ISSUE-0039 漏洞面从 prod 路由层消除**。PRD §3.12.12 记旧流退役 + listing 唯一出图主线。status→已修复、owner→PM；待表单收窄轮上线 + 用户测最终版后由 coordinator 终关。
