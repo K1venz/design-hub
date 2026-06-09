@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { PlusIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { AppTopBar } from '@/components/layout/AppTopBar'
 import { WorkbenchRail } from '@/components/listing/WorkbenchRail'
@@ -11,7 +12,10 @@ export function WorkbenchLayout() {
     <div className="flex h-svh flex-col bg-[#f6f4f1] text-[#1c1b1a]">
       <AppTopBar>
         <button
-          onClick={() => newTaskBus.emit()}
+          onClick={() => {
+            newTaskBus.emit()
+            toast('已清空，可开始新任务')
+          }}
           className="flex items-center gap-1.5 rounded-[10px] border border-[#ece8e2] bg-white px-3 py-1.5 text-[13.5px] text-[#4a443d]"
         >
           <PlusIcon className="size-4" /> 新建任务
