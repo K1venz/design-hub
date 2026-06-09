@@ -14,6 +14,7 @@ class CustomerService:
     async def create(
         self,
         *,
+        user_id: str,
         name: str,
         contact: str | None = None,
         industry: str | None = None,
@@ -25,6 +26,7 @@ class CustomerService:
         if not name.strip():
             raise ValueError("客户名称不能为空")
         return await self.customers.create(
+            user_id=user_id,
             name=name,
             contact=contact,
             industry=industry,
@@ -34,8 +36,8 @@ class CustomerService:
             common_sizes=common_sizes,
         )
 
-    async def get(self, customer_id: int) -> CustomerRecord | None:
-        return await self.customers.get(customer_id)
+    async def get(self, customer_id: int, user_id: str) -> CustomerRecord | None:
+        return await self.customers.get(customer_id, user_id)
 
-    async def list(self) -> list[CustomerRecord]:
-        return await self.customers.list()
+    async def list(self, user_id: str) -> list[CustomerRecord]:
+        return await self.customers.list(user_id)

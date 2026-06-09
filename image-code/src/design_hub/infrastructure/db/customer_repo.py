@@ -11,6 +11,7 @@ from design_hub.ports.repositories import CustomerRepository
 def _to_record(row: Customer) -> CustomerRecord:
     return CustomerRecord(
         id=row.id,
+        user_id=row.user_id,
         name=row.name,
         contact=row.contact,
         industry=row.industry,
@@ -28,6 +29,7 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
     async def create(
         self,
         *,
+        user_id: str,
         name: str,
         contact: str | None = None,
         industry: str | None = None,
@@ -38,6 +40,7 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
     ) -> CustomerRecord:
         async with self._session_factory() as session:
             row = Customer(
+                user_id=user_id,
                 name=name,
                 contact=contact,
                 industry=industry,
@@ -51,12 +54,16 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
             await session.refresh(row)
             return _to_record(row)
 
-    async def get(self, customer_id: int) -> CustomerRecord | None:
+    async def get(self, customer_id: int, user_id: str) -> CustomerRecord | None:
+        # owner 隔离（ISSUE-0041）：按 id + user_id 取，非本人 / 不存在 → None
         async with self._session_factory() as session:
             row = await session.get(Customer, customer_id)
-            return _to_record(row) if row is not None else None
+            if row is None or row.user_id != user_id:
+                return None
+            return _to_record(row)
 
-    async def list(self) -> list[CustomerRecord]:
+    async def list(self, user_id: str) -> list[CustomerRecord]:
         async with self._session_factory() as session:
-            rows = (await session.execute(select(Customer).order_by(Customer.id))).scalars().all()
+            stmt = select(Customer).where(Customer.user_id == user_id).order_by(Customer.id)
+            rows = (await session.execute(stmt)).scalars().all()
             return [_to_record(r) for r in rows]

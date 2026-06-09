@@ -28,6 +28,7 @@ class Customer(Base):
     __tablename__ = "customer"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)  # owner 隔离（ISSUE-0041）
     name: Mapped[str] = mapped_column(String(128), index=True)
     contact: Mapped[str | None] = mapped_column(String(128), default=None)
     industry: Mapped[str | None] = mapped_column(String(64), default=None)
