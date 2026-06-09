@@ -23,7 +23,8 @@
 |---|---|
 | [`00-charter.md`](./00-charter.md) | 通用宪章(agent system prompt 本体) |
 | [`category-cards/_schema.md`](./category-cards/_schema.md) | 品类卡写法(多品类扩展入口) |
-| [`category-cards/food/peanut.md`](./category-cards/food/peanut.md) | 花生品类卡(FOOD 品类下第一张产品卡) |
+| [`category-cards/food/通用.md`](./category-cards/food/通用.md) | FOOD 默认卡(产品中性、MVP wired 源) |
+| [`category-cards/food/peanut.md`](./category-cards/food/peanut.md) | 花生产品卡(backlog、未挂、仅真做花生时套) |
 | [`style-cards/_schema.md`](./style-cards/_schema.md) | 风格卡写法 |
 | [`style-cards/fresh-natural.md`](./style-cards/fresh-natural.md) | 清新自然风格卡 |
 | [`examples/花生-端到端.md`](./examples/花生-端到端.md) | 端到端示例 + 现状代码对照 |
