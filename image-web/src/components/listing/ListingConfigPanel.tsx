@@ -4,7 +4,7 @@ import { GradientButton } from '@/components/visual/GradientButton'
 import { ConfigSelect } from '@/components/listing/ConfigSelect'
 import { ImageUploader } from '@/components/listing/ImageUploader'
 import {
-  MODIFIER_FIELDS, RATIOS, N_MIN, N_MAX, estimateCost, type ListingConfig, type UploadedImage,
+  MODIFIER_FIELDS, RATIOS, estimateCost, type ListingConfig, type UploadedImage,
 } from '@/lib/listing'
 
 interface ListingConfigPanelProps {
@@ -15,8 +15,6 @@ interface ListingConfigPanelProps {
   onUploadedChange: (uploaded: UploadedImage[]) => void
   onGenerate: () => void
 }
-
-const N_OPTIONS = Array.from({ length: N_MAX - N_MIN + 1 }, (_, i) => String(N_MIN + i))
 
 export function ListingConfigPanel(props: ListingConfigPanelProps) {
   const { config, uploaded, pending, onConfigChange, onUploadedChange, onGenerate } = props
@@ -46,12 +44,6 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
             value={config.ratio}
             options={RATIOS}
             onChange={(v) => onConfigChange({ ...config, ratio: v as ListingConfig['ratio'] })}
-          />
-          <ConfigSelect
-            label="张数"
-            value={String(config.n)}
-            options={N_OPTIONS}
-            onChange={(v) => onConfigChange({ ...config, n: Number(v) })}
           />
         </div>
 

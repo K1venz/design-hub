@@ -11,12 +11,24 @@ import {
 } from '@/lib/listing'
 
 describe('MODIFIER_FIELDS', () => {
-  it('covers platform/region/language with user-confirmed enums', () => {
+  it('after narrowing: only platform(4 CN) + language(zh/en) dropdowns remain', () => {
     const keys = MODIFIER_FIELDS.map((f) => f.key)
-    expect(keys).toEqual(['platform', 'region', 'language'])
+    expect(keys).toEqual(['platform', 'language'])
     const platform = MODIFIER_FIELDS.find((f) => f.key === 'platform')!
-    expect(platform.options).toContain('TikTok Shop')
-    expect(platform.options).toContain('抖音电商')
+    expect(platform.options).toEqual(['淘宝天猫1688', '拼多多', '京东', '抖音电商'])
+    expect(platform.options).not.toContain('亚马逊')
+    expect(MODIFIER_FIELDS.find((f) => f.key === 'language')!.options).toEqual(['中文', '英文'])
+  })
+})
+
+describe('DEFAULT_LISTING_CONFIG', () => {
+  it('defaults are all valid post-narrowing (guards the default platform=亚马逊→400 regression)', () => {
+    expect(DEFAULT_LISTING_CONFIG.modifiers).toEqual({
+      platform: '淘宝天猫1688',
+      region: '中国',
+      language: '中文',
+    })
+    expect(DEFAULT_LISTING_CONFIG.n).toBe(1)
   })
 })
 
@@ -75,6 +87,6 @@ describe('parseListingEvent', () => {
 
 describe('estimateCost', () => {
   it('multiplies n by unit cost', () => {
-    expect(estimateCost(6)).toBeCloseTo(6 * 1.19, 2)
+    expect(estimateCost(1)).toBeCloseTo(0.4, 2)
   })
 })

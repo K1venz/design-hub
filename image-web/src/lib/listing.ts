@@ -7,16 +7,15 @@ import type { components } from '@/api/schema'
 
 type Schemas = components['schemas']
 
-export const PLATFORMS = [
-  '亚马逊', '淘宝天猫1688', '拼多多', '京东', 'Temu', 'TikTok Shop', '抖音电商',
-] as const
-export const REGIONS = ['中国', '美国', '欧洲', '俄罗斯', '东南亚'] as const
-export const LANGUAGES = ['英文', '中文', '俄语', '西语'] as const
+// 收窄轮（PRD §3.12.2/§3.12.12）：平台 4 国内、语言 {中文,英文}；地区固定中国、张数固定 1（去下拉、请求固定带值，后端只收窄枚举不做默认注入）。
+export const PLATFORMS = ['淘宝天猫1688', '拼多多', '京东', '抖音电商'] as const
+export const LANGUAGES = ['中文', '英文'] as const
 export const RATIOS = ['1:1', '3:4', '9:16', '16:9'] as const
 export type Ratio = (typeof RATIOS)[number]
 
-export const N_MIN = 1
-export const N_MAX = 7
+/** 去下拉但仍随请求固定下发的值（地区固定中国 / 张数固定 1）。 */
+export const FIXED_REGION = '中国'
+export const FIXED_N = 1
 
 /** A dropdown that maps into the generic `modifiers` bag. Add a dropdown = add here. */
 export interface ModifierField {
@@ -26,7 +25,6 @@ export interface ModifierField {
 }
 export const MODIFIER_FIELDS: ModifierField[] = [
   { key: 'platform', label: '电商平台', options: PLATFORMS },
-  { key: 'region', label: '国家地区', options: REGIONS },
   { key: 'language', label: '语言', options: LANGUAGES },
 ]
 
@@ -38,9 +36,9 @@ export interface ListingConfig {
 }
 
 export const DEFAULT_LISTING_CONFIG: ListingConfig = {
-  modifiers: { platform: '亚马逊', region: '美国', language: '英文' },
+  modifiers: { platform: '淘宝天猫1688', region: FIXED_REGION, language: '中文' },
   ratio: '1:1',
-  n: 6,
+  n: FIXED_N,
   prompt: '',
 }
 
@@ -114,8 +112,8 @@ export function parseListingEvent(type: string, rawData: string): ListingEvent {
   }
 }
 
-/** ⚠️ Placeholder unit price pending PM/backend (ISSUE-0021). CTA estimate only; show total_cost on completion. */
-export const LISTING_UNIT_COST = 1.19
+/** base gpt-image-2 单价 ¥0.40/张（PM 拍板 / 后端 model_config）。CTA 估算用，完成后显示真实 total_cost。 */
+export const LISTING_UNIT_COST = 0.4
 export function estimateCost(n: number): number {
   return n * LISTING_UNIT_COST
 }
