@@ -2,7 +2,7 @@
 
 > 品类卡 = 注入给 agent 的「这类产品该怎么拍、最容易在哪翻车」的结构化知识。
 > **多品类扩展的唯一动作:照此 schema 写一张新卡。** 宪章、组装逻辑、代码一律不动(OCP)。
-> 一张卡对应一个 `domain/enums.py: Category`(或其细分)。卡按「品类/产品」目录组织(`<品类>/<产品>.md`)。当前已建:[food/peanut](./food/peanut.md)。
+> 一张卡对应一个 `domain/enums.py: Category`(或其细分)。卡按「品类/产品」目录组织(`<品类>/<产品>.md`)。当前已建:[food/通用](./food/通用.md)(MVP wired、产品中性、`CategoryCardRegistry["FOOD"]` 源) + [food/peanut](./food/peanut.md)(backlog、花生专属、未挂)。
 
 每张卡必须含以下字段(缺字段 = 卡不合格,agent 会按宪章兜底但质量下降):
 

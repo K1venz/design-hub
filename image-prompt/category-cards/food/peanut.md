@@ -1,7 +1,8 @@
-# 品类卡:食品 / 花生(带壳 · 七彩)
+# 品类卡:食品 / 花生(带壳 · 七彩) —— ⚠️ BACKLOG(产品级专属卡 · MVP 未挂)
 
-> 第一张样卡。实测产品:嘴嘴熊「高山七彩花生」(自立袋,65g/69g)。
-> Schema 见 [../_schema.md](../_schema.md)。配套示例见 [../../examples/花生-端到端.md](../../examples/花生-端到端.md)。
+> ⚠️ **BACKLOG · 花生专属产品卡,MVP 未 wired**。教训(群聊 #366):花生专属保真块被误当成所有食品的通用卡 → 给非花生产品(润喉糖)塞花生背景。
+> MVP 默认 FOOD 卡已改为产品中性的 [通用.md](./通用.md)(已 wired、`CategoryCardRegistry["FOOD"]` 源)。本卡花生专属描述(紫罗兰七彩花生米/带壳脉络/果仁饱满)**仅在真正做花生品类/产品时**才套,届时加 `product` 字段单独 wire(dev #367)。
+> 实测产品:嘴嘴熊「高山七彩花生」(自立袋,65g/69g)。Schema 见 [../_schema.md](../_schema.md)。配套示例见 [../../examples/花生-端到端.md](../../examples/花生-端到端.md)。
 
 ```yaml
 category: FOOD
