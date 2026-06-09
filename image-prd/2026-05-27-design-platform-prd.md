@@ -552,21 +552,26 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 > 验收明细见 ISSUE-0035（A–F 全绿、boundary 22/22、prod 零触碰、真实出图 0 浪费 ~$1.2）；中转 key 遗留见 ISSUE-0037。
 
-#### 3.12.11 品类机制 + 花生保真卡（2026-06-09 花生方向落地）
-用户拍板「花生质感提示词优化版(#197)锁定为标准」+「花生算 FOOD 品类下一种、结构可扩展」。落地（platform 收窄 + 品类机制为契约变更，比例/卖点不动）：
+#### 3.12.11 品类机制 + 通用产品保真块（2026-06-09 落地；原「花生保真卡」已重构为产品中性通用块，承 #366「万物皆花生」缺陷修正）
+用户拍板「花生算 FOOD 品类下一种、结构可扩展」+「保真块必须产品中性、绝不把花生塞进所有产品」(承 #366：用户传润喉糖却被旧花生卡硬塞散落花生 → 根因 = FOOD 卡当成花生专属卡、产品级 styling 误挂品类级)。落地（platform 收窄 + 品类机制为契约变更，比例/卖点不动）：
 
 **① 平台收窄（契约变更）**：电商平台 7→4(见 §3.12.2)，去跨境(亚马逊/Temu/TikTok Shop) → 非法下拉 400(dev 删 `_SEED_FRAGMENTS` 三条即自动生效、零额外校验)。
 **② 比例**：维持全留(1:1/3:4/9:16/16:9)，**不收窄**(用户拍板)。
-**③ 卖点营销层**：MVP **不带**(优化版保真块=干净产品+真实花生、无卖点 bullet；带卖点是独立层、押后)。
+**③ 卖点营销层**：MVP **不带**(通用块=干净产品+真实质感、无卖点 bullet；带卖点是独立层、押后)。
 
 **④ 品类机制（核心，多品类可扩展、非单品类硬死）**：
-- **契约**：`/listing/generate` 新增 `category` 字段，**MVP 枚举只 `FOOD`**；**optional、server 默认 `FOOD`**(MVP 单品类下拉是 UX 噪音→默认免前端改动；等第 2 品类再改 required + FE 加下拉)。未知品类 → fail-fast 4xx。**不加独立「产品」字段**(契约最小；FOOD 真有第二产品再加 `product`、那时契约变更 MVP 不做 YAGNI)。
-- **品类→保真块 mapping**（dev `CategoryCardRegistry`，类比 `PromptModifierRegistry`）：键=品类，值=保真块定稿文案串。**MVP 只注册 `{FOOD: 花生保真块}` 一条**。`compose_prompt` 按 category 选块、注入 fragments(场景/卖点片段)**之前**(QA #196/#198 验过位置)。
-- **单一事实源 + hand-off**：image-prompt 花生卡(承 #197 标准；卡目录结构 image-prompt 自定)；三方对齐时 prompt 把 #197 定稿保真块**纯文本**(不含 md 标题/元数据)给 dev，dev 逐字硬编码进 dict、当场核对 **code 串 == 卡串**防漂移。
-- **花生卡标准（承 #197）**：包装绝对保真(一字一像素不改/不重画/不翻译、逐字保留袋面原文、不硬编码克数) + 花生饱满真实(饱满≠光滑滚圆、鲜花生鼓实有肉、哑光禁塑料) + 光镜头/画面禁止。
-- **扩展**：加品类/卡 = registry 加一条 + 一张卡(OCP)；MVP 只机制+结构+花生这一张(YAGNI、不建全品类)。
+- **契约**：`/listing/generate` 新增 `category` 字段，**MVP 枚举只 `FOOD`**；**optional、server 默认 `FOOD`**(MVP 单品类下拉是 UX 噪音→默认免前端改动；等第 2 品类再改 required + FE 加下拉)。未知品类 → fail-fast 4xx。**不加独立「产品」字段**(契约最小；FOOD 真有第二产品才加 `product`、那时契约变更 MVP 不做 YAGNI)。
+- **品类→保真块 mapping**（dev `CategoryCardRegistry`，类比 `PromptModifierRegistry`）：键=品类，值=保真块定稿文案串。**MVP 只注册 `{FOOD: 通用产品保真块}` 一条**。`compose_prompt` 按 category 选块、注入 fragments(场景/卖点片段)**之前**(QA #196/#198 验过位置)。
+- **单一事实源 + hand-off**：image-prompt `category-cards/food/通用.md`(产品中性 FOOD 默认卡 = wired 单一事实源)；三方对齐时 prompt 把通用块**纯文本**(不含 md 标题/元数据)给 dev，dev 逐字硬编码进 dict、当场核对 **code 串 == 卡串**防漂移(本轮 456 字符逐字核 = dev `e8cbe79`，常量名 `_FOOD_FIDELITY`)。
+- **通用产品保真块标准（产品中性、普适，承 #366）**：产品绝对保真(包装/文字一字一像素不改/不重画/不翻译/不臆造、不硬编码克数) + 真实材质质感(哑光禁塑料光、自然光影) + 干净背景/电商镜头 + **严禁堆砌与产品无关的道具/食材/物件**(治「万物皆花生」：传润喉糖就不撒花生)。**不含任何单一产品专属 styling**。
+- **扩展**：加品类/卡 = registry 加一条 + 一张卡(OCP)；MVP 只机制+结构+通用块这一张(YAGNI、不建全品类)。
 
-> 落地分工：PM PRD(本节) → image-prompt 花生卡定稿(#197) → 三方逐字核对 → dev wiring(category optional 默认 FOOD + CategoryCardRegistry + compose_prompt 选块注入 + platform 删 3 条) → QA 回归(platform 3 值→400 + category FOOD合法/未知400/缺省默认FOOD + 卡生效复验；比例回归取消)。验收主体 A–F 不挂平台取值、仍有效。
+**⑤ 产品专属 styling = 用户 prompt 兜底（路线 A，已实证）**：
+单产品专属画面元素(如花生的「周围散落带壳花生 + 紫罗兰七彩花生米」)**不入系统保真块**，由用户在 prompt 里按需写出 → 实证稳定出图(QA `a3d8107d`：用户显式写散落花生+紫米，出图全中、包装文字 100% 保真、无无关堆砌)。通用块的「严禁堆砌无关食材」只压**与产品无关**的元素，**不压**用户显式要的**产品相关** styling。
+- **花生专属产品卡入 backlog**：`category-cards/food/peanut.md` 降级为 backlog 花生专属产品卡(散落花生/紫米/饱满≠光滑滚圆等 styling)，**仅当**「用户高频忘写 styling + 抱怨空袋子 + 团队愿担专属块维护与防回潮(#366)」时才启用(路线 B，需加 `product` 字段做品类→产品两层机制)。当前无此信号 → 不做。
+- (可选 UX 增强，归 frontend、非保真块/非路 B)：表单给场景描述 placeholder / 一键示例 prompt，提示用户「想要花生颗粒就写一句」。
+
+> 落地分工（本轮已完成）：PM PRD(本节) → image-prompt 通用块定稿(`food/通用.md`) → 三方逐字核对(456 字符) → dev wiring(`e8cbe79`：category optional 默认 FOOD + `CategoryCardRegistry["FOOD"]`→通用块 + `_FOOD_FIDELITY` + compose_prompt 选块注入 + platform 删 3 条) → QA 多产品回归(润喉糖零花生 PASS + 花生回归 PASS) + prod smoke(job `bb66b3bb` 润喉糖零花生 PASS) → ops 部署 `e8cbe79`。验收主体 A–F 不挂平台取值、仍有效。
 
 #### 3.12.12 表单收窄 + 旧流退役（2026-06-09）
 **① 表单下拉收窄（契约变更，用户拍板，聚焦中国花生）：**
@@ -577,7 +582,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 > 分工：dev 改 `_SEED_FRAGMENTS`(删 region 美欧俄东南亚 + language 俄语西语) + openapi 重生成 → frontend-b 表单(去地区/张数下拉、语言 2 项默认中文、**平台默认改淘宝天猫1688 解默认 platform=亚马逊→400 bug**、CTA ¥1.19→¥0.40) → QA 回归(地区/语言其他值→400、张数、平台/比例不变) → ops 部署。与旧流下线合并测一次终版。
 
 **② 旧流退役（ISSUE-0039，用户拍下线）：**
-- listing 一键出图（+花生卡）= **唯一出图主线**。阶段1/2 的海报/项目/单图出图流（generation/async_generation/brief/projects/selection/export/revision ~23 路由）**已下线退役**（dev `92de93c` 路由层 + `062c32c` 死代码清理 -2454 行，ops 部署 062c32c，QA 验真：退役端点 prod→404 19/19 + listing 真出图零损）。
+- listing 一键出图（+通用产品保真块）= **唯一出图主线**。阶段1/2 的海报/项目/单图出图流（generation/async_generation/brief/projects/selection/export/revision ~23 路由）**已下线退役**（dev `92de93c` 路由层 + `062c32c` 死代码清理 -2454 行，ops 部署 062c32c，QA 验真：退役端点 prod→404 19/19 + listing 真出图零损）。
 - 连带消除 **ISSUE-0039**（旧流 X-User-Id 成本越权归属漏洞）。**客户档案功能保留**（CustomersPage）。
 - §3.1–§3.11 的海报/两阶段/项目流描述**全部退役、仅留作历史**；现 prod 仅 listing 直出。
 
