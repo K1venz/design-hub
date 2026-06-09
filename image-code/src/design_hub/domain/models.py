@@ -148,6 +148,7 @@ class CustomerRecord:
     """客户档案读模型。"""
 
     id: int
+    user_id: str
     name: str
     contact: str | None
     industry: str | None

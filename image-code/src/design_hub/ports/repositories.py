@@ -22,6 +22,7 @@ class CustomerRepository(ABC):
     async def create(
         self,
         *,
+        user_id: str,
         name: str,
         contact: str | None = None,
         industry: str | None = None,
@@ -33,11 +34,12 @@ class CustomerRepository(ABC):
         ...
 
     @abstractmethod
-    async def get(self, customer_id: int) -> CustomerRecord | None:
+    async def get(self, customer_id: int, user_id: str) -> CustomerRecord | None:
+        """仅返回属于 user_id 的客户；非本人 / 不存在 → None（owner 隔离，ISSUE-0041）。"""
         ...
 
     @abstractmethod
-    async def list(self) -> list[CustomerRecord]:
+    async def list(self, user_id: str) -> list[CustomerRecord]:
         ...
 
 
