@@ -4,7 +4,7 @@ title: 客户列表无 owner 隔离 —— 新用户看到他人/遗留客户（
 status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户拍定客户私有 → 跨用户数据泄漏漏洞(同 0039 类)，P1 严重(prod 真泄漏、非阻断)
 reporter: 用户(prod 实测) / coordinator 转
-owner: 开发           # 用户已拍私有 + 批 schema 迁移 → dev 实现(route+service+repo+迁移+删拍拍熊孤儿) → 交 QA 回归
+owner: 运维           # dev 已交付(9c80064)、QA qa 回归翻全 PASS(验收1-4) → 球在 ops 部署 prod(迁移) → 部署后 QA prod smoke(验收5) → PM 终验收关
 created: 2026-06-09
 updated: 2026-06-09
 related:
@@ -50,3 +50,4 @@ prod 真实用户**新注册账号**在「客户」页看到一个固定的「�
 - 2026-06-09 [开发] coordinator #413 转用户 prod 实测（新账号见"拍拍熊"客户）→ 读码确认：customer 表无 owner 列、list 全表无过滤 = 全局可见。开本条。owner→PM：先定产品性质（私有/共享）；若私有→修复涉 customer 表加 user_id 迁移、按铁律需用户批 schema 后 dev 实现（route+service+repo+迁移，对齐 listing_job/0032 范式）。bug B（新建任务按钮无反应）归 frontend-b（后端无建任务端点、疑前端残骸）。
 - 2026-06-09 [PM] coordinator #423 转**用户批准修复计划**：产品定性=客户私有（全队一致推荐）+ 批准 schema 迁移（customer 加 user_id）+「拍拍熊」等无主数据删。PM 落验收标准（列表隔离/越权 404/记 owner/迁移生效/prod smoke）、定级 **P1 严重**（prod 真泄漏、非阻断）。**status→修复中、owner→开发**（实现 7 处镜像 listing_job 范式 → QA 回归 → ops 部署备份+回滚 → QA prod smoke）。二次编辑（§3.12.13 定稿）这轮 bug 修完 + 用户签 schema 后再启动。
 - 2026-06-09 [QA] **qa 复现实锤 + 隔离回归就位**（脚本 `image-qa/customer_isolation_regression.py`，commit e5f0914）。qa env 跑出铁证：B（新号）越权 `GET /customers/{A的id}` → **HTTP 200 + 泄漏 name='A的拍拍熊'**；B 列表 ids=[1,2,3] == A 列表（两个用户看到完全相同的全表）。7 断言中 4 个隔离用例 FAIL（=修前预期）、3 个 sanity PASS。脚本断言全按修复后预期写（镜像 listing_job 隔离 + 0032 anti-enum 404），**dev 交付后同一脚本翻全 PASS = 验收标准 1–4 通过**；prod smoke（标准 5）另写只读探针、部署后跑（不在 prod 乱建客户）。owner 仍=开发（待 dev 实现）。
+- 2026-06-09 [QA] **qa 回归翻全 PASS、放行部署**（dev 9c80064 + 迁移、ops #435 已重 build qa 到 9c80064 + 迁移 apply）。同一脚本 red→green 实证（修前后两跑同环境）：修后 B 越权 GET A 客户=**404**、A 列表=[4]/B 列表=[5] 各自隔离、旧 [1,2,3] 已清 → 全 7 PASS。**验收 1-4 qa 通过**：①列表隔离 ②越权404 ③create记owner ④迁移生效（ops 确认 user_id varchar(64) NOT NULL + 拍拍熊清；回归功能侧佐证 create 不 500=列在、旧数据清=DELETE 跑过）。剩 ⑤ prod smoke 等 ops 部署 prod 后跑（脚本 `customer_isolation_prod_smoke.py`，commit 2ffb934）。**status 仍修复中、owner→运维**（球在 ops 部署 prod）；部署后 QA prod smoke PASS → PM 终验收关。
