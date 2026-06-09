@@ -2,7 +2,7 @@
 
 > 品类卡 = 注入给 agent 的「这类产品该怎么拍、最容易在哪翻车」的结构化知识。
 > **多品类扩展的唯一动作:照此 schema 写一张新卡。** 宪章、组装逻辑、代码一律不动(OCP)。
-> 一张卡对应一个 `domain/enums.py: Category`(或其细分)。当前已建:[food-peanut](./food-peanut.md)。
+> 一张卡对应一个 `domain/enums.py: Category`(或其细分)。卡按「品类/产品」目录组织(`<品类>/<产品>.md`)。当前已建:[food/peanut](./food/peanut.md)。
 
 每张卡必须含以下字段(缺字段 = 卡不合格,agent 会按宪章兜底但质量下降):
 
@@ -50,6 +50,6 @@ subtype: <细分,如 "带壳花生 / 七彩花生";可留 "通用">
 2. **正向、可执行**:每条都要能直接进 prompt,不写"要高级"这种空话。
 3. **色卡级具体**:颜色给具名色/HEX,质地给可见特征(脉络/褶皱/油光)。
 
-## 待建品类卡(占位,需要时再写)
-- `food-通用.md`(食品非花生:坚果/糕点/酱料…)
-- `digital-3c.md` · `beauty-skincare.md` · `apparel.md` · `mirror-glass.md`(可从 image-code 现有 `CategoryProfile` 升级迁入)
+## 待建品类卡(占位,需要时再写;按 `<品类>/<产品>.md` 组织)
+- `food/通用.md`(食品非花生:坚果/糕点/酱料…)
+- `digital/3c.md` · `beauty/skincare.md` · `apparel/通用.md` · `mirror/glass.md`(可从 image-code 现有 `CategoryProfile` 升级迁入)

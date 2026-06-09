@@ -1,7 +1,7 @@
 # 品类卡:食品 / 花生(带壳 · 七彩)
 
 > 第一张样卡。实测产品:嘴嘴熊「高山七彩花生」(自立袋,65g/69g)。
-> Schema 见 [_schema.md](./_schema.md)。配套示例见 [../examples/花生-端到端.md](../examples/花生-端到端.md)。
+> Schema 见 [../_schema.md](../_schema.md)。配套示例见 [../../examples/花生-端到端.md](../../examples/花生-端到端.md)。
 
 ```yaml
 category: FOOD
