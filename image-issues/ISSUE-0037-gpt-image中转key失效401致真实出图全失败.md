@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0037
 title: gpt-image-2 中转 key 失效（401 Invalid token）致真实出图全失败（qa+prod 同一把死 key）
-status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起（qa 侧 base 已打通=验收解阻；prod 侧 key 仍死、待用户拍）
-severity: P1          # 阻断 listing 上线验收的真实出图链路（qa 已解）；prod 同 key 潜伏（仍开）
+status: 已修复        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起（qa+prod 双侧 base key 已换、prod 真出图三查 PASS、档位定 base；待上线确认翻已关闭）
+severity: P1          # 阻断 listing 上线真实出图链路；qa+prod 双侧已解
 reporter: QA
-owner: coordinator    # qa 侧已解(base 出图 200)；遗留 = prod 死 key 修复(生产变更) + 上线档位 vip/base 决策，coordinator 报用户拍
+owner: coordinator    # qa+prod 已解、档位定 base；遗留小尾=ops ¥0.40 PUT + test 残留(coordinator 决定留作凭证)；上线确认后翻已关闭
 created: 2026-06-08
 updated: 2026-06-08
 related:
@@ -62,3 +62,4 @@ server 203.0.113.10，design-hub-qa-api 容器（172.18.0.4:8000，main HEAD 612
 - 2026-06-08 [运维] 执行 A：qa 容器 `GPT_IMAGE_MODEL` 由 `gpt-image-2-vip` 改 `gpt-image-2` 并重建（172.18.0.4，localhost:8444 不变，容器内 model 确认=gpt-image-2，openapi 200）。交 QA 复跑 1 张验证。前提 dev 确认 base 支持 /images/edits、F1 口径归 pm；若 base 仍不通则上 B（vip key=用户层）。prod 仍未碰。owner=QA。
 - 2026-06-08 [QA] **qa 侧已解决 ✅**：base `gpt-image-2` 复跑 n=1 **200 出图成功**（127s，task_completed，真图 TOS qa-generate 桶，¥1.19）→ 证 base 支持 /images/edits + 余额够（dev #116 判对：vip 仅计费档、base 同底模同端点）。0035 验收 A–F 全绿（F1 可用率 87.5-100%、F2 P95 193s PASS）。**qa 出图阻塞彻底解除**。
   ⚠️ 遗留两条（非 qa 验收阻塞）：① **prod 侧 key 仍是死的 4f3abbc6**——prod listing 真实出图现在仍会 401，coordinator 报用户拍（救 prod=生产变更）；② 上线档位 vip vs base 决策（PM 建议 base：成本省½ $0.05 vs $0.10 + 便利现成 key + 速度 PASS）。owner→**coordinator**（prod key + 档位决策）。qa 验收侧此条可视为已闭环。
+- 2026-06-09 [QA] **prod 侧已解决 ✅（上线硬 gate 通过）**：用户授权后 ops 换 prod `.env` 有效 base key（103 字符 md5=9309c033、≠死 key 4f3abbc6）+ `GPT_IMAGE_MODEL`→`gpt-image-2`（base 定档）+ force-recreate design-hub-api（备份 .env.bak-keyfix-20260609 可回滚）。QA 经 prod api 隧道（localhost:8445）跑 prod 真出图三查**全 PASS**：① 非 401·真出图（job `de40363e…` task_completed 84s ¥1.19）② 落点=prod 桶 `bucket-design-hub-generate`（非 qa）③ SSH 核 prod 容器 `GPT_IMAGE_MODEL=gpt-image-2` + key md5 9309c033。**prod 上线就绪：用户上线不撞 401、出图落 prod 桶、跑 base 档**。档位 vip/base 已由用户拍定 **base**。→ 两条遗留全消，状态=**已修复**。遗留小尾（非阻塞）：ops 触发 ¥0.40 model_config PUT + 清 prod 测试残留（job de40363e + 用户 qa-prod-verify@example.com）。owner=coordinator（上线确认后翻已关闭）。
