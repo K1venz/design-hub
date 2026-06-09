@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0039
 title: 旧流(generation/async_generation/brief)用可伪造 X-User-Id header 做 cost/job 归属，非 Bearer 身份
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
-severity: P2          # 需登录才能利用 + 主线 listing 已安全;若旧流在 prod 活跃使用且涉真实计费可升 P1
+status: 修复中        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+severity: P2          # 需登录才能利用 + 主线 listing 已安全;用户拍下线(路线A)、旧流退役
 reporter: 开发
-owner: PM             # 球在 PM:跨多旧流 refactor 需排期 + 确认旧流是否仍在 prod 暴露使用
+owner: 开发           # 用户拍下线(路线A)，dev 执行删 ~23 旧流路由；PM 步骤6 收尾(PRD+转已修复)
 created: 2026-06-09
 updated: 2026-06-09
 related:
@@ -54,3 +54,6 @@ related:
   · **路线 A（全员倾向）**：用户弃用旧流 → **下线 ~23 条旧流路由**（dev 删 asgi include + route/handler/service、先依赖核查防 listing import 断裂；ops 重部署 37→~14；frontend-b 摘客户页 dead-end CreateProjectDialog 残骸）= 一刀消漏洞 + 去 legacy + 缩攻击面，符合「无 legacy 支持除非需要」铁律。落地后 PRD 标 listing 为唯一出图主线、旧流退役。
   · **路线 B**：用户保留旧流 → 升 **P1**，旧流统一改 CurrentUserDep Bearer 身份、删 X-User-Id（对齐 listing、关联 0006-WP-G），dev refactor + QA 归属回归。
   owner=PM，待用户去留拍定 → 即派 dev（A 下线 / B 改 Bearer）。
+- 2026-06-09 [PM] **用户拍板下线（路线 A）**，旧流 ~23 路由退役。转下线链路（自主推进）：
+  ① dev 删 asgi include + 旧流 route/handler/service + 依赖核查(listing 不断 import) + 更新 openapi → ② frontend-b 清前端孤儿(摘 CreateProjectDialog + 删 api/projects.ts/lib/project-status.ts + 重生成 schema、保留客户功能) → ③ QA 回归(listing 完好 + 旧流→404 + app 构造) → ④ ops 重部署(37→~14) → ⑤ QA prod smoke(旧端点 prod→404、漏洞消除)。
+  **PM 步骤6 收尾（下线 smoke 过后）**：落 PRD(listing 唯一出图主线、旧流退役) + 本条转「已修复」。**owner→开发（执行下线）、status→修复中。**
