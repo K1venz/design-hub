@@ -5,18 +5,11 @@ from fastapi import Depends, Header, Request
 
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
-from design_hub.composition import Engine
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, PermissionDenied
 from design_hub.domain.models import AuthUser
 from design_hub.ports.auth import TokenService
 from design_hub.ports.media_url_signer import MediaUrlSigner
-
-
-def get_engine(request: Request) -> Engine:
-    engine = request.app.state.engine
-    assert isinstance(engine, Engine)
-    return engine
 
 
 def get_media_signer(request: Request) -> MediaUrlSigner:
@@ -69,8 +62,6 @@ async def get_current_user_sse(
     return get_token_service(request).verify(token)
 
 
-EngineDep = Annotated[Engine, Depends(get_engine)]
-UserIdDep = Annotated[str, Header(alias="X-User-Id")]
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service)]
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]

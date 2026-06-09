@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from design_hub.composition import Engine, build_engine
 from design_hub.domain.errors import (
     AuthenticationError,
     BudgetExceeded,
@@ -9,7 +8,6 @@ from design_hub.domain.errors import (
     NotFoundError,
     PermissionDenied,
 )
-from design_hub.interface.api.routes import generation
 from design_hub.ports.model_provider import ProviderError
 
 
@@ -57,15 +55,3 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(KeyError)
     async def _on_key(request: Request, exc: KeyError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"error": "not_supported", "detail": str(exc)})
-
-
-def create_app(engine: Engine | None = None) -> FastAPI:
-    """同步应用工厂：默认全 Mock 引擎（零基础设施）；可注入替换引擎（DIP）。"""
-    app = FastAPI(title="设计中台 · 图生图引擎", version="0.1.0")
-    app.state.engine = engine if engine is not None else build_engine()
-    app.include_router(generation.router)
-    register_error_handlers(app)
-    return app
-
-
-app = create_app()
