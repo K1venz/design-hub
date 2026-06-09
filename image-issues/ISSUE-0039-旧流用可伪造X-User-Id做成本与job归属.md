@@ -48,3 +48,4 @@ related:
 
 ## 处理记录
 - 2026-06-09 [开发] 运维清 cost_ledger 撞到 designer-anon（#274）→ coordinator 派查（#276）。读码确认 = 旧流用可伪造 X-User-Id 做 cost/job 归属（非 Bearer 身份），listing 已修对、旧流未迁移。开本条，owner→PM 排期（跨多旧流 refactor + 需确认旧流 prod 暴露面）。app 查询无 1292 风险（全字符串绑定）已排除。
+- 2026-06-09 [开发] 定级前置·后端事实（coordinator #278 问）：generation/async_generation/brief 三 router **确实 mounted 在 asgi（217/219/227）、API 可达** → 漏洞对**任何已登录的 API 调用方**可利用，**不取决于 web UI 用不用**（web UI 不调 ≠ 端点不可达）。所以即便是「死页面」也是活 API 面。web UI 是否调用这些端点属 image-web（前端）域，需 frontend-b 确认。dev 建议：若用户确认只主打 listing/花生、不要海报/单图旧流 → **直接下掉这些 router（删 include + 相关代码）最干净**（去 legacy + 消漏洞 + 减攻击面，符合"无 legacy 支持"原则）；若保留 → 改 CurrentUserDep 身份（关联 ISSUE-0006-WP-G）。两条路 PM/用户拍。
