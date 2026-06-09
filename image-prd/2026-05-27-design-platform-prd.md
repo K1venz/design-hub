@@ -586,8 +586,8 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - 连带消除 **ISSUE-0039**（旧流 X-User-Id 成本越权归属漏洞）。**客户档案功能保留**（CustomersPage）。
 - §3.1–§3.11 的海报/两阶段/项目流描述**全部退役、仅留作历史**；现 prod 仅 listing 直出。
 
-#### 3.12.13 二次编辑：基于结果迭代再生成（草稿 · 2026-06-09，ISSUE-0040）
-> **状态=草稿**。用户已勾选为下一个要做的功能（coordinator 审计 + #394），coordinator 拉齐 PM/prompt/dev/frontend-b/QA 设计。**唯一 gating 决策（交互模型 delta/full）待用户拍**，拍定后 PM 补验收标准 + 排期，再动手。本节先承载设计骨架与已定方向。
+#### 3.12.13 二次编辑：基于结果迭代再生成（定稿 · 2026-06-09，ISSUE-0040）
+> **状态=定稿**。用户勾选为下一个功能（coordinator 审计 + #394）并已拍交互模型（#413：**delta + full 两种都要**）。coordinator 拉齐 PM/prompt/dev/frontend-b/QA。**实现前置仍待用户签字 DB schema 变更**（见下）。
 
 **形态**：用户在 listing 历史/结果区选**自己**的一张生成结果图 + 写新提示词 → 再过一次 `/images/edits` → 出新图，可迭代多轮。复用后端既有图生图能力（ISSUE-0007），缺的是 listing 的「基于结果再编辑」编排流（async job + SSE + 持久化 + 计费）。
 
@@ -601,12 +601,23 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **async + SSE**：二次编辑同走 async job + SSE（task_started→model_called→image_generated→task_completed），`?access_token=` 鉴权同 ISSUE-0011。
 - **失败 fail-fast**：provider/key 错 → job=失败、不静默吞、不回落假图、计费可追溯。
 
-**🚪 gating 决策（待用户拍 → 决定 prompt 编辑模式组装规则）：交互模型 = 用户给的是「改动指令」还是「重写需求」？**
-- **delta（prompt 建议默认）**：增量微调（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。此模式下 **ratio/category 继承父 job**（换比例=重构图≠编辑），prompt/modifiers 可叠新。
-- **full（重写需求）**：全新场景 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图），此模式下 ratio/category 可改。
-- **都要**：delta 默认 + full 可选。
-> 这是 `compose_prompt` 的**模式分支（首次 vs 编辑·delta/full）**，归 prompt 提示词层设计（prompt #404）。用户拍定前 prompt 组装规则与 Q4 参数继承无法定稿。
-> **实现前置**：job/持久化新增 `parent_job_id`、`source_image_id` 等字段属 schema 变更 → dev 动手前须经用户签字（DB 变更须先征求用户，铁律）。
+**✅ 交互模型（用户已拍 2026-06-09 / coordinator #413：delta + full 两种都要）→ prompt 编辑模式两分支：**
+- **delta（微调，默认）**：用户给增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。**ratio/category 继承父 job**（换比例=重构图≠编辑）、prompt/modifiers 叠新。
+- **full（重做）**：用户给全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图）。**ratio/category 可改**。
+- 这是 `compose_prompt` 的**模式分支（首次 / 编辑·delta / 编辑·full）**，归 prompt 提示词层设计（prompt #404）；请求带 `edit_mode ∈ {delta, full}` 入参。
+> **Q4 参数继承定稿**：delta 继承父 job 的 ratio/category（仅叠 prompt/modifiers）；full 允许改 ratio/category。
+> **实现前置（未解除）**：job/持久化新增 `parent_job_id`、`source_image_id`、`edit_mode` 等字段属 schema 变更 → **dev 动手前须经用户签字**（DB 变更先征求用户，铁律）。
+
+**验收标准（承 QA 用例骨架 D1–D8 / `image-qa/二次编辑_用例骨架.md`，PRD 定稿口径）：**
+1. **owner 隔离（P0 安全）**：只能基于自己的结果迭代；他人/不存在/畸形 `source_image_id` → **404**（anti-enum 不可区分，沿用 ISSUE-0032）。Bearer 身份，不重蹈 ISSUE-0039。
+2. **保真不崩（P0）**：二次编辑后产品本体+品牌文字 100% 保真；**delta 模式额外锁上一版构图基底**（动 delta 以外=fail）、full 模式放构图但仍锁产品+文字；**多轮迭代（同图连做 3 轮）累积失真受控**（QA TC-05 盯死）。
+3. **二次 prompt 生效（P1）**：新诉求真体现且不破坏保真。
+4. **成本按次计（P1）**：每次=一次真实 edits 调用、各计一份入 ledger、不漏计不重复计；UI 展示单次 + 迭代链累计。
+5. **源选择正确（P1）**：用的源=用户选中的那张结果图（非原始上传、非同 job 别张）。
+6. **async + SSE 一致（P1）**：同走 async job + SSE 全事件序列，`?access_token=` 鉴权同 ISSUE-0011。
+7. **失败 fail-fast（P2）**：provider/key 错→job 失败、不静默吞、不回落假图、计费可追溯。
+
+**落地分工（coordinator #413 拉四方、PM 牵头设计三方对 → 排期实现）**：PM 本节定稿 → 设计三方对（PM+prompt+dev+QA 对齐 Q1–Q7 + `edit_mode`/`source_image_id` 契约）→ **DB schema 变更经用户签字** → prompt（delta/full 组装规则）+ dev（/images/edits 接线 + 迭代链 + 持久化）+ frontend-b（结果区「基于此图再编辑」入口、delta/full 切换）+ QA（骨架细化为脚本、D1/D2 两条 P0 盯死）→ 上线前 gate（QA 回归 + prod smoke）。
 
 ## 4. 周边模块
 
