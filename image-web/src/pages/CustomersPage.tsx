@@ -2,7 +2,6 @@ import { PlusIcon, UsersIcon } from 'lucide-react'
 
 import { useCustomers } from '@/api/customers'
 import { CreateCustomerDialog } from '@/components/project/CreateCustomerDialog'
-import { CreateProjectDialog } from '@/components/project/CreateProjectDialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -50,7 +49,6 @@ export function CustomersPage() {
                 <TableHead>联系人</TableHead>
                 <TableHead>行业</TableHead>
                 <TableHead>品牌色</TableHead>
-                <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -73,16 +71,6 @@ export function CustomersPage() {
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <CreateProjectDialog
-                      defaultCustomerId={c.id}
-                      trigger={
-                        <Button variant="ghost" size="sm">
-                          新建项目
-                        </Button>
-                      }
-                    />
                   </TableCell>
                 </TableRow>
               ))}
