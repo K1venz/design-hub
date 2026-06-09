@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { UploadIcon, XIcon, Loader2Icon, RotateCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -42,16 +42,14 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
   const [items, setItems] = useState<UploadItem[]>([])
   const upload = useUploadImage()
 
-  function emit(list: UploadItem[]) {
-    onChange(list.filter((i) => i.status === 'done' && i.uploaded).map((i) => i.uploaded!))
-  }
+  // 把"已成功上传"的集合上报父组件 —— 放 effect、不在 setState 更新函数里调父组件 setState
+  // （否则 React 报 "Cannot update WorkbenchPage while rendering ImageUploader"）。
+  useEffect(() => {
+    onChange(items.filter((i) => i.status === 'done' && i.uploaded).map((i) => i.uploaded!))
+  }, [items, onChange])
 
   function patch(key: string, p: Partial<UploadItem>) {
-    setItems((prev) => {
-      const next = prev.map((i) => (i.key === key ? { ...i, ...p } : i))
-      emit(next)
-      return next
-    })
+    setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...p } : i)))
   }
 
   function start(key: string, file: File) {
@@ -90,9 +88,7 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
     setItems((prev) => {
       const it = prev.find((i) => i.key === key)
       if (it) URL.revokeObjectURL(it.previewUrl)
-      const next = prev.filter((i) => i.key !== key)
-      emit(next)
-      return next
+      return prev.filter((i) => i.key !== key)
     })
   }
 
