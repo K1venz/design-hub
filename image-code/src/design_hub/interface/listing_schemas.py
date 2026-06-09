@@ -13,6 +13,8 @@ class ListingGenerateRequest(BaseModel):
     ratio: str
     n: int
     modifiers: dict[str, str] = Field(default_factory=dict)
+    # 品类（PRD §3.12.11）：optional、默认 FOOD；选对应品类保真卡。未知品类路由 fail-fast 400。
+    category: str = "FOOD"
 
 
 class UploadResponse(BaseModel):

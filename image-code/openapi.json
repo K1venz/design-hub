@@ -3658,6 +3658,11 @@
             },
             "type": "object",
             "title": "Modifiers"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "FOOD"
           }
         },
         "type": "object",
