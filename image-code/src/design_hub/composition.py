@@ -1,47 +1,27 @@
 """组装根（Composition Root）：唯一允许同时认识 application 与 infrastructure 的地方。
 
 DIP 的落点——把抽象端口绑定到具体适配器都集中在此，其余各层只见抽象。
+2026-06-09 旧海报/项目出图流下线（ISSUE-0039）后，仅保留 listing 主线所需的装配
+（registry / 图床签名 / 上传落点 / 真实 gpt provider）。
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from decimal import Decimal
 
-from design_hub.application.cost.budget import BudgetPolicy
-from design_hub.application.cost.estimator import CostEstimator
-from design_hub.application.cost.guard import CostGuard
-from design_hub.application.cost.preview import CostPreviewService
-from design_hub.application.pipeline import GenerationPipeline
-from design_hub.application.prompt.brand import BrandNameGenerator
-from design_hub.application.prompt.families.registry import FamilyRegistry
-from design_hub.application.prompt.libraries.negative import NegativeLibrary
-from design_hub.application.prompt.libraries.quality import QualityLibrary
-from design_hub.application.prompt.orchestrator import PromptOrchestrator
-from design_hub.application.prompt.profiles.registry import (
-    CategoryProfileRegistry,
-    StylePresetRegistry,
-)
 from design_hub.application.registry import ProviderRegistry
-from design_hub.application.routing.router import ModelRouter
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
-from design_hub.infrastructure.export.local_export_store import LocalExportStore
-from design_hub.infrastructure.ledger.memory import InMemoryLedgerRepository
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.infrastructure.storage.tos import (
-    TosExportStore,
     TosImageStore,
     TosMediaUrlSigner,
     TosUploadStore,
     build_tos_client,
 )
-from design_hub.infrastructure.vision.mock import MockVisionAssist
-from design_hub.ports.exporter import ExportStore
 from design_hub.ports.image_store import ImageStore
-from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.model_config_repository import ModelConfigRecord
 from design_hub.ports.upload_store import UploadStore
@@ -62,14 +42,6 @@ def default_model_configs() -> list[ModelConfigRecord]:
         ModelConfigRecord(name=name.value, unit_cost=cost, enabled=True, extra={})
         for name, cost in _MOCK_UNIT_COSTS.items()
     ]
-
-
-@dataclass
-class Engine:
-    """对外暴露的两个用例入口：出图 pipeline 与成本预估 preview。"""
-
-    pipeline: GenerationPipeline
-    preview: CostPreviewService
 
 
 def build_mock_registry(
@@ -150,15 +122,6 @@ def build_upload_store(settings: Settings) -> UploadStore:
     return LocalUploadStore(settings.asset_output_dir)
 
 
-def build_export_store(settings: Settings) -> ExportStore:
-    """导出读源图：配 TOS → generate 桶读（ISSUE-0034）；否则本地。产物落本地导出目录。"""
-    if _tos_enabled(settings):
-        return TosExportStore(
-            build_tos_client(settings), settings.tos_generate_bucket, settings.export_output_dir
-        )
-    return LocalExportStore(settings.export_output_dir, source_dir=settings.image_output_dir)
-
-
 def build_registry(
     settings: Settings,
     *,
@@ -168,59 +131,9 @@ def build_registry(
     """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖 GPT_IMAGE_2。
 
     unit_costs（model_config 真实单价）注入 Provider，替换写死的 Mock 价；缺失回落兜底。
-    仅 gpt-image 有真实 key，其余模型暂仍 Mock；按 LSP 替换，路由/pipeline 无感。
+    仅 gpt-image 有真实 key，其余模型暂仍 Mock；按 LSP 替换。
     """
     registry = build_mock_registry(unit_costs)
     if real_gpt_image:
         registry.register(build_gpt_image_provider(settings, unit_costs))  # 按 name 覆盖 Mock
     return registry
-
-
-def build_orchestrator() -> PromptOrchestrator:
-    return PromptOrchestrator(
-        families=FamilyRegistry(),
-        categories=CategoryProfileRegistry(),
-        styles=StylePresetRegistry(),
-        negatives=NegativeLibrary(),
-        qualities=QualityLibrary(),
-        vision=MockVisionAssist(),
-        brands=BrandNameGenerator(),
-    )
-
-
-def build_engine(
-    *,
-    registry: ProviderRegistry | None = None,
-    ledger: LedgerRepository | None = None,
-    real_gpt_image: bool = False,
-    settings: Settings | None = None,
-    unit_costs: Mapping[ModelName, Decimal] | None = None,
-) -> Engine:
-    """装配引擎。默认全 Mock（零基础设施）；真实适配器由调用方传入替换（LSP）。
-
-    real_gpt_image=True → GPT_IMAGE_2 走真实中转 Provider（需 .env 配 GPT_IMAGE_*）。
-    unit_costs（model_config 真实单价）注入 Provider，缺省则用 Mock 兜底价。
-    """
-    if registry is None:
-        registry = build_registry(
-            settings or Settings(), real_gpt_image=real_gpt_image, unit_costs=unit_costs
-        )
-    ledger = ledger if ledger is not None else InMemoryLedgerRepository()
-    router = ModelRouter()
-    estimator = CostEstimator()
-    # 同一 ledger 实例同时注入守门与预估，保证额度读写一致
-    guard = CostGuard(ledger=ledger, policy=BudgetPolicy())
-    pipeline = GenerationPipeline(
-        router=router,
-        orchestrator=build_orchestrator(),
-        registry=registry,
-        estimator=estimator,
-        guard=guard,
-    )
-    preview = CostPreviewService(
-        router=router,
-        registry=registry,
-        estimator=estimator,
-        ledger=ledger,
-    )
-    return Engine(pipeline=pipeline, preview=preview)
