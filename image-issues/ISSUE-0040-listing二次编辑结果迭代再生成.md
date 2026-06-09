@@ -17,12 +17,11 @@ related:
 ## 设计团队（coordinator 拉齐，#401/#406）
 PM(PRD + 排期/验收) · **prompt(编辑模式保真块 / 组装规则)** · dev(/images/edits 接线 + 迭代链) · frontend-b(结果区「基于此图再编辑」入口) · QA(迭代链 owner 隔离 + 二次保真不崩)。
 
-## 🚪 gating 决策（待用户拍 → 决定 prompt 组装规则，coordinator 正对齐）
-**交互模型 = 用户二次编辑时给的是什么？**（prompt #404）
-- **delta（改动指令，prompt 建议默认）**：用户给增量微调（「背景换厨房 / 花生再多点 / 光更暖」）→ 组装 = 锁产品+品牌文字 + **沿用上一版构图基底** + 只 apply delta（外科式、改动最小、最 protect 保真、最省 token）。
-- **full（重写需求）**：用户给全新场景 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图）。
-- **都要**：delta 默认 + full 可选（用户明确大改时）。
-> 这条不拍，prompt 的编辑模式组装规则无法定稿 → 全队设计阻塞在此。
+## ✅ 交互模型（用户已拍 2026-06-09 / coordinator #413：delta + full 两种都要）
+→ prompt `compose_prompt` 加 `edit_mode ∈ {delta, full}` 模式分支：
+- **delta（微调，默认）**：增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ 锁产品+品牌文字 + **沿用上一版构图基底** + 只 apply delta。**ratio/category 继承父 job**、prompt/modifiers 叠新。
+- **full（重做）**：全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘。**ratio/category 可改**。
+> gating 已解除 → PRD §3.12.13 已定稿（验收标准 + 落地分工）。下一步 = PM 牵头四方设计三方对（对齐 Q1–Q7 + edit_mode/source_image_id 契约）→ **schema 变更经用户签字** → 实现。
 
 ## 需求
 listing 当前只能「从头传图 → 一键出图」，**无法基于一次生成的结果 + 新提示词迭代再生成**。
@@ -41,7 +40,7 @@ coordinator 审计 backlog 确认这是**缺失功能**（后端有 /images/edit
 - **Q1 入口契约** → **独立 `source_image_id`（结果图稳定 id）**，后端由它解析 owner+image_key+父 job；不让客户端拼 `parent_job_id+image_index`（消越界/畸形校验面、owner 直命中记录 user_id）。字段名 dev 按持久化模型定。
 - **Q2 源图来源** → 后端用 **image_key 从 TOS generate 桶取对象**（服务端凭证即时签/直读），不依赖客户端可能过期的签名 url（对齐 ISSUE-0034）。
 - **Q3 迭代深度/分叉** → **无硬深度上限、允许多次分叉**（每次独立 job+计费，成本由既有预算闸守，YAGNI）。累积失真是质量风险（TC-05）非契约限制。
-- **Q4 参数继承** → **挂在交互模型 gating 下**：delta 模式 ratio/category **继承父 job**（换比例=重构图≠编辑）、prompt/modifiers 可叠新；full 模式 ratio/category 可改。**待用户拍交互模型后定稿。**
+- **Q4 参数继承** → **已定稿**（用户批 delta+full）：delta 模式 ratio/category **继承父 job**（换比例=重构图≠编辑）、prompt/modifiers 叠新；full 模式 ratio/category 可改。
 - **Q5 成本口径** → ledger **按次单计**；UI 展示**单次 + 迭代链累计**（用户面口径 coordinator 从用户确认）。
 - **Q6 落桶+job 关系** → 新图落 **generate 桶**；每次二次编辑 = **独立新 job + `parent_job_id` 父指针**（独立 cost/SSE/status、parent 链表谱系、支持分叉），复用现有 job/SSE/计费机制、对其他接口零改造。
 - **Q7 历史展示** → 按 parent 链组织（MVP 线性链、分叉树展示作增强），归 frontend，PM 给方向。
@@ -56,3 +55,4 @@ coordinator 审计 backlog 确认这是**缺失功能**（后端有 /images/edit
 
 ## 处理记录
 - 2026-06-09 [PM] coordinator 审计 backlog + 用户勾选（#394）→ PM 接需求，开本条占位 + 起 PRD §3.12.13 草稿。定级 P1（缺失核心能力、用户已勾），最终优先级随用户拍。owner=PM 持球收口设计 → 排期；设计 scope 待 coordinator 拉 prompt/dev/frontend，对齐后回 PM 落验收标准。**先不实现，等设计对齐。**
+- 2026-06-09 [PM] **用户拍交互模型 = delta + full 两种都要**（coordinator #413）→ gating 解除。PRD §3.12.13 草稿→**定稿**（交互模型两分支 + Q4 参数继承定稿 + 验收标准 D1–D8 + 落地分工）。下一步 PM 牵头四方设计三方对（对齐 Q1–Q7 + `edit_mode`/`source_image_id` 契约）→ schema 变更（`parent_job_id`/`source_image_id`/`edit_mode`）经**用户签字**后实现。仍 owner=PM、设计阶段。
