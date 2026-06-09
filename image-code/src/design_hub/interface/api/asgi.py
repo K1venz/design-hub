@@ -19,7 +19,10 @@ from design_hub.application.cost.preview import CostPreviewService
 from design_hub.application.dashboard.cost_report import CostReportService
 from design_hub.application.export.export_service import ExportService
 from design_hub.application.listing.listing_service import ListingGenerationService
-from design_hub.application.listing.prompt_composer import PromptModifierRegistry
+from design_hub.application.listing.prompt_composer import (
+    CategoryCardRegistry,
+    PromptModifierRegistry,
+)
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.pipeline import GenerationPipeline
 from design_hub.application.project.asset_service import AssetService
@@ -125,7 +128,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.event_stream = event_bus
     # listing 一键出图：轻量链路（multipart 直传 + 纯 prompt 直出），复用 guard/queue/event_bus
     app.state.listing_service = ListingGenerationService(
-        registry=registry, guard=guard, modifier_registry=PromptModifierRegistry()
+        registry=registry,
+        guard=guard,
+        modifier_registry=PromptModifierRegistry(),
+        card_registry=CategoryCardRegistry(),
     )
     app.state.listing_history = SqlAlchemyListingHistory(session_factory)
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)

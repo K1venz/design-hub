@@ -47,7 +47,10 @@ async def generate_listing(
     if not 1 <= req.n <= 7:
         raise ValueError(f"张数需为 1..7，实际 {req.n}")
     ratio_to_size(req.ratio)
-    compose_prompt(req.prompt, req.modifiers, service.modifier_registry)
+    compose_prompt(
+        req.prompt, req.modifiers, service.modifier_registry,
+        category=req.category, card_registry=service.card_registry,
+    )
     for uid in req.upload_ids:
         # 非自有/不存在 upload → 404：防枚举、对齐 GET /uploads 与 get_job（ISSUE-0032）
         if not owns(uid, user.user_id):
@@ -69,6 +72,7 @@ async def generate_listing(
         upload_keys=tuple(req.upload_ids),
         ratio=req.ratio,
         n=req.n,
+        category=req.category,
     )
     await queue.enqueue(job_id=job_id, command=command)
     return {"job_id": job_id}

@@ -25,6 +25,7 @@ class ListingGenerationCommand(GenerationCommand):
     upload_keys: tuple[str, ...]
     ratio: str
     n: int
+    category: str
 
     async def run(self, job_id: str) -> None:
         await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
@@ -37,6 +38,7 @@ class ListingGenerationCommand(GenerationCommand):
                 ratio=self.ratio,
                 n=self.n,
                 user_id=self.user_id,
+                category=self.category,
             )
         except Exception as exc:
             await self.events.publish(

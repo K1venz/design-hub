@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from design_hub.application.cost.guard import CostGuard
 from design_hub.application.listing.prompt_composer import (
+    CategoryCardRegistry,
     PromptModifierRegistry,
     compose_prompt,
 )
@@ -29,6 +30,7 @@ class ListingGenerationService:
     registry: ProviderRegistry
     guard: CostGuard
     modifier_registry: PromptModifierRegistry
+    card_registry: CategoryCardRegistry
 
     async def generate(
         self,
@@ -39,12 +41,16 @@ class ListingGenerationService:
         ratio: str,
         n: int,
         user_id: str,
+        category: str,
     ) -> ListingResult:
         if not 1 <= len(images) <= _MAX_IMAGES:
             raise ValueError(f"参考图数量需为 1..{_MAX_IMAGES}，实际 {len(images)}")
         if not 1 <= n <= _MAX_N:
             raise ValueError(f"张数需为 1..{_MAX_N}，实际 {n}")
-        final_prompt = compose_prompt(prompt, modifiers, self.modifier_registry)
+        final_prompt = compose_prompt(
+            prompt, modifiers, self.modifier_registry,
+            category=category, card_registry=self.card_registry,
+        )
         size = ratio_to_size(ratio)
         provider = self.registry.get(ModelName.GPT_IMAGE_2)
         estimate = provider.unit_cost * n
