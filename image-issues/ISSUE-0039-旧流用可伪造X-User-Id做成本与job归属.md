@@ -49,3 +49,8 @@ related:
 ## 处理记录
 - 2026-06-09 [开发] 运维清 cost_ledger 撞到 designer-anon（#274）→ coordinator 派查（#276）。读码确认 = 旧流用可伪造 X-User-Id 做 cost/job 归属（非 Bearer 身份），listing 已修对、旧流未迁移。开本条，owner→PM 排期（跨多旧流 refactor + 需确认旧流 prod 暴露面）。app 查询无 1292 风险（全字符串绑定）已排除。
 - 2026-06-09 [开发] 定级前置·后端事实（coordinator #278 问）：generation/async_generation/brief 三 router **确实 mounted 在 asgi（217/219/227）、API 可达** → 漏洞对**任何已登录的 API 调用方**可利用，**不取决于 web UI 用不用**（web UI 不调 ≠ 端点不可达）。所以即便是「死页面」也是活 API 面。web UI 是否调用这些端点属 image-web（前端）域，需 frontend-b 确认。dev 建议：若用户确认只主打 listing/花生、不要海报/单图旧流 → **直接下掉这些 router（删 include + 相关代码）最干净**（去 legacy + 消漏洞 + 减攻击面，符合"无 legacy 支持"原则）；若保留 → 改 CurrentUserDep 身份（关联 ISSUE-0006-WP-G）。两条路 PM/用户拍。
+- 2026-06-09 [PM] **定级 = P2 潜伏（三方交叉印证铁实）**：① web UI 无触发旧出图活入口（frontend-b #285 实查：路由纯 listing、api/projects 只 CRUD 无 generate/brief 封装、客户页 CreateProjectDialog→404 dead-end 但到不了出图）② prod 零真实使用（ops #284 实测：cost_ledger 全 designer-anon/qa-probe 测试归属、真实用户=0、listing_job=0）③ projects 路由不取 user_id 不沾 0039（dev #290）④ listing 主线已修对（Bearer）。漏洞面 = 纯 API-only 可达的 generation/async_generation/brief 出图流（已登录可利用但 web 不可触发、零真实越权已发生）。**非阻塞花生卡闭环。**
+  【修复路线·待用户拍旧流去留（coordinator 带「零使用+下线建议」问用户）】
+  · **路线 A（全员倾向）**：用户弃用旧流 → **下线 ~23 条旧流路由**（dev 删 asgi include + route/handler/service、先依赖核查防 listing import 断裂；ops 重部署 37→~14；frontend-b 摘客户页 dead-end CreateProjectDialog 残骸）= 一刀消漏洞 + 去 legacy + 缩攻击面，符合「无 legacy 支持除非需要」铁律。落地后 PRD 标 listing 为唯一出图主线、旧流退役。
+  · **路线 B**：用户保留旧流 → 升 **P1**，旧流统一改 CurrentUserDep Bearer 身份、删 X-User-Id（对齐 listing、关联 0006-WP-G），dev refactor + QA 归属回归。
+  owner=PM，待用户去留拍定 → 即派 dev（A 下线 / B 改 Bearer）。
