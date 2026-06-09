@@ -62,6 +62,12 @@ export interface ListingGenerateInput {
 /** JSON body for POST /listing/generate — the backend contract (two-step: upload first, reference by id). */
 export type ListingGenerateBody = Schemas['ListingGenerateRequest']
 
+/**
+ * MVP 单品类：listing 当前只做花生 / FOOD，category 硬编码 FOOD（后端 default 也是 FOOD，
+ * 驱动花生保真卡）。将来扩多品类 = 加品类选择 UI 并把它提到 ListingGenerateInput。
+ */
+export const LISTING_CATEGORY = 'FOOD'
+
 export function buildListingBody(input: ListingGenerateInput): ListingGenerateBody {
   return {
     upload_ids: input.uploadIds,
@@ -69,6 +75,7 @@ export function buildListingBody(input: ListingGenerateInput): ListingGenerateBo
     ratio: input.ratio,
     n: input.n,
     modifiers: input.modifiers,
+    category: LISTING_CATEGORY,
   }
 }
 

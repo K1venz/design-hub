@@ -39,13 +39,14 @@ describe('buildListingBody', () => {
     modifiers: { platform: '亚马逊', region: '美国', language: '英文' },
   }
 
-  it('maps uploadIds → upload_ids and passes prompt/ratio/n/modifiers through', () => {
+  it('maps uploadIds → upload_ids, passes fields through, tags MVP category FOOD', () => {
     expect(buildListingBody(input)).toEqual({
       upload_ids: ['u1', 'u2'],
       prompt: '早餐桌场景',
       ratio: '3:4',
       n: 6,
       modifiers: { platform: '亚马逊', region: '美国', language: '英文' },
+      category: 'FOOD',
     })
   })
 })

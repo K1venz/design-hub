@@ -9,7 +9,7 @@ export type Overview = components['schemas']['OverviewOut']
 export type ModelCost = components['schemas']['ModelOut']
 export type TierCost = components['schemas']['TierOut']
 export type DesignerCost = components['schemas']['DesignerOut']
-export type ProjectCost = components['schemas']['design_hub__interface__dashboard_schemas__ProjectOut']
+export type ProjectCost = components['schemas']['ProjectOut']
 
 type Dim = components['schemas']['Dimension']
 
