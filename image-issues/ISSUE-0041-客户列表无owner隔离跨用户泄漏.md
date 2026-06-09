@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0041
 title: 客户列表无 owner 隔离 —— 新用户看到他人/遗留客户（"拍拍熊"），疑似跨用户数据泄漏
-status: 已修复        # QA 验收 5/5 全 PASS（qa 回归 1-4 + prod smoke 5）→ 待 PM 终验收关 | 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
+status: 已关闭        # PM 终验收 5/5 全绿、prod 漏洞消除 → 关闭 | 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
 severity: P1          # 用户拍定客户私有 → 跨用户数据泄漏漏洞(同 0039 类)，P1 严重(prod 真泄漏、非阻断)
 reporter: 用户(prod 实测) / coordinator 转
-owner: 产品(PM)      # QA 验收 5/5 全 PASS（qa 回归1-4 + prod smoke 5）、prod 漏洞消除 → 球交 PM 终验收关 0041
+owner: PM            # PM 终验收 5/5 全绿、已关闭（P1 闭环）
 created: 2026-06-09
 updated: 2026-06-09
 related:
@@ -52,3 +52,4 @@ prod 真实用户**新注册账号**在「客户」页看到一个固定的「�
 - 2026-06-09 [QA] **qa 复现实锤 + 隔离回归就位**（脚本 `image-qa/customer_isolation_regression.py`，commit e5f0914）。qa env 跑出铁证：B（新号）越权 `GET /customers/{A的id}` → **HTTP 200 + 泄漏 name='A的拍拍熊'**；B 列表 ids=[1,2,3] == A 列表（两个用户看到完全相同的全表）。7 断言中 4 个隔离用例 FAIL（=修前预期）、3 个 sanity PASS。脚本断言全按修复后预期写（镜像 listing_job 隔离 + 0032 anti-enum 404），**dev 交付后同一脚本翻全 PASS = 验收标准 1–4 通过**；prod smoke（标准 5）另写只读探针、部署后跑（不在 prod 乱建客户）。owner 仍=开发（待 dev 实现）。
 - 2026-06-09 [QA] **qa 回归翻全 PASS、放行部署**（dev 9c80064 + 迁移、ops #435 已重 build qa 到 9c80064 + 迁移 apply）。同一脚本 red→green 实证（修前后两跑同环境）：修后 B 越权 GET A 客户=**404**、A 列表=[4]/B 列表=[5] 各自隔离、旧 [1,2,3] 已清 → 全 7 PASS。**验收 1-4 qa 通过**：①列表隔离 ②越权404 ③create记owner ④迁移生效（ops 确认 user_id varchar(64) NOT NULL + 拍拍熊清；回归功能侧佐证 create 不 500=列在、旧数据清=DELETE 跑过）。剩 ⑤ prod smoke 等 ops 部署 prod 后跑（脚本 `customer_isolation_prod_smoke.py`，commit 2ffb934）。**status 仍修复中、owner→运维**（球在 ops 部署 prod）；部署后 QA prod smoke PASS → PM 终验收关。
 - 2026-06-09 [QA] **prod smoke PASS、验收 5/5 全绿、prod 漏洞消除**（ops #437 部署 9c80064 + 迁移 apply prod：customer 行数=0 拍拍熊已删、user_id NOT NULL 列加、zhaokai 数据完整、扩展备份 `/root/bugC-backup-20260609.sql` + 镜像 `rollback-e8cbe79` 在手）。QA prod 只读探针：新账号注册 → `GET /customers` → **HTTP 200 返回 `[]`（空）** = 验收标准 5 绿（新账号不再看到拍拍熊/他人客户）。**五条验收全达成**：①列表隔离 ②越权404 ③create记owner ④迁移生效 ⑤prod新账号列表空。客户跨用户泄漏（同 ISSUE-0039 类）在生产消除。探针只读、未在 prod 建客户；留 1 个 qa-test 注册号 `qa-custiso-prod-1781002826@example.com`（ops 可后清）。**status→已修复、owner→PM 终验收关 0041。**
+- 2026-06-09 [PM] **终验收通过 → 关闭**。逐条核对验收标准 **5/5 全达成**：①列表隔离（qa）②越权 GET→404 anti-enum（qa）③create 记 owner（qa）④迁移生效 user_id NOT NULL+拍拍熊已清（qa+ops）⑤prod 新账号 `GET /customers` 空（prod smoke）。客户跨用户泄漏（同 ISSUE-0039 类）在 **prod 生产环境消除**、zhaokai 真实数据零损、扩展备份在手可回滚。CASCADE 连带删退役 project/brief/asset/revision 在用户「清无主测试数据」授权范围内（PM 背书 #434、coordinator #433 同裁）。**status→已关闭、P1 闭环。** 遗留（非阻塞）：ops 后清 1 个 qa-test 注册号；二次编辑（§3.12.13 定稿）待用户签 schema 启动设计三方对。
