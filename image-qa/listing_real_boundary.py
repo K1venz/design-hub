@@ -23,8 +23,9 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def body(upload_ids, prompt="纯白背景突出产品", ratio="1:1", n=2, modifiers=None):  # noqa: ANN001
+    # 默认平台用国内合法值（platform 收窄 7→4 后亚马逊已非法，PRD §3.12.2）
     return {"upload_ids": upload_ids, "prompt": prompt, "ratio": ratio, "n": n,
-            "modifiers": modifiers if modifiers is not None else {"platform": "亚马逊"}}
+            "modifiers": modifiers if modifiers is not None else {"platform": "抖音电商"}}
 
 
 async def main() -> None:
