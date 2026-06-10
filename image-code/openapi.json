@@ -143,7 +143,7 @@
           "listing"
         ],
         "summary": "Generate Listing",
-        "description": "listing 一键出图（两步流，ISSUE-0026）：入参经 upload_ids 引用已上传图，异步返回 job_id。",
+        "description": "listing 出图（单图 n / 套图 plan 互斥，PRD §3.12.14）：异步返回 job_id。",
         "operationId": "generate_listing_listing_generate_post",
         "parameters": [
           {
@@ -1304,8 +1304,43 @@
             "title": "Ratio"
           },
           "n": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "N"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "overlay_texts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overlay Texts"
           },
           "modifiers": {
             "additionalProperties": {
@@ -1324,8 +1359,7 @@
         "required": [
           "upload_ids",
           "prompt",
-          "ratio",
-          "n"
+          "ratio"
         ],
         "title": "ListingGenerateRequest",
         "description": "listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。\n\n数量/范围/比例/下拉的具体边界在路由同步 fail-fast 校验（统一 400），不靠 Pydantic 约束\n（避免 422 与 spec 的 400 口径不一致，ISSUE-0024）。"
@@ -1348,6 +1382,17 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "image_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Type"
           }
         },
         "type": "object",

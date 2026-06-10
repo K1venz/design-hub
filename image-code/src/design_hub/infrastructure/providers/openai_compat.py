@@ -70,6 +70,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         size: tuple[int, int],
         n: int,
         seed: int | None = None,
+        quality: str | None = None,
     ) -> list[GeneratedImage]:
         composed = self._compose(prompt, negative_prompt)
         size_str = f"{size[0]}x{size[1]}"
@@ -78,9 +79,9 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             start = time.perf_counter()
             try:
                 if reference_images:
-                    response = await self._edit(composed, reference_images, size_str, n)
+                    response = await self._edit(composed, reference_images, size_str, n, quality)
                 else:
-                    response = await self._generate(composed, size_str, n)
+                    response = await self._generate(composed, size_str, n, quality)
                 self._raise_for_status(response)  # 4xx→DomainError(不重试)；5xx/429→ProviderTimeout
             except httpx.TimeoutException as exc:
                 error: ProviderError = ProviderTimeout(f"{self.name} timeout: {exc}")
@@ -109,16 +110,22 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         # 其余 4xx（400/401/403/422…）坏请求/鉴权/配置 → 上抛不切备（换网关无意义）
         raise DomainError(f"{self.name} {code} (不切备): {snippet}")
 
-    async def _generate(self, prompt: str, size: str, n: int) -> httpx.Response:
+    async def _generate(
+        self, prompt: str, size: str, n: int, quality: str | None = None
+    ) -> httpx.Response:
         payload = {"model": self._model, "prompt": prompt, "n": n, "size": size}
+        if quality:
+            payload["quality"] = quality
         return await self._request_json(f"{self._base_url}/images/generations", payload)
 
     async def _edit(
-        self, prompt: str, images: list[bytes], size: str, n: int
+        self, prompt: str, images: list[bytes], size: str, n: int, quality: str | None = None
     ) -> httpx.Response:
         # gpt-image edits 多图：同名重复字段 image[]（OpenAI gpt-image-1 协议）。
         # 中转站若不支持多图，ListingGenerationService 会在上层退化为逐图调用（见 spec §6.1 风险）。
         data = {"model": self._model, "prompt": prompt, "n": str(n), "size": size}
+        if quality:
+            data["quality"] = quality
         files = [
             ("image[]", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
         ]

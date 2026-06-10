@@ -237,6 +237,10 @@ class ListingJobRow(Base):
     status: Mapped[str] = mapped_column(String(16), index=True)  # 生成中|完成|部分完成|失败
     total_cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     error: Mapped[str | None] = mapped_column(Text, default=None)
+    # 二次编辑迭代链（ISSUE-0040，列先行）：NULL=首次出图
+    parent_job_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    source_image_key: Mapped[str | None] = mapped_column(String(128), default=None)
+    edit_mode: Mapped[str | None] = mapped_column(String(8), default=None)  # delta|full
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
@@ -260,6 +264,8 @@ class ListingImageRow(Base):
         ForeignKey("listing_job.id", ondelete="CASCADE"), index=True
     )
     image_key: Mapped[str] = mapped_column(String(128))  # <sha>.png（展示时拼 base_url/img/key）
+    # 白底|场景|卖点；NULL=单图流（PRD §3.12.14）
+    image_type: Mapped[str | None] = mapped_column(String(16), default=None)
     seed: Mapped[int] = mapped_column(Integer)
     cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     status: Mapped[str] = mapped_column(String(8))  # 成功|失败

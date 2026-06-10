@@ -33,6 +33,7 @@ class MockModelProvider(AbstractModelProvider):
         size: tuple[int, int],
         n: int,
         seed: int | None = None,
+        quality: str | None = None,
     ) -> list[GeneratedImage]:
         await asyncio.sleep(self._latency_ms / 1000)
         if self._fail:

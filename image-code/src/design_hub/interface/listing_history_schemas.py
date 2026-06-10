@@ -40,6 +40,7 @@ class ListingImageOut(BaseModel):
     seed: int
     cost: Decimal
     status: str
+    image_type: str | None = None  # 白底|场景|卖点；None=单图流
 
 
 class ListingJobDetailOut(BaseModel):
@@ -79,6 +80,7 @@ class ListingJobDetailOut(BaseModel):
                     seed=im.seed,
                     cost=im.cost,
                     status=im.status,
+                    image_type=im.image_type,
                 )
                 for im in d.images
             ],

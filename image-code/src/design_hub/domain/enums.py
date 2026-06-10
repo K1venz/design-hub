@@ -87,6 +87,7 @@ class TaskEventType(StrEnum):
     TASK_STARTED = "task_started"
     MODEL_CALLED = "model_called"
     IMAGE_GENERATED = "image_generated"
+    IMAGE_FAILED = "image_failed"  # 套图单张失败（带 image_type+error；单图流仍走 TASK_FAILED）
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
 
