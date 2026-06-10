@@ -5,11 +5,12 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from design_hub.application.listing.commands import ListingGenerationCommand
+from design_hub.application.listing.commands import CloneCommand, ListingGenerationCommand
 from design_hub.application.listing.listing_service import (
     ListingGenerationService,
     build_listing_prompts,
 )
+from design_hub.application.listing.prompt_composer import compose_clone_prompt
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.errors import NotFoundError
@@ -19,7 +20,7 @@ from design_hub.interface.listing_history_schemas import (
     ListingJobDetailOut,
     ListingJobSummaryOut,
 )
-from design_hub.interface.listing_schemas import ListingGenerateRequest
+from design_hub.interface.listing_schemas import CloneRequest, ListingGenerateRequest
 from design_hub.ports.events import EventPublisher, EventStream
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.listing_query import ListingHistoryQuery
@@ -78,6 +79,55 @@ async def generate_listing(
         plan=req.plan,
         overlay_texts=overlay,
         category=req.category,
+    )
+    await queue.enqueue(job_id=job_id, command=command)
+    return {"job_id": job_id}
+
+
+@router.post("/clone")
+async def clone_listing(
+    req: CloneRequest,
+    request: Request,
+    user: CurrentUserDep,
+) -> dict[str, str]:
+    """爆款图复刻（PRD §3.13）：产品图==1 + 爆款参考图 1..2，两档复刻，异步返回 job_id。"""
+    service: ListingGenerationService = request.app.state.listing_service
+    uploads: UploadService = request.app.state.upload_service
+    # 边界 fail-fast（ISSUE-0024 口径）：入队前同步校验完所有输入。
+    if len(req.product_upload_ids) != 1:
+        raise ValueError(f"产品图需为 1 张，实际 {len(req.product_upload_ids)}")
+    if not 1 <= len(req.reference_upload_ids) <= 2:
+        raise ValueError(f"爆款参考图需为 1..2 张，实际 {len(req.reference_upload_ids)}")
+    ratio_to_size(req.ratio)
+    # 档位/品类/下拉 fail-fast（与编排同一组装函数；prompt 选填、空=合法）
+    compose_clone_prompt(
+        req.prompt, req.modifiers, service.modifier_registry,
+        category=req.category, card_registry=service.card_registry,
+        clone_registry=service.clone_registry, clone_mode=req.clone_mode,
+    )
+    ordered_ids = [*req.product_upload_ids, *req.reference_upload_ids]  # 产品前·参考后=角色契约
+    for uid in ordered_ids:
+        # 非自有/不存在 upload → 404：防枚举（ISSUE-0032/0041 血脉），双角色同口径
+        if not owns(uid, user.user_id):
+            raise NotFoundError(f"upload 不存在或无权访问：{uid}")
+    loaded = [(await uploads.load(uid))[0] for uid in ordered_ids]
+    events: EventPublisher = request.app.state.event_stream
+    history: ListingHistory = request.app.state.listing_history
+    queue: TaskQueue = request.app.state.task_queue
+    job_id = uuid.uuid4().hex
+    command = CloneCommand(
+        service=service,
+        events=events,
+        history=history,
+        user_id=user.user_id,
+        prompt=req.prompt,
+        modifiers=req.modifiers,
+        product_image=loaded[0],
+        reference_images=tuple(loaded[1:]),
+        upload_keys=tuple(ordered_ids),
+        ratio=req.ratio,
+        category=req.category,
+        clone_mode=req.clone_mode,
     )
     await queue.enqueue(job_id=job_id, command=command)
     return {"job_id": job_id}

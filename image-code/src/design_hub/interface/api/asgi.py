@@ -19,6 +19,7 @@ from design_hub.application.dashboard.cost_report import CostReportService
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
+    CloneModeRegistry,
     ImageTypeRegistry,
     PromptModifierRegistry,
 )
@@ -82,6 +83,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         modifier_registry=PromptModifierRegistry(),
         card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(),
+        clone_registry=CloneModeRegistry(),
     )
     app.state.listing_history = SqlAlchemyListingHistory(session_factory)
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)

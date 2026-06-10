@@ -118,3 +118,98 @@ class ListingGenerationCommand(GenerationCommand):
             images=images,
             upload_keys=self.upload_keys,
         )
+
+
+@dataclass
+class CloneCommand(GenerationCommand):
+    """爆款复刻异步命令（PRD §3.13）：service.clone 出 1 张 → 事件 → 持久化（含档位+双角色）。"""
+
+    service: ListingGenerationService
+    events: EventPublisher
+    history: ListingHistory
+    user_id: str
+    prompt: str
+    modifiers: dict[str, str]
+    product_image: bytes
+    reference_images: tuple[bytes, ...]
+    upload_keys: tuple[str, ...]  # 保序：产品图在前、参考图在后（与喂图序一致）
+    ratio: str
+    category: str
+    clone_mode: str
+
+    def _roles(self) -> tuple[str, ...]:
+        return ("product",) + ("reference",) * len(self.reference_images)
+
+    def _outcome(
+        self,
+        job_id: str,
+        size: str,
+        status: str,
+        total_cost: Decimal,
+        error: str | None,
+        images: tuple[ListingJobImage, ...],
+    ) -> ListingJobOutcome:
+        return ListingJobOutcome(
+            job_id=job_id,
+            user_id=self.user_id,
+            prompt=self.prompt,
+            modifiers=self.modifiers,
+            ratio=self.ratio,
+            size=size,
+            n=1,
+            status=status,
+            total_cost=total_cost,
+            error=error,
+            images=images,
+            upload_keys=self.upload_keys,
+            clone_mode=self.clone_mode,
+            input_roles=self._roles(),
+        )
+
+    async def run(self, job_id: str) -> None:
+        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
+        size = "{}x{}".format(*ratio_to_size(self.ratio))
+        try:
+            result = await self.service.clone(
+                prompt=self.prompt,
+                modifiers=self.modifiers,
+                product_image=self.product_image,
+                reference_images=self.reference_images,
+                ratio=self.ratio,
+                user_id=self.user_id,
+                category=self.category,
+                clone_mode=self.clone_mode,
+            )
+        except Exception as exc:
+            await self.events.publish(
+                TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})
+            )
+            await self.history.record(
+                self._outcome(job_id, size, "失败", Decimal("0"), str(exc), ())
+            )
+            raise
+        await self.events.publish(
+            TaskEvent(job_id, TaskEventType.MODEL_CALLED, {"model": result.used_model.value})
+        )
+        for image in result.images:
+            await self.events.publish(
+                TaskEvent(
+                    job_id,
+                    TaskEventType.IMAGE_GENERATED,
+                    {"url": image.url, "seed": image.seed, "image_type": None},
+                )
+            )
+        images = tuple(
+            ListingJobImage(
+                image_key=image_key_from_url(im.url), seed=im.seed, cost=im.cost, status="成功"
+            )
+            for im in result.images
+        )
+        await self.history.record(
+            self._outcome(job_id, size, "完成", result.total_cost, None, images)
+        )
+        await self.events.publish(
+            TaskEvent(
+                job_id, TaskEventType.TASK_COMPLETED, {"total_cost": str(result.total_cost)}
+            )
+        )

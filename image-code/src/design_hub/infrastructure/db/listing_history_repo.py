@@ -32,6 +32,7 @@ class SqlAlchemyListingHistory(ListingHistory):
                 status=outcome.status,
                 total_cost=outcome.total_cost,
                 error=outcome.error,
+                clone_mode=outcome.clone_mode,
                 completed_at=datetime.now(UTC),
             )
             row.images = [
@@ -41,9 +42,10 @@ class SqlAlchemyListingHistory(ListingHistory):
                 )
                 for im in outcome.images
             ]
+            roles = outcome.input_roles or (None,) * len(outcome.upload_keys)
             row.inputs = [
-                ListingJobInputRow(upload_key=key, ord=i)
-                for i, key in enumerate(outcome.upload_keys)
+                ListingJobInputRow(upload_key=key, role=role, ord=i)
+                for i, (key, role) in enumerate(zip(outcome.upload_keys, roles, strict=True))
             ]
             session.add(row)
             await session.commit()

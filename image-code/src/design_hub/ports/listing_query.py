@@ -48,6 +48,9 @@ class ListingJobDetail:
     completed_at: datetime | None
     images: tuple[ListingJobImageView, ...]
     input_keys: tuple[str, ...]
+    # 爆款复刻（PRD §3.13）：档位（None=非复刻）+ 输入图角色（与 input_keys 同序；None=旧数据）
+    clone_mode: str | None = None
+    input_roles: tuple[str | None, ...] = ()
 
 
 class ListingHistoryQuery(ABC):

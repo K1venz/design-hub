@@ -241,6 +241,8 @@ class ListingJobRow(Base):
     parent_job_id: Mapped[str | None] = mapped_column(String(32), default=None)
     source_image_key: Mapped[str | None] = mapped_column(String(128), default=None)
     edit_mode: Mapped[str | None] = mapped_column(String(8), default=None)  # delta|full
+    # 复刻档（爆款复刻 PRD §3.13）：参考风格|高度复刻；NULL=非复刻 job
+    clone_mode: Mapped[str | None] = mapped_column(String(16), default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
@@ -284,6 +286,8 @@ class ListingJobInputRow(Base):
         ForeignKey("listing_job.id", ondelete="CASCADE"), index=True
     )
     upload_key: Mapped[str] = mapped_column(String(128))
+    # product|reference；NULL=旧数据/非复刻（PRD §3.13）
+    role: Mapped[str | None] = mapped_column(String(16), default=None)
     ord: Mapped[int] = mapped_column(Integer)
 
     job: Mapped["ListingJobRow"] = relationship(back_populates="inputs")

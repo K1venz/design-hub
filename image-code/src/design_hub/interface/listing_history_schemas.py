@@ -58,6 +58,8 @@ class ListingJobDetailOut(BaseModel):
     completed_at: datetime | None
     images: list[ListingImageOut]
     input_urls: list[str]
+    clone_mode: str | None = None  # 参考风格|高度复刻；None=非复刻（历史「复刻」徽标）
+    input_roles: list[str | None] = []  # product|reference，与 input_urls 同序；None=旧数据
 
     @classmethod
     def of(cls, d: ListingJobDetail, signer: MediaUrlSigner) -> "ListingJobDetailOut":
@@ -85,4 +87,6 @@ class ListingJobDetailOut(BaseModel):
                 for im in d.images
             ],
             input_urls=[signer.upload_url(k) for k in d.input_keys],
+            clone_mode=d.clone_mode,
+            input_roles=list(d.input_roles) or [None] * len(d.input_keys),
         )

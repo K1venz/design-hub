@@ -84,4 +84,6 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                 for im in row.images
             ),
             input_keys=tuple(i.upload_key for i in inputs),
+            clone_mode=row.clone_mode,
+            input_roles=tuple(i.role for i in inputs),
         )
