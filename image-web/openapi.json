@@ -201,6 +201,70 @@
         }
       }
     },
+    "/listing/clone": {
+      "post": {
+        "tags": [
+          "listing"
+        ],
+        "summary": "Clone Listing",
+        "description": "爆款图复刻（PRD §3.13）：产品图==1 + 爆款参考图 1..2，两档复刻，异步返回 job_id。",
+        "operationId": "clone_listing_listing_clone_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Clone Listing Listing Clone Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/listing/jobs": {
       "get": {
         "tags": [
@@ -1077,6 +1141,58 @@
         ],
         "title": "Body_upload_image_uploads_post"
       },
+      "CloneRequest": {
+        "properties": {
+          "product_upload_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Product Upload Ids"
+          },
+          "reference_upload_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reference Upload Ids"
+          },
+          "clone_mode": {
+            "type": "string",
+            "title": "Clone Mode"
+          },
+          "ratio": {
+            "type": "string",
+            "title": "Ratio"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "default": ""
+          },
+          "modifiers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Modifiers"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "FOOD"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_upload_ids",
+          "reference_upload_ids",
+          "clone_mode",
+          "ratio"
+        ],
+        "title": "CloneRequest",
+        "description": "爆款图复刻入参（PRD §3.13，POST /listing/clone）。\n\n双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序\n「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。\n边界仍走路由 fail-fast 统一 400（ISSUE-0024 口径）。"
+      },
       "CustomerCreate": {
         "properties": {
           "name": {
@@ -1494,6 +1610,32 @@
             },
             "type": "array",
             "title": "Input Urls"
+          },
+          "clone_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clone Mode"
+          },
+          "input_roles": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Input Roles",
+            "default": []
           }
         },
         "type": "object",

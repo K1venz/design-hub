@@ -121,17 +121,17 @@ describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () =
       reference_upload_ids: ['r1', 'r2'],
       clone_mode: '参考风格',
       ratio: '1:1',
+      prompt: '', // 选填：空=空串（后端默认 ""，dev #564 等价形态）
       modifiers: base.modifiers,
       category: 'FOOD',
     })
-    expect('prompt' in body).toBe(false) // 选填：空=不发字段
     expect('n' in body).toBe(false)
     expect('plan' in body).toBe(false)
   })
 
-  it('carries trimmed prompt only when non-empty', () => {
+  it('trims the optional unified-requirement prompt', () => {
     expect(buildCloneBody({ ...base, prompt: '  文案统一中文 ' }).prompt).toBe('文案统一中文')
-    expect('prompt' in buildCloneBody({ ...base, prompt: '   ' })).toBe(false)
+    expect(buildCloneBody({ ...base, prompt: '   ' }).prompt).toBe('')
   })
 })
 
