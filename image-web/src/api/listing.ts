@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import {
-  LISTING_EVENT_TYPES, buildListingBody, parseListingEvent,
-  type ListingEvent, type ListingGenerateInput, type UploadedImage,
+  LISTING_EVENT_TYPES, buildListingBody, buildSetListingBody, parseListingEvent,
+  type ListingEvent, type ListingGenerateInput, type ListingSetGenerateInput, type UploadedImage,
   type ListingJobSummary, type ListingJobDetail,
 } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
@@ -44,22 +44,31 @@ export function useUploadImage() {
   })
 }
 
-/** POST /listing/generate (JSON body, upload_ids) -> { job_id }. fail-fast: non-2xx throws. */
+async function postGenerate(body: unknown): Promise<{ job_id: string }> {
+  const token = useAuthStore.getState().token
+  const res = await fetch('/api/listing/generate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`出图请求失败（${res.status}）：${await res.text()}`)
+  return res.json() as Promise<{ job_id: string }>
+}
+
+/** POST /listing/generate（单图流，n=1）-> { job_id }. fail-fast: non-2xx throws. */
 export function useListingGenerate() {
   return useMutation({
-    mutationFn: async (input: ListingGenerateInput): Promise<{ job_id: string }> => {
-      const token = useAuthStore.getState().token
-      const res = await fetch('/api/listing/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(buildListingBody(input)),
-      })
-      if (!res.ok) throw new Error(`出图请求失败（${res.status}）：${await res.text()}`)
-      return res.json() as Promise<{ job_id: string }>
-    },
+    mutationFn: (input: ListingGenerateInput) => postGenerate(buildListingBody(input)),
+  })
+}
+
+/** POST /listing/generate（套图流，plan + 可选 overlay_texts）-> { job_id }. */
+export function useListingSetGenerate() {
+  return useMutation({
+    mutationFn: (input: ListingSetGenerateInput) => postGenerate(buildSetListingBody(input)),
   })
 }
 

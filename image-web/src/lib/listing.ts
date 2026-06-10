@@ -13,9 +13,32 @@ export const LANGUAGES = ['中文', '英文'] as const
 export const RATIOS = ['1:1', '3:4', '9:16', '16:9'] as const
 export type Ratio = (typeof RATIOS)[number]
 
-/** 去下拉但仍随请求固定下发的值（地区固定中国 / 张数固定 1）。 */
+/** 去下拉但仍随请求固定下发的值（地区固定中国 / 单图张数固定 1）。 */
 export const FIXED_REGION = '中国'
 export const FIXED_N = 1
+
+// ── 套图（需求 #1，PRD §3.12.14 终值）────────────────────
+// 中文 key 工作假设（dev+frontend 两票，契约落地若变只改此表）：展示名=key 零映射。
+export const IMAGE_TYPE_FIELDS = [
+  { key: '白底', label: '白底图', desc: '白底主图，呈现商品细节' },
+  { key: '场景', label: '场景图', desc: '生活使用场景展示' },
+  { key: '卖点', label: '卖点图', desc: '核心卖点与细节特写' },
+] as const
+export type ImageTypeKey = (typeof IMAGE_TYPE_FIELDS)[number]['key']
+/** 图型 → 张数。 */
+export type SetPlan = Record<ImageTypeKey, number>
+export const DEFAULT_PLAN: SetPlan = { 白底: 1, 场景: 2, 卖点: 2 }
+export const PLAN_TOTAL_MIN = 3
+export const PLAN_TOTAL_MAX = 10
+export const OVERLAY_MAX_COUNT = 2
+export const OVERLAY_MAX_LEN = 12
+
+export function planTotal(plan: SetPlan): number {
+  return Object.values(plan).reduce((a, b) => a + b, 0)
+}
+
+/** 工作台出图模式：单图（现行 verified n=1 流）/ 套图（plan 流）。默认套图（三方对裁决二）。 */
+export type WorkbenchMode = 'single' | 'set'
 
 /** A dropdown that maps into the generic `modifiers` bag. Add a dropdown = add here. */
 export interface ModifierField {
@@ -29,16 +52,25 @@ export const MODIFIER_FIELDS: ModifierField[] = [
 ]
 
 export interface ListingConfig {
+  mode: WorkbenchMode
   modifiers: Record<string, string>
   ratio: Ratio
+  /** 单图模式张数（固定 1）。 */
   n: number
+  /** 套图模式结构（图型 → 张数）。 */
+  plan: SetPlan
+  /** 卖点图「图上文案」（≤2 条、每条 ≤12 字；卖点=0 时提交剥离）。 */
+  overlayTexts: string[]
   prompt: string
 }
 
 export const DEFAULT_LISTING_CONFIG: ListingConfig = {
+  mode: 'set',
   modifiers: { platform: '淘宝天猫1688', region: FIXED_REGION, language: '中文' },
   ratio: '1:1',
   n: FIXED_N,
+  plan: DEFAULT_PLAN,
+  overlayTexts: [],
   prompt: '',
 }
 
@@ -77,13 +109,52 @@ export function buildListingBody(input: ListingGenerateInput): ListingGenerateBo
   }
 }
 
-/** TaskEventType values emitted by backend (design_hub/domain/enums.py). */
+// ── 套图请求（plan 流，三方对终稿契约）──────────────────
+// TODO(openapi)：dev 契约落地后改为 schema 派生类型（同 ListingGenerateBody）。
+export interface ListingSetGenerateInput {
+  uploadIds: string[]
+  prompt: string
+  ratio: string
+  plan: SetPlan
+  overlayTexts: string[]
+  modifiers: Record<string, string>
+}
+
+export interface ListingSetGenerateBody {
+  upload_ids: string[]
+  prompt: string
+  ratio: string
+  plan: Record<string, number>
+  /** 仅卖点图 >0 时携带（前端剥离无效组合，后端 400 兜底）。 */
+  overlay_texts?: string[]
+  modifiers: Record<string, string>
+  category: string
+}
+
+export function buildSetListingBody(input: ListingSetGenerateInput): ListingSetGenerateBody {
+  const body: ListingSetGenerateBody = {
+    upload_ids: input.uploadIds,
+    prompt: input.prompt,
+    ratio: input.ratio,
+    plan: { ...input.plan },
+    modifiers: input.modifiers,
+    category: LISTING_CATEGORY,
+  }
+  if (input.plan.卖点 > 0 && input.overlayTexts.length > 0) {
+    body.overlay_texts = input.overlayTexts
+  }
+  return body
+}
+
+/** TaskEventType values emitted by backend (design_hub/domain/enums.py).
+ *  image_failed = 套图单张失败事件（dev #490 契约：payload {image_type, error}）。 */
 export const LISTING_EVENT_TYPES = [
-  'task_started', 'model_called', 'image_generated', 'task_completed', 'task_failed',
+  'task_started', 'model_called', 'image_generated', 'image_failed', 'task_completed', 'task_failed',
 ] as const
 
 export type ListingEvent =
-  | { kind: 'image'; url: string; seed?: number }
+  | { kind: 'image'; url: string; seed?: number; imageType?: string }
+  | { kind: 'image_failed'; imageType?: string; error: string }
   | { kind: 'completed'; totalCost?: string }
   | { kind: 'failed'; error: string }
   | { kind: 'meta' } // task_started / model_called — nothing to render
@@ -98,8 +169,19 @@ export function parseListingEvent(type: string, rawData: string): ListingEvent {
   const d = JSON.parse(rawData) as Record<string, unknown>
   switch (type) {
     case 'image_generated':
-      // Backend sends no index; caller fills slots in arrival order.
-      return { kind: 'image', url: String(d.url ?? ''), seed: d.seed == null ? undefined : Number(d.seed) }
+      // 单图流无 index 按到达序填槽；套图流带 image_type 落对应组。
+      return {
+        kind: 'image',
+        url: String(d.url ?? ''),
+        seed: d.seed == null ? undefined : Number(d.seed),
+        imageType: d.image_type == null ? undefined : String(d.image_type),
+      }
+    case 'image_failed':
+      return {
+        kind: 'image_failed',
+        imageType: d.image_type == null ? undefined : String(d.image_type),
+        error: String(d.error ?? '该张生成失败'),
+      }
     case 'task_completed':
       return { kind: 'completed', totalCost: d.total_cost == null ? undefined : String(d.total_cost) }
     case 'task_failed':

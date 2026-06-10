@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   MODIFIER_FIELDS,
   DEFAULT_LISTING_CONFIG,
+  DEFAULT_PLAN,
   buildModifiers,
   buildListingBody,
+  buildSetListingBody,
   parseListingEvent,
+  planTotal,
   estimateCost,
   type ListingConfig,
   type ListingGenerateInput,
@@ -63,10 +66,56 @@ describe('buildListingBody', () => {
   })
 })
 
+describe('套图 plan / buildSetListingBody', () => {
+  const base = {
+    uploadIds: ['u1'],
+    prompt: '花生礼盒',
+    ratio: '1:1',
+    modifiers: { platform: '淘宝天猫1688', region: '中国', language: '中文' },
+  }
+
+  it('planTotal sums all image types; default plan = 5', () => {
+    expect(planTotal(DEFAULT_PLAN)).toBe(5)
+    expect(planTotal({ 白底: 0, 场景: 0, 卖点: 3 })).toBe(3)
+  })
+
+  it('builds set body with plan + category, no n', () => {
+    const body = buildSetListingBody({ ...base, plan: { 白底: 1, 场景: 2, 卖点: 2 }, overlayTexts: [] })
+    expect(body).toEqual({
+      upload_ids: ['u1'],
+      prompt: '花生礼盒',
+      ratio: '1:1',
+      plan: { 白底: 1, 场景: 2, 卖点: 2 },
+      modifiers: base.modifiers,
+      category: 'FOOD',
+    })
+    expect('n' in body).toBe(false)
+  })
+
+  it('carries overlay_texts only when 卖点 > 0（归 0 提交剥离）', () => {
+    const withCopy = buildSetListingBody({
+      ...base, plan: { 白底: 1, 场景: 1, 卖点: 1 }, overlayTexts: ['高山七彩花生'],
+    })
+    expect(withCopy.overlay_texts).toEqual(['高山七彩花生'])
+    const stripped = buildSetListingBody({
+      ...base, plan: { 白底: 2, 场景: 1, 卖点: 0 }, overlayTexts: ['高山七彩花生'],
+    })
+    expect('overlay_texts' in stripped).toBe(false)
+  })
+})
+
 describe('parseListingEvent', () => {
   it('maps image_generated (url+seed, no index) to an image event', () => {
     const e = parseListingEvent('image_generated', JSON.stringify({ url: 'http://x/2.png', seed: 7 }))
     expect(e).toEqual({ kind: 'image', url: 'http://x/2.png', seed: 7 })
+  })
+  it('carries image_type through image_generated（套图落组）', () => {
+    const e = parseListingEvent('image_generated', JSON.stringify({ url: 'http://x/1.png', seed: 1, image_type: '卖点' }))
+    expect(e).toEqual({ kind: 'image', url: 'http://x/1.png', seed: 1, imageType: '卖点' })
+  })
+  it('maps image_failed to per-image failure with type + reason', () => {
+    expect(parseListingEvent('image_failed', JSON.stringify({ image_type: '场景', error: 'provider 500' })))
+      .toEqual({ kind: 'image_failed', imageType: '场景', error: 'provider 500' })
   })
   it('maps task_completed (with total_cost) to completed', () => {
     expect(parseListingEvent('task_completed', JSON.stringify({ total_cost: '7.14' })))
