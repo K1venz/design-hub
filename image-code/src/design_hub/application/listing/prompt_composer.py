@@ -70,6 +70,62 @@ class CategoryCardRegistry:
             raise ValueError(f"未知品类：{category}（未在品类卡表登记）") from None
 
 
+# 图型卡物化块（套图，PRD §3.12.14）：逐字对齐 image-prompt/image-type-cards/<图型>.md
+# 的 ```text 块。单一事实源在卡、此处硬编码引用、程序化核对 code 串==卡串（行长 >100 故
+# 隐式拼接，勿改一字）。卖点有字版为模板：静态部分逐字核对，{overlay_texts} 槽运行时填充。
+_TYPE_WHITE_BG = (
+    "图型·白底主图：一张纯白无缝影棚背景上的产品电商主图照，真实商业摄影质感。"
+    "产品居中摆放、占画面主体约八到九成、整体清晰锐利、细节完整可见；"
+    "背景为纯净无杂色的纯白色，不放置任何道具与装饰。"
+    "产品与台面之间保留真实的接触阴影与柔和的自然投影，"
+    "光线均匀而有方向、产品轮廓边缘清晰不过曝——产品是真实摆放在白色背景纸上拍摄的，"
+    "不是抠图悬浮贴上去的。"
+)
+_TYPE_SCENE = (
+    "图型·场景图：一张产品置于真实生活使用场景中的摆拍照，自然光下的真实摄影质感。"
+    "场景从该产品的实际使用环境中选取（居家、餐桌、厨房、办公等与产品用途相符的环境），"
+    "环境叙事自然、有生活气息；产品仍是画面绝对主角、处于视觉焦点，"
+    "场景与道具只做衬托、数量克制、且全部与产品的使用相关。"
+    "画面中不出现人物与任何人体局部（包括手与手臂），不堆砌杂物。"
+)
+_TYPE_SELLING = (
+    "图型·卖点特写：一张突出产品核心卖点的细节特写照，近景微距、真实商业摄影质感。"
+    "镜头聚焦产品最具说服力的卖点部位（材质、工艺、成分、结构等细节），"
+    "纹理清晰放大呈现、质感真实，构图留有适度干净的负空间。"
+    "画面中不出现任何文字、标贴与水印。"
+)
+_TYPE_SELLING_TEXT_TPL = (
+    "图型·卖点特写（带文案）：一张突出产品核心卖点的细节特写照，近景微距、真实商业摄影质感。"
+    "镜头聚焦产品最具说服力的卖点部位，纹理清晰放大呈现、质感真实，"
+    "构图在画面上方或一侧留出干净的负空间用于排版文案。\n"
+    "图上文案，逐字呈现、一字不增不减不改、不翻译：{overlay_texts}。"
+    "文案以简洁现代的无衬线字体排版，字色与底色对比清晰、位置不遮挡产品主体；"
+    "除上述文案外，画面中不出现任何其他文字、标贴与水印。"
+)
+
+IMAGE_TYPES = ("白底", "场景", "卖点")  # 中文枚举 key（#486 终裁），与卡文件名/前端/SSE 一字串
+
+
+@dataclass
+class ImageTypeRegistry:
+    """图型 → 物化块（PRD §3.12.14）。单一事实源=image-prompt 图型卡；未知图型 fail-fast。
+
+    卖点按有无 overlay_texts 选块：缺省=无字特写；有=模板按卡内格式（全角引号顿号）填充。
+    """
+
+    def block(self, image_type: str, overlay_texts: tuple[str, ...] = ()) -> str:
+        if image_type == "白底":
+            return _TYPE_WHITE_BG
+        if image_type == "场景":
+            return _TYPE_SCENE
+        if image_type == "卖点":
+            if not overlay_texts:
+                return _TYPE_SELLING
+            joined = "、".join(f"「{t}」" for t in overlay_texts)
+            return _TYPE_SELLING_TEXT_TPL.format(overlay_texts=joined)
+        raise ValueError(f"未知图型：{image_type}（未在图型卡表登记）")
+
+
 def compose_prompt(
     prompt: str,
     modifiers: dict[str, str],
@@ -77,11 +133,13 @@ def compose_prompt(
     *,
     category: str,
     card_registry: CategoryCardRegistry,
+    image_type_block: str | None = None,
 ) -> str:
-    """最终 prompt = 品类保真块 + 用户自由文本 + 各 modifier 片段。
+    """最终 prompt = 品类保真块 [+ 图型卡块] + 用户自由文本 + 各 modifier 片段。
 
-    保真块按 category 选（PRD §3.12.11），拼在最前（用户文本/场景/卖点之前，
-    QA #196/#198 验过的位置）；未知品类 / 未知下拉值均 fail-fast。
+    保真块按 category 选（PRD §3.12.11），拼在最前（QA #196/#198 验过位置）；
+    图型卡块仅套图 plan 路径注入（PRD §3.12.14，单图流不带、维持现状零破坏）；
+    未知品类 / 未知下拉值均 fail-fast。
     """
     base = prompt.strip()
     if not base:
@@ -89,4 +147,6 @@ def compose_prompt(
     fidelity = card_registry.card(category)
     fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
     body = base if not fragments else base + "。" + "；".join(fragments)
-    return fidelity + "\n" + body
+    if image_type_block is None:
+        return fidelity + "\n" + body
+    return fidelity + "\n" + image_type_block + "\n" + body

@@ -25,6 +25,7 @@ class GeneratedImage:
     seed: int
     latency_ms: int
     cost: Decimal
+    image_type: str | None = None  # 套图图型（白底|场景|卖点）；None=单图流（PRD §3.12.14）
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,8 @@ class ListingResult:
     used_model: ModelName
     images: tuple[GeneratedImage, ...]
     total_cost: Decimal
+    # 套图部分失败明细（图型, 原因摘要）；单图流恒空（失败仍走整单 TASK_FAILED 语义）
+    failures: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,7 @@ class ListingJobImage:
     seed: int
     cost: Decimal
     status: str  # 成功 | 失败
+    image_type: str | None = None  # 白底|场景|卖点；None=单图流
 
 
 @dataclass(frozen=True)

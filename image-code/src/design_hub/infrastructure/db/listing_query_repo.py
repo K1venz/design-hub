@@ -78,7 +78,8 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             completed_at=row.completed_at,
             images=tuple(
                 ListingJobImageView(
-                    image_key=im.image_key, seed=im.seed, cost=im.cost, status=im.status
+                    image_key=im.image_key, seed=im.seed, cost=im.cost,
+                    status=im.status, image_type=im.image_type
                 )
                 for im in row.images
             ),

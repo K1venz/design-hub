@@ -36,7 +36,8 @@ class SqlAlchemyListingHistory(ListingHistory):
             )
             row.images = [
                 ListingImageRow(
-                    image_key=im.image_key, seed=im.seed, cost=im.cost, status=im.status
+                    image_key=im.image_key, seed=im.seed, cost=im.cost,
+                    status=im.status, image_type=im.image_type
                 )
                 for im in outcome.images
             ]

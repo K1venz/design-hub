@@ -6,8 +6,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from design_hub.application.listing.commands import ListingGenerationCommand
-from design_hub.application.listing.listing_service import ListingGenerationService
-from design_hub.application.listing.prompt_composer import compose_prompt
+from design_hub.application.listing.listing_service import (
+    ListingGenerationService,
+    build_listing_prompts,
+)
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.errors import NotFoundError
@@ -38,18 +40,19 @@ async def generate_listing(
     request: Request,
     user: CurrentUserDep,  # Bearer；身份即落库/历史/成本的 user_id（不用可伪造的 X-User-Id）
 ) -> dict[str, str]:
-    """listing 一键出图（两步流，ISSUE-0026）：入参经 upload_ids 引用已上传图，异步返回 job_id。"""
+    """listing 出图（单图 n / 套图 plan 互斥，PRD §3.12.14）：异步返回 job_id。"""
     service: ListingGenerationService = request.app.state.listing_service
     uploads: UploadService = request.app.state.upload_service
     # 边界 fail-fast（ISSUE-0024）：入队前同步校验完所有输入，任一非法 → 4xx，不入队。
     if not 1 <= len(req.upload_ids) <= 3:
         raise ValueError(f"upload_ids 数量需为 1..3，实际 {len(req.upload_ids)}")
-    if not 1 <= req.n <= 7:
-        raise ValueError(f"张数需为 1..7，实际 {req.n}")
     ratio_to_size(req.ratio)
-    compose_prompt(
-        req.prompt, req.modifiers, service.modifier_registry,
-        category=req.category, card_registry=service.card_registry,
+    overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
+    # 互斥/枚举/范围/overlay/图型卡/品类/下拉 全部 fail-fast（与编排同一事实源）
+    build_listing_prompts(
+        req.prompt, req.modifiers, service.modifier_registry, service.card_registry,
+        service.type_registry,
+        category=req.category, n=req.n, plan=req.plan, overlay_texts=overlay,
     )
     for uid in req.upload_ids:
         # 非自有/不存在 upload → 404：防枚举、对齐 GET /uploads 与 get_job（ISSUE-0032）
@@ -72,6 +75,8 @@ async def generate_listing(
         upload_keys=tuple(req.upload_ids),
         ratio=req.ratio,
         n=req.n,
+        plan=req.plan,
+        overlay_texts=overlay,
         category=req.category,
     )
     await queue.enqueue(job_id=job_id, command=command)

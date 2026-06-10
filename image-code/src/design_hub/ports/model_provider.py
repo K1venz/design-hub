@@ -30,5 +30,6 @@ class AbstractModelProvider(ABC):
         size: tuple[int, int],
         n: int,
         seed: int | None = None,
+        quality: str | None = None,
     ) -> list[GeneratedImage]:
         ...

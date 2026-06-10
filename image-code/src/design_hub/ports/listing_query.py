@@ -12,6 +12,7 @@ class ListingJobImageView:
     seed: int
     cost: Decimal
     status: str
+    image_type: str | None = None  # 白底|场景|卖点；None=单图流（PRD §3.12.14）
 
 
 @dataclass(frozen=True)
