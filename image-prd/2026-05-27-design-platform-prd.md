@@ -619,8 +619,9 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 **落地分工（coordinator #413 拉四方、PM 牵头设计三方对 → 排期实现）**：PM 本节定稿 → 设计三方对（PM+prompt+dev+QA 对齐 Q1–Q7 + `edit_mode`/`source_image_id` 契约）→ **DB schema 变更经用户签字** → prompt（delta/full 组装规则）+ dev（/images/edits 接线 + 迭代链 + 持久化）+ frontend-b（结果区「基于此图再编辑」入口、delta/full 切换）+ QA（骨架细化为脚本、D1/D2 两条 P0 盯死）→ 上线前 gate（QA 回归 + prod smoke）。
 
-#### 3.12.14 套图：一键整套·图型分工（需求 #1 · 2026-06-10，toC 北极星首单）
+#### 3.12.14 套图：一键整套·图型分工（需求 #1 · 2026-06-10，toC 北极星首单）✅ 已上线（2026-06-10 用户验收通过）
 > 用户拍板（coordinator #452）：进入持续迭代、**北极星 = 上线 toC 产品**，需求 #1 = 套图。竞品规格源：`竞品调研-designkit-美图设计室.md`（美图设计室 product-kit 商品套图，coordinator 实测）。基调 = **抄结构、不抄广度**（它 16 平台/11 语言走宽，我们 4 平台/中文/FOOD 走深）。
+> **上线记录（当日全链闭环）**：设计三方对 → 用户签 4 列 schema → dev 实现 `0e9ee9d`（plan/overlay_texts/IMAGE_FAILED/Semaphore(5)/图型卡 registry 逐字核对）→ QA 回归（契约 20/20 + 真出图 9/9 + 视觉核 7/7：overlay 逐字零错字 0038 治本、润喉糖三型零花生泄漏、白底非抠图悬浮、场景无人）→ 敏感扫描零泄露 + GitHub 推送 → prod 部署（迁移 `c7d2f5a18e60` 4 列 + frontend dist）→ prod smoke 5/5（job 62fcc2c7，cost 2.00=5×¥0.40 计费实证）→ **用户上站验收通过**。衍生：ISSUE-0042（admin 改价启动快照，PM 拍 SOP 档+真热更挂 §7.D）、ISSUE-0043（ops 降权 backlog）。
 
 **① 形态**：listing 从「一次出 n 张同质图」升级为「**一键出一整套、按图型分工**」——用户传产品图（沿用 ≤3 张）+ 配置每个图型的张数 → 一次任务产出整套电商 listing 图，每张可归因到图型。
 
