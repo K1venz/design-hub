@@ -3,6 +3,7 @@ import {
   MODIFIER_FIELDS,
   DEFAULT_LISTING_CONFIG,
   DEFAULT_PLAN,
+  buildCloneBody,
   buildModifiers,
   buildListingBody,
   buildSetListingBody,
@@ -101,6 +102,36 @@ describe('套图 plan / buildSetListingBody', () => {
       ...base, plan: { 白底: 2, 场景: 1, 卖点: 0 }, overlayTexts: ['高山七彩花生'],
     })
     expect('overlay_texts' in stripped).toBe(false)
+  })
+})
+
+describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () => {
+  const base = {
+    productUploadIds: ['p1'],
+    referenceUploadIds: ['r1', 'r2'],
+    cloneMode: '参考风格' as const,
+    ratio: '1:1',
+    modifiers: { platform: '淘宝天猫1688', region: '中国', language: '中文' },
+  }
+
+  it('builds clone body with explicit dual-role fields + category, no n/plan', () => {
+    const body = buildCloneBody({ ...base, prompt: '' })
+    expect(body).toEqual({
+      product_upload_ids: ['p1'],
+      reference_upload_ids: ['r1', 'r2'],
+      clone_mode: '参考风格',
+      ratio: '1:1',
+      modifiers: base.modifiers,
+      category: 'FOOD',
+    })
+    expect('prompt' in body).toBe(false) // 选填：空=不发字段
+    expect('n' in body).toBe(false)
+    expect('plan' in body).toBe(false)
+  })
+
+  it('carries trimmed prompt only when non-empty', () => {
+    expect(buildCloneBody({ ...base, prompt: '  文案统一中文 ' }).prompt).toBe('文案统一中文')
+    expect('prompt' in buildCloneBody({ ...base, prompt: '   ' })).toBe(false)
   })
 })
 

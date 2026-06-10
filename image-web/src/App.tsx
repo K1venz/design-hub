@@ -12,6 +12,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
+import { CloneWorkbenchPage } from '@/pages/CloneWorkbenchPage'
 import { CustomersPage } from '@/pages/CustomersPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { HistoryPage } from '@/pages/HistoryPage'
@@ -51,6 +52,7 @@ function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         <Route element={<WorkbenchLayout />}>
           <Route index element={<WorkbenchPage />} />
+          <Route path="clone" element={<CloneWorkbenchPage />} />
         </Route>
         <Route element={<AppLayout />}>
           <Route path="history" element={<HistoryPage />} />

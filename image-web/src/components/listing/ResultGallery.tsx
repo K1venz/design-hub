@@ -19,9 +19,16 @@ interface ResultGalleryProps {
   done: number
   total: number
   generating: boolean
+  /** 空态提示与链路末节点标签（复刻页传自己的文案）。 */
+  emptyHint?: string
+  resultLabel?: string
 }
 
-export function ResultGallery({ title, slots, done, total, generating }: ResultGalleryProps) {
+export function ResultGallery({
+  title, slots, done, total, generating,
+  emptyHint = '上传产品图、写下卖点，点「开始出图」',
+  resultLabel,
+}: ResultGalleryProps) {
   const ready = slots.filter((s) => s.url)
   // 套图流：任一槽带图型 → 按图型分组段渲染（顺序按 IMAGE_TYPE_FIELDS）。
   const grouped = slots.some((s) => s.imageType)
@@ -63,8 +70,8 @@ export function ResultGallery({ title, slots, done, total, generating }: ResultG
       {slots.length === 0 ? (
         <div className="grid min-h-[62vh] place-items-center">
           <div className="flex flex-col items-center gap-7">
-            <PipelineBeam />
-            <p className="text-[14px] text-[#bdb6ab]">上传产品图、写下卖点，点「开始出图」</p>
+            <PipelineBeam resultLabel={resultLabel} />
+            <p className="text-[14px] text-[#bdb6ab]">{emptyHint}</p>
           </div>
         </div>
       ) : grouped ? (
