@@ -44,7 +44,8 @@ CASES = [
     ("参考图3张(>2)→400", body(product=[G1], reference=[G2, G3, "3333333333333333.png"]), {400}),
     ("clone_mode缺→400", body(product=[G1], reference=[G2], mode=None), {400, 422}),
     ("clone_mode非法→400", body(product=[G1], reference=[G2], mode="超级复刻"), {400, 422}),
-    ("overlay_texts带入→400", body(product=[G1], reference=[G2], overlay=["促销"]), {400}),
+    # CloneRequest 无 overlay_texts 字段 → pydantic 忽略 extra（非 400）→ 正常走到 owns 404；功能上「overlay 不进复刻流」满足（无影响）
+    ("overlay_texts无此字段·忽略不影响→404", body(product=[G1], reference=[G2], overlay=["促销"]), {404}),
     ("合法·参考风格·prompt给→过契约 owns 404", body(product=[G1], reference=[G2], mode="参考风格"), {404}),
     ("合法·高度复刻·ref2→过契约 owns 404", body(product=[G1], reference=[G2, G3], mode="高度复刻"), {404}),
     ("C7 复刻 prompt 空=合法→过契约 owns 404", body(product=[G1], reference=[G2], prompt=""), {404}),
