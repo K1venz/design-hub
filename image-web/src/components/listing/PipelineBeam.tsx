@@ -33,10 +33,16 @@ function Node({
 }
 
 /**
- * 出图链路光束：产品原图 → AI 出图 → 商品套图。
+ * 出图链路光束：产品原图 → AI 出图 → 产出（默认「商品套图」，复刻页可换标签）。
  * 把空画布的留白换成有品牌感的链路图；`active` 时光束沿路径流动、节点点亮。
  */
-export function PipelineBeam({ active = true }: { active?: boolean }) {
+export function PipelineBeam({
+  active = true,
+  resultLabel = '商品套图',
+}: {
+  active?: boolean
+  resultLabel?: string
+}) {
   const container = useRef<HTMLDivElement>(null)
   const from = useRef<HTMLDivElement>(null)
   const mid = useRef<HTMLDivElement>(null)
@@ -45,7 +51,7 @@ export function PipelineBeam({ active = true }: { active?: boolean }) {
     <div ref={container} className="relative flex items-center justify-center gap-20 py-4 sm:gap-28">
       <Node nodeRef={from} icon={<UploadIcon className="size-6" />} label="产品原图" active={active} />
       <Node nodeRef={mid} icon={<SparklesIcon className="size-6" />} label="AI 出图" active={active} />
-      <Node nodeRef={to} icon={<ImagesIcon className="size-6" />} label="商品套图" active={active} />
+      <Node nodeRef={to} icon={<ImagesIcon className="size-6" />} label={resultLabel} active={active} />
       <AnimatedBeam
         containerRef={container}
         fromRef={from}

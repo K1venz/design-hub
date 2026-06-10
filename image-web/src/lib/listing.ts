@@ -40,6 +40,24 @@ export function planTotal(plan: SetPlan): number {
 /** 工作台出图模式：单图（现行 verified n=1 流）/ 套图（plan 流）。默认套图（三方对裁决二）。 */
 export type WorkbenchMode = 'single' | 'set'
 
+// ── 爆款图复刻（需求 #2，PRD §3.13）────────────────────
+// 两档说明文案 = prompt #549 定稿版（与复刻档指令块行为逐条对应，末句预期管理必留）。
+export const CLONE_MODES = [
+  {
+    key: '参考风格',
+    desc: '学习参考图的整体风格、配色与构图思路，重新设计场景；你的产品原样出现、包装文字不变。',
+  },
+  {
+    key: '高度复刻',
+    desc: '按参考图的版式与构图复刻，把画面里的产品换成你的；你的产品包装与文字不会被改动，参考图上的产品和文案也不会出现在成品里。场景细节可能与参考图略有差异。',
+  },
+] as const
+export type CloneModeKey = (typeof CLONE_MODES)[number]['key']
+/** 默认档=参考风格（低风险档，coordinator #551 代拍）。 */
+export const DEFAULT_CLONE_MODE: CloneModeKey = '参考风格'
+export const CLONE_PRODUCT_MAX = 1
+export const CLONE_REFERENCE_MAX = 2
+
 /** A dropdown that maps into the generic `modifiers` bag. Add a dropdown = add here. */
 export interface ModifierField {
   key: string
@@ -131,6 +149,42 @@ export function buildSetListingBody(input: ListingSetGenerateInput): ListingGene
   if (input.plan.卖点 > 0 && input.overlayTexts.length > 0) {
     body.overlay_texts = input.overlayTexts
   }
+  return body
+}
+
+// ── 复刻请求（POST /listing/clone，三方对终稿契约）──────────
+// TODO(openapi)：dev /clone 契约落地后改为 schema 派生类型。
+export interface CloneGenerateInput {
+  productUploadIds: string[] // ==1
+  referenceUploadIds: string[] // 1..2
+  cloneMode: CloneModeKey
+  /** 统一复刻要求（选填，空=合法，组装跳过用户文本层）。 */
+  prompt: string
+  ratio: string
+  modifiers: Record<string, string>
+}
+
+export interface CloneGenerateBody {
+  product_upload_ids: string[]
+  reference_upload_ids: string[]
+  clone_mode: string
+  prompt?: string
+  ratio: string
+  modifiers: Record<string, string>
+  category: string
+}
+
+export function buildCloneBody(input: CloneGenerateInput): CloneGenerateBody {
+  const body: CloneGenerateBody = {
+    product_upload_ids: input.productUploadIds,
+    reference_upload_ids: input.referenceUploadIds,
+    clone_mode: input.cloneMode,
+    ratio: input.ratio,
+    modifiers: input.modifiers,
+    category: LISTING_CATEGORY,
+  }
+  const trimmed = input.prompt.trim()
+  if (trimmed) body.prompt = trimmed
   return body
 }
 

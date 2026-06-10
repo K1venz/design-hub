@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import {
-  LISTING_EVENT_TYPES, buildListingBody, buildSetListingBody, parseListingEvent,
-  type ListingEvent, type ListingGenerateInput, type ListingSetGenerateInput, type UploadedImage,
-  type ListingJobSummary, type ListingJobDetail,
+  LISTING_EVENT_TYPES, buildCloneBody, buildListingBody, buildSetListingBody, parseListingEvent,
+  type CloneGenerateInput, type ListingEvent, type ListingGenerateInput, type ListingSetGenerateInput,
+  type UploadedImage, type ListingJobSummary, type ListingJobDetail,
 } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -44,9 +44,9 @@ export function useUploadImage() {
   })
 }
 
-async function postGenerate(body: unknown): Promise<{ job_id: string }> {
+async function postJson(path: string, body: unknown): Promise<{ job_id: string }> {
   const token = useAuthStore.getState().token
-  const res = await fetch('/api/listing/generate', {
+  const res = await fetch(`/api${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -61,14 +61,21 @@ async function postGenerate(body: unknown): Promise<{ job_id: string }> {
 /** POST /listing/generate（单图流，n=1）-> { job_id }. fail-fast: non-2xx throws. */
 export function useListingGenerate() {
   return useMutation({
-    mutationFn: (input: ListingGenerateInput) => postGenerate(buildListingBody(input)),
+    mutationFn: (input: ListingGenerateInput) => postJson('/listing/generate', buildListingBody(input)),
   })
 }
 
 /** POST /listing/generate（套图流，plan + 可选 overlay_texts）-> { job_id }. */
 export function useListingSetGenerate() {
   return useMutation({
-    mutationFn: (input: ListingSetGenerateInput) => postGenerate(buildSetListingBody(input)),
+    mutationFn: (input: ListingSetGenerateInput) => postJson('/listing/generate', buildSetListingBody(input)),
+  })
+}
+
+/** POST /listing/clone（爆款复刻：双角色图 + 两档，n 固定 1）-> { job_id }. */
+export function useListingClone() {
+  return useMutation({
+    mutationFn: (input: CloneGenerateInput) => postJson('/listing/clone', buildCloneBody(input)),
   })
 }
 
