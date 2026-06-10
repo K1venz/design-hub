@@ -20,7 +20,8 @@ from PIL import Image
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/套图回归")
 U = (f"qa-taotu-r-{int(time.time())}@example.com", "qa-taotu-123", "QA套图真图")
-PEANUT = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
+# 原精修花生图目录已被移走（2026-06-10 发现）；改用 QA 已落盘的通用块回归产物作源（含完整产品袋，保真核基线=该袋）
+PEANUT = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
 LOZENGE = "/Users/Zhuanz/Downloads/6e746f45b2cb84cb5eedc38f4b0c7106.jpg"
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 PLAN = {"白底": 1, "场景": 1, "卖点": 1}
@@ -71,6 +72,15 @@ def check(label, ok, extra=""):  # noqa: ANN001
     return bool(ok)
 
 
+def cost_ok(d, k):  # noqa: ANN001
+    """provider 价无关：total_cost>0 且 == Σ成功张 cost 且成功张数=k（qa 占位 1.19/prod 0.40 都过）。"""
+    from decimal import Decimal
+    imgs = [i for i in d.get("images", []) if i.get("status") == "成功"]
+    tot = Decimal(str(d.get("total_cost", "0")))
+    s = sum((Decimal(str(i.get("cost", "0"))) for i in imgs), Decimal("0"))
+    return tot > 0 and tot == s and len(imgs) == k
+
+
 async def dl(url, fname):  # noqa: ANN001
     async with httpx.AsyncClient(trust_env=False, timeout=60.0) as d:
         r = await d.get(url)
@@ -110,7 +120,7 @@ async def main() -> None:
         tally(check("SSE image_generated ×3 各带 image_type", types == ["卖点", "场景", "白底"], f"got {types}"))
         tally(check("详情 images[].image_type 分布=1/1/1", dtypes == ["卖点", "场景", "白底"], f"got {dtypes}"))
         tally(check("无 image_failed", not any(e == "image_failed" for e, _ in evs)))
-        tally(check("cost=1.20（0.40×3 真口径）", str(d.get("total_cost")) in ("1.2", "1.20", "1.2000")))
+        tally(check("cost=Σ成功张 reconcile(>0)", cost_ok(d, 3), f"total={d.get('total_cost')}"))
         for i in imgs:
             t = i.get("image_type")
             await dl(i["url"], f"花生-{t}{'-有字' if t == '卖点' else ''}.png")
@@ -122,7 +132,7 @@ async def main() -> None:
         imgs = d.get("images", [])
         print(f"\n[② 润喉糖 plan 无字] job={job} {dt}s status={d.get('status')} cost={d.get('total_cost')}")
         tally(check("SSE 标签齐 3 型", types == ["卖点", "场景", "白底"], f"got {types}"))
-        tally(check("cost=1.20", str(d.get("total_cost")) in ("1.2", "1.20", "1.2000")))
+        tally(check("cost=Σ成功张 reconcile(>0)", cost_ok(d, 3), f"total={d.get('total_cost')}"))
         for i in imgs:
             t = i.get("image_type")
             await dl(i["url"], f"润喉糖-{t}{'-无字' if t == '卖点' else ''}.png")
@@ -133,7 +143,7 @@ async def main() -> None:
         print(f"\n[③ 花生 n=1 单图流] job={job} {dt}s status={d.get('status')} cost={d.get('total_cost')}")
         tally(check("完成且 1 张", d.get("status") == "完成" and len(imgs) == 1))
         tally(check("image_type 为空（单图流无图型）", imgs and imgs[0].get("image_type") in (None, "")))
-        tally(check("cost=0.40", str(d.get("total_cost")) in ("0.4", "0.40", "0.4000")))
+        tally(check("cost=单张 reconcile(>0)", cost_ok(d, 1), f"total={d.get('total_cost')}"))
         if imgs:
             await dl(imgs[0]["url"], "花生-n1单图流.png")
 
