@@ -58,7 +58,14 @@ rm -rf /opt/docker/design-hub-qa /data/docker/design-hub-qa /root/qa-handoff.txt
 docker rmi design-hub-qa-api:local
 ```
 
-## 三、prod 就绪度快照（只读核查）
+## 三、改价 SOP（ISSUE-0042：启动快照语义）
+
+`PUT /admin/models/<model>` 改 `unit_cost` 只写 DB 行——**运行中 api 的 provider 持有启动时的价格快照，
+改价后必须重启 api 容器才对出图计费生效**（`docker compose up -d --force-recreate --no-deps api`，
+qa 用 `docker restart design-hub-qa-api`）。验证：改后真出一张，核 `cost_ledger`/job `total_cost` = 新价。
+忘重启 = 出图按旧价计（资损面）。真热更挂 §7.D 积分制计费接入轮（PM 拍板）。
+
+## 四、prod 就绪度快照（只读核查）
 
 | 项 | 状态 |
 |---|---|
