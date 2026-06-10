@@ -25,6 +25,9 @@
 | [`category-cards/_schema.md`](./category-cards/_schema.md) | 品类卡写法(多品类扩展入口) |
 | [`category-cards/food/通用.md`](./category-cards/food/通用.md) | FOOD 默认卡(产品中性、MVP wired 源) |
 | [`category-cards/food/peanut.md`](./category-cards/food/peanut.md) | 花生产品卡(backlog、未挂、仅真做花生时套) |
+| [`image-type-cards/_schema.md`](./image-type-cards/_schema.md) | 图型卡写法(第四类卡,套图用,与品类卡正交) |
+| [`image-type-cards/`](./image-type-cards/) 白底/场景/卖点 | MVP 3 张图型卡(PRD §3.12.14,中文枚举 key) |
+| [`套图-图型卡体系草案.md`](./套图-图型卡体系草案.md) | 套图提示词层设计决策记录 |
 | [`style-cards/_schema.md`](./style-cards/_schema.md) | 风格卡写法 |
 | [`style-cards/fresh-natural.md`](./style-cards/fresh-natural.md) | 清新自然风格卡 |
 | [`examples/花生-端到端.md`](./examples/花生-端到端.md) | 端到端示例 + 现状代码对照 |
