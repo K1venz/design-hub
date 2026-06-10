@@ -35,6 +35,7 @@ RUNS = [
     ("润喉糖产品×花生模板·参考风格", LOZENGE, PEANUT, "参考风格"),
     ("润喉糖产品×花生模板·高度复刻", LOZENGE, PEANUT, "高度复刻"),
 ]
+RUNS = RUNS[int(os.environ.get("CLONE_START", "0")):]  # CLONE_START=2 只重跑反向 ③④
 
 
 def to_png(path: str) -> bytes:
@@ -79,15 +80,24 @@ async def main() -> None:
             t0 = time.perf_counter()
             job = (await c.post(EP, headers=H, json=bdy)).json()["job_id"]
             evs = []
-            async with c.stream("GET", f"/listing/{job}/events", params={"access_token": tok}) as s:
-                ev = None
-                async for line in s.aiter_lines():
-                    if line.startswith("event:"):
-                        ev = line.split(":", 1)[1].strip()
-                    elif line.startswith("data:") and ev:
-                        evs.append((ev, line.split(":", 1)[1].strip()))
-                        if ev in ("task_completed", "task_failed"):
-                            break
+            try:
+                async with c.stream("GET", f"/listing/{job}/events", params={"access_token": tok}) as s:
+                    ev = None
+                    async for line in s.aiter_lines():
+                        if line.startswith("event:"):
+                            ev = line.split(":", 1)[1].strip()
+                        elif line.startswith("data:") and ev:
+                            evs.append((ev, line.split(":", 1)[1].strip()))
+                            if ev in ("task_completed", "task_failed"):
+                                break
+            except httpx.RemoteProtocolError:
+                # SSE 连接 I/O 瞬时断连 → 降级轮询 job 状态（CLAUDE.md 允许 I/O 降级）
+                print(f"  [SSE 断连，降级轮询 job={job}]")
+                for _ in range(120):
+                    jd = (await c.get(f"/listing/jobs/{job}", headers=H)).json()
+                    if jd.get("status") in ("完成", "失败"):
+                        break
+                    await asyncio.sleep(3)
             dt = int(time.perf_counter() - t0)
             d = (await c.get(f"/listing/jobs/{job}", headers=H)).json()
             imgs = [i for i in d.get("images", []) if i.get("status") == "成功"]
