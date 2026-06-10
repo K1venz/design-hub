@@ -22,6 +22,23 @@ class ListingGenerateRequest(BaseModel):
     category: str = "FOOD"
 
 
+class CloneRequest(BaseModel):
+    """爆款图复刻入参（PRD §3.13，POST /listing/clone）。
+
+    双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序
+    「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。
+    边界仍走路由 fail-fast 统一 400（ISSUE-0024 口径）。
+    """
+
+    product_upload_ids: list[str]
+    reference_upload_ids: list[str]
+    clone_mode: str  # 参考风格 | 高度复刻（中文档位 key）
+    ratio: str
+    prompt: str = ""  # 统一复刻要求，选填（空=合法，模板+产品图已承载语义）
+    modifiers: dict[str, str] = Field(default_factory=dict)
+    category: str = "FOOD"
+
+
 class UploadResponse(BaseModel):
     """POST /uploads 响应：上传图 id + 预览代理 url（GET /uploads/{id}）。"""
 

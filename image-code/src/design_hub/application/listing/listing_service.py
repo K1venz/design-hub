@@ -6,8 +6,10 @@ from design_hub.application.cost.guard import CostGuard
 from design_hub.application.listing.prompt_composer import (
     IMAGE_TYPES,
     CategoryCardRegistry,
+    CloneModeRegistry,
     ImageTypeRegistry,
     PromptModifierRegistry,
+    compose_clone_prompt,
     compose_prompt,
 )
 from design_hub.application.listing.sizing import ratio_to_size
@@ -103,6 +105,7 @@ class ListingGenerationService:
     modifier_registry: PromptModifierRegistry
     card_registry: CategoryCardRegistry
     type_registry: ImageTypeRegistry
+    clone_registry: CloneModeRegistry
 
     async def generate(
         self,
@@ -170,4 +173,53 @@ class ListingGenerationService:
             images=tuple(generated),
             total_cost=total,
             failures=tuple(failures),
+        )
+
+    async def clone(
+        self,
+        *,
+        prompt: str,
+        modifiers: dict[str, str],
+        product_image: bytes,
+        reference_images: tuple[bytes, ...],
+        ratio: str,
+        user_id: str,
+        category: str,
+        clone_mode: str,
+    ) -> ListingResult:
+        """爆款复刻（PRD §3.13）：单张 edit、喂图保序「产品前·参考后」（角色指认契约）。
+
+        prompt 选填（空=合法，模板+产品图已承载语义）；档位/品类/下拉 fail-fast。
+        复用 guard 预扣→回正/回滚（单张成败二元，无部分失败语义）。
+        """
+        if not 1 <= len(reference_images) <= 2:
+            raise ValueError(f"爆款参考图需为 1..2 张，实际 {len(reference_images)}")
+        final_prompt = compose_clone_prompt(
+            prompt, modifiers, self.modifier_registry,
+            category=category, card_registry=self.card_registry,
+            clone_registry=self.clone_registry, clone_mode=clone_mode,
+        )
+        size = ratio_to_size(ratio)
+        provider = self.registry.get(ModelName.GPT_IMAGE_2)
+        estimate = provider.unit_cost  # 一次出 1 张
+        await self.guard.precheck_and_reserve(user_id, estimate)
+        try:
+            generated = await provider.generate(
+                prompt=final_prompt,
+                negative_prompt="",
+                reference_images=[product_image, *reference_images],  # 序=角色契约
+                size=size,
+                n=1,
+                seed=0,
+            )
+        except Exception:
+            await self.guard.rollback(user_id, estimate)
+            raise
+        total = sum((img.cost for img in generated), Decimal("0"))
+        await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        return ListingResult(
+            prompt=final_prompt,
+            used_model=ModelName.GPT_IMAGE_2,
+            images=tuple(generated),
+            total_cost=total,
         )

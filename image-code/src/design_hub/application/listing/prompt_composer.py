@@ -126,6 +126,68 @@ class ImageTypeRegistry:
         raise ValueError(f"未知图型：{image_type}（未在图型卡表登记）")
 
 
+# 复刻模式物化块（爆款复刻 PRD §3.13）：逐字对齐 image-prompt/clone-mode-cards/复刻.md
+# 的 ```text 块。两档纯静态零槽位（产品图==1 已锁，角色指认句依赖「产品前·参考后」保序契约）。
+_CLONE_REF_STYLE = (
+    "复刻·参考风格：本次有两类参考图——第 1 张为用户产品图，产品保真以它为准；"
+    "其余为爆款风格参考图，仅用于学习其整体风格调性、色彩氛围、光影感觉与构图思路，"
+    "按这种风格为该产品重新设计一个合适的场景。"
+    "风格参考图中的产品、品牌标识与所有文字一律不出现在画面中；"
+    "画面中的产品只能是用户产品图中的那个产品，其外形、包装与文字原样保留、不被风格参考图带偏。"
+)
+_CLONE_FULL = (
+    "复刻·高度复刻：本次有两类参考图——第 1 张为用户产品图，产品保真以它为准；"
+    "其余为爆款版式参考图，请照搬其视觉结构：布局、机位、景别、道具位置关系与画面节奏，"
+    "把版式参考图中产品所在的位置替换为用户产品图中的那个产品（占位、比例与视角对应），"
+    "场景细节允许略有差异。版式参考图中的原产品、品牌标识与营销文案一律不出现在画面中；"
+    "用户产品的外形、包装与文字 100% 原样保留、一字不改，绝不被版式参考图中的产品样式带偏。"
+    "若下方用户要求中明确给出图上文案，仅以引号内原文逐字呈现；否则画面中不出现任何营销文字。"
+)
+
+CLONE_MODES = ("参考风格", "高度复刻")  # 中文档位 key（同图型卡先例）
+
+
+@dataclass
+class CloneModeRegistry:
+    """复刻档位 → 物化块（PRD §3.13）。单一事实源=image-prompt 复刻卡；未知档位 fail-fast。"""
+
+    def block(self, clone_mode: str) -> str:
+        if clone_mode == "参考风格":
+            return _CLONE_REF_STYLE
+        if clone_mode == "高度复刻":
+            return _CLONE_FULL
+        raise ValueError(f"未知复刻档位：{clone_mode}（合法：{'/'.join(CLONE_MODES)}）")
+
+
+def compose_clone_prompt(
+    prompt: str,
+    modifiers: dict[str, str],
+    registry: PromptModifierRegistry,
+    *,
+    category: str,
+    card_registry: CategoryCardRegistry,
+    clone_registry: CloneModeRegistry,
+    clone_mode: str,
+) -> str:
+    """复刻 final prompt = 保真块 → 复刻档位块(含角色指认) → 用户统一要求(选填) → modifier 片段。
+
+    与 compose_prompt 的差异：用户文本**可为空**（模板图+产品图已承载语义，PRD §3.13 选填）；
+    不叠图型卡（模板已决定构图）。未知档位/品类/下拉值均 fail-fast。
+    """
+    fidelity = card_registry.card(category)
+    clone_block = clone_registry.block(clone_mode)
+    fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
+    base = prompt.strip()
+    parts = [fidelity, clone_block]
+    if base and fragments:
+        parts.append(base + "。" + "；".join(fragments))
+    elif base:
+        parts.append(base)
+    elif fragments:
+        parts.append("；".join(fragments))
+    return "\n".join(parts)
+
+
 def compose_prompt(
     prompt: str,
     modifiers: dict[str, str],
