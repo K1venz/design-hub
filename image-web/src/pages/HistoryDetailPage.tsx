@@ -38,6 +38,11 @@ export function HistoryDetailPage() {
                 {d.platform ? `${d.platform} · ${d.ratio}` : d.ratio}
               </h2>
               <JobStatusBadge status={d.status} />
+              {d.clone_mode && (
+                <span className="rounded-md border border-[#f3d9c4] bg-[#fdf3ea] px-2 py-0.5 text-[12px] font-medium text-[#b45309]">
+                  复刻 · {d.clone_mode}
+                </span>
+              )}
             </div>
             <p className="mb-3 whitespace-pre-wrap text-[14px] leading-relaxed text-[#2c2824]">{d.prompt}</p>
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-[#8a857e]">
@@ -92,20 +97,28 @@ export function HistoryDetailPage() {
 
           {d.input_urls.length > 0 && (
             <div>
-              <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">输入产品图</h3>
+              <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">
+                {d.clone_mode ? '输入图（产品 / 参考）' : '输入产品图'}
+              </h3>
               <div className="flex flex-wrap gap-3">
-                {d.input_urls.map((u, i) => (
-                  <img
-                    key={i}
-                    src={u}
-                    alt=""
-                    loading="lazy"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
-                    className="size-20 rounded-xl border border-[#ece8e2] object-cover"
-                  />
-                ))}
+                {d.input_urls.map((u, i) => {
+                  const role = d.input_roles?.[i]
+                  const roleLabel = role === 'product' ? '产品图' : role === 'reference' ? '参考图' : null
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-1">
+                      <img
+                        src={u}
+                        alt=""
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                        className="size-20 rounded-xl border border-[#ece8e2] object-cover"
+                      />
+                      {roleLabel && <span className="text-[11px] text-[#9b958c]">{roleLabel}</span>}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}

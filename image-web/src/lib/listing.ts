@@ -152,40 +152,30 @@ export function buildSetListingBody(input: ListingSetGenerateInput): ListingGene
   return body
 }
 
-// ── 复刻请求（POST /listing/clone，三方对终稿契约）──────────
-// TODO(openapi)：dev /clone 契约落地后改为 schema 派生类型。
+// ── 复刻请求（POST /listing/clone，schema 派生）──────────
 export interface CloneGenerateInput {
   productUploadIds: string[] // ==1
   referenceUploadIds: string[] // 1..2
   cloneMode: CloneModeKey
-  /** 统一复刻要求（选填，空=合法，组装跳过用户文本层）。 */
+  /** 统一复刻要求（选填，空=合法——不发字段，后端默认 ""，组装跳过用户文本层）。 */
   prompt: string
   ratio: string
   modifiers: Record<string, string>
 }
 
-export interface CloneGenerateBody {
-  product_upload_ids: string[]
-  reference_upload_ids: string[]
-  clone_mode: string
-  prompt?: string
-  ratio: string
-  modifiers: Record<string, string>
-  category: string
-}
+export type CloneGenerateBody = Schemas['CloneRequest']
 
 export function buildCloneBody(input: CloneGenerateInput): CloneGenerateBody {
-  const body: CloneGenerateBody = {
+  return {
     product_upload_ids: input.productUploadIds,
     reference_upload_ids: input.referenceUploadIds,
     clone_mode: input.cloneMode,
     ratio: input.ratio,
+    // 选填：空=发空串（后端默认 ""，strip 后跳过用户文本层；dev #564 两种形态等价）
+    prompt: input.prompt.trim(),
     modifiers: input.modifiers,
     category: LISTING_CATEGORY,
   }
-  const trimmed = input.prompt.trim()
-  if (trimmed) body.prompt = trimmed
-  return body
 }
 
 /** TaskEventType values emitted by backend (design_hub/domain/enums.py).

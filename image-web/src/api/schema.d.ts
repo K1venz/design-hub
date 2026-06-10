@@ -78,6 +78,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listing/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone Listing
+         * @description 爆款图复刻（PRD §3.13）：产品图==1 + 爆款参考图 1..2，两档复刻，异步返回 job_id。
+         */
+        post: operations["clone_listing_listing_clone_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/listing/jobs": {
         parameters: {
             query?: never;
@@ -301,6 +321,38 @@ export interface components {
             /** File */
             file: string;
         };
+        /**
+         * CloneRequest
+         * @description 爆款图复刻入参（PRD §3.13，POST /listing/clone）。
+         *
+         *     双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序
+         *     「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。
+         *     边界仍走路由 fail-fast 统一 400（ISSUE-0024 口径）。
+         */
+        CloneRequest: {
+            /** Product Upload Ids */
+            product_upload_ids: string[];
+            /** Reference Upload Ids */
+            reference_upload_ids: string[];
+            /** Clone Mode */
+            clone_mode: string;
+            /** Ratio */
+            ratio: string;
+            /**
+             * Prompt
+             * @default
+             */
+            prompt: string;
+            /** Modifiers */
+            modifiers?: {
+                [key: string]: string;
+            };
+            /**
+             * Category
+             * @default FOOD
+             */
+            category: string;
+        };
         /** CustomerCreate */
         CustomerCreate: {
             /** Name */
@@ -442,6 +494,13 @@ export interface components {
             images: components["schemas"]["ListingImageOut"][];
             /** Input Urls */
             input_urls: string[];
+            /** Clone Mode */
+            clone_mode?: string | null;
+            /**
+             * Input Roles
+             * @default []
+             */
+            input_roles: (string | null)[];
         };
         /** ListingJobSummaryOut */
         ListingJobSummaryOut: {
@@ -758,6 +817,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ListingGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clone_listing_listing_clone_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneRequest"];
             };
         };
         responses: {
