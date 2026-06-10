@@ -28,6 +28,8 @@
 | [`image-type-cards/_schema.md`](./image-type-cards/_schema.md) | 图型卡写法(第四类卡,套图用,与品类卡正交) |
 | [`image-type-cards/`](./image-type-cards/) 白底/场景/卖点 | MVP 3 张图型卡(PRD §3.12.14,中文枚举 key) |
 | [`套图-图型卡体系草案.md`](./套图-图型卡体系草案.md) | 套图提示词层设计决策记录 |
+| [`clone-mode-cards/复刻.md`](./clone-mode-cards/复刻.md) | 复刻模式卡(第五类卡,两档:参考风格/高度复刻) |
+| [`爆款复刻-两档指令草案.md`](./爆款复刻-两档指令草案.md) | 复刻提示词层设计决策记录 |
 | [`style-cards/_schema.md`](./style-cards/_schema.md) | 风格卡写法 |
 | [`style-cards/fresh-natural.md`](./style-cards/fresh-natural.md) | 清新自然风格卡 |
 | [`examples/花生-端到端.md`](./examples/花生-端到端.md) | 端到端示例 + 现状代码对照 |
