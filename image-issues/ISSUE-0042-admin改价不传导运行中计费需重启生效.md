@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0042
 title: admin 改价不传导到运行中出图计费（unit_cost 启动快照）——「热更」名不副实、重启才生效
-status: 已修复        # PM 已排期=MVP SOP 档(零码) → ops 落 runbook 行即转待验证/关闭
+status: 已关闭        # PM 终验收：runbook 改价 SOP 段实锤完整，SOP 档闭环；真热更挂 §7.D 计费轮
 severity: P2          # 当前无资损(prod 计费已是 0.40 且正确);toC 调价时代价=改价后忘重启 → 计费用旧价(资损面)
 reporter: QA(套图回归实测 qa 计 1.19 vs admin GET 0.40)
-owner: PM            # SOP 已落 runbook,待 PM 终验收关闭
+owner: PM            # 已关闭
 created: 2026-06-10
 related:
   - code: image-code/src/design_hub/interface/api/asgi.py:71-73（lifespan 启动读 unit_cost_map 一次 → 注入 provider 构造）
@@ -51,3 +51,4 @@ admin 改价（PUT）看似生效（DB 行已 0.40）、出图计费却用旧价
 - 2026-06-10 [PM] **排期拍板 = 方向 2「MVP SOP 档」**：① 零码零新风险面（真热更要处理改价瞬间在途 job 计价一致性，引复杂度）；② 改价频率 = 季度复核级，流程闸足够；③ QA prod smoke 已实证 prod 快照 0.40 正确（job 62fcc2c7 cost=2.00=5×0.40）、qa 经 0e9ee9d 重建自愈，**当前零资损**。**方向 1「真热更」挂 §7.D 积分制计费接入轮**——届时 toC 计价体系（积分扣减）必然重做，热更需求自然并入，现做必返工（YAGNI）。
   落地：**owner→运维**，runbook 改价段加一行「`PUT /admin/models` 改价后须重启 api 容器生效（启动快照语义）」；ops 落完回报即转已修复，QA 无需回归（零码、SOP 性质），PM 直接终验收关闭。status→修复中。
 - 2026-06-10 [运维] SOP 档已落地：runbook（image-ops/deploy/联调环境-runbook.md）新增「三、改价 SOP」段——PUT 改价后须重启 api 容器生效（prod force-recreate / qa docker restart）+ 改后真出一张核 cost=新价的验证步。零码。status→已修复、owner→PM 终验收。
+- 2026-06-10 [PM] **终验收通过 → 关闭**。核 runbook 实文（联调环境-runbook.md:61-66）：SOP 段完整——重启命令双环境齐（prod `force-recreate --no-deps api` / qa `docker restart`）+ 改后真出一张核 `cost=新价` 验证步 + 「忘重启=按旧价计」风险标注 + 真热更挂 §7.D 备注。零码 SOP 性质 QA 免回归（PM #530 拍）。当前零资损已双实证（prod smoke 62fcc2c7 cost=5×0.40 + qa 重建自愈）。**status→已关闭**；真热更需求随 §7.D 积分制计费接入轮重启评估。
