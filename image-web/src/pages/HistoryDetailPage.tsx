@@ -5,7 +5,9 @@ import { useListingJob } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { downloadImage } from '@/lib/download'
-import { fmtListingTime, fmtListingCost } from '@/lib/listing'
+import {
+  IMAGE_TYPE_FIELDS, fmtListingTime, fmtListingCost, type ListingJobImage,
+} from '@/lib/listing'
 
 export function HistoryDetailPage() {
   const { jobId } = useParams<{ jobId: string }>()
@@ -52,27 +54,41 @@ export function HistoryDetailPage() {
             )}
           </div>
 
-          {d.images.length > 0 && (
-            <div>
-              <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">候选图（{d.images.length}）</h3>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
-                {d.images.map((img, i) => (
-                  <div
-                    key={i}
-                    className="group relative aspect-square overflow-hidden rounded-2xl border border-[#ece8e2] bg-white"
-                  >
-                    <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
-                    <button
-                      onClick={() => downloadImage(img.url, `${d.platform ?? 'listing'}-${i + 1}.png`)}
-                      className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      <DownloadIcon className="mr-1 inline size-3.5" /> 下载
-                    </button>
-                  </div>
-                ))}
+          {d.images.length > 0 &&
+            (d.images.some((img) => img.image_type) ? (
+              // 套图：按图型分组段（顺序按 IMAGE_TYPE_FIELDS；无标签旧图兜底归「其他」）
+              <div className="space-y-5">
+                {[
+                  ...IMAGE_TYPE_FIELDS.map((f) => ({
+                    label: `${f.label}`,
+                    prefix: f.key,
+                    images: d.images.filter((img) => img.image_type === f.key),
+                  })),
+                  {
+                    label: '其他',
+                    prefix: 'listing',
+                    images: d.images.filter(
+                      (img) => !img.image_type || !IMAGE_TYPE_FIELDS.some((f) => f.key === img.image_type),
+                    ),
+                  },
+                ]
+                  .filter((g) => g.images.length > 0)
+                  .map((g) => (
+                    <div key={g.label}>
+                      <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">
+                        {g.label}
+                        <span className="ml-1.5 text-[12px] font-normal text-[#8a857e]">{g.images.length}</span>
+                      </h3>
+                      <ImageGrid images={g.images} namePrefix={g.prefix} />
+                    </div>
+                  ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div>
+                <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">候选图（{d.images.length}）</h3>
+                <ImageGrid images={d.images} namePrefix={d.platform ?? 'listing'} />
+              </div>
+            ))}
 
           {d.input_urls.length > 0 && (
             <div>
@@ -95,6 +111,27 @@ export function HistoryDetailPage() {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+function ImageGrid({ images, namePrefix }: { images: ListingJobImage[]; namePrefix: string }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
+      {images.map((img, i) => (
+        <div
+          key={i}
+          className="group relative aspect-square overflow-hidden rounded-2xl border border-[#ece8e2] bg-white"
+        >
+          <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
+          <button
+            onClick={() => downloadImage(img.url, `${namePrefix}-${i + 1}.png`)}
+            className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+          >
+            <DownloadIcon className="mr-1 inline size-3.5" /> 下载
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

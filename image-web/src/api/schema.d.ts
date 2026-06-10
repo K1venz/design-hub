@@ -69,7 +69,7 @@ export interface paths {
         put?: never;
         /**
          * Generate Listing
-         * @description listing 一键出图（两步流，ISSUE-0026）：入参经 upload_ids 引用已上传图，异步返回 job_id。
+         * @description listing 出图（单图 n / 套图 plan 互斥，PRD §3.12.14）：异步返回 job_id。
          */
         post: operations["generate_listing_listing_generate_post"];
         delete?: never;
@@ -377,7 +377,13 @@ export interface components {
             /** Ratio */
             ratio: string;
             /** N */
-            n: number;
+            n?: number | null;
+            /** Plan */
+            plan?: {
+                [key: string]: number;
+            } | null;
+            /** Overlay Texts */
+            overlay_texts?: string[] | null;
             /** Modifiers */
             modifiers?: {
                 [key: string]: string;
@@ -398,6 +404,8 @@ export interface components {
             cost: string;
             /** Status */
             status: string;
+            /** Image Type */
+            image_type?: string | null;
         };
         /** ListingJobDetailOut */
         ListingJobDetailOut: {

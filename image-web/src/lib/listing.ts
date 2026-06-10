@@ -109,8 +109,7 @@ export function buildListingBody(input: ListingGenerateInput): ListingGenerateBo
   }
 }
 
-// ── 套图请求（plan 流，三方对终稿契约）──────────────────
-// TODO(openapi)：dev 契约落地后改为 schema 派生类型（同 ListingGenerateBody）。
+// ── 套图请求（plan 流；与单图共用 ListingGenerateRequest，n/plan 互斥由后端 400 兜底）──
 export interface ListingSetGenerateInput {
   uploadIds: string[]
   prompt: string
@@ -120,19 +119,8 @@ export interface ListingSetGenerateInput {
   modifiers: Record<string, string>
 }
 
-export interface ListingSetGenerateBody {
-  upload_ids: string[]
-  prompt: string
-  ratio: string
-  plan: Record<string, number>
-  /** 仅卖点图 >0 时携带（前端剥离无效组合，后端 400 兜底）。 */
-  overlay_texts?: string[]
-  modifiers: Record<string, string>
-  category: string
-}
-
-export function buildSetListingBody(input: ListingSetGenerateInput): ListingSetGenerateBody {
-  const body: ListingSetGenerateBody = {
+export function buildSetListingBody(input: ListingSetGenerateInput): ListingGenerateBody {
+  const body: ListingGenerateBody = {
     upload_ids: input.uploadIds,
     prompt: input.prompt,
     ratio: input.ratio,
