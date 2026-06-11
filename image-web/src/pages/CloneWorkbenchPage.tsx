@@ -5,6 +5,7 @@ import { useListingClone, useListingEvents } from '@/api/listing'
 import { CloneConfigPanel, type CloneConfig } from '@/components/listing/CloneConfigPanel'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
+import { useEditEntries } from '@/components/listing/use-edit-entries'
 import { DEFAULT_CLONE_MODE, DEFAULT_LISTING_CONFIG, type UploadedImage } from '@/lib/listing'
 
 const DEFAULT_CLONE_CONFIG: CloneConfig = {
@@ -24,6 +25,7 @@ export function CloneWorkbenchPage() {
   const [slots, setSlots] = useState<ResultSlot[]>([])
   const [done, setDone] = useState(0)
   const clone = useListingClone()
+  const editEntries = useEditEntries(setSlots)
 
   useEffect(
     () =>
@@ -35,8 +37,9 @@ export function CloneWorkbenchPage() {
         setJobId(null)
         setSlots([])
         setDone(0)
+        editEntries.reset()
       }),
-    [],
+    [editEntries],
   )
 
   useListingEvents(jobId, (e) => {
@@ -61,11 +64,13 @@ export function CloneWorkbenchPage() {
       toast.error(`复刻失败：${e.error}`)
       setJobId(null)
     } else if (e.kind === 'completed') {
+      if (jobId) editEntries.markCompleted(jobId)
       setJobId(null)
     }
   })
 
   async function onGenerate() {
+    editEntries.reset()
     setSlots([{ url: null }])
     setDone(0)
     try {
@@ -107,6 +112,7 @@ export function CloneWorkbenchPage() {
         generating={generating}
         emptyHint="上传产品图与参考爆款图，点「开始复刻」"
         resultLabel="复刻成品"
+        editJobId={editEntries.completedJobId}
       />
     </>
   )

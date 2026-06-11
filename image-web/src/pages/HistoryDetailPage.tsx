@@ -1,12 +1,13 @@
-import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon, DownloadIcon } from 'lucide-react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
+import { ArrowLeftIcon, ArrowUpRightIcon, DownloadIcon, SquarePenIcon } from 'lucide-react'
 
 import { useListingJob } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { downloadImage } from '@/lib/download'
 import {
-  IMAGE_TYPE_FIELDS, fmtListingTime, fmtListingCost, type ListingJobImage,
+  IMAGE_SUCCESS_STATUS, IMAGE_TYPE_FIELDS, editModeLabel, fmtListingTime, fmtListingCost,
+  type ListingJobImage,
 } from '@/lib/listing'
 
 export function HistoryDetailPage() {
@@ -43,17 +44,58 @@ export function HistoryDetailPage() {
                   复刻 · {d.clone_mode}
                 </span>
               )}
+              {d.edit_mode && (
+                <span className="rounded-md border border-[#ddd5f5] bg-[#f4f1ff] px-2 py-0.5 text-[12px] font-medium text-[#4733b8]">
+                  ✎ {editModeLabel(d.edit_mode)}
+                </span>
+              )}
             </div>
             <p className="mb-3 whitespace-pre-wrap text-[14px] leading-relaxed text-[#2c2824]">{d.prompt}</p>
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-[#8a857e]">
               <span>尺寸 {d.size}</span>
               <span>张数 {d.n}</span>
               <span>成本 {fmtListingCost(d.total_cost)}</span>
+              {d.parent_job_id && d.chain_cost && (
+                // 链累计=根计源张单张 cost（R5）：这条线的账，不含根整单无关张
+                <span>迭代链累计 {fmtListingCost(d.chain_cost)}</span>
+              )}
               <span>{fmtListingTime(d.created_at)}</span>
               {Object.entries(d.modifiers).map(([k, v]) => (
                 <span key={k}>{v}</span>
               ))}
             </div>
+            {d.parent_job_id && (
+              <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#ece8e2] bg-[#faf8f5] p-2.5">
+                {d.source_image_url && (
+                  <img
+                    src={d.source_image_url}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                    className="size-14 rounded-[10px] border border-[#ece8e2] object-cover"
+                  />
+                )}
+                <div className="flex flex-col gap-1">
+                  <span className="text-[12.5px] text-[#5b554e]">
+                    改自这张
+                    {d.source_image_type && (
+                      <span className="ml-1.5 text-[11.5px] text-[#9b958c]">
+                        {IMAGE_TYPE_FIELDS.find((f) => f.key === d.source_image_type)?.label ??
+                          d.source_image_type}
+                      </span>
+                    )}
+                  </span>
+                  <Link
+                    to={`/history/${d.parent_job_id}`}
+                    className="flex w-fit items-center gap-0.5 text-[12px] text-[#4733b8] hover:underline"
+                  >
+                    查看来源任务 <ArrowUpRightIcon className="size-3.5" />
+                  </Link>
+                </div>
+              </div>
+            )}
             {d.error && (
               <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700">{d.error}</p>
             )}
@@ -84,14 +126,14 @@ export function HistoryDetailPage() {
                         {g.label}
                         <span className="ml-1.5 text-[12px] font-normal text-[#8a857e]">{g.images.length}</span>
                       </h3>
-                      <ImageGrid images={g.images} namePrefix={g.prefix} />
+                      <ImageGrid images={g.images} namePrefix={g.prefix} jobId={d.job_id} />
                     </div>
                   ))}
               </div>
             ) : (
               <div>
                 <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">候选图（{d.images.length}）</h3>
-                <ImageGrid images={d.images} namePrefix={d.platform ?? 'listing'} />
+                <ImageGrid images={d.images} namePrefix={d.platform ?? 'listing'} jobId={d.job_id} />
               </div>
             ))}
 
@@ -128,7 +170,9 @@ export function HistoryDetailPage() {
   )
 }
 
-function ImageGrid({ images, namePrefix }: { images: ListingJobImage[]; namePrefix: string }) {
+function ImageGrid({
+  images, namePrefix, jobId,
+}: { images: ListingJobImage[]; namePrefix: string; jobId: string }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
       {images.map((img, i) => (
@@ -137,6 +181,15 @@ function ImageGrid({ images, namePrefix }: { images: ListingJobImage[]; namePref
           className="group relative aspect-square overflow-hidden rounded-2xl border border-[#ece8e2] bg-white"
         >
           <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
+          {img.status === IMAGE_SUCCESS_STATUS && (
+            // 仅成功张可作编辑源（失败张无入口 + 后端 404 双层，Q-δ）
+            <Link
+              to={`/edit/${jobId}/${img.image_key}`}
+              className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              <SquarePenIcon className="mr-1 inline size-3.5" /> 基于此图再编辑
+            </Link>
+          )}
           <button
             onClick={() => downloadImage(img.url, `${namePrefix}-${i + 1}.png`)}
             className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"

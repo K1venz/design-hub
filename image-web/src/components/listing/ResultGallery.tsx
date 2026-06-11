@@ -1,5 +1,6 @@
-import { DownloadIcon, XIcon } from 'lucide-react'
+import { DownloadIcon, SquarePenIcon, XIcon } from 'lucide-react'
 import { motion } from 'motion/react'
+import { Link } from 'react-router-dom'
 
 import { PipelineBeam } from '@/components/listing/PipelineBeam'
 import { downloadImage } from '@/lib/download'
@@ -11,6 +12,8 @@ export interface ResultSlot {
   imageType?: string
   /** 该张失败原因（image_failed 事件）；有值即失败槽。 */
   error?: string
+  /** 完成态补拉后回填的稳定 handle（ISSUE-0040）——有值即可挂「基于此图再编辑」。 */
+  imageKey?: string
 }
 
 interface ResultGalleryProps {
@@ -22,12 +25,14 @@ interface ResultGalleryProps {
   /** 空态提示与链路末节点标签（复刻页传自己的文案）。 */
   emptyHint?: string
   resultLabel?: string
+  /** 已完成 job id：与 slot.imageKey 一起构成结果区编辑入口 /edit/:jobId/:imageKey。 */
+  editJobId?: string
 }
 
 export function ResultGallery({
   title, slots, done, total, generating,
   emptyHint = '上传产品图、写下卖点，点「开始出图」',
-  resultLabel,
+  resultLabel, editJobId,
 }: ResultGalleryProps) {
   const ready = slots.filter((s) => s.url)
   // 套图流：任一槽带图型 → 按图型分组段渲染（顺序按 IMAGE_TYPE_FIELDS）。
@@ -88,19 +93,21 @@ export function ResultGallery({
                     {gFailed > 0 && <span className="ml-1 text-[#c2410c]">（{gFailed} 失败）</span>}
                   </span>
                 </h3>
-                <SlotGrid slots={g.slots} namePrefix={g.field.key} />
+                <SlotGrid slots={g.slots} namePrefix={g.field.key} editJobId={editJobId} />
               </section>
             )
           })}
         </div>
       ) : (
-        <SlotGrid slots={slots} namePrefix="listing" />
+        <SlotGrid slots={slots} namePrefix="listing" editJobId={editJobId} />
       )}
     </div>
   )
 }
 
-function SlotGrid({ slots, namePrefix }: { slots: ResultSlot[]; namePrefix: string }) {
+function SlotGrid({
+  slots, namePrefix, editJobId,
+}: { slots: ResultSlot[]; namePrefix: string; editJobId?: string }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
       {slots.map((s, i) =>
@@ -112,6 +119,14 @@ function SlotGrid({ slots, namePrefix }: { slots: ResultSlot[]; namePrefix: stri
             className="group relative aspect-square overflow-hidden rounded-2xl border border-[#ece8e2] bg-white"
           >
             <img src={s.url} alt="" className="size-full object-cover" />
+            {editJobId && s.imageKey && (
+              <Link
+                to={`/edit/${editJobId}/${s.imageKey}`}
+                className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <SquarePenIcon className="mr-1 inline size-3.5" /> 基于此图再编辑
+              </Link>
+            )}
             <button
               onClick={() => void downloadImage(s.url!, `${namePrefix}-${i + 1}.png`)}
               className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
