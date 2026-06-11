@@ -61,9 +61,6 @@ async def main() -> None:
     if not BASE:
         raise SystemExit("✋ QA_BASE 未设置。")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=900.0) as c:
-        op = await c.get("/openapi.json")
-        if EP not in op.text:
-            raise SystemExit(f"⏳ {EP} 尚未上线（dev 未 wiring / ops 未重建 qa）——待落地后跑。")
         OUT.mkdir(exist_ok=True)
         print(f"== 爆款复刻真出图回归 (d8e74bb) == BASE={BASE}（4 单 ¥1.60）")
         r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
@@ -71,6 +68,9 @@ async def main() -> None:
             r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
         tok = r.json()["jwt"]
         H = {"Authorization": f"Bearer {tok}"}
+        # 端点探测不走 /openapi.json（docs 默认关后 404，dev #612）：空 body POST → 路由缺=404
+        if (await c.post(EP, headers=H, json={})).status_code == 404:
+            raise SystemExit(f"⏳ {EP} 尚未上线（ops 未重建 qa 含 d8e74bb？）")
         npass, ntotal = 0, 0
         for label, prod, ref, mode in RUNS:
             pid = await upload(c, H, prod)
