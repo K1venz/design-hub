@@ -29,6 +29,8 @@
 | [`image-type-cards/`](./image-type-cards/) 白底/场景/卖点 | MVP 3 张图型卡(PRD §3.12.14,中文枚举 key) |
 | [`套图-图型卡体系草案.md`](./套图-图型卡体系草案.md) | 套图提示词层设计决策记录 |
 | [`clone-mode-cards/复刻.md`](./clone-mode-cards/复刻.md) | 复刻模式卡(第五类卡,两档:参考风格/高度复刻) |
+| [`edit-mode-cards/编辑.md`](./edit-mode-cards/编辑.md) | 编辑模式卡(第六类卡,两档:delta 微调/full 重做) |
+| [`二次编辑-编辑模式草案.md`](./二次编辑-编辑模式草案.md) | 二次编辑提示词层设计决策记录 |
 | [`爆款复刻-两档指令草案.md`](./爆款复刻-两档指令草案.md) | 复刻提示词层设计决策记录 |
 | [`style-cards/_schema.md`](./style-cards/_schema.md) | 风格卡写法 |
 | [`style-cards/fresh-natural.md`](./style-cards/fresh-natural.md) | 清新自然风格卡 |
