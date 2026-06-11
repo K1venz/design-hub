@@ -7,9 +7,11 @@ from design_hub.application.listing.prompt_composer import (
     IMAGE_TYPES,
     CategoryCardRegistry,
     CloneModeRegistry,
+    EditModeRegistry,
     ImageTypeRegistry,
     PromptModifierRegistry,
     compose_clone_prompt,
+    compose_edit_prompt,
     compose_prompt,
 )
 from design_hub.application.listing.sizing import ratio_to_size
@@ -106,6 +108,7 @@ class ListingGenerationService:
     card_registry: CategoryCardRegistry
     type_registry: ImageTypeRegistry
     clone_registry: CloneModeRegistry
+    edit_registry: EditModeRegistry
 
     async def generate(
         self,
@@ -208,6 +211,54 @@ class ListingGenerationService:
                 prompt=final_prompt,
                 negative_prompt="",
                 reference_images=[product_image, *reference_images],  # 序=角色契约
+                size=size,
+                n=1,
+                seed=0,
+            )
+        except Exception:
+            await self.guard.rollback(user_id, estimate)
+            raise
+        total = sum((img.cost for img in generated), Decimal("0"))
+        await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        return ListingResult(
+            prompt=final_prompt,
+            used_model=ModelName.GPT_IMAGE_2,
+            images=tuple(generated),
+            total_cost=total,
+        )
+
+    async def edit(
+        self,
+        *,
+        prompt: str,
+        modifiers: dict[str, str],
+        source_image: bytes,
+        anchor_images: tuple[bytes, ...],
+        ratio: str,
+        user_id: str,
+        edit_mode: str,
+    ) -> ListingResult:
+        """二次编辑（PRD §3.12.13/ISSUE-0040）：单张 edit、喂序「源图第 1·链根锚其后」。
+
+        锚=迭代链根原始产品图 1..3 张（D2 命门：每轮从零失真事实源锚，漂移不随轮数
+        叠加，绝不取上一轮产出）。指令必填（E-⑤）；modifiers=叠新后的 effective。
+        复用 guard 预扣→回正/回滚（单张成败二元，同 clone）。
+        """
+        if not 1 <= len(anchor_images) <= 3:
+            raise ValueError(f"链根产品锚需为 1..3 张，实际 {len(anchor_images)}")
+        final_prompt = compose_edit_prompt(
+            prompt, modifiers, self.modifier_registry,
+            edit_registry=self.edit_registry, edit_mode=edit_mode,
+        )
+        size = ratio_to_size(ratio)
+        provider = self.registry.get(ModelName.GPT_IMAGE_2)
+        estimate = provider.unit_cost  # 一次出 1 张（Q-ε）
+        await self.guard.precheck_and_reserve(user_id, estimate)
+        try:
+            generated = await provider.generate(
+                prompt=final_prompt,
+                negative_prompt="",
+                reference_images=[source_image, *anchor_images],  # 序=角色契约（源图第 1）
                 size=size,
                 n=1,
                 seed=0,

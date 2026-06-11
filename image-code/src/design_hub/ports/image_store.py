@@ -2,11 +2,17 @@ from abc import ABC, abstractmethod
 
 
 class ImageStore(ABC):
-    """图像落点端口（DIP）：把字节写到某处并返回可访问 url。
+    """出图落点端口（DIP）：写入出图字节返回可访问 url；按 key 读回字节。
 
-    本地实现写磁盘返回 file://；生产实现上传 OSS 返回 https://，按 LSP 替换。
+    本地实现写 generated/ 目录返回 /img url；生产实现走 TOS generate 桶返回
+    预签名 https://，按 LSP 替换。load 供二次编辑读源图（ISSUE-0040）。
     """
 
     @abstractmethod
     async def save(self, data: bytes, *, suffix: str = ".png") -> str:
+        ...
+
+    @abstractmethod
+    async def load(self, image_key: str) -> bytes:
+        """按 image_key 读回出图字节；不存在 → NotFoundError（404 anti-enum 口径）。"""
         ...

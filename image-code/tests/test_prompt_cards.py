@@ -51,6 +51,12 @@ def test_clone_blocks_match_card() -> None:
     assert pc._CLONE_FULL == blocks[1]
 
 
+def test_edit_blocks_match_card() -> None:
+    blocks = _blocks("edit-mode-cards/编辑.md")
+    assert pc._EDIT_DELTA == blocks[0]
+    assert pc._EDIT_FULL == blocks[1]
+
+
 def test_selling_overlay_fill_format() -> None:
     """模板槽填充按卡内格式：全角引号包裹、顿号分隔。"""
     out = pc.ImageTypeRegistry().block("卖点", ("高山七彩花生", "原生态种植"))

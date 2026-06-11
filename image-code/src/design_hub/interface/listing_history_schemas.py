@@ -17,6 +17,7 @@ class ListingJobSummaryOut(BaseModel):
     created_at: datetime
     first_image_url: str | None
     image_count: int
+    edit_mode: str | None = None  # delta|full；None=原生单（列表 ✎ 徽标，ISSUE-0040）
 
     @classmethod
     def of(cls, s: ListingJobSummary, signer: MediaUrlSigner) -> "ListingJobSummaryOut":
@@ -32,11 +33,14 @@ class ListingJobSummaryOut(BaseModel):
                 signer.generated_url(s.first_image_key) if s.first_image_key else None
             ),
             image_count=s.image_count,
+            edit_mode=s.edit_mode,
         )
 
 
 class ListingImageOut(BaseModel):
     url: str
+    # 可寻址 handle（ISSUE-0040 E-δ：二次编辑唯一身份源；SSE 不下发、读模型独有）
+    image_key: str
     seed: int
     cost: Decimal
     status: str
@@ -60,6 +64,12 @@ class ListingJobDetailOut(BaseModel):
     input_urls: list[str]
     clone_mode: str | None = None  # 参考风格|高度复刻；None=非复刻（历史「复刻」徽标）
     input_roles: list[str | None] = []  # product|reference，与 input_urls 同序；None=旧数据
+    # 二次编辑（ISSUE-0040）：迭代链回显（None=非编辑单）
+    parent_job_id: str | None = None
+    edit_mode: str | None = None  # delta|full（详情「✎ 微调/重做」徽标 + 回溯链接）
+    source_image_url: str | None = None  # 「改自这张」只读回显（签名 url）
+    source_image_type: str | None = None  # 「改自·场景图」徽标
+    chain_cost: Decimal | None = None  # 迭代链累计（R5：根计源张单张 cost + 路径编辑单）
 
     @classmethod
     def of(cls, d: ListingJobDetail, signer: MediaUrlSigner) -> "ListingJobDetailOut":
@@ -79,6 +89,7 @@ class ListingJobDetailOut(BaseModel):
             images=[
                 ListingImageOut(
                     url=signer.generated_url(im.image_key),
+                    image_key=im.image_key,
                     seed=im.seed,
                     cost=im.cost,
                     status=im.status,
@@ -89,4 +100,11 @@ class ListingJobDetailOut(BaseModel):
             input_urls=[signer.upload_url(k) for k in d.input_keys],
             clone_mode=d.clone_mode,
             input_roles=list(d.input_roles) or [None] * len(d.input_keys),
+            parent_job_id=d.parent_job_id,
+            edit_mode=d.edit_mode,
+            source_image_url=(
+                signer.generated_url(d.source_image_key) if d.source_image_key else None
+            ),
+            source_image_type=d.source_image_type,
+            chain_cost=d.chain_cost,
         )

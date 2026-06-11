@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 class ListingGenerateRequest(BaseModel):
@@ -37,6 +39,27 @@ class CloneRequest(BaseModel):
     prompt: str = ""  # 统一复刻要求，选填（空=合法，模板+产品图已承载语义）
     modifiers: dict[str, str] = Field(default_factory=dict)
     category: str = "FOOD"
+
+
+class EditRequest(BaseModel):
+    """二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。
+
+    生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。
+    不收 category（R2：编辑组装无品类块、库无列，死参数不收）。
+    prompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；
+    edit_mode/ratio 仍走路由 fail-fast 400（域值校验，单一事实源在卡/映射表）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_image_key: str  # 唯一不透明 handle（listing 产出图 image_key；E-δ 案3）
+    # 编辑指令（两档必填）：先 strip 再验长 → ""/"  " 都 422
+    prompt: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    edit_mode: str = "delta"  # delta|full（默认微调，PM A.1；registry fail-fast→400）
+    # 本轮叠加语境（R3 叠新）：effective = 父 modifiers | 本轮；落库与组装同用 effective
+    modifiers: dict[str, str] = Field(default_factory=dict)
+    # delta：必须缺省（继承父，显式传→400 矛盾输入）；full：None=继承父、显式=覆盖
+    ratio: str | None = None
 
 
 class UploadResponse(BaseModel):

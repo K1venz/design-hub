@@ -5,12 +5,19 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from design_hub.application.listing.commands import CloneCommand, ListingGenerationCommand
+from design_hub.application.listing.commands import (
+    CloneCommand,
+    EditCommand,
+    ListingGenerationCommand,
+)
 from design_hub.application.listing.listing_service import (
     ListingGenerationService,
     build_listing_prompts,
 )
-from design_hub.application.listing.prompt_composer import compose_clone_prompt
+from design_hub.application.listing.prompt_composer import (
+    compose_clone_prompt,
+    compose_edit_prompt,
+)
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.errors import NotFoundError
@@ -21,8 +28,13 @@ from design_hub.interface.listing_history_schemas import (
     ListingJobDetailOut,
     ListingJobSummaryOut,
 )
-from design_hub.interface.listing_schemas import CloneRequest, ListingGenerateRequest
+from design_hub.interface.listing_schemas import (
+    CloneRequest,
+    EditRequest,
+    ListingGenerateRequest,
+)
 from design_hub.ports.events import EventPublisher, EventStream
+from design_hub.ports.image_store import ImageStore
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.listing_query import ListingHistoryQuery
 from design_hub.ports.media_url_signer import MediaUrlSigner
@@ -134,6 +146,69 @@ async def clone_listing(
         ratio=req.ratio,
         category=req.category,
         clone_mode=req.clone_mode,
+    )
+    throttled = ThrottledCommand(inner=command, limiter=limiter, user_id=user.user_id)
+    await queue.enqueue(job_id=job_id, command=throttled)
+    return {"job_id": job_id}
+
+
+@router.post("/edit")
+async def edit_listing(
+    req: EditRequest,
+    request: Request,
+    user: CurrentUserDep,
+) -> dict[str, str]:
+    """二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。
+
+    源图=唯一不透明 handle（source_image_key），owner/parent 链全部服务端反解；
+    喂图=[源图, 链根产品锚 1..3]（D2：每轮锚链根原图，漂移不随轮数叠加）。
+    """
+    service: ListingGenerationService = request.app.state.listing_service
+    # 边界 fail-fast（ISSUE-0024 口径）：入队前同步校验完所有输入，任一非法 → 4xx，不入队。
+    service.edit_registry.block(req.edit_mode)  # 未知档位 → 400（单一事实源在卡 registry）
+    if req.edit_mode == "delta" and req.ratio is not None:
+        raise ValueError("delta（微调）继承原图比例，不接受 ratio（改比例请用 full 重做）")
+    # 反解源图（E-δ）：本人∧成功∧最新行 → 父上下文 + 链根产品锚；任一环不满足 → 404 防枚举
+    query: ListingHistoryQuery = request.app.state.listing_query
+    source = await query.resolve_edit_source(
+        source_image_key=req.source_image_key, user_id=user.user_id
+    )
+    if source is None:
+        raise NotFoundError(f"源图不存在或无权访问：{req.source_image_key}")
+    ratio = req.ratio if req.ratio is not None else source.parent_ratio  # full 显式可覆盖
+    ratio_to_size(ratio)
+    # modifiers 叠新（R3）：父语境为底、本轮覆盖；组装与落库同用 effective（每单自包含）。
+    # 继承值同样过 registry：父历史值若已被收窄下架 → 400 如实报错，不静默剔除。
+    effective = {**source.parent_modifiers, **req.modifiers}
+    compose_edit_prompt(
+        req.prompt, effective, service.modifier_registry,
+        edit_registry=service.edit_registry, edit_mode=req.edit_mode,
+    )
+    # 载图：源图读 generate 桶（ImageStore.load）；链根锚读 uploads 桶（keys 来自 DB 可信）
+    store: ImageStore = request.app.state.image_store
+    source_image = await store.load(req.source_image_key)
+    uploads: UploadService = request.app.state.upload_service
+    anchors = tuple([(await uploads.load(k))[0] for k in source.root_product_upload_keys])
+    limiter: UserRateLimiter = request.app.state.rate_limiter
+    limiter.acquire(user.user_id)  # 频控（A-4）：计费动作统一闸，超限 429
+    events: EventPublisher = request.app.state.event_stream
+    history: ListingHistory = request.app.state.listing_history
+    queue: TaskQueue = request.app.state.task_queue
+    job_id = uuid.uuid4().hex
+    command = EditCommand(
+        service=service,
+        events=events,
+        history=history,
+        user_id=user.user_id,
+        prompt=req.prompt,
+        modifiers=effective,
+        source_image=source_image,
+        anchor_images=anchors,
+        anchor_keys=source.root_product_upload_keys,
+        parent_job_id=source.parent_job_id,
+        source_image_key=req.source_image_key,
+        ratio=ratio,
+        edit_mode=req.edit_mode,
     )
     throttled = ThrottledCommand(inner=command, limiter=limiter, user_id=user.user_id)
     await queue.enqueue(job_id=job_id, command=throttled)

@@ -121,6 +121,104 @@ class ListingGenerationCommand(GenerationCommand):
 
 
 @dataclass
+class EditCommand(GenerationCommand):
+    """二次编辑异步命令（PRD §3.12.13/ISSUE-0040）：service.edit 出 1 张 → 事件 → 持久化迭代链。
+
+    modifiers=路由已叠新的 effective（R3：落库与组装同值，每单自包含）；
+    upload_keys=链根产品锚（role=product），源图经 source_image_key 列回显。
+    """
+
+    service: ListingGenerationService
+    events: EventPublisher
+    history: ListingHistory
+    user_id: str
+    prompt: str
+    modifiers: dict[str, str]
+    source_image: bytes
+    anchor_images: tuple[bytes, ...]  # 链根原始产品图（与 anchor_keys 同序）
+    anchor_keys: tuple[str, ...]
+    parent_job_id: str
+    source_image_key: str
+    ratio: str
+    edit_mode: str  # delta | full
+
+    def _outcome(
+        self,
+        job_id: str,
+        size: str,
+        status: str,
+        total_cost: Decimal,
+        error: str | None,
+        images: tuple[ListingJobImage, ...],
+    ) -> ListingJobOutcome:
+        return ListingJobOutcome(
+            job_id=job_id,
+            user_id=self.user_id,
+            prompt=self.prompt,
+            modifiers=self.modifiers,
+            ratio=self.ratio,
+            size=size,
+            n=1,
+            status=status,
+            total_cost=total_cost,
+            error=error,
+            images=images,
+            upload_keys=self.anchor_keys,
+            input_roles=("product",) * len(self.anchor_keys),
+            parent_job_id=self.parent_job_id,
+            source_image_key=self.source_image_key,
+            edit_mode=self.edit_mode,
+        )
+
+    async def run(self, job_id: str) -> None:
+        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
+        size = "{}x{}".format(*ratio_to_size(self.ratio))
+        try:
+            result = await self.service.edit(
+                prompt=self.prompt,
+                modifiers=self.modifiers,
+                source_image=self.source_image,
+                anchor_images=self.anchor_images,
+                ratio=self.ratio,
+                user_id=self.user_id,
+                edit_mode=self.edit_mode,
+            )
+        except Exception as exc:
+            await self.events.publish(
+                TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})
+            )
+            await self.history.record(
+                self._outcome(job_id, size, "失败", Decimal("0"), str(exc), ())
+            )
+            raise
+        await self.events.publish(
+            TaskEvent(job_id, TaskEventType.MODEL_CALLED, {"model": result.used_model.value})
+        )
+        for image in result.images:
+            await self.events.publish(
+                TaskEvent(
+                    job_id,
+                    TaskEventType.IMAGE_GENERATED,
+                    {"url": image.url, "seed": image.seed, "image_type": None},
+                )
+            )
+        images = tuple(
+            ListingJobImage(
+                image_key=image_key_from_url(im.url), seed=im.seed, cost=im.cost, status="成功"
+            )
+            for im in result.images
+        )
+        await self.history.record(
+            self._outcome(job_id, size, "完成", result.total_cost, None, images)
+        )
+        await self.events.publish(
+            TaskEvent(
+                job_id, TaskEventType.TASK_COMPLETED, {"total_cost": str(result.total_cost)}
+            )
+        )
+
+
+@dataclass
 class CloneCommand(GenerationCommand):
     """爆款复刻异步命令（PRD §3.13）：service.clone 出 1 张 → 事件 → 持久化（含档位+双角色）。"""
 

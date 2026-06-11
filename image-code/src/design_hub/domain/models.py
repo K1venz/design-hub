@@ -119,6 +119,12 @@ class ListingJobOutcome:
     # （product|reference，与 upload_keys 同序对齐；空=旧行为全 None）
     clone_mode: str | None = None
     input_roles: tuple[str, ...] = ()
+    # 二次编辑（PRD §3.12.13/ISSUE-0040）：迭代链（None=非编辑单）。源图经
+    # source_image_key 回显（在 generate 桶、不进 upload_keys）；编辑单的
+    # upload_keys=链根产品锚（role=product）。
+    parent_job_id: str | None = None
+    source_image_key: str | None = None
+    edit_mode: str | None = None  # delta|full
 
 
 @dataclass(frozen=True)
