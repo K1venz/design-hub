@@ -125,9 +125,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_production_app() -> FastAPI:
-    app = FastAPI(title="设计中台 · 图生图引擎(async)", version="0.1.0", lifespan=_lifespan)
+    settings = Settings()
+    app = FastAPI(
+        title="设计中台 · 图生图引擎(async)",
+        version="0.1.0",
+        lifespan=_lifespan,
+        # A-2 纵深：默认/未配 DOCS_ENABLED → 从源头摘除文档三路由（prod 不靠 nginx 也闭）。
+        # 前端 codegen 用入库 openapi.json（app.openapi() 离线再生），不受影响。
+        docs_url="/docs" if settings.docs_enabled else None,
+        redoc_url="/redoc" if settings.docs_enabled else None,
+        openapi_url="/openapi.json" if settings.docs_enabled else None,
+    )
     # 监控（ISSUE-0008）：Sentry 异常接入 + HTTP 指标采集 + 暴露 GET /metrics（不挂鉴权，供裸抓）
-    init_sentry(Settings().sentry_dsn)
+    # /metrics 不做 app 层开关：内网抓取直连容器 8000，公网由 nginx 两族 404 收口。
+    init_sentry(settings.sentry_dsn)
     instrument_app(app)
     # WP-G 角色矩阵：在 include 级统一挂依赖；/auth 公开
     login_required = [Depends(get_current_user)]  # 登录即可：设计师 + 管理者

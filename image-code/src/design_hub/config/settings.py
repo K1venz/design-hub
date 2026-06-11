@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     seed_admin_password: SecretStr = SecretStr("")
     # 监控（ISSUE-0008）：Sentry DSN，空则不接入（本地/CI no-op）
     sentry_dsn: str = ""
+    # 安全加固 A-2 纵深：/docs /redoc /openapi.json 路由开关。代码默认关：
+    # prod 不配即闭、忘配=安全。qa/本地要浏览文档在各自 gitignored .env 设
+    # DOCS_ENABLED=true；勿写进 .env.development（会随镜像带上 prod）。
+    docs_enabled: bool = False
 
     # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储
     tos_access_key: SecretStr = SecretStr("")
