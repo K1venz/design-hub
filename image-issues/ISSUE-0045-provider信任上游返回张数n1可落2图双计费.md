@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0045
 title: provider 信任上游返回张数：n=1 可落 2 图并双计费（资损向）
-status: 待验证
+status: 已修复        # QA 验证全绿（SQL 取证坐实 + 修复版 n=1 探针 3/3 + edit_boundary 12/12 无回归）→ 待随 0040 部署 prod 后 coordinator/PM 终关
 severity: P1
 reporter: 开发        # 现象由 frontend-b 在 UI 自测中发现（#675），dev 代码定根因
-owner: QA
+owner: coordinator    # QA 验证完毕、球交 coordinator（修随 0040 一把上 prod、部署后终关）
 created: 2026-06-11
 updated: 2026-06-11
 related:
@@ -56,3 +56,8 @@ actual=0.80)` 向上调账，把上游违约放大成用户侧资损。
 - 2026-06-11 [frontend-b] UI 自测发现 n=1 双图双计费（#675），怀疑 provider 重试或任务重执行
 - 2026-06-11 [QA] 当真，给出 retry 非幂等 lead，承诺 edit_real 顺手盯 + n=1 探针（#676）
 - 2026-06-11 [开发] 代码定根因：_parse 无 n 契约核；证伪 retry/重执行两条 lead；修复+回归测试入库；状态→待验证，owner=QA
+- 2026-06-11 [QA] **验证全绿、收 ISSUE-0045**（QA retry lead 被 dev 代码证伪、采信）：
+  ① **SQL 取证坐实**（ops 代跑 #685，QA 无 dh_qa_ro 凭证）：job 830acc08 = 恰 **2 行 seed 0/1**（dev 预测一字不差）、**image_key 不同**（5cc03730 / 4cb68932）= 中转站对 n=1 **真返 2 张不同图**（非同图双计），job total_cost=0.80——单响应 data[] 含 2 项实锤。
+  ② **修复版（284ce82）验证**（qa 重建捎修、ops #685）：edit_boundary 复验 **12/12**（资损修不破二次编辑契约）+ **n=1 资损探针 3/3**（`n1_anomaly_probe.py`，3 个 n=1 gen 全 status=完成/成功图=1/cost=0.40，**NEVER 2 图 + 计费=图数**、修后正常 n=1 不回归）。
+  ③ **违约分支**（len≠n→ProviderError 整单失败不落图不计费）：中转站偶发不可控、E2E 不可强制触发，由 dev `test_provider_contract.py` 2 例单测（门禁 48 绿）覆盖。
+  → **修复有效、零回归、根因坐实**。status→已修复、owner→coordinator（修随 0040 一把上 prod、部署后随 0040 prod smoke 一并终验 + 终关）。证据：探针 commit 00ecc56。
