@@ -57,6 +57,7 @@ from design_hub.interface.api.routes import (
     uploads,
     users,
 )
+from design_hub.interface.api.throttle import UserRateLimiter
 
 
 @asynccontextmanager
@@ -75,6 +76,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     guard = CostGuard(ledger=ledger, policy=BudgetPolicy())
     # 单进程异步（去 Redis/arq）：同一 InMemoryEventBus 既给 runner 发布、又给 /events 订阅
     app.state.task_queue = InProcessTaskQueue()
+    # 计费端点 per-user 频控（安全加固 A-4：5 单/分 + ≤2 in-flight，in-memory 零 Redis）
+    app.state.rate_limiter = UserRateLimiter()
     app.state.event_stream = InMemoryEventBus()
     # listing 一键出图主线：纯 prompt 直出 + 品类保真卡，复用 guard/queue/event_bus
     app.state.listing_service = ListingGenerationService(

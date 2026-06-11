@@ -8,6 +8,7 @@ from design_hub.domain.errors import (
     NotFoundError,
     PermissionDenied,
 )
+from design_hub.interface.api.throttle import RateLimited
 from design_hub.ports.model_provider import ProviderError
 
 
@@ -51,6 +52,11 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ValueError)
     async def _on_value(request: Request, exc: ValueError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"error": "bad_request", "detail": str(exc)})
+
+    # 频控超限（安全加固 A-4）→ 429
+    @app.exception_handler(RateLimited)
+    async def _on_rate_limited(request: Request, exc: RateLimited) -> JSONResponse:
+        return JSONResponse(status_code=429, content={"error": "rate_limited", "detail": str(exc)})
 
     @app.exception_handler(KeyError)
     async def _on_key(request: Request, exc: KeyError) -> JSONResponse:

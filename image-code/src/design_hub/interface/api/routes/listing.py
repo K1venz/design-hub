@@ -16,6 +16,7 @@ from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import TaskEvent
 from design_hub.interface.api.deps import CurrentUserDep, CurrentUserSseDep
+from design_hub.interface.api.throttle import ThrottledCommand, UserRateLimiter
 from design_hub.interface.listing_history_schemas import (
     ListingJobDetailOut,
     ListingJobSummaryOut,
@@ -61,6 +62,8 @@ async def generate_listing(
             raise NotFoundError(f"upload 不存在或无权访问：{uid}")
     # 本人命名空间内：load() 对非法格式→400、缺文件→404
     images = tuple([(await uploads.load(uid))[0] for uid in req.upload_ids])
+    limiter: UserRateLimiter = request.app.state.rate_limiter
+    limiter.acquire(user.user_id)  # 频控（A-4）：5 单/分 + ≤2 in-flight，超限 429
     events: EventPublisher = request.app.state.event_stream
     history: ListingHistory = request.app.state.listing_history
     queue: TaskQueue = request.app.state.task_queue
@@ -80,7 +83,8 @@ async def generate_listing(
         overlay_texts=overlay,
         category=req.category,
     )
-    await queue.enqueue(job_id=job_id, command=command)
+    throttled = ThrottledCommand(inner=command, limiter=limiter, user_id=user.user_id)
+    await queue.enqueue(job_id=job_id, command=throttled)
     return {"job_id": job_id}
 
 
@@ -111,6 +115,8 @@ async def clone_listing(
         if not owns(uid, user.user_id):
             raise NotFoundError(f"upload 不存在或无权访问：{uid}")
     loaded = [(await uploads.load(uid))[0] for uid in ordered_ids]
+    limiter: UserRateLimiter = request.app.state.rate_limiter
+    limiter.acquire(user.user_id)  # 频控（A-4）：与 generate 同闸（计费动作统一限）
     events: EventPublisher = request.app.state.event_stream
     history: ListingHistory = request.app.state.listing_history
     queue: TaskQueue = request.app.state.task_queue
@@ -129,7 +135,8 @@ async def clone_listing(
         category=req.category,
         clone_mode=req.clone_mode,
     )
-    await queue.enqueue(job_id=job_id, command=command)
+    throttled = ThrottledCommand(inner=command, limiter=limiter, user_id=user.user_id)
+    await queue.enqueue(job_id=job_id, command=throttled)
     return {"job_id": job_id}
 
 
