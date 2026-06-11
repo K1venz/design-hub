@@ -91,7 +91,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                 error = exc
             else:
                 latency_ms = int((time.perf_counter() - start) * 1000)
-                return await self._parse(response.json(), seed, latency_ms)
+                return await self._parse(response.json(), seed, latency_ms, expected_n=n)
             # 瞬时网络/服务端错误（I/O 域）：退避后重试，超出上限才抛
             if attempt >= self._max_retries:
                 raise error
@@ -165,11 +165,17 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             return await client.post(url, data=data, files=files, headers=headers)
 
     async def _parse(
-        self, body: Any, seed: int | None, latency_ms: int
+        self, body: Any, seed: int | None, latency_ms: int, *, expected_n: int
     ) -> list[GeneratedImage]:
         data = body.get("data") if isinstance(body, dict) else None
         if not data:
             raise ProviderError(f"{self.name} empty response")
+        if len(data) != expected_n:
+            # 上游契约核（ISSUE-0045 资损向）：返回张数必须等于请求 n。多返=按张计费被
+            # 放大（reconcile 向上调账）、少返=静默缺图——都按 I/O 契约违约 fail-fast。
+            raise ProviderError(
+                f"{self.name} 返回张数与请求不符：n={expected_n}，实返 {len(data)}"
+            )
         base = seed if seed is not None else 0
         images: list[GeneratedImage] = []
         for index, item in enumerate(data):
