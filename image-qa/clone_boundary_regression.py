@@ -58,15 +58,16 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     print(f"== 爆款复刻边界/契约回归（预写）== BASE={BASE} EP={EP}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=60.0) as c:
-        op = await c.get("/openapi.json")
-        has_ep = EP in op.text
-        print(f"[probe] openapi {op.status_code}  /clone 端点已上={has_ep}")
-        if not has_ep:
-            raise SystemExit(f"⏳ {EP} 尚未上线（dev 未 wiring）——预写脚本待 dev 完工 + openapi 核字段后跑。")
         r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
         if r.status_code != 200:
             r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
         H = {"Authorization": f"Bearer {r.json()['jwt']}"}
+        # 端点存在性探测（不依赖 /openapi.json——docs 默认关后它 404，dev #612）：
+        # 空 body POST → 路由在=422/400（校验先于 acquire、零成本）、路由缺=404
+        probe = await c.post(EP, headers=H, json={})
+        print(f"[probe] {EP} → {probe.status_code}（422/400=路由在 · 404=未上线）")
+        if probe.status_code == 404:
+            raise SystemExit(f"⏳ {EP} 尚未上线（ops 未重建 qa 含 d8e74bb？）")
         npass = 0
         for label, b, expect in CASES:
             resp = await c.post(EP, headers=H, json=b)

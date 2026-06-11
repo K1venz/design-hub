@@ -44,16 +44,17 @@ async def main() -> None:
         raise SystemExit("✋ PROD_BASE 未设置——必须经隧道显式指向部署后 prod api。")
     print(f"== 爆款复刻 prod smoke == BASE={BASE}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        op = await c.get("/openapi.json")
-        print(f"[probe] openapi {op.status_code}  /clone 上={EP in op.text}")
-        if EP not in op.text:
-            raise SystemExit("⏳ /listing/clone 未上 prod——等部署。")
         OUT.mkdir(exist_ok=True)
         r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
         if r.status_code != 200:
             r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
         tok = r.json()["jwt"]
         H = {"Authorization": f"Bearer {tok}"}
+        # 端点探测不走 /openapi.json（prod docs 默认关后 404，dev #612）：空 body POST → 路由缺=404
+        probe = await c.post(EP, headers=H, json={})
+        print(f"[probe] {EP} → {probe.status_code}（422/400=路由在 · 404=未上 prod）")
+        if probe.status_code == 404:
+            raise SystemExit("⏳ /listing/clone 未上 prod——等部署。")
         pid = await upload(c, H, PROD)
         rid = await upload(c, H, REF)
         bdy = {"product_upload_ids": [pid], "reference_upload_ids": [rid], "clone_mode": "高度复刻",
