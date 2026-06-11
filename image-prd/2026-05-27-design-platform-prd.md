@@ -606,7 +606,11 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **可寻址标识走读模型、SSE 契约冻结**：结果图可寻址字段加在读模型——DetailOut 带 `parent_job_id`/`edit_mode`/源图回显（链徽标+回溯）；**SummaryOut 带 `edit_mode`（null=原生单），历史列表轻徽标「✎ 微调/重做」（PM 拍）**。SSE 事件契约原样不动。
 - **源图只读不可换（产品规则）**：编辑页源图只读展示，换图 = 另起新编辑——杜绝源图与 parent 链不一致。
 - **一次编辑出 1 张（PM 拍）**：迭代精修语义；要多张 = 多次分叉、每次独立 job（YAGNI）。
-- **仍开放（三方对收敛中，PM 倾向已亮 #643）**：端点形态（倾向瘦路由 `POST /listing/edit` 沿复刻 (b) 先例）/ delta 父 prompt 是否进组装（归 prompt）/ 编辑×图型卡与 overlay_texts 关系（倾向 MVP 不引入、徽标仅展示）/ 可编辑源范围（倾向 generate 桶成功结果图皆可编含 clone 产物、失败张 404 同 anti-enum）/ quality 档（倾向统一默认档）。
+- **✅ 用户拍 3 scope（2026-06-11，coordinator #644）**：Q-γ **MVP 不支持改图上文字**（改字=对卖点图整张重做；编辑流不引图型卡、不支持 overlay_texts）；Q-δ **所有成功出图皆可二次编辑**（套图单张/复刻产物/单图全可编；失败张不可作源 → 404 anti-enum、与「不存在/他人」不可区分）；Q-ε 一次编辑出 1 张。技术项随 PM 倾向定：Q-α 瘦路由 `POST /listing/edit`（沿复刻 (b) 先例）、Q-ζ quality 统一默认档。
+- **✅ Q-β 裁定（prompt #645、coordinator affirm #646）**：**两档都不带父 prompt 进组装**——源图本身=父 prompt 的执行结果（视觉锚＞文本二传）；父文本带入必与本轮指令打架、稀释遵循度（宪章 §2.5）；full 被替换的正是它。
+- **✅ 第六类卡 = 编辑模式卡**（`image-prompt/edit-mode-cards/编辑.md`，prompt `d9d4f21`）：delta/full 两档纯静态物化块（零槽位）——delta 全锚定+点改（「未点名一概不动」防外溢、「不被当前画面产品失真带偏」=链根锚块内落点）、full 链根 100% 保真+源图仅方向参考；**不注入品类保真块/图型卡/风格卡/父 prompt**（编辑块自含保真）；`EditModeRegistry{delta, full}` 卡↔code 逐字核对照旧（pytest 自动闸扩至 9 物化块）。
+- **✅ PM 补拍两点（QA 骨架 E-⑤/⑥，#647）**：① **edit prompt 必填（非空）**——编辑的诉求只能由文本承载（clone 的 prompt 选填是因参考图承载诉求，编辑无此替代载体）；空 prompt = 花钱重抽一张，那是「重抽」语义非编辑（要做是单独需求，YAGNI），空 → fail-fast 422；② **新路由生而 `extra=forbid`**——overlay_texts 等多余字段显式 422 拒（新代码零兼容包袱不忍受静默忽略；存量路由统一仍归 ISSUE-0044 backlog）。
+- **待 dev 技术方案收口**：入口可寻址字段确切 shape（防枚举 vs 贴合 `source_image_key`）/ 喂图 4 张上限核 / clone 产物链根锚持久化通路一致性 / 读模型暴露字段落位（DetailOut/SummaryOut）。
 
 **✅ 交互模型（用户已拍 2026-06-09 / coordinator #413：delta + full 两种都要）→ prompt 编辑模式两分支：**
 - **delta（微调，默认）**：用户给增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。**ratio/category 继承父 job**（换比例=重构图≠编辑）、prompt/modifiers 叠新。
