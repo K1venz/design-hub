@@ -1,49 +1,72 @@
-name: deploy
+name: pr-gate
 
-# push 到 main 自动部署（方案 B：服务器上的 self-hosted runner 本地部署，不走跨境 SSH）。
-# 由运维(image-ops)维护。runner=design-hub-prod(systemd, 走 mihomo 代理连 GitHub)。
+# PR 门禁（B-1②/B-2/B-3 安全加固）。
+# 旧逻辑：push→main 由 prod 上的 self-hosted runner 自动 build+迁移+部署
+#   = 双部署(与 ops 手动重叠) + runner-on-prod RCE 面 + 零门禁。已废止。
+# 新逻辑：仅做合并前检查（ruff / pytest / 前端 lint+typecheck+test / gitleaks），
+#   跑在 GitHub 托管 runner（无 prod 访问、无 self-hosted runner）。
+#   过门禁才允许合并；部署改由 ops 手动执行（deploy.sh，迁移前强制 mysqldump 备份）。
 on:
-  push:
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-prod
-  cancel-in-progress: false   # 部署排队，不互相打断
+  group: pr-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  deploy:
-    runs-on: [self-hosted, prod]
+  backend:
+    name: 后端门禁 (ruff + pytest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        working-directory: image-code
+        run: uv sync --all-groups
+      - name: Ruff lint
+        working-directory: image-code
+        run: uv run ruff check
+      - name: Pytest
+        working-directory: image-code
+        run: uv run pytest
 
+  frontend:
+    name: 前端门禁 (lint + typecheck + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version-file: image-web/.nvmrc
-
-      - name: Build frontend (image-web)
+      - name: Install deps
         working-directory: image-web
-        run: |
-          # --legacy-peer-deps 临时绕开 typescript 6 vs openapi-typescript peer 冲突(ISSUE-0027)
-          npm ci --legacy-peer-deps
-          npm run build
+        # --legacy-peer-deps 临时绕开 typescript 6 vs openapi-typescript peer 冲突(ISSUE-0027)
+        run: npm ci --legacy-peer-deps
+      - name: ESLint
+        working-directory: image-web
+        run: npm run lint
+      - name: Typecheck
+        working-directory: image-web
+        run: npm run typecheck
+      - name: Vitest
+        working-directory: image-web
+        run: npm run test
 
-      - name: Deploy locally (runner 就在服务器上，本地拷贝 + deploy.sh)
-        run: |
-          set -e
-          DEST=/opt/docker/design-hub
-          # 后端源码 → app/（--delete 保净；保护 Dockerfile/.dockerignore，不删服务器 .env/certs/web）
-          rsync -a --delete \
-            --exclude '.venv/' --exclude '__pycache__/' --exclude '*.pyc' \
-            --exclude '.mypy_cache/' --exclude '.ruff_cache/' --exclude '.pytest_cache/' \
-            --exclude '*.db' --exclude 'generated/' --exclude 'assets/' --exclude 'exports/' \
-            --exclude '.env' --exclude '.env.development' --exclude '.DS_Store' --exclude '.git/' \
-            --exclude 'Dockerfile' --exclude '.dockerignore' \
-            image-code/ "$DEST/app/"
-          # 部署产物（含 app/Dockerfile、compose、nginx、scripts）
-          rsync -a image-ops/deploy/ "$DEST/"
-          # 前端构建产物
-          rsync -a --delete image-web/dist/ "$DEST/web/"
-          # 构建后端 + 迁移 + 重启（幂等）
-          cd "$DEST" && bash scripts/deploy.sh
+  secret-scan:
+    name: 密钥扫描 (gitleaks 全历史)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 全历史，gitleaks 扫所有提交
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
