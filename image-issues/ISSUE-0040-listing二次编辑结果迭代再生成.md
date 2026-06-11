@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0040
 title: listing 二次编辑 — 基于已生成结果 + 新提示词迭代再生成（缺失核心能力）
-status: 已确认        # 需求已确认存在、待团队设计 + PM 排期；非 bug，借状态机表「已确认=确认要做」
+status: 已确认        # 设计三方对进行中（2026-06-11 启动，coordinator #631）；非 bug，借状态机表「已确认=确认要做」
 severity: P1          # 缺失核心能力、用户已勾选要做；最终优先级随用户拍
 reporter: PM          # coordinator 审计 backlog + 用户提出（群聊 #394），PM 接需求
 owner: PM             # PM 持球：开 PRD 草稿 + 收口设计 → 排期与验收标准；设计 scope 由 coordinator 拉 prompt/dev/frontend
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-11
 related:
   - PRD: §3.12（listing 一键出图主线）；待新增 §3.12.13（二次编辑）
   - code: image-code 后端已有 /images/edits 图生图能力（但无 listing「基于结果再编辑」流）
@@ -21,7 +21,7 @@ PM(PRD + 排期/验收) · **prompt(编辑模式保真块 / 组装规则)** · d
 → prompt `compose_prompt` 加 `edit_mode ∈ {delta, full}` 模式分支：
 - **delta（微调，默认）**：增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ 锁产品+品牌文字 + **沿用上一版构图基底** + 只 apply delta。**ratio/category 继承父 job**、prompt/modifiers 叠新。
 - **full（重做）**：全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘。**ratio/category 可改**。
-> gating 已解除 → PRD §3.12.13 已定稿（验收标准 + 落地分工）。下一步 = PM 牵头四方设计三方对（对齐 Q1–Q7 + edit_mode/source_image_id 契约）→ **schema 变更经用户签字** → 实现。
+> gating 已解除 → PRD §3.12.13 已定稿（验收标准 + 落地分工）。**schema 三列（parent_job_id/source_image_key/edit_mode）已经用户签字、随套图迁移上线 prod → 实现前置解除**（新列出现再亲签）。设计三方对 2026-06-11 启动（coordinator #631 派棒、PM 第一棒摘要）。
 
 ## 需求
 listing 当前只能「从头传图 → 一键出图」，**无法基于一次生成的结果 + 新提示词迭代再生成**。
@@ -56,3 +56,4 @@ coordinator 审计 backlog 确认这是**缺失功能**（后端有 /images/edit
 ## 处理记录
 - 2026-06-09 [PM] coordinator 审计 backlog + 用户勾选（#394）→ PM 接需求，开本条占位 + 起 PRD §3.12.13 草稿。定级 P1（缺失核心能力、用户已勾），最终优先级随用户拍。owner=PM 持球收口设计 → 排期；设计 scope 待 coordinator 拉 prompt/dev/frontend，对齐后回 PM 落验收标准。**先不实现，等设计对齐。**
 - 2026-06-09 [PM] **用户拍交互模型 = delta + full 两种都要**（coordinator #413）→ gating 解除。PRD §3.12.13 草稿→**定稿**（交互模型两分支 + Q4 参数继承定稿 + 验收标准 D1–D8 + 落地分工）。下一步 PM 牵头四方设计三方对（对齐 Q1–Q7 + `edit_mode`/`source_image_id` 契约）→ schema 变更（`parent_job_id`/`source_image_id`/`edit_mode`）经**用户签字**后实现。仍 owner=PM、设计阶段。
+- 2026-06-11 [PM] **设计三方对启动**（coordinator #631 派棒、PM 第一棒）。前置已全齐：schema 三列已签且随套图迁移上线 prod（零新迁移预期）、QA 骨架已备（f64d365，两 P0=D1 owner 隔离 + D2 多轮累积失真 TC-05）。PM 发 §3.12.13 摘要 + 开放问题清单入群（已定 9 条不重开 + 开放 Q-α~Q-ζ：端点形态/入口 shape/delta 父 prompt 上下文/图型卡与 overlay 关系/可编辑源范围/单次张数/quality 档）。并行棒：prompt 两模式组装草案 + dev 技术方案 + frontend-b 交互（先方案不动代码）。owner=PM（牵头收敛）。
