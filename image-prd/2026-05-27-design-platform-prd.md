@@ -587,7 +587,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - §3.1–§3.11 的海报/两阶段/项目流描述**全部退役、仅留作历史**；现 prod 仅 listing 直出。
 
 #### 3.12.13 二次编辑：基于结果迭代再生成（定稿 · 2026-06-09，ISSUE-0040）
-> **状态=定稿**。用户勾选为下一个功能（coordinator 审计 + #394）并已拍交互模型（#413：**delta + full 两种都要**）。coordinator 拉齐 PM/prompt/dev/frontend-b/QA。**实现前置仍待用户签字 DB schema 变更**（见下）。
+> **状态=定稿 · 设计三方对进行中（2026-06-11 启动，coordinator #631 派棒）**。用户勾选为下一个功能（coordinator 审计 + #394）并已拍交互模型（#413：**delta + full 两种都要**）。coordinator 拉齐 PM/prompt/dev/frontend-b/QA。**schema 三列（`parent_job_id`/`source_image_key`/`edit_mode`）已经用户签字（随套图清单一次签）、随套图迁移上线 prod —— 实现前置已解除**；设计中若发现需新列，按铁律再走用户亲签。
 
 **形态**：用户在 listing 历史/结果区选**自己**的一张生成结果图 + 写新提示词 → 再过一次 `/images/edits` → 出新图，可迭代多轮。复用后端既有图生图能力（ISSUE-0007），缺的是 listing 的「基于结果再编辑」编排流（async job + SSE + 持久化 + 计费）。
 
@@ -606,7 +606,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **full（重做）**：用户给全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图）。**ratio/category 可改**。
 - 这是 `compose_prompt` 的**模式分支（首次 / 编辑·delta / 编辑·full）**，归 prompt 提示词层设计（prompt #404）；请求带 `edit_mode ∈ {delta, full}` 入参。
 > **Q4 参数继承定稿**：delta 继承父 job 的 ratio/category（仅叠 prompt/modifiers）；full 允许改 ratio/category。
-> **实现前置（未解除）**：job/持久化新增 `parent_job_id`、`source_image_id`、`edit_mode` 等字段属 schema 变更 → **dev 动手前须经用户签字**（DB 变更先征求用户，铁律）。
+> **实现前置（✅ 已解除）**：`parent_job_id`、`source_image_key`、`edit_mode` 三列已经用户签字（与套图 schema 合并一张清单一次签）、随套图迁移上线 prod。持久化字段名定为 `source_image_key`（dev 按持久化模型定）；上文「结果图稳定 id」的**服务端解析语义不变**——API 入参的最终 shape（直传 key vs 服务端稳定 id）归 dev 技术方案在三方对收敛。设计中若出现新列需求 → 仍须用户亲签。
 
 **验收标准（承 QA 用例骨架 D1–D8 / `image-qa/二次编辑_用例骨架.md`，PRD 定稿口径）：**
 1. **owner 隔离（P0 安全）**：只能基于自己的结果迭代；他人/不存在/畸形 `source_image_id` → **404**（anti-enum 不可区分，沿用 ISSUE-0032）。Bearer 身份，不重蹈 ISSUE-0039。
@@ -1205,7 +1205,7 @@ git push → GitHub Actions
 - **现状实锤**：完全开放注册（邮箱+密码≥8位即注册成功），**无邮箱验证、无验证码/防机器人、全系统无任何 rate limit**（唯一闸是月度成本预算）。
 - **风险**：出图=真金白银（base $0.05/张），脚本批量注册 + 并发出图可**直接薅穿成本**。
 - **建议**：邮箱验证码（或手机号）+ 图形/行为验证码 + IP/设备级注册与出图限流。**与 7.D 同为钱袋子双闸，缺一不可。**
-- **进展（2026-06-11 安全加固冲刺，用户批 A-4/A-2）**：限流双层落地中——✅ app 层 per-user 频控（dev `8c3c0b2`：计费端点 5 单/分 + ≤2 in-flight、post-validation 只计真入队单、429）；nginx 层 per-IP `limit_req`（register 5r/min、login 15r/min）随 A-2 计划部署。**邮箱验证/验证码仍未做**（本 gate 剩余项）。
+- **✅ 限流双层已上线 prod（2026-06-11 安全加固冲刺收口）**：app 层 per-user 频控（dev `8c3c0b2`：计费端点 5 单/分 + ≤2 in-flight、post-validation 只计真入队单；QA 闸① in-flight 实测 [200,200,429]）+ nginx 层 per-IP `limit_req`（register 5r/min、login 15r/min；`limit_req_status 429`——QA smoke 抓出 nginx 默认 503 语义误导，ops `80e72bf` 修正，复核连发 422×4+429×8 零 503）。**本 gate 剩余项：邮箱验证 / 验证码仍未做**——toC 开闸前的硬尾巴。
 
 ### 7.D 🔴 配额与计费（toC 商业模型）
 - **现状实锤**：成本守卫=月度三红线（用户 ¥200/月、公司 ¥800/月、单次≤公司剩余 50%，**代码默认值**；机制即 §3.9 cost-guard，内部版已实现）——内部团队模型，¥200/月 ≈ 500 张（¥0.40/张）≈ 100 套默认套图，对 toC 免费用户宽到等于没有闸；**无免费额度概念、无付费、无支付通道、无订单/发票**。
@@ -1219,7 +1219,7 @@ git push → GitHub Actions
 ### 7.F 🟡 运维可靠性
 - **现状实锤**：单机双容器（api+nginx）+ 复用 MySQL、`restart: unless-stopped`、**无冗余**；监控仅 `/_metrics` 端点（无 Prometheus/告警/Sentry）；**备份纯手动**（无定时 dump）；MySQL 3306 公网 bind（ISSUE-0036，安全组挡住但纵深缺口）；22 端口公网。
 - **建议（灰度最低限）**：定时备份 + 基础告警（进程挂/磁盘满/出图失败率）+ Sentry + 收 3306 bind 到 127.0.0.1。多副本/高可用等量级上来再说。
-- **进展（2026-06-11 安全审计 → 加固冲刺，报告 `image-ops/docs/安全审计报告-20260611.md`）**：审计揪出 🔴 B-1 双部署+CI 迁移无备份（push 自动部署与手动部署打架、靠时序运气兜底）/ B-2 self-hosted runner 跑 prod=RCE 面 / B-3 deploy.yml 零门禁 / A-3 SSH root+密码登录 / A-2 /docs·/metrics 公网暴露。**用户批**：B-1（✅ 止血完成：runner 停用；备份 patch+manual-only 部署路径+PR 门禁 lint/pytest/gitleaks 实施中）+ A-2 nginx 加固 + A-4 限流（见 7.C）+ B-3 门禁（dev 35 单测已落 `d2900ff`，含**卡↔code 逐字核对自动闸**）；**A-3 SSH / A-1 mysql 3306 用户拍缓做**。
+- **✅ 安全加固冲刺收口（2026-06-11；审计报告 `image-ops/docs/安全审计报告-20260611.md`、变更归档 `image-ops/docs/安全加固变更计划-20260611.md`）**：B-1 双部署止血（runner 停用、部署转 manual-only）+ B-1① 迁移前 mysqldump 强制备份（部署实锤 `db-backup-20260611-154544.sql`）+ B-1② CI 转 PR 门禁（ruff + pytest 38 绿 + gitleaks，含**卡↔code 逐字核对自动闸**）+ A-2 nginx（根+/api 两族 docs/metrics 公网 404、安全头 HSTS/X-Frame=DENY/nosniff/Referrer、server_tokens off、limit_req 429）+ `16715b7` app 源头 docs 关（secure-by-default，与 nginx 双层封死）+ A-4 频控（见 7.C）。QA 闸①② prod 验证全绿；三层独立审查各抓一真问题（/api 假关闭、503 语义、默认值纵深）。**缓做（用户拍，待用户物理操作）**：A-3 SSH root+密码、A-1 mysql 3306 bind+安全组、GitHub 删 runner、branch protection。**本 gate 剩余项**：定时备份（B-1① 是部署时备份、非定时）/ 基础告警 / Sentry / 收 3306 bind——灰度前收尾口径不变。
 
 ### 7.G ✅ 品牌与定位（已关闭：用户定名 2026-06-10）
 - **产品名 =「实朴电商图片工作站」，简称「实朴」**（用户拍定，coordinator #475）；英文/域名 slug 走拼音 **shipu** 系（ops 出域名候选清单：可注册性+价位，只查不买；注册/备案/付费均需用户实名操作）。
@@ -1233,10 +1233,10 @@ git push → GitHub Actions
 |---|---|---|---|---|
 | 7.A | 域名+TLS+备案 | 🔴 | ✅ **首发**（最先启动；ops 出 shipu 系域名候选 + 备案材料清单，注册/备案/付费用户实名操作） | 备案 1~2 周+ |
 | 7.B | 内容审核+AI 标识 | 🔴 | ✅ **首发**（隐式元数据标识 + 页面显式声明；画面内可见标识边界=法务确认） | 接 API 数天；法务咨询另计 |
-| 7.C | 注册防滥用 | 🔴 | ✅ **首发**（验证码 + rate limit） | 数天 |
+| 7.C | 注册防滥用 | 🔴 | ✅ **首发**（rate limit 双层 ✅ 已上线 2026-06-11；**剩验证码 + 邮箱验证**） | 数天（剩余项） |
 | 7.D | 免费额度+计费+支付 | 🔴 | ✅ **首发=免费 5 张 + 积分制**；支付通道/会员制后置灰度 | 商户进件 1~2 周+（后置项） |
 | 7.E | 法务页面 | 🔴 | ✅ **首发**（含账号注销/数据处理条款） | 半天~1 天 |
-| 7.F | 备份/告警/收口 | 🟡 | ✅ **灰度前收尾**（定时备份+基础告警+Sentry+收 3306 bind） | 1~2 天 |
+| 7.F | 备份/告警/收口 | 🟡 | ✅ **灰度前收尾**（安全加固冲刺 ✅ 收口 2026-06-11：迁移备份/PR 门禁/nginx+app 双层加固上线；**剩定时备份+基础告警+Sentry+收 3306 bind**） | 1~2 天（剩余项） |
 | 7.G | 品牌定名 | 🟡 | ✅ **已关闭：「实朴电商图片工作站」**（用户定） | — |
 | 7.H | 反馈入口 | 🟡 | ✅ **首发**（轻量：表单/邮箱） | 半天 |
 
