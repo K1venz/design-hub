@@ -76,6 +76,17 @@ echo "    OK"
 echo "==> [5/7] 构建镜像"
 docker compose build
 
+echo "==> [6a/7] 迁移前全库备份（数据底线：破坏性迁移可回滚）"
+BK="/root/db-backup-$(date +%Y%m%d-%H%M%S).sql"
+if docker exec -e MYSQL_PWD="$ROOT_PW" mysql mysqldump -uroot --no-tablespaces \
+     --single-transaction --routines design_hub > "$BK" 2>/dev/null && [[ -s "$BK" ]]; then
+  echo "    备份 -> $BK ($(wc -c <"$BK") bytes)"
+  # 滚动保留最近 10 份
+  ls -t /root/db-backup-*.sql 2>/dev/null | tail -n +11 | xargs -r rm -f
+else
+  echo "    ERROR: 迁移前备份失败，中止部署（不带备份不迁移）"; exit 1
+fi
+
 echo "==> [6/7] 数据库迁移（建表，先于应用启动）"
 docker compose run --rm --no-deps api alembic upgrade head
 
