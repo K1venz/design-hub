@@ -596,7 +596,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **源图来源**：后端用 **image_key 从 TOS generate 桶取对象**（服务端凭证即时签/直读），**不依赖客户端持的可能过期的签名 url**（对齐 ISSUE-0034 教训）。
 - **owner 隔离（P0 安全）**：只能基于**自己**的结果迭代。他人 / 不存在 / 畸形 source id → **404**（沿用 ISSUE-0032 anti-enumeration，不泄漏存在性）。身份用 Bearer（`CurrentUserDep`），**不重蹈 ISSUE-0039** 可伪造 X-User-Id。
 - **job 关系 + 落桶**：每次二次编辑 = **独立新 job + `parent_job_id` 父指针**（独立 cost/SSE/status，parent 链表达迭代谱系、天然支持分叉），新图落 **generate 桶**（与首次产物同桶同 image_key 体系）。复用现有 job/SSE/计费机制、对其他接口零改造（满足用户「可行性高、不影响其他接口」要求）。
-- **成本**：**ledger 按次单计**（每次 edits = 一次真实出图、各计一份、入预算守门，不漏计不重复计）；**UI 展示单次 + 该迭代链累计**（链累计优先**服务端聚合字段**——前端不做 O(深度) 链拉取；若 dev 方案证明聚合成本不成比例，允许降档 MVP 仅显单次、链累计挂 fast-follow——属验收降档、dev 方案明确写+三方对过一道即可，frontend #650④/PM 拍）。
+- **成本**：**ledger 按次单计**（每次 edits = 一次真实出图、各计一份、入预算守门，不漏计不重复计）；**UI 展示单次 + 该迭代链累计**（✅ dev #657④ 定案 `chain_cost` 服务端聚合、零新列，降档出口备而不用；**口径 R5（PM 确认）：根节点按被编辑源张单张 cost 计、不计根整单**——根为 5 张套图时计 ¥0.40 非整单 ¥2.00，计整单=虚高误导）。
 - **迭代深度/分叉**：**无硬深度上限、允许一张结果多次分叉**（每次独立 job+计费，成本由既有预算闸守，YAGNI 不预设限制）。多轮累积失真是质量风险（QA TC-05 盯），非契约限制。
 - **async + SSE**：二次编辑同走 async job + SSE（task_started→model_called→image_generated→task_completed），`?access_token=` 鉴权同 ISSUE-0011。
 - **失败 fail-fast**：provider/key 错 → job=失败、不静默吞、不回落假图、计费可追溯。
@@ -610,13 +610,13 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **✅ Q-β 裁定（prompt #645、coordinator affirm #646）**：**两档都不带父 prompt 进组装**——源图本身=父 prompt 的执行结果（视觉锚＞文本二传）；父文本带入必与本轮指令打架、稀释遵循度（宪章 §2.5）；full 被替换的正是它。
 - **✅ 第六类卡 = 编辑模式卡**（`image-prompt/edit-mode-cards/编辑.md`，prompt `d9d4f21`）：delta/full 两档纯静态物化块（零槽位）——delta 全锚定+点改（「未点名一概不动」防外溢、「不被当前画面产品失真带偏」=链根锚块内落点）、full 链根 100% 保真+源图仅方向参考；**不注入品类保真块/图型卡/风格卡/父 prompt**（编辑块自含保真）；`EditModeRegistry{delta, full}` 卡↔code 逐字核对照旧（pytest 自动闸扩至 9 物化块）。
 - **✅ PM 补拍两点（QA 骨架 E-⑤/⑥，#647）**：① **edit prompt 必填（非空）**——编辑的诉求只能由文本承载（clone 的 prompt 选填是因参考图承载诉求，编辑无此替代载体）；空 prompt = 花钱重抽一张，那是「重抽」语义非编辑（要做是单独需求，YAGNI），空 → fail-fast 422；② **新路由生而 `extra=forbid`**——overlay_texts 等多余字段显式 422 拒（新代码零兼容包袱不忍受静默忽略；存量路由统一仍归 ISSUE-0044 backlog）。
-- **待 dev 技术方案收口**：入口可寻址字段确切 shape（防枚举 vs 贴合 `source_image_key`）/ 喂图 4 张上限核 / clone 产物链根锚持久化通路一致性 / 读模型暴露字段落位（DetailOut/SummaryOut）。
+- **✅ dev 技术方案定案（`b37e109`，image-code/docs/二次编辑-技术方案-0040.md）**：入口 handle = **`source_image_key` 单一不透明 handle**（sha 文件名构造性防枚举、与已签列零翻译；owner/失败张/多行收敛 = 服务端一条谓词查询、无行=404 anti-enum）；喂图 = 源图 1 + 链根锚 1..3 = 2..4 张（4 张联调首单冒烟实证，回退=锚取根首张不破 D2）；clone 链根锚通路一致 ✅（`role='product' OR NULL` 统一谓词）；读模型 = DetailOut 带 `parent_job_id`/`edit_mode`/源图回显+`source_image_type`、SummaryOut 带 `edit_mode`、`chain_cost` 服务端聚合；**零新迁移/零新表/SSE 冻结**。三方对终局就绪。
 
 **✅ 交互模型（用户已拍 2026-06-09 / coordinator #413：delta + full 两种都要）→ prompt 编辑模式两分支：**
-- **delta（微调，默认）**：用户给增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。**ratio/category 继承父 job**（换比例=重构图≠编辑）、prompt/modifiers 叠新。
-- **full（重做）**：用户给全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图）。**ratio/category 可改**。
+- **delta（微调，默认）**：用户给增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。**ratio 继承父 job**（换比例=重构图≠编辑；显式传 → 400）、prompt/modifiers 叠新。
+- **full（重做）**：用户给全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图）。**ratio 可改**（None=继承 / 显式=覆盖）。
 - 这是 `compose_prompt` 的**模式分支（首次 / 编辑·delta / 编辑·full）**，归 prompt 提示词层设计（prompt #404）；请求带 `edit_mode ∈ {delta, full}` 入参。
-> **Q4 参数继承定稿**：delta 继承父 job 的 ratio/category（仅叠 prompt/modifiers）；full 允许改 ratio/category。
+> **Q4 参数继承定稿（2026-06-11 R2 修订，dev #657/PM 确认）**：delta 继承父 job 的 ratio（显式传 → 400）；full ratio None=继承/显式=覆盖；**category 两档均不适用**——编辑组装不注入品类块（第六类卡自含保真 #645），请求不收 category（收了即死参数，违 fail-fast）；modifiers 两档统一叠新（`{**parent, **req}`，落库存 effective）。原字面「full 可改 category」写于第六类卡设计之前，已被该设计推论取代。
 > **实现前置（✅ 已解除）**：`parent_job_id`、`source_image_key`、`edit_mode` 三列已经用户签字（与套图 schema 合并一张清单一次签）、随套图迁移上线 prod。持久化字段名定为 `source_image_key`（dev 按持久化模型定）；上文「结果图稳定 id」的**服务端解析语义不变**——API 入参的最终 shape（直传 key vs 服务端稳定 id）归 dev 技术方案在三方对收敛。设计中若出现新列需求 → 仍须用户亲签。
 
 **验收标准（承 QA 用例骨架 D1–D8 / `image-qa/二次编辑_用例骨架.md`，PRD 定稿口径）：**
