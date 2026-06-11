@@ -98,6 +98,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listing/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit Listing
+         * @description 二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。
+         *
+         *     源图=唯一不透明 handle（source_image_key），owner/parent 链全部服务端反解；
+         *     喂图=[源图, 链根产品锚 1..3]（D2：每轮锚链根原图，漂移不随轮数叠加）。
+         */
+        post: operations["edit_listing_listing_edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/listing/jobs": {
         parameters: {
             query?: never;
@@ -409,6 +432,32 @@ export interface components {
          * @enum {string}
          */
         Dimension: "overview" | "model" | "project" | "designer" | "tier";
+        /**
+         * EditRequest
+         * @description 二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。
+         *
+         *     生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。
+         *     不收 category（R2：编辑组装无品类块、库无列，死参数不收）。
+         *     prompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；
+         *     edit_mode/ratio 仍走路由 fail-fast 400（域值校验，单一事实源在卡/映射表）。
+         */
+        EditRequest: {
+            /** Source Image Key */
+            source_image_key: string;
+            /** Prompt */
+            prompt: string;
+            /**
+             * Edit Mode
+             * @default delta
+             */
+            edit_mode: string;
+            /** Modifiers */
+            modifiers?: {
+                [key: string]: string;
+            };
+            /** Ratio */
+            ratio?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -450,6 +499,8 @@ export interface components {
         ListingImageOut: {
             /** Url */
             url: string;
+            /** Image Key */
+            image_key: string;
             /** Seed */
             seed: number;
             /** Cost */
@@ -501,6 +552,16 @@ export interface components {
              * @default []
              */
             input_roles: (string | null)[];
+            /** Parent Job Id */
+            parent_job_id?: string | null;
+            /** Edit Mode */
+            edit_mode?: string | null;
+            /** Source Image Url */
+            source_image_url?: string | null;
+            /** Source Image Type */
+            source_image_type?: string | null;
+            /** Chain Cost */
+            chain_cost?: string | null;
         };
         /** ListingJobSummaryOut */
         ListingJobSummaryOut: {
@@ -525,6 +586,8 @@ export interface components {
             first_image_url: string | null;
             /** Image Count */
             image_count: number;
+            /** Edit Mode */
+            edit_mode?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -854,6 +917,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CloneRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_listing_listing_edit_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditRequest"];
             };
         };
         responses: {

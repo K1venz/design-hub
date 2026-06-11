@@ -58,6 +58,31 @@ export const DEFAULT_CLONE_MODE: CloneModeKey = '参考风格'
 export const CLONE_PRODUCT_MAX = 1
 export const CLONE_REFERENCE_MAX = 2
 
+// ── 二次编辑（ISSUE-0040，PRD §3.12.13，终契约 #657/#659）──
+// 档位卡文案 = prompt #651 定稿（verbatim，与第六类编辑卡行为逐条对应，回归闸在 listing.test.ts）。
+export const EDIT_MODES = [
+  {
+    key: 'delta',
+    label: '微调',
+    desc: '只按你的修改要求做最小幅度调整，构图、场景与光线基本保持原图不变；产品包装与文字以最初上传的产品图为准、不会被改动。',
+    // 预期管理小字必留：/images/edits 是整图重生成，锚定=尽量一致≠像素冻结，UI 不过度承诺。
+    note: '未修改的区域可能有细微差异。',
+    placeholder: '背景换成厨房木桌 / 光线再暖一点 / 花生再多一点…',
+  },
+  {
+    key: 'full',
+    label: '重做',
+    desc: '保留你的产品（包装与文字不变），按新要求重新设计整个场景与构图；画面会明显不同于原图。',
+    note: null,
+    placeholder: '全新清晨野餐场景：格子布、竹篮、晨光…',
+  },
+] as const
+export type EditModeKey = (typeof EDIT_MODES)[number]['key']
+export const DEFAULT_EDIT_MODE: EditModeKey = 'delta'
+/** 卖点源预期管理小字（prompt #651 定稿，verbatim）：scope ① 不改图上字 + 路径指引。 */
+export const EDIT_OVERLAY_NOTICE =
+  '图上文案暂不支持在编辑中修改；要更换文案，请回「商品套图」重新生成卖点图。'
+
 /** A dropdown that maps into the generic `modifiers` bag. Add a dropdown = add here. */
 export interface ModifierField {
   key: string
@@ -178,6 +203,32 @@ export function buildCloneBody(input: CloneGenerateInput): CloneGenerateBody {
   }
 }
 
+// ── 编辑请求（POST /listing/edit，终契约 #657/#659）──────────
+export interface EditGenerateInput {
+  /** 源图稳定 handle（image_key，内容寻址 sha；owner/parent 链由服务端反解）。 */
+  sourceImageKey: string
+  editMode: EditModeKey
+  /** 新要求（E-⑤ 必填：空 → 后端 422；前端 CTA 先禁）。 */
+  prompt: string
+  /** full 档 UI 选值；delta 档由 builder 省略（终契约：delta 显式传 → 400）。 */
+  ratio: string
+  modifiers: Record<string, string>
+}
+
+export type EditGenerateBody = Schemas['EditRequest']
+
+export function buildEditBody(input: EditGenerateInput): EditGenerateBody {
+  const body: EditGenerateBody = {
+    source_image_key: input.sourceImageKey,
+    edit_mode: input.editMode,
+    prompt: input.prompt.trim(),
+    modifiers: input.modifiers,
+    // R2：编辑不收 category（组装无品类块）——不发；endpoint extra=forbid，误发即 422。
+  }
+  if (input.editMode === 'full') body.ratio = input.ratio // delta 省略=继承父（显式传→400）
+  return body
+}
+
 /** TaskEventType values emitted by backend (design_hub/domain/enums.py).
  *  image_failed = 套图单张失败事件（dev #490 契约：payload {image_type, error}）。 */
 export const LISTING_EVENT_TYPES = [
@@ -239,6 +290,48 @@ export function estimateCost(n: number): number {
 export type ListingJobSummary = Schemas['ListingJobSummaryOut']
 
 export type ListingJobImage = Schemas['ListingImageOut']
+
+/** 图片行成功态字面值（backend models.py ListingImageRow.status：成功|失败）。 */
+export const IMAGE_SUCCESS_STATUS = '成功'
+
+/** edit_mode → 列表/详情徽标展示名（✎ 微调/重做）。未知值原样回显。 */
+export function editModeLabel(mode: string): string {
+  return EDIT_MODES.find((m) => m.key === mode)?.label ?? mode
+}
+
+// ── 完成态补拉合并（结果区「基于此图再编辑」入口）──────────
+// 失败槽保留 SSE 原因不动；成功槽按图型组内序对位详情同型成功张，
+// 取 image_key（挂入口）并刷新为详情新签 url（顺带解决签名过期）。
+export interface ResultSlotLike {
+  url: string | null
+  imageType?: string
+  error?: string
+  imageKey?: string
+}
+
+export function mergeSlotsWithDetail<T extends ResultSlotLike>(
+  slots: T[],
+  images: ListingJobImage[],
+): T[] {
+  const buckets = new Map<string, ListingJobImage[]>()
+  for (const img of images) {
+    if (img.status !== IMAGE_SUCCESS_STATUS) continue
+    const k = img.image_type ?? ''
+    const arr = buckets.get(k) ?? []
+    arr.push(img)
+    buckets.set(k, arr)
+  }
+  const cursor = new Map<string, number>()
+  return slots.map((s) => {
+    if (s.error || s.url === null) return s // 失败槽 / 未出槽不动
+    const k = s.imageType ?? ''
+    const i = cursor.get(k) ?? 0
+    const img = buckets.get(k)?.[i]
+    if (!img) return s
+    cursor.set(k, i + 1)
+    return { ...s, url: img.url, imageKey: img.image_key }
+  })
+}
 
 /** 历史展示用格式化（纯函数）。 */
 export function fmtListingTime(s: string): string {

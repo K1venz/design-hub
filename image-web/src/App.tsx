@@ -14,6 +14,7 @@ import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
 import { CloneWorkbenchPage } from '@/pages/CloneWorkbenchPage'
 import { CustomersPage } from '@/pages/CustomersPage'
+import { EditWorkbenchPage } from '@/pages/EditWorkbenchPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { HistoryDetailPage } from '@/pages/HistoryDetailPage'
@@ -53,6 +54,7 @@ function AppRoutes() {
         <Route element={<WorkbenchLayout />}>
           <Route index element={<WorkbenchPage />} />
           <Route path="clone" element={<CloneWorkbenchPage />} />
+          <Route path="edit/:jobId/:imageKey" element={<EditWorkbenchPage />} />
         </Route>
         <Route element={<AppLayout />}>
           <Route path="history" element={<HistoryPage />} />

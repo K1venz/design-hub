@@ -5,7 +5,7 @@ import { InboxIcon } from 'lucide-react'
 import { useListingJobs } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { fmtListingTime, fmtListingCost, type ListingJobSummary } from '@/lib/listing'
+import { editModeLabel, fmtListingTime, fmtListingCost, type ListingJobSummary } from '@/lib/listing'
 
 const LIMIT = 20
 
@@ -94,7 +94,14 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
       </div>
       <div className="space-y-1 p-3">
         <div className="flex items-center justify-between text-[13px]">
-          <span className="font-medium text-[#2c2824]">{job.platform ?? '通用'}</span>
+          <span className="flex items-center gap-1.5 font-medium text-[#2c2824]">
+            {job.platform ?? '通用'}
+            {job.edit_mode && (
+              <span className="rounded border border-[#ddd5f5] bg-[#f4f1ff] px-1.5 py-px text-[10.5px] font-medium text-[#4733b8]">
+                ✎ {editModeLabel(job.edit_mode)}
+              </span>
+            )}
+          </span>
           <span className="text-[#8a857e]">{job.ratio} · {job.n}张</span>
         </div>
         <div className="flex items-center justify-between text-[12px] text-[#8a857e]">

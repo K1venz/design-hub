@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import {
-  LISTING_EVENT_TYPES, buildCloneBody, buildListingBody, buildSetListingBody, parseListingEvent,
-  type CloneGenerateInput, type ListingEvent, type ListingGenerateInput, type ListingSetGenerateInput,
-  type UploadedImage, type ListingJobSummary, type ListingJobDetail,
+  LISTING_EVENT_TYPES, buildCloneBody, buildEditBody, buildListingBody, buildSetListingBody,
+  parseListingEvent,
+  type CloneGenerateInput, type EditGenerateInput, type ListingEvent, type ListingGenerateInput,
+  type ListingSetGenerateInput, type UploadedImage, type ListingJobSummary, type ListingJobDetail,
 } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -76,6 +77,13 @@ export function useListingSetGenerate() {
 export function useListingClone() {
   return useMutation({
     mutationFn: (input: CloneGenerateInput) => postJson('/listing/clone', buildCloneBody(input)),
+  })
+}
+
+/** POST /listing/edit（二次编辑：源图 key + delta/full + 必填新要求，1 张）-> { job_id }. */
+export function useListingEdit() {
+  return useMutation({
+    mutationFn: (input: EditGenerateInput) => postJson('/listing/edit', buildEditBody(input)),
   })
 }
 

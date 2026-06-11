@@ -5,6 +5,7 @@ import { useListingGenerate, useListingSetGenerate, useListingEvents } from '@/a
 import { ListingConfigPanel } from '@/components/listing/ListingConfigPanel'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
+import { useEditEntries } from '@/components/listing/use-edit-entries'
 import {
   DEFAULT_LISTING_CONFIG, IMAGE_TYPE_FIELDS,
   type ListingConfig, type UploadedImage,
@@ -21,6 +22,7 @@ export function WorkbenchPage() {
   const [done, setDone] = useState(0)
   const generate = useListingGenerate()
   const generateSet = useListingSetGenerate()
+  const editEntries = useEditEntries(setSlots)
 
   // 「新建任务」：清空一切回到初始
   useEffect(
@@ -32,8 +34,9 @@ export function WorkbenchPage() {
         setJobId(null)
         setSlots([])
         setDone(0)
+        editEntries.reset()
       }),
-    [],
+    [editEntries],
   )
 
   useListingEvents(jobId, (e) => {
@@ -64,11 +67,14 @@ export function WorkbenchPage() {
       toast.error(`出图失败：${e.error}`)
       setJobId(null)
     } else if (e.kind === 'completed') {
+      // 完成态补拉详情合并 image_key → 结果区挂「基于此图再编辑」（ISSUE-0040）
+      if (jobId) editEntries.markCompleted(jobId)
       setJobId(null)
     }
   })
 
   async function onGenerate() {
+    editEntries.reset()
     const isSet = config.mode === 'set'
     // 预铺槽位：套图按图型分组顺序铺（带标签），单图铺 n 个无标签槽
     const planned: ResultSlot[] = isSet
@@ -117,7 +123,14 @@ export function WorkbenchPage() {
         onUploadedChange={setUploaded}
         onGenerate={onGenerate}
       />
-      <ResultGallery title="商品套图" slots={slots} done={done} total={total} generating={generating} />
+      <ResultGallery
+        title="商品套图"
+        slots={slots}
+        done={done}
+        total={total}
+        generating={generating}
+        editJobId={editEntries.completedJobId}
+      />
     </>
   )
 }
