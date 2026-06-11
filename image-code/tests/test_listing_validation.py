@@ -6,9 +6,11 @@ from design_hub.application.listing.listing_service import build_listing_prompts
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
+    EditModeRegistry,
     ImageTypeRegistry,
     PromptModifierRegistry,
     compose_clone_prompt,
+    compose_edit_prompt,
     compose_prompt,
 )
 
@@ -16,6 +18,7 @@ _MR = PromptModifierRegistry()
 _CR = CategoryCardRegistry()
 _TR = ImageTypeRegistry()
 _CL = CloneModeRegistry()
+_ED = EditModeRegistry()
 _MODS = {"platform": "抖音电商", "language": "中文"}
 
 
@@ -98,6 +101,29 @@ def test_clone_mode_fail_fast(mode: str) -> None:
             "", {}, _MR, category="FOOD", card_registry=_CR,
             clone_registry=_CL, clone_mode=mode,
         )
+
+
+def test_edit_prompt_exact_assembly_no_category_block() -> None:
+    from design_hub.application.listing.prompt_composer import _EDIT_FULL
+
+    out = compose_edit_prompt("换成节日场景", {}, _MR, edit_registry=_ED, edit_mode="full")
+    assert out == _EDIT_FULL + "\n" + "换成节日场景"  # 无品类块/图型卡/父 prompt，精确拼接
+
+
+def test_edit_prompt_order_with_modifiers() -> None:
+    out = compose_edit_prompt("背景换厨房", _MODS, _MR, edit_registry=_ED, edit_mode="delta")
+    assert out.index("编辑·微调") < out.index("背景换厨房") < out.index("用于抖音电商")
+
+
+def test_edit_prompt_requires_text() -> None:
+    with pytest.raises(ValueError):
+        compose_edit_prompt("  ", {}, _MR, edit_registry=_ED, edit_mode="delta")
+
+
+@pytest.mark.parametrize("mode", ["半改", "", "DELTA", "微调"])
+def test_edit_mode_fail_fast(mode: str) -> None:
+    with pytest.raises(ValueError):
+        compose_edit_prompt("改背景", {}, _MR, edit_registry=_ED, edit_mode=mode)
 
 
 def test_narrowed_enums_fail_fast() -> None:

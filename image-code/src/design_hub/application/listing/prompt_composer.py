@@ -159,6 +159,65 @@ class CloneModeRegistry:
         raise ValueError(f"未知复刻档位：{clone_mode}（合法：{'/'.join(CLONE_MODES)}）")
 
 
+# 编辑模式物化块（二次编辑 PRD §3.12.13 / ISSUE-0040）：逐字对齐
+# image-prompt/edit-mode-cards/编辑.md 的 ```text 块。两档纯静态零槽位；喂序契约：
+# 第 1 张=被编辑源图（基底）、其后 1..3 张=迭代链根原始产品图（保真锚，D2 防累积失真）。
+_EDIT_DELTA = (
+    "编辑·微调：本次是对已生成图的定向微调。第 1 张为当前画面（被编辑基底）——构图、场景、光线、"
+    "配色与一切未被下方修改要求点名的元素全部保持与它一致，不重新设计；"
+    "其后的图为产品原图——画面中产品的外形、包装与所有文字以产品原图为准逐字逐细节保留、"
+    "一个字一个像素都不改，不被当前画面中产品的任何失真带偏。"
+    "仅按下方修改要求做最小幅度的定向调整，修改要求未提到的一概不动。"
+)
+_EDIT_FULL = (
+    "编辑·重做：本次基于已生成图重新创作。第 1 张为此前画面（仅作方向参考，不必沿用其构图）；"
+    "其后的图为产品原图——画面中的产品只能是产品原图中的那个产品，"
+    "其外形、包装与所有文字以产品原图为准 100% 原样保留、不改一字。"
+    "请按下方新要求重新设计场景、构图与光线：画面如真实相机拍摄、自然光影、"
+    "产品与台面有真实接触阴影，不堆砌与产品无关的道具，不出现水印与多余文字。"
+)
+
+EDIT_MODES = ("delta", "full")  # registry key = edit_mode 列值（英文 key 对齐 DB 枚举，第六类卡）
+
+
+@dataclass
+class EditModeRegistry:
+    """编辑档位 → 物化块（PRD §3.12.13/ISSUE-0040）。
+
+    单一事实源=image-prompt 编辑卡；未知档位 fail-fast。
+    """
+
+    def block(self, edit_mode: str) -> str:
+        if edit_mode == "delta":
+            return _EDIT_DELTA
+        if edit_mode == "full":
+            return _EDIT_FULL
+        raise ValueError(f"未知编辑档位：{edit_mode}（合法：{'/'.join(EDIT_MODES)}）")
+
+
+def compose_edit_prompt(
+    prompt: str,
+    modifiers: dict[str, str],
+    registry: PromptModifierRegistry,
+    *,
+    edit_registry: EditModeRegistry,
+    edit_mode: str,
+) -> str:
+    """编辑 final prompt = 编辑档位块（自含产品保真） → 用户编辑指令（必填） → modifier 片段。
+
+    不注入品类保真块（其「只重绘周围」与 delta 锚定冲突，#645）、图型卡、父 prompt（Q-β：
+    源图即父 prompt 执行结果，文本二传必与本轮指令打架）。指令必填（E-⑤，路由层 422
+    先挡，此处兜底 fail-fast）。未知档位/下拉值均 fail-fast。
+    """
+    base = prompt.strip()
+    if not base:
+        raise ValueError("编辑指令不能为空")
+    edit_block = edit_registry.block(edit_mode)
+    fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
+    body = base if not fragments else base + "。" + "；".join(fragments)
+    return edit_block + "\n" + body
+
+
 def compose_clone_prompt(
     prompt: str,
     modifiers: dict[str, str],

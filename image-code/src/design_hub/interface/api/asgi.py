@@ -20,12 +20,14 @@ from design_hub.application.listing.listing_service import ListingGenerationServ
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
+    EditModeRegistry,
     ImageTypeRegistry,
     PromptModifierRegistry,
 )
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.project.customer_service import CustomerService
 from design_hub.composition import (
+    build_image_store,
     build_media_signer,
     build_registry,
     build_upload_store,
@@ -87,7 +89,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(),
         clone_registry=CloneModeRegistry(),
+        edit_registry=EditModeRegistry(),
     )
+    # 二次编辑源图读回（ISSUE-0040）：generate 桶/本地 generated/ 的读取面
+    app.state.image_store = build_image_store(settings)
     app.state.listing_history = SqlAlchemyListingHistory(session_factory)
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)
     # 历史/SSE 图 url 签名器（TOS 私有→预签名；本地→/img 静态，ISSUE-0029）

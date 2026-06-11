@@ -28,6 +28,7 @@ class ListingJobSummary:
     created_at: datetime
     first_image_key: str | None
     image_count: int
+    edit_mode: str | None = None  # delta|full；None=原生单（列表 ✎ 徽标，PRD §3.12.13 B③）
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,22 @@ class ListingJobDetail:
     # 爆款复刻（PRD §3.13）：档位（None=非复刻）+ 输入图角色（与 input_keys 同序；None=旧数据）
     clone_mode: str | None = None
     input_roles: tuple[str | None, ...] = ()
+    # 二次编辑（PRD §3.12.13/ISSUE-0040）：迭代链回显（None=非编辑单）
+    parent_job_id: str | None = None
+    edit_mode: str | None = None
+    source_image_key: str | None = None  # Out 层签 url 作「改自这张」回显
+    source_image_type: str | None = None  # 源张图型（「改自·场景图」徽标）
+    chain_cost: Decimal | None = None  # 迭代链累计：根计源张单张 cost（R5）+ 路径编辑单成本
+
+
+@dataclass(frozen=True)
+class EditSource:
+    """编辑源图反解结果（ISSUE-0040 写路径校验）：一次反解出全部父上下文。"""
+
+    parent_job_id: str
+    parent_ratio: str
+    parent_modifiers: dict[str, str]
+    root_product_upload_keys: tuple[str, ...]  # 链根产品锚 1..3（uploads 桶）
 
 
 class ListingHistoryQuery(ABC):
@@ -66,4 +83,14 @@ class ListingHistoryQuery(ABC):
     @abstractmethod
     async def get_job(self, *, job_id: str, user_id: str) -> ListingJobDetail | None:
         """非本人或不存在 → None（路由映射 404，不泄露存在性）。"""
+        ...
+
+    @abstractmethod
+    async def resolve_edit_source(
+        self, *, source_image_key: str, user_id: str
+    ) -> EditSource | None:
+        """二次编辑反解（E-δ）：key→源行(本人∧成功∧最新)→父 job→沿链核 owner→链根产品锚。
+
+        任一环不满足 → None（路由 404 anti-enum，不区分 不存在/他人/失败张）。
+        """
         ...

@@ -63,6 +63,17 @@ class TosImageStore(ImageStore):
         await asyncio.to_thread(self._client.put_object, self._bucket, key, content=data)
         return self._signer.generated_url(key)
 
+    async def load(self, image_key: str) -> bytes:
+        # 二次编辑源图读回（ISSUE-0040）：generate 桶 get_object，缺对象→404 同 uploads 口径
+        try:
+            obj = await asyncio.to_thread(self._client.get_object, self._bucket, image_key)
+            data: bytes = await asyncio.to_thread(obj.read)
+        except tos.exceptions.TosServerError as exc:
+            if getattr(exc, "status_code", None) == 404:
+                raise NotFoundError(f"出图不存在：{image_key}") from exc
+            raise
+        return data
+
 
 class TosUploadStore(UploadStore):
     """上传图落 upload 桶；id=key=<sha16>.<ext>；load 从 TOS 下载字节（喂 edits / 预览代理）。"""

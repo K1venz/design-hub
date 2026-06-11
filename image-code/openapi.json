@@ -265,6 +265,70 @@
         }
       }
     },
+    "/listing/edit": {
+      "post": {
+        "tags": [
+          "listing"
+        ],
+        "summary": "Edit Listing",
+        "description": "二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。\n\n源图=唯一不透明 handle（source_image_key），owner/parent 链全部服务端反解；\n喂图=[源图, 链根产品锚 1..3]（D2：每轮锚链根原图，漂移不随轮数叠加）。",
+        "operationId": "edit_listing_listing_edit_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Edit Listing Listing Edit Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/listing/jobs": {
       "get": {
         "tags": [
@@ -1389,6 +1453,50 @@
         ],
         "title": "Dimension"
       },
+      "EditRequest": {
+        "properties": {
+          "source_image_key": {
+            "type": "string",
+            "title": "Source Image Key"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Prompt"
+          },
+          "edit_mode": {
+            "type": "string",
+            "title": "Edit Mode",
+            "default": "delta"
+          },
+          "modifiers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Modifiers"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_image_key",
+          "prompt"
+        ],
+        "title": "EditRequest",
+        "description": "二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。\n\n生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。\n不收 category（R2：编辑组装无品类块、库无列，死参数不收）。\nprompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；\nedit_mode/ratio 仍走路由 fail-fast 400（域值校验，单一事实源在卡/映射表）。"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1486,6 +1594,10 @@
             "type": "string",
             "title": "Url"
           },
+          "image_key": {
+            "type": "string",
+            "title": "Image Key"
+          },
           "seed": {
             "type": "integer",
             "title": "Seed"
@@ -1514,6 +1626,7 @@
         "type": "object",
         "required": [
           "url",
+          "image_key",
           "seed",
           "cost",
           "status"
@@ -1636,6 +1749,62 @@
             "type": "array",
             "title": "Input Roles",
             "default": []
+          },
+          "parent_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Job Id"
+          },
+          "edit_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Mode"
+          },
+          "source_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Image Url"
+          },
+          "source_image_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Image Type"
+          },
+          "chain_cost": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chain Cost"
           }
         },
         "type": "object",
@@ -1710,6 +1879,17 @@
           "image_count": {
             "type": "integer",
             "title": "Image Count"
+          },
+          "edit_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Mode"
           }
         },
         "type": "object",

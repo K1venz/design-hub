@@ -33,6 +33,9 @@ class SqlAlchemyListingHistory(ListingHistory):
                 total_cost=outcome.total_cost,
                 error=outcome.error,
                 clone_mode=outcome.clone_mode,
+                parent_job_id=outcome.parent_job_id,
+                source_image_key=outcome.source_image_key,
+                edit_mode=outcome.edit_mode,
                 completed_at=datetime.now(UTC),
             )
             row.images = [
