@@ -601,6 +601,13 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **async + SSE**：二次编辑同走 async job + SSE（task_started→model_called→image_generated→task_completed），`?access_token=` 鉴权同 ISSUE-0011。
 - **失败 fail-fast**：provider/key 错 → job=失败、不静默吞、不回落假图、计费可追溯。
 
+**三方对收敛追加（2026-06-11 启动 #631；coordinator #637/#639 确认 + PM #642/#643 拍）：**
+- **D2 链根锚（硬约束）**：每轮编辑喂图 = 被编辑源图（基底）+ **迭代链根的原始上传产品图（保真锚）**，**绝不取上一轮产出作锚**——失真不可逆、锚带漂移=逐轮叠加，链根是唯一零失真产品事实源；**delta/full 两档都带锚**（full 放构图更需锚锁产品+文字）。机制复用复刻双喂先例（喂序即角色 + 块内角色识别句），计费按产出张数（n=1）不变；喂图包络 = 锚 1..3 + 源 1 = 2..4 张（4 张上限 dev 方案核）。
+- **可寻址标识走读模型、SSE 契约冻结**：结果图可寻址字段加在读模型——DetailOut 带 `parent_job_id`/`edit_mode`/源图回显（链徽标+回溯）；**SummaryOut 带 `edit_mode`（null=原生单），历史列表轻徽标「✎ 微调/重做」（PM 拍）**。SSE 事件契约原样不动。
+- **源图只读不可换（产品规则）**：编辑页源图只读展示，换图 = 另起新编辑——杜绝源图与 parent 链不一致。
+- **一次编辑出 1 张（PM 拍）**：迭代精修语义；要多张 = 多次分叉、每次独立 job（YAGNI）。
+- **仍开放（三方对收敛中，PM 倾向已亮 #643）**：端点形态（倾向瘦路由 `POST /listing/edit` 沿复刻 (b) 先例）/ delta 父 prompt 是否进组装（归 prompt）/ 编辑×图型卡与 overlay_texts 关系（倾向 MVP 不引入、徽标仅展示）/ 可编辑源范围（倾向 generate 桶成功结果图皆可编含 clone 产物、失败张 404 同 anti-enum）/ quality 档（倾向统一默认档）。
+
 **✅ 交互模型（用户已拍 2026-06-09 / coordinator #413：delta + full 两种都要）→ prompt 编辑模式两分支：**
 - **delta（微调，默认）**：用户给增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。**ratio/category 继承父 job**（换比例=重构图≠编辑）、prompt/modifiers 叠新。
 - **full（重做）**：用户给全新场景需求 → 以上一版结果作保真锚 + 全新场景重绘（接近首次出图）。**ratio/category 可改**。
