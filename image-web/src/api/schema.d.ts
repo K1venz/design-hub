@@ -215,58 +215,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/customers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Customers */
-        get: operations["list_customers_customers_get"];
-        put?: never;
-        /** Create Customer */
-        post: operations["create_customer_customers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/customers/{customer_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Customer */
-        get: operations["get_customer_customers__customer_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/dashboard/cost": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Cost */
-        get: operations["cost_dashboard_cost_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/models": {
         parameters: {
             query?: never;
@@ -376,62 +324,6 @@ export interface components {
              */
             category: string;
         };
-        /** CustomerCreate */
-        CustomerCreate: {
-            /** Name */
-            name: string;
-            /** Contact */
-            contact?: string | null;
-            /** Industry */
-            industry?: string | null;
-            /** Brand Color */
-            brand_color?: string | null;
-            /** Common Styles */
-            common_styles?: string[];
-            /** Common Taboos */
-            common_taboos?: string[];
-            /** Common Sizes */
-            common_sizes?: string[];
-        };
-        /** CustomerOut */
-        CustomerOut: {
-            /** Id */
-            id: number;
-            /** Name */
-            name: string;
-            /** Contact */
-            contact: string | null;
-            /** Industry */
-            industry: string | null;
-            /** Brand Color */
-            brand_color: string | null;
-            /** Common Styles */
-            common_styles: string[];
-            /** Common Taboos */
-            common_taboos: string[];
-            /** Common Sizes */
-            common_sizes: string[];
-        };
-        /** DesignerOut */
-        DesignerOut: {
-            /** User Id */
-            user_id: string;
-            /** Image Count */
-            image_count: number;
-            /** Cost */
-            cost: string;
-            /** Usable */
-            usable: number;
-            /** Scored */
-            scored: number;
-            /** Usable Rate */
-            usable_rate: number;
-        };
-        /**
-         * Dimension
-         * @enum {string}
-         */
-        Dimension: "overview" | "model" | "project" | "designer" | "tier";
         /**
          * EditRequest
          * @description 二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。
@@ -644,50 +536,6 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
-        /** ModelOut */
-        ModelOut: {
-            /** Model */
-            model: string;
-            /** Call Count */
-            call_count: number;
-            /** Image Count */
-            image_count: number;
-            /** Cost */
-            cost: string;
-            /** Cost Share */
-            cost_share: number;
-            /** Avg Cost */
-            avg_cost: string;
-        };
-        /** OverviewOut */
-        OverviewOut: {
-            /** Total Images */
-            total_images: number;
-            /** Total Cost */
-            total_cost: string;
-            /** Avg Cost */
-            avg_cost: string;
-            /** Usable Rate */
-            usable_rate: number;
-        };
-        /**
-         * Period
-         * @enum {string}
-         */
-        Period: "month" | "week" | "day";
-        /** ProjectOut */
-        ProjectOut: {
-            /** Project Id */
-            project_id: number | null;
-            /** Cost */
-            cost: string;
-            /** Image Count */
-            image_count: number;
-            /** Designer Count */
-            designer_count: number;
-            /** Per Capita */
-            per_capita: number;
-        };
         /** RegisterRequest */
         RegisterRequest: {
             /**
@@ -702,24 +550,13 @@ export interface components {
         };
         /**
          * Role
-         * @description 系统角色（PRD §6.3.3）：部门=设计部→设计师；管理层/负责人→管理者；其他→拒。
+         * @description 系统角色：值=app_user.role 的 DB 字符串契约（改值=数据迁移，须用户签字）。
          * @enum {string}
          */
         Role: "设计师" | "管理者";
         /** RoleUpdate */
         RoleUpdate: {
             role: components["schemas"]["Role"];
-        };
-        /** TierOut */
-        TierOut: {
-            /** Tier */
-            tier: string;
-            /** Image Count */
-            image_count: number;
-            /** Actual Share */
-            actual_share: number;
-            /** Target Share */
-            target_share: number;
         };
         /**
          * UploadResponse
@@ -1139,139 +976,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_customers_customers_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CustomerOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_customer_customers_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CustomerCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CustomerOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_customer_customers__customer_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                customer_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CustomerOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cost_dashboard_cost_get: {
-        parameters: {
-            query?: {
-                dim?: components["schemas"]["Dimension"];
-                period?: components["schemas"]["Period"];
-            };
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OverviewOut"] | components["schemas"]["ModelOut"][] | components["schemas"]["ProjectOut"][] | components["schemas"]["DesignerOut"][] | components["schemas"]["TierOut"][];
                 };
             };
             /** @description Validation Error */
