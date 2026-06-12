@@ -1,12 +1,14 @@
-"""ISSUE-0045 资损修验证探针（n=1 张数契约核，dev 284ce82）。
+"""ISSUE-0045 资损修验证探针（n=1 张数契约核·v2 矫正版）。
 
-修前：`_parse` 无 n==len(data) 核，中转站对 n=1 偶发返 2 项 → 落 2 图计双倍费（资损）。
-修后：`len(data)!=expected_n → ProviderError` fail-fast（回滚不计费、整单 TASK_FAILED）。
-探针：跑 N 个 n=1 gen，每单断言 **NEVER 2 图 + 计费=图数×单价**：
-  · 完成 → 恰 1 图、cost=1×单价（正常，不回归）
-  · 失败 → 0 图、cost=0（修触发=中转站违约被 fail-fast 挡、不双计费）
-  ⚠️ 违约偶发不可强制——本探针验「修后正常 n=1 不回归 + 结构上不可能 2 图」；违约分支由 dev 单测(48绿)盖。
-⚠️ 需 qa 重建含 284ce82 后跑。用法：QA_BASE=http://localhost:8444 N=3 uv run python ../image-qa/n1_anomaly_probe.py
+修订史：284ce82(v1)=`len!=n→ProviderError` 矫枉过正——over-deliver(中转站对 n=1 返 2)
+被判失败、好图被毙（#735 用户实测撞）。v2 正确修：
+  · **over-deliver(len>n) → 取前 n + 按 n 计费、不失败**（堵资损 + 不误毙好图）
+  · **under-deliver(len<n，n=1 即 0 图) → 才失败**（真没出图）
+探针断言（对齐 v2）：跑 N 个 n=1，每单 = **完成 + 恰 1 图 + cost=1×单价**：
+  · 资损守恒：图数≤1、cost=图数×单价（over 截断后计 n、绝不计 len）
+  · UX 守恒：**不因 over-deliver 失败**（出现 status=失败=矫枉过正未修好/真 under-deliver，标红查 reason）
+  ⚠️ over-deliver 中转站偶发——配套 taotu_real（套图 5×n=1 调用、命中概率高）主动猎取，本探针验正常 n=1 + 不双计费。
+⚠️ 需 qa 重建含 v2 修后跑。用法：QA_BASE=http://localhost:8444 N=3 uv run python ../image-qa/n1_anomaly_probe.py
 """
 
 import asyncio
@@ -76,13 +78,17 @@ async def main() -> None:
             cost = Decimal(str(d.get("total_cost", "0")))
             # 核心断言：NEVER 2 图；完成→1图/cost=单图、失败→0图/cost=0；计费=成功图数
             ncount = len(ok_imgs)
-            never2 = ncount <= 1
+            never2 = ncount <= 1  # 截断守恒：over-deliver→取前 n、≤1 图
             cost_match = cost == sum((Decimal(str(im.get("cost", "0"))) for im in ok_imgs), Decimal("0"))
-            consistent = (status == "完成" and ncount == 1) or (status == "失败" and ncount == 0)
-            ok = never2 and cost_match and consistent
+            # v2 断言：n=1 期望 完成+恰1图+计费=图数（over 截断不失败）；失败=矫枉过正未修好 or 真 under-deliver
+            ok = status == "完成" and ncount == 1 and never2 and cost_match
             npass += ok
-            print(f"  {'PASS' if ok else '🔴 FAIL'}  job={job[:12]} status={status} 成功图={ncount} cost={cost}"
-                  + ("" if never2 else "  <<< 2 图！资损复现！"))
+            note = ""
+            if not never2:
+                note = "  <<< >1 图！截断/资损守恒未生效！"
+            elif status == "失败":
+                note = f"  <<< 失败！（若 reason=张数不符=矫枉过正未修好；真 under-deliver=中转站没出图）reason={d.get('error') or d.get('failure_reason') or '?'}"
+            print(f"  {'PASS' if ok else '🔴 FAIL'}  job={job[:12]} status={status} 成功图={ncount} cost={cost}{note}")
         print(f"\n==== ISSUE-0045 n=1 探针：{npass}/{N} ====（NEVER 2 图 + 计费=图数；修后正常 n=1 不回归）")
 
 
