@@ -15,25 +15,26 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
         <div className="animate-in fade-in slide-in-from-left-2 relative flex items-center gap-3 duration-700">
           <BrandMark className="size-9" />
-          <span className="font-display text-foreground/80 text-lg tracking-[0.16em]">
-            STUDIO COPILOT
+          <span className="text-foreground/85 text-lg font-semibold tracking-[0.02em]">
+            实朴
+            <span className="text-muted-foreground ml-2 text-[13px] font-normal tracking-[0.12em]">电商图片工作站</span>
           </span>
         </div>
 
         <div className="animate-in fade-in slide-in-from-left-3 relative max-w-md space-y-5 duration-700">
-          <h1 className="font-display text-[3.6rem] font-semibold leading-[1.04] tracking-tight">
-            <span className="text-foreground">设计师的</span>
+          <h1 className="font-display text-[3.4rem] font-semibold leading-[1.06] tracking-tight">
+            <span className="text-foreground">上传产品图，</span>
             <br />
-            <span className="aurora-text">AI 副驾驶</span>
+            <span className="aurora-text">整套电商图一键出</span>
           </h1>
           <p className="text-muted-foreground max-w-sm text-[15px] leading-relaxed">
-            产品图 → 高质量电商图。一单一档管理客户与项目，出图、选稿、改稿、交付一条线贯通。
+            白底、场景、卖点图一次出齐，还能复刻爆款版式、对结果二次微调——产品与包装文字始终保真。
           </p>
         </div>
 
         <div className="relative flex items-end justify-between">
           <span className="text-muted-foreground/70 font-mono text-xs">
-            design_hub · 图生图引擎 v0.1
+            SHIPU · AI 出图引擎
           </span>
         </div>
       </aside>
