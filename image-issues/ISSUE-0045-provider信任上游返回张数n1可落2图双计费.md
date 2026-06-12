@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0045
 title: provider 信任上游返回张数：n=1 可落 2 图并双计费（资损向）
-status: 已修复        # 二修(05cc6b6)QA 验证绿：单测 spec 核对正确(over截断/under失败) + E2E 8 n=1 无回归/无误判失败/无双计费；over 分支靠 spec 单测+用户 prod 复测终验 → coordinator 部署后终关
+status: 已关闭        # coordinator 终关(#754)：二修 05cc6b6 部署 + 单测 spec 正确 + E2E 8 无回归 + prod 终验 15 次 n=1 全绿(无误判失败/¥6=15×0.40 资损消失) + footprint 全清 zhaokai 完好；over 截断静默、逐调用铁证结构不可得、spec 单测兜底
 severity: P1
 reporter: 开发        # 现象由 frontend-b 在 UI 自测中发现（#675），dev 代码定根因
-owner: coordinator    # QA 验证完毕、球交 coordinator（二修随全量部署上 prod、用户复测套图 over-deliver 真实流量终验 + 终关）
+owner: coordinator    # 已终关（coordinator 决定 #754）
 created: 2026-06-11
-updated: 2026-06-11
+updated: 2026-06-12
 related:
   - code: image-code/src/design_hub/infrastructure/providers/openai_compat.py
   - test: image-code/tests/test_provider_contract.py
@@ -71,3 +71,5 @@ actual=0.80)` 向上调账，把上游违约放大成用户侧资损。
   → 二修方向对、E2E 无回归、单测 spec 核正确。status→已修复、owner→coordinator（随全量部署上 prod、用户复测套图 over-deliver 终验+终关）。
 - 2026-06-12 [ops] **二修全量部署上 prod**（ship main HEAD 05cc6b6）：迁移前 mysqldump 备份 `/root/db-backup-20260612-171615.sql`、alembic no-op、api Recreated→Healthy（新镜像含张数核两支 `data[:expected_n]` + 「出图数量不足…请重试」）、nginx 未动、回滚镜像 `rollback-20260612-171541` 就绪；公网 `/`200·`/docs`404·`/api/listing/edit`401、FE bundle hash 不变。
 - 2026-06-12 [QA] **prod over-deliver 终验绿**（coordinator #748 派：用户要 QA 代复测、不手动复测）：公网 `https://203.0.113.10` 跑 **3 单默认套图(1/2/2=5)= 15 次 n=1 真实调用**，**3/3 单全绿**——每单 完成 + 恰 5 张无失败行 + 分布 1/2/2 + 无 IMAGE_FAILED + **cost=¥2.00=5×0.40（资损核·与中转站返回 len 解耦）** + 落 prod 桶；聚合 **误判失败=0**（一修矫枉过正消失）、**总计费 ¥6.00=15×0.40**（原 0045 资损消失）。**视觉核** 15 张落盘（`image-qa/套图prod_smoke/`）：真「嘴嘴熊·高山七彩花生」产品图、保真佳、白底/场景/卖点图型对位、非空白占位。**honest 边界**：over-deliver 截断**静默**（`_parse:182` 无 log、QA 实读确认）⇒ 黑盒侧被正确处理的 over-deliver 与正常 n=1→1 **不可区分**、无法逐调用指认铁证；但用户刚在 prod 撞 over-deliver ⇒ 中转站当前在多返窗口 ⇒ 这 15 次极可能**真实经历** over-deliver、全 clean = 二修在真实条件下工作的强证据 + over 分支由 spec 单测兜底。证据：脚本 `taotu_prod_smoke.py`、落盘 `套图prod_smoke/`。→ **prod 无回归、无资损、出图真实**。owner 仍 coordinator（终关）；footprint（qa-test 号 + 3 jobs + TOS 对象）由 ops 盘点清（保 zhaokai id10/22）。
+- 2026-06-12 [ops] **footprint 全清**（#752，children-first 事务删 scope=uid23+3 jobs）：测试号 `qa-taotu-prod-1781261585`(id23) + 3 套图单 + 15 listing_image + 3 listing_job_input + 3 cost_ledger(¥6.00) + TOS generate 15/upload 1。核验：app_user 回 5、listing_job 回 2、uid23 残留 0、**zhaokai id10/22 数据完好**。
+- 2026-06-12 [coordinator] 🏁 **终关**（#754，owner 决定）。整轮闭环：一修 fail-fast `len!=n` 矫枉过正（用户实测撞「场景图生成失败」）→ 二修 05cc6b6（over→截断取前 n、计 n、不失败 / under→失败 + 友好文案，I/O 域优雅降级合规）→ 单测 spec 核对正确 + E2E 8 无回归 + prod 终验 15 次 n=1 全绿 + footprint 全清。**教训沉淀**：① fail-fast 也要分清 over/under——「数量不符一刀切」对 over-deliver 是错设计；② 真实使用是最后一道防线——光跑测试发现不了「测试编码了错 spec」。[QA] flip 黑板 已修复→**已关闭**。
