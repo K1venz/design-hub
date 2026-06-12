@@ -169,13 +169,17 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     ) -> list[GeneratedImage]:
         data = body.get("data") if isinstance(body, dict) else None
         if not data:
-            raise ProviderError(f"{self.name} empty response")
-        if len(data) != expected_n:
-            # 上游契约核（ISSUE-0045 资损向）：返回张数必须等于请求 n。多返=按张计费被
-            # 放大（reconcile 向上调账）、少返=静默缺图——都按 I/O 契约违约 fail-fast。
+            raise ProviderError(f"{self.name} 未返回任何图片，请重试")
+        if len(data) < expected_n:
+            # under-deliver=真缺图才失败（ISSUE-0045 二修，文案对用户友好）
             raise ProviderError(
-                f"{self.name} 返回张数与请求不符：n={expected_n}，实返 {len(data)}"
+                f"{self.name} 出图数量不足（请求 {expected_n} 张、实得 {len(data)} 张），请重试"
             )
+        # over-deliver（ISSUE-0045 二修，#735 用户实测倒逼）：中转站对 n=1 偶发多返属
+        # I/O 域违约常态——取前 n 张、按 n 计费、不整单失败。既保住出图（图是好的），
+        # 又堵原资损（成本=n×unit，不随实返张数放大）。一修的 len!=n 整单失败把
+        # 上游 over-deliver 变成了用户侧出图失败，矫枉过正。
+        data = data[:expected_n]
         base = seed if seed is not None else 0
         images: list[GeneratedImage] = []
         for index, item in enumerate(data):
