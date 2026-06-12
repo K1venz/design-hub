@@ -65,3 +65,9 @@ prod smoke（登录→出图→计费正常、管理后台无死链）。
   消失）；门禁 ruff ✅ + pytest 49 绿（tests 零受影响、无世界A测试可删——验收第 4 条"门禁数字
   随之更新"实际数字不变=49）；6 保留表/provider generate()/guard 预扣链零触碰。状态→实现中，
   接力 frontend-b（codegen 重拉）+ QA（4-prong gate）。
+- 2026-06-12 [前端] frontend-b 棒完成（两笔）：① 3702483 整删 8 文件 −1087 行（CustomersPage/
+  CreateCustomerDialog[含品牌色输入=品牌预设前端面]/api customers+dashboard/案A看板四件套/
+  PagePlaceholder）+ /customers·/dashboard 路由与导航摘除（RoleRoute 保，admin 两页仍用）+
+  注册页档 a 文案（DB 枚举零动）+ npm uninstall recharts；② a2ce62a openapi 重拉 −906 行，
+  世界A codegen 类型 0 残留、listing 契约完好实证。门禁 eslint/tsc/vitest 25 绿 + build ✅
+  （tsc 绿=删除闭包机器证明）。接力 QA 4-prong gate。
