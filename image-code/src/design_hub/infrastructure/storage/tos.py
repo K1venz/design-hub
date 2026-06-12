@@ -6,14 +6,12 @@ tos SDK 为同步：网络调用(put/get)包 asyncio.to_thread 不阻塞事件�
 
 import asyncio
 import hashlib
-from pathlib import Path
 from typing import Any
 
 import tos
 
 from design_hub.config.settings import Settings
 from design_hub.domain.errors import NotFoundError
-from design_hub.ports.exporter import ExportStore
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.upload_store import UploadStore, upload_ns
@@ -105,25 +103,3 @@ class TosUploadStore(UploadStore):
         return data, content_type
 
 
-class TosExportStore(ExportStore):
-    """导出（ISSUE-0034）：源图从 generate 桶按 key 读回；产物仍落本地（无导出桶）。"""
-
-    def __init__(self, client: Any, source_bucket: str, base_dir: str) -> None:
-        self._client = client
-        self._bucket = source_bucket
-        self._base = Path(base_dir).resolve()
-
-    async def read(self, url: str) -> bytes:
-        key = url.split("?")[0].rsplit("/", 1)[-1]  # 源图 image_key
-        obj = await asyncio.to_thread(self._client.get_object, self._bucket, key)
-        data: bytes = await asyncio.to_thread(obj.read)
-        return data
-
-    async def write(self, data: bytes, *, rel_path: str) -> str:
-        target = (self._base / rel_path).resolve()
-        # 防目录穿越：写出点必须在 base 之内
-        if self._base not in target.parents and target != self._base:
-            raise ValueError(f"非法导出路径（越界）：{rel_path}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        return target.as_uri()

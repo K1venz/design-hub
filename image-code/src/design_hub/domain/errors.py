@@ -3,7 +3,7 @@ class DomainError(Exception):
 
 
 class NotFoundError(DomainError):
-    """A referenced entity (project/brief/asset/...) does not exist. Maps to HTTP 404."""
+    """A referenced entity (upload/job/image/...) does not exist. Maps to HTTP 404."""
 
 
 class AuthenticationError(DomainError):

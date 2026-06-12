@@ -1,8 +1,8 @@
 """生产 ASGI 应用：lifespan 装配真实基础设施（MySQL；listing 异步出图+SSE 单进程，无 Redis）。
 
 运行：`uv run uvicorn design_hub.interface.api.asgi:app`（需 DB_URL 指向真实 MySQL）。
-2026-06-09 旧海报/项目/单图出图流已下线（ISSUE-0039：去 legacy + 消可伪造 X-User-Id 归属漏洞），
-仅保留 listing 一键出图主线 + 客户档案 + 成本仪表盘/模型配置/用户管理 + 认证。
+2026-06-12 世界 A（客户/接单流）整体移除（ISSUE-0046，纯 toC 自助出图）：
+仅保留 listing 一键出图主线 + 模型配置/用户管理 + 认证。
 """
 
 from collections.abc import AsyncIterator
@@ -15,7 +15,6 @@ from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.guard import CostGuard
-from design_hub.application.dashboard.cost_report import CostReportService
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -25,7 +24,6 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.listing.upload_service import UploadService
-from design_hub.application.project.customer_service import CustomerService
 from design_hub.composition import (
     build_image_store,
     build_media_signer,
@@ -37,8 +35,6 @@ from design_hub.config.settings import Settings
 from design_hub.domain.enums import Role
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
-from design_hub.infrastructure.db.cost_query import SqlAlchemyCostQuery
-from design_hub.infrastructure.db.customer_repo import SqlAlchemyCustomerRepository
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
@@ -49,12 +45,10 @@ from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerR
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.interface.api.app import register_error_handlers
-from design_hub.interface.api.deps import get_current_user, require_role
+from design_hub.interface.api.deps import require_role
 from design_hub.interface.api.routes import (
     admin,
     auth,
-    customers,
-    dashboard,
     listing,
     uploads,
     users,
@@ -99,12 +93,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.media_signer = build_media_signer(settings)
     # 图片上传两步流（ISSUE-0026）：上传图落本地 assets/，预览经 GET /uploads/{id} 代理
     app.state.upload_service = UploadService(store=build_upload_store(settings))
-    # 客户档案（轻量 CRUD，独立于已下线的项目流，保留）
-    app.state.customer_service = CustomerService(
-        customers=SqlAlchemyCustomerRepository(session_factory)
-    )
-    # 成本仪表盘：5 维聚合查询用例（纯读 DB）
-    app.state.cost_report_service = CostReportService(query=SqlAlchemyCostQuery(session_factory))
     app.state.model_config_service = model_config_service
     # 鉴权（WP-G/ISSUE-0015）：JWT 令牌服务 + 自建邮箱密码认证
     token_service = PyJwtTokenService(
@@ -145,17 +133,14 @@ def create_production_app() -> FastAPI:
     # /metrics 不做 app 层开关：内网抓取直连容器 8000，公网由 nginx 两族 404 收口。
     init_sentry(settings.sentry_dsn)
     instrument_app(app)
-    # WP-G 角色矩阵：在 include 级统一挂依赖；/auth 公开
-    login_required = [Depends(get_current_user)]  # 登录即可：设计师 + 管理者
+    # WP-G 角色矩阵：在 include 级统一挂依赖；/auth 公开；listing/uploads 自带逐路由鉴权
     manager_only = [Depends(require_role(Role.MANAGER))]  # 仅管理者
     app.include_router(auth.router)  # 公开：/auth/register、/auth/login；/me 自带 current_user
     # listing 一键出图主线：鉴权 Bearer + SSE ?access_token=（ISSUE-0011）
     app.include_router(listing.router)
     # 图片上传两步流（ISSUE-0026）：POST /uploads + GET /uploads/{id} 预览代理
     app.include_router(uploads.router)
-    app.include_router(customers.router, dependencies=login_required)
-    # 仅管理者：成本仪表盘 + 模型配置 + 用户管理
-    app.include_router(dashboard.router, dependencies=manager_only)
+    # 仅管理者：模型配置 + 用户管理
     app.include_router(admin.router, dependencies=manager_only)
     app.include_router(users.router, dependencies=manager_only)
     register_error_handlers(app)
