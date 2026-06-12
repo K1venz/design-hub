@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0046
 title: 世界 A 移除 — 客户/接单交付框架整体退役，实朴定性为纯 toC 自助出图
-status: 已确认        # 用户已签字、实现棒开闸（#774）；非 bug，借状态机表「已确认=确认要做」
+status: 已关闭        # PM 终验收（2026-06-12）：QA 双网复核全绿 + ops prod 部署核验完毕，闭环
 severity: P1          # 架构清理：化石框架占据 schema/代码/导航，与 toC 定性冲突
 reporter: PM          # 用户拍板（#768/#774），coordinator 编排，PM 开条追踪
-owner: coordinator    # QA 4-prong gate 全绿（①②③④）→ 待 coordinator 放行 ops 部署 → PM 验收关闭
+owner: PM             # 已关闭（PM 终验收 2026-06-12）
 created: 2026-06-12
 updated: 2026-06-12
 related:
@@ -24,6 +24,8 @@ related:
 1. **DROP 8 表**（亲签，DB 铁律）：children-first 序
    `generated_image → generation_job → deliverable → revision → asset → brief → project → customer`。
    prod 老表全 0 行（ops #762 早期残留已清）= **零数据损失**。
+   **部署时修正（2026-06-12）**：customer 实有 1 行（zhaokai 测试录入 APPLE/COOK，调研后新产生）——
+   ops DROP 前 STOP-and-ask，**用户拍「删」**（随表删、已入带标签备份可恢复），前提修正后继续。
 2. **成本看板案 A**：dashboard 链整删（旧 5 维聚合查 0 行老表 = 空壳）；
    **toC 成本看板**（按 listing 表 + cost_ledger 重设计）入 backlog，owner=PM。
 3. **角色文案档 a**：UI 字面「设计师」→「用户」；`app_user.role` DB 枚举**不动**（改值=迁移=签字，字面收益不值）。
@@ -100,3 +102,13 @@ prod smoke（登录→出图→计费正常、管理后台无死链）。
   `/api/admin/models` 403、`/api/listing/jobs` 200 = 仍挂载）。**ops prod smoke + QA 公网复核双网皆绿**。
   脚本泛化 /api 前缀提交 56b8c67。footprint（qa-worlda-* 测试号 + 2 jobs + 4 图 + ¥1.60 + TOS）交 ops 清、保 zhaokai。
   → **QA 验收①②③④ 全部闭环、无遗留异议**，@pm 终验收关闭。
+- 2026-06-12 [PM] **终验收通过 → 关闭**。对验收标准逐条核：① listing/uploads/auth/出图全链零变化——
+  **双网实证**（qa 8444 gate ① + prod 公网复核 15/15，单图 cost0.40/套图 plan1/1/1 cost1.20 计费正常）；
+  ② /customers·/dashboard 双网 404 + 保留路由反向核（admin 两页/listing 仍挂载=选择性删除无误删）；
+  ③ SHOW TABLES 15→7（8 表 children-first 全 DROP、6 保留表完好、alembic head a1f7c3d9e5b2）+
+  **zhaokai toC 数据逐项不变**（listing_job 3/listing_image 13/cost_ledger 5/model_config 4）；
+  ④ pytest 49 绿（tests 零受影响，验收第 4 条字面「门禁数字更新」按 dev 实况修正=数字不变）。
+  过程纪律三亮点入档：ops **STOP-and-ask**（签字前提变更即停、用户拍删后续跑）+ 三重回滚保险
+  （带标签备份 test-restore 验证 + [6a] 备份 + 旧镜像）+ QA honest 自纠（探测脚本 bug 修正为正确断言、
+  非削弱假绿）。PRD §0 定性修订补 ✅ 已落地标记。遗留：QA prod footprint 由 ops 清（不阻关闭）；
+  toC 成本看板 backlog（owner=PM，拟与 §7.D 积分制同轮）。**status→已关闭**。
