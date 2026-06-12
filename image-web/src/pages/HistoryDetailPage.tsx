@@ -28,12 +28,12 @@ export function HistoryDetailPage() {
       {q.isLoading ? (
         <Skeleton className="h-40 rounded-2xl" />
       ) : q.isError || !d ? (
-        <div className="rounded-2xl border border-wb-line-1 bg-white p-10 text-center text-sm text-wb-ink-6">
+        <div className="rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] p-10 text-center text-sm text-wb-ink-6">
           任务不存在或无权查看。
         </div>
       ) : (
         <>
-          <div className="rounded-2xl border border-wb-line-1 bg-white p-5">
+          <div className="rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] p-5">
             <div className="mb-3 flex items-center gap-3">
               <h2 className="text-lg font-semibold text-wb-ink-1">
                 {d.platform ? `${d.platform} · ${d.ratio}` : d.ratio}
@@ -178,7 +178,7 @@ function ImageGrid({
       {images.map((img, i) => (
         <div
           key={i}
-          className="group relative aspect-square overflow-hidden rounded-2xl border border-wb-line-1 bg-white"
+          className="group relative aspect-square overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(40,40,90,.22)]"
         >
           <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
           {img.status === IMAGE_SUCCESS_STATUS && (

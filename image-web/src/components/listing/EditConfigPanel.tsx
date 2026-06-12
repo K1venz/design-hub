@@ -51,7 +51,7 @@ export function EditConfigPanel(props: EditConfigPanelProps) {
   const canGenerate = source !== null && config.prompt.trim().length > 0 && !pending
 
   return (
-    <div className="flex w-[392px] shrink-0 flex-col border-r border-wb-line-1 bg-white">
+    <div className="glass-panel flex w-[372px] shrink-0 flex-col overflow-hidden">
       <div className="flex-1 overflow-auto p-5">
         <h4 className="mb-1 text-[13px] font-bold">源图（只读 · 不可换）</h4>
         <p className="mb-2 text-[11.5px] text-wb-ink-7">要换一张？回历史或结果区重新选</p>
@@ -131,6 +131,7 @@ export function EditConfigPanel(props: EditConfigPanelProps) {
               value={config.modifiers[f.key] ?? f.options[0]}
               options={f.options}
               onChange={(v) => setModifier(f.key, v)}
+              className={f.key === 'platform' ? 'col-span-2' : undefined}
             />
           ))}
           {config.editMode === 'delta' ? (
@@ -152,7 +153,7 @@ export function EditConfigPanel(props: EditConfigPanelProps) {
         </div>
       </div>
 
-      <div className="border-t border-wb-line-1 bg-white p-4">
+      <div className="border-t border-wb-line-1 bg-white/60 p-4">
         <GradientButton onClick={onGenerate} disabled={!canGenerate} className="w-full">
           {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
           开始编辑

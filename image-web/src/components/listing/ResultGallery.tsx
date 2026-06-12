@@ -45,17 +45,17 @@ export function ResultGallery({
     : []
 
   return (
-    <div className="flex-1 overflow-auto p-6 lg:px-8">
-      <div className="mb-3.5 flex items-center justify-between">
-        <h2 className="text-[22px] font-semibold">{title}</h2>
+    <div className="min-w-0 flex-1 overflow-auto">
+      <div className="glass-panel mb-4 flex h-12 items-center justify-between rounded-2xl px-5">
+        <h2 className="text-[16px] font-semibold tracking-[-0.01em]">{title}</h2>
         {ready.length > 0 && (
           <button
             onClick={() =>
               ready.forEach((s, i) => void downloadImage(s.url!, `${s.imageType ?? 'listing'}-${i + 1}.png`))
             }
-            className="rounded-[10px] border border-wb-line-1 bg-white px-3.5 py-2 text-[13px] text-wb-ink-3"
+            className="rounded-full bg-wb-ink-2 px-3.5 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
           >
-            <DownloadIcon className="mr-1 inline size-4" /> 下载全部
+            <DownloadIcon className="mr-1 inline size-3.5" /> 下载全部
           </button>
         )}
       </div>
@@ -116,7 +116,9 @@ function SlotGrid({
             key={i}
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="group relative aspect-square overflow-hidden rounded-2xl border border-wb-line-1 bg-white"
+            whileHover={{ y: -3 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="group relative aspect-square overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.14)] transition-shadow hover:shadow-[0_14px_32px_-12px_rgba(40,40,90,.22)]"
           >
             <img src={s.url} alt="" className="size-full object-cover" />
             {editJobId && s.imageKey && (
@@ -150,7 +152,7 @@ function SlotGrid({
         ) : (
           <div
             key={i}
-            className="grid aspect-square place-items-center rounded-2xl border border-dashed border-wb-line-3 bg-wb-surface-1"
+            className="shimmer grid aspect-square place-items-center rounded-2xl border border-dashed border-wb-line-3 bg-wb-surface-1"
           >
             <div className="size-7 animate-spin rounded-full border-[3px] border-wb-line-2 border-t-wb-brand" />
           </div>
