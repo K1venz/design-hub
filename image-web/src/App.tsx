@@ -13,7 +13,6 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
 import { CloneWorkbenchPage } from '@/pages/CloneWorkbenchPage'
-import { CustomersPage } from '@/pages/CustomersPage'
 import { EditWorkbenchPage } from '@/pages/EditWorkbenchPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { HistoryPage } from '@/pages/HistoryPage'
@@ -25,11 +24,6 @@ import { WorkbenchPage } from '@/pages/WorkbenchPage'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { RoleRoute } from '@/routes/RoleRoute'
 import { ROLE_MANAGER } from '@/stores/auth-store'
-
-// recharts 体量较大，按路由懒加载切出独立 chunk
-const DashboardPage = lazy(() =>
-  import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
-)
 
 // UI 风格预览（throwaway 选型用，第二轮 Western AI-product）：仅 DEV 注册路由。
 // import() 必须在 DEV 分支内（静态可消除），否则 chunk 仍会被产出进 prod dist。
@@ -79,17 +73,6 @@ function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route path="history" element={<HistoryPage />} />
           <Route path="history/:jobId" element={<HistoryDetailPage />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route
-            path="dashboard"
-            element={
-              <RoleRoute allow={[ROLE_MANAGER]}>
-                <Suspense fallback={<FullPageLoader label="载入仪表盘…" />}>
-                  <DashboardPage />
-                </Suspense>
-              </RoleRoute>
-            }
-          />
           <Route
             path="admin/models"
             element={

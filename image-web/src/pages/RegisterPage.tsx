@@ -38,7 +38,7 @@ export function RegisterPage() {
     <AuthLayout>
       <div className="space-y-2">
         <h2 className="pt-2 text-2xl font-semibold tracking-tight text-foreground">注册账号</h2>
-        <p className="text-sm text-muted-foreground">注册即可使用，默认设计师角色。</p>
+        <p className="text-sm text-muted-foreground">注册即可使用，上传产品图就能出图。</p>
       </div>
 
       {register.isError && (
