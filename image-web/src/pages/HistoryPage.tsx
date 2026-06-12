@@ -29,16 +29,16 @@ export function HistoryPage() {
           ))}
         </div>
       ) : jobs.isError ? (
-        <div className="rounded-2xl border border-wb-line-1 bg-white p-10 text-center text-sm text-wb-ink-6">
+        <div className="rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] p-10 text-center text-sm text-wb-ink-6">
           加载失败，请稍后重试。
         </div>
       ) : items.length === 0 && offset === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-wb-line-1 bg-white py-20">
+        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] py-20">
           <InboxIcon className="size-12 text-wb-faint-4" strokeWidth={1.5} />
           <p className="text-sm text-wb-ink-6">还没有出图记录</p>
           <button
             onClick={() => navigate('/')}
-            className="rounded-[10px] bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-5 py-2 text-[13px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(124,108,255,.55)]"
+            className="rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-5 py-2 text-[13px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.55)] transition-shadow hover:shadow-[0_10px_24px_-8px_rgba(91,91,214,.7)]"
           >
             去出图
           </button>
@@ -77,7 +77,7 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
   return (
     <button
       onClick={onClick}
-      className="group overflow-hidden rounded-2xl border border-wb-line-1 bg-white text-left transition-shadow hover:shadow-[0_12px_30px_-16px_rgba(60,50,40,.25)]"
+      className="group animate-in fade-in slide-in-from-bottom-2 overflow-hidden rounded-2xl border border-white/70 bg-white text-left shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] duration-300 transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(40,40,90,.22)]"
     >
       <div className="relative aspect-[4/3] bg-wb-surface-4">
         {job.first_image_url ? (

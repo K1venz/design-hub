@@ -103,105 +103,106 @@
 }
 
 :root {
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
-    /* 冷调灰白底 + 墨黑文字（非纯白，带一点灰、偏冷） */
-    --background: oklch(0.967 0.0025 255);
-    --foreground: oklch(0.235 0.013 264);
-    --card: oklch(0.993 0.0015 255);
-    --card-foreground: oklch(0.235 0.013 264);
-    --popover: oklch(0.993 0.0015 255);
-    --popover-foreground: oklch(0.235 0.013 264);
+    /* ── Style 4「Glass SaaS」（用户选定 #717）：光洁浅灰底 + 白卡 +
+       单一蓝紫 accent + 玻璃微质感。shadcn 槽与 --wb-* 同一张值表（并轨终态）。 ── */
+    --background: #f3f4f8;
+    --foreground: #23262f;
+    --card: #ffffff;
+    --card-foreground: #23262f;
+    --popover: #ffffff;
+    --popover-foreground: #23262f;
 
-    /* 青墨主色 */
-    --primary: oklch(0.462 0.069 196);
-    --primary-foreground: oklch(0.985 0.004 255);
+    /* 蓝紫主色（全站唯一 accent） */
+    --primary: #5b5bd6;
+    --primary-foreground: #ffffff;
 
-    --secondary: oklch(0.928 0.004 255);
-    --secondary-foreground: oklch(0.305 0.012 264);
-    --muted: oklch(0.946 0.003 255);
-    --muted-foreground: oklch(0.525 0.011 260);
+    --secondary: #eceef5;
+    --secondary-foreground: #3f4350;
+    --muted: #eef0f5;
+    --muted-foreground: #6b7080;
 
     /* accent = 主色浅渲染（hover / 选中态） */
-    --accent: oklch(0.927 0.022 191);
-    --accent-foreground: oklch(0.382 0.058 197);
+    --accent: #eef0fb;
+    --accent-foreground: #4747c2;
 
-    /* 琥珀高光（暖色点缀，与冷灰白形成冷暖对比） */
-    --highlight: oklch(0.792 0.132 76);
-    --highlight-foreground: oklch(0.292 0.04 64);
+    /* 高光 = 渐变伙伴紫（流光文字 / beam 默认终点） */
+    --highlight: #7b6cf0;
+    --highlight-foreground: #2c2c6e;
 
-    --destructive: oklch(0.553 0.196 27);
+    --destructive: #d64545;
 
-    --border: oklch(0.906 0.004 255);
-    --input: oklch(0.9 0.005 255);
-    --ring: oklch(0.552 0.069 196);
+    --border: #e7e9f0;
+    --input: #e2e5ee;
+    --ring: #5b5bd6;
 
-    /* 图表色板：青 / 琥珀 / 陶土 / 黛蓝 / 梅 */
-    --chart-1: oklch(0.552 0.094 196);
-    --chart-2: oklch(0.752 0.132 76);
-    --chart-3: oklch(0.602 0.118 42);
-    --chart-4: oklch(0.548 0.072 252);
-    --chart-5: oklch(0.512 0.102 332);
+    /* 图表色板：蓝紫为首的克制系 */
+    --chart-1: #5b5bd6;
+    --chart-2: #7b6cf0;
+    --chart-3: #4f9cf9;
+    --chart-4: #e0689a;
+    --chart-5: #8a8ae6;
 
-    /* ── 工作台 token 值（commit ① 原样迁入：14 个 tsx 的硬编码 hex 一一对应、
-       不同值绝不共 token；近似阶收敛属 commit ② Style 4 换肤的设计决策） ── */
-    /* 纸面阶（页底/槽底/chip 底） */
-    --wb-surface-1: #faf8f5;
-    --wb-surface-2: #fbfaf8;
-    --wb-surface-3: #f6f4f1;
-    --wb-surface-4: #f1ece5;
-    --wb-surface-5: #efeae3;
-    --wb-surface-6: #eee7df;
+    /* ── 工作台 token 值（commit ②：Style 4 换肤——值表整体替换为光洁浅灰系，
+       近似阶就近收敛；命名与 ① 一致，组件零改名） ── */
+    /* 面阶（页底/槽底/chip 底）：冷灰白 */
+    --wb-surface-1: #f4f5f9;
+    --wb-surface-2: #f7f8fb;
+    --wb-surface-3: #f1f2f7;
+    --wb-surface-4: #eef0f5;
+    --wb-surface-5: #eef0f7;
+    --wb-surface-6: #e9ebf2;
     /* 边线阶（主边框/spinner 轨/虚线框） */
-    --wb-line-1: #ece8e2;
-    --wb-line-2: #e7e0d6;
-    --wb-line-3: #e4ddd2;
-    --wb-line-4: #d8d1c6;
-    /* 暖灰墨阶（标题→次要文字） */
-    --wb-ink-1: #1c1b1a;
-    --wb-ink-2: #2c2824;
-    --wb-ink-3: #4a443d;
-    --wb-ink-4: #5b554e;
-    --wb-ink-5: #7a746c;
-    --wb-ink-6: #8a857e;
-    --wb-ink-7: #9b958c;
+    --wb-line-1: #e7e9f0;
+    --wb-line-2: #e3e5ee;
+    --wb-line-3: #d9dce8;
+    --wb-line-4: #cfd3e0;
+    /* 冷灰墨阶（标题→次要文字） */
+    --wb-ink-1: #1b1d25;
+    --wb-ink-2: #23262f;
+    --wb-ink-3: #414654;
+    --wb-ink-4: #565b69;
+    --wb-ink-5: #6b7080;
+    --wb-ink-6: #7d8290;
+    --wb-ink-7: #9aa0ad;
     /* 极淡墨（占位/弱提示/空态图标） */
-    --wb-faint-1: #b0a89c;
-    --wb-faint-2: #b8b2a8;
-    --wb-faint-3: #bdb6ab;
-    --wb-faint-4: #cabfb0;
-    /* 紫 brand 阶 */
-    --wb-brand: #7c6cff;
-    --wb-brand-deep: #4733b8;
-    --wb-brand-mid: #a78bfa;
-    --wb-brand-soft: #cdbfff;
-    --wb-tint-1: #f4f0ff;
-    --wb-tint-2: #f4f1ff;
-    --wb-tint-3: #f8f6ff;
-    --wb-tint-line: #ddd5f5;
-    /* 渐变三连（CTA/进度条/品牌块）——②换肤只动这三个即可换渐变 */
-    --wb-grad-from: #7c6cff;
-    --wb-grad-via: #a855f7;
-    --wb-grad-to: #ff9a62;
-    /* 暖橙与状态 */
-    --wb-warm: #ff9a62;
-    --wb-warm-muted: #b08968;
-    --wb-red: #c2410c;
-    --wb-red-line: #f0c8b4;
-    --wb-red-tint: #fdf6f2;
-    --wb-amber: #b45309;
-    --wb-amber-line: #f3d9c4;
-    --wb-amber-tint: #fdf3ea;
+    --wb-faint-1: #a7adbb;
+    --wb-faint-2: #aeb4c1;
+    --wb-faint-3: #b6bcc9;
+    --wb-faint-4: #c3c8d4;
+    /* 蓝紫 brand 阶（单一 accent） */
+    --wb-brand: #5b5bd6;
+    --wb-brand-deep: #4747c2;
+    --wb-brand-mid: #8a8ae6;
+    --wb-brand-soft: #c5c8f0;
+    --wb-tint-1: #eef0fb;
+    --wb-tint-2: #edeffa;
+    --wb-tint-3: #f3f4fd;
+    --wb-tint-line: #dadcf5;
+    /* 渐变三连（CTA/进度条/品牌块）：紫→紫罗兰同族流动，不再跨暖橙 */
+    --wb-grad-from: #5b5bd6;
+    --wb-grad-via: #6f63e0;
+    --wb-grad-to: #7b6cf0;
+    /* 状态色（暖橙退场：warm 系收敛进紫/中性，红柔化，琥珀微降饱和） */
+    --wb-warm: #7b6cf0;
+    --wb-warm-muted: #a39aa8;
+    --wb-red: #d6455d;
+    --wb-red-line: #f2c9d1;
+    --wb-red-tint: #fdf3f5;
+    --wb-amber: #ad6a0c;
+    --wb-amber-line: #efd9bb;
+    --wb-amber-tint: #fcf4e6;
 
     /* 侧导航：比主底略深一档以分区 */
-    --sidebar: oklch(0.948 0.004 255);
-    --sidebar-foreground: oklch(0.265 0.012 264);
-    --sidebar-primary: oklch(0.462 0.069 196);
-    --sidebar-primary-foreground: oklch(0.985 0.004 255);
-    --sidebar-accent: oklch(0.927 0.022 191);
-    --sidebar-accent-foreground: oklch(0.382 0.058 197);
-    --sidebar-border: oklch(0.902 0.004 255);
-    --sidebar-ring: oklch(0.552 0.069 196);
+    --sidebar: #eef0f5;
+    --sidebar-foreground: #2a2d37;
+    --sidebar-primary: #5b5bd6;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #e6e9f8;
+    --sidebar-accent-foreground: #4747c2;
+    --sidebar-border: #e3e6ef;
+    --sidebar-ring: #5b5bd6;
 }
 
 .dark {
@@ -263,6 +264,43 @@
   font-family: var(--font-display);
   font-optical-sizing: auto;
   letter-spacing: -0.01em;
+}
+
+/* ── Style 4 玻璃质感（毛玻璃面板 / 顶栏 pill / 浮卡） ── */
+@utility glass-panel {
+  border-radius: 1rem;
+  border: 1px solid rgb(255 255 255 / 0.72);
+  background-color: rgb(255 255 255 / 0.75);
+  box-shadow: 0 8px 32px -12px rgb(40 40 90 / 0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 画布极淡色斑（Style 4 底层氛围，近乎不可见） */
+@utility canvas-blobs {
+  background-image:
+    radial-gradient(560px 320px at 12% -4%, rgb(91 91 214 / 0.08), transparent 70%),
+    radial-gradient(620px 360px at 96% 8%, rgb(214 91 176 / 0.05), transparent 70%);
+}
+
+/* SSE 加载 shimmer：白色扫光横扫占位槽（transform-only，省电） */
+@keyframes shimmer-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+@utility shimmer {
+  position: relative;
+  overflow: hidden;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 32%, rgb(255 255 255 / 0.6) 50%, transparent 68%);
+    animation: shimmer-sweep 1.6s ease-in-out infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer::after { animation: none; }
 }
 
 /* 细颗粒纸纹：极轻噪声叠在底色上制造质感（非花哨，近乎不可见） */
