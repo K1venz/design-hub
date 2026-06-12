@@ -4,7 +4,7 @@ title: 世界 A 移除 — 客户/接单交付框架整体退役，实朴定性�
 status: 已确认        # 用户已签字、实现棒开闸（#774）；非 bug，借状态机表「已确认=确认要做」
 severity: P1          # 架构清理：化石框架占据 schema/代码/导航，与 toC 定性冲突
 reporter: PM          # 用户拍板（#768/#774），coordinator 编排，PM 开条追踪
-owner: 开发           # dev 第一棒（删码 + DROP 迁移 + openapi 再生），others 依赖
+owner: coordinator    # QA 4-prong gate 全绿（①②③④）→ 待 coordinator 放行 ops 部署 → PM 验收关闭
 created: 2026-06-12
 updated: 2026-06-12
 related:
@@ -71,3 +71,17 @@ prod smoke（登录→出图→计费正常、管理后台无死链）。
   注册页档 a 文案（DB 枚举零动）+ npm uninstall recharts；② a2ce62a openapi 重拉 −906 行，
   世界A codegen 类型 0 残留、listing 契约完好实证。门禁 eslint/tsc/vitest 25 绿 + build ✅
   （tsc 绿=删除闭包机器证明）。接力 QA 4-prong gate。
+- 2026-06-12 [QA] **4-prong gate 全绿**（验收①②③④）：
+  ① **listing/uploads/auth/出图全链零变化** ✅（`world_a_removal_regression.py` 跑 qa 8444、ops 重建后）：
+     auth(register/login/me)+uploads + 单图流 n=1(完成/1张/cost reconcile) + 套图 plan 1/1/1(完成/
+     分布1/1/1/cost reconcile) + history 全 PASS——删世界 A 未误伤 listing 共享依赖。
+  ② **/customers·/dashboard → 404** ✅ + **保留路由反向核**（/admin/users 403·/admin/models 403·
+     /listing/jobs 200 = 非404 仍挂载）= 选择性删除没误删活路由。
+  ③ **DB schema** ✅（核 ops #787 SHOW TABLES BEFORE15→AFTER7）：8 表 children-first 全 DROP、
+     6 保留表(model_config/cost_ledger/app_user/listing×3)完好、alembic→a1f7c3d9e5b2(head)。
+     QA 无 dh_qa_ro 凭证、核 ops output（manifest 见 `world_a_db_check.py`）。
+  ④ **后端 pytest 49 绿** ✅（本地 c4a3ef3 实跑 `49 passed`，验 dev「门禁数字不变=49」）。
+  **honest**：①② 首跑 13/15，2 红经核**全是我预写脚本探测 bug、非回归**——MeResponse 字段=user_id/
+  name/role/dept（无 email、我误断 email）、users 路由在 `/admin/users`（prefix=/admin、我误探裸 /users）；
+  读代码+活探（/me 401、/admin/users 401）坐实路由/字段无恙，**修正为正确断言**（非削弱让其假绿）后重跑 15/15。
+  gate 脚本 8d4d1ee + 本笔修正提交。→ **QA 验收全绿、放行**，owner 交 coordinator（放行 ops 部署）。
