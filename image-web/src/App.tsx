@@ -31,21 +31,21 @@ const DashboardPage = lazy(() =>
   import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
 )
 
-// UI 风格预览（throwaway 选型用）：仅 DEV 注册路由 + 懒加载，不进 prod bundle
+// UI 风格预览（throwaway 选型用，第二轮 Western AI-product）：仅 DEV 注册路由 + 懒加载，不进 prod bundle
 const StylePreviewIndex = lazy(() =>
   import('@/pages/style-preview/StylePreviewIndex').then((m) => ({ default: m.StylePreviewIndex })),
 )
-const EditorialPreview = lazy(() =>
-  import('@/pages/style-preview/EditorialPreview').then((m) => ({ default: m.EditorialPreview })),
+const LinearPreview = lazy(() =>
+  import('@/pages/style-preview/LinearPreview').then((m) => ({ default: m.LinearPreview })),
 )
-const ConsolePreview = lazy(() =>
-  import('@/pages/style-preview/ConsolePreview').then((m) => ({ default: m.ConsolePreview })),
+const GeistPreview = lazy(() =>
+  import('@/pages/style-preview/GeistPreview').then((m) => ({ default: m.GeistPreview })),
 )
-const PopPreview = lazy(() =>
-  import('@/pages/style-preview/PopPreview').then((m) => ({ default: m.PopPreview })),
+const ClaudePreview = lazy(() =>
+  import('@/pages/style-preview/ClaudePreview').then((m) => ({ default: m.ClaudePreview })),
 )
-const InkPreview = lazy(() =>
-  import('@/pages/style-preview/InkPreview').then((m) => ({ default: m.InkPreview })),
+const GlassPreview = lazy(() =>
+  import('@/pages/style-preview/GlassPreview').then((m) => ({ default: m.GlassPreview })),
 )
 
 /** 监听 401 广播：提示并跳登录（会话已被中间件清空）. */
@@ -117,10 +117,10 @@ function AppRoutes() {
           />
           {(
             [
-              ['editorial', EditorialPreview],
-              ['console', ConsolePreview],
-              ['pop', PopPreview],
-              ['ink', InkPreview],
+              ['linear', LinearPreview],
+              ['geist', GeistPreview],
+              ['claude', ClaudePreview],
+              ['glass', GlassPreview],
             ] as const
           ).map(([id, Comp]) => (
             <Route
