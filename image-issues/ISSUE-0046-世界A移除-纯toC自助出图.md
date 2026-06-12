@@ -94,3 +94,9 @@ prod smoke（登录→出图→计费正常、管理后台无死链）。
   **DROP 前 STOP-and-ask**：审计发现 customer 表非 0 行（zhaokai 的 APPLE/COOK 测试录入，dev 蓝图「0 行零损失」对此已不成立）
   → 报 coordinator → 用户拍「删」（随表删、已在备份可恢复）。三重回滚保险（显式备份 + [6a] 备份 + api 旧镜像 rollback-20260612-211822）。
   → 待 QA 公网复核 + PM 验收关闭。
+- 2026-06-12 [QA] **prod 公网复核 15/15 全绿**（coordinator #789 双保险收口）：公网 `https://203.0.113.10`（/api 前缀）
+  跑 world_a_removal_regression.py——① listing/uploads/auth/出图全链**零变化**（单图 cost0.40 + 套图 plan1/1/1 cost1.20
+  + auth/me/uploads/history 全 PASS）② `/api/customers`·`/api/dashboard` **404** + 保留路由反向核（`/api/admin/users`·
+  `/api/admin/models` 403、`/api/listing/jobs` 200 = 仍挂载）。**ops prod smoke + QA 公网复核双网皆绿**。
+  脚本泛化 /api 前缀提交 56b8c67。footprint（qa-worlda-* 测试号 + 2 jobs + 4 图 + ¥1.60 + TOS）交 ops 清、保 zhaokai。
+  → **QA 验收①②③④ 全部闭环、无遗留异议**，@pm 终验收关闭。
