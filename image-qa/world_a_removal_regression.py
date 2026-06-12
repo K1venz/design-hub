@@ -108,7 +108,8 @@ async def main() -> None:
         tok = r.json()["jwt"]
         H = {"Authorization": f"Bearer {tok}"}
         me = await c.get("/me", headers=H)
-        check("GET /me → 200 带账号", me.status_code == 200 and me.json().get("email") == U[0], f"got {me.status_code}")
+        # MeResponse 字段=user_id/name/role/dept（无 email）；核 name=注册名 = 身份回显正确
+        check("GET /me → 200 带账号", me.status_code == 200 and me.json().get("name") == U[2], f"got {me.status_code}")
         up = await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})
         check("POST /uploads → id", up.status_code == 200 and "id" in up.json(), f"got {up.status_code}")
         uid = up.json()["id"]
@@ -158,7 +159,7 @@ async def main() -> None:
         await probe_404(c, H, "dashboard", "GET", "/dashboard/cost")
         await probe_404(c, H, "dashboard", "GET", "/dashboard")
         print("\n[② 保留路由反向核（非 404 = 仍挂载）]")
-        await probe_404(c, H, "users(保)", "GET", "/users", expect_gone=False)
+        await probe_404(c, H, "admin-users(保)", "GET", "/admin/users", expect_gone=False)
         await probe_404(c, H, "admin-models(保)", "GET", "/admin/models", expect_gone=False)
         await probe_404(c, H, "listing-jobs(保)", "GET", "/listing/jobs", expect_gone=False)
 
