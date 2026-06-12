@@ -586,8 +586,9 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - 连带消除 **ISSUE-0039**（旧流 X-User-Id 成本越权归属漏洞）。**客户档案功能保留**（CustomersPage）。
 - §3.1–§3.11 的海报/两阶段/项目流描述**全部退役、仅留作历史**；现 prod 仅 listing 直出。
 
-#### 3.12.13 二次编辑：基于结果迭代再生成（定稿 · 2026-06-09，ISSUE-0040）
-> **状态=定稿 · 设计三方对进行中（2026-06-11 启动，coordinator #631 派棒）**。用户勾选为下一个功能（coordinator 审计 + #394）并已拍交互模型（#413：**delta + full 两种都要**）。coordinator 拉齐 PM/prompt/dev/frontend-b/QA。**schema 三列（`parent_job_id`/`source_image_key`/`edit_mode`）已经用户签字（随套图清单一次签）、随套图迁移上线 prod —— 实现前置已解除**；设计中若发现需新列，按铁律再走用户亲签。
+#### 3.12.13 二次编辑：基于结果迭代再生成（定稿 · 2026-06-09，ISSUE-0040）✅ 已上线（2026-06-11 prod 部署 + smoke 5/5 + demo 全链验通）
+> **状态=已上线，ISSUE-0040 已关闭（2026-06-12 PM 终验收）**。schema 三列（`parent_job_id`/`source_image_key`/`edit_mode`）经用户签字、随套图迁移先行上线，实现期**零新迁移**。
+> **上线记录（2026-06-11 设计终局+实现+上线当日闭环）**：五方互锁（本节 / 第六类编辑模式卡 `d9d4f21` / dev 技术方案 `b37e109` / frontend 交互方案 `5e0ed50` / QA 骨架）→ 四方 ACK 零开放项 → dev `f0041fa`（17 文件、门禁 46 绿、卡↔code 自动闸扩 9 物化块）→ QA 闸①（edit_boundary **12/12** 首个 extra=forbid 端点验通 + edit_real API **11/11**：owner 三类越权 404、R1 根 3 产品图链 **4 张喂入成功**无需回退、chain_cost R5 实证 + **视觉核 5/5：TE-03 三轮 delta 链花生袋/包装文字 verbatim 漂移不随轮数叠加 = 链根锚命门 PASS**、TE-04 full 构图变产品锁死）→ frontend `ef2b81a` e2e（页内链式迭代闭环）→ prod 部署（捆 ISSUE-0045 一修）→ prod smoke **5/5**（chain_cost=0.80 根算源张 prod 实证）→ **demo 抓出前端 dist 漏部署**（ops 即修 + 结构性防再犯 `82047c8`：push.sh 无条件 build 前端 + 部署SOP-checklist）→ coordinator prod demo 全链验通（#705）。衍生：ISSUE-0045（provider 张数契约资损，一修随本轮上线、二修 05cc6b6 于 2026-06-12 终关——over-deliver 取前 n 计 n 不失败 / under-deliver 才失败）。
 
 **形态**：用户在 listing 历史/结果区选**自己**的一张生成结果图 + 写新提示词 → 再过一次 `/images/edits` → 出新图，可迭代多轮。复用后端既有图生图能力（ISSUE-0007），缺的是 listing 的「基于结果再编辑」编排流（async job + SSE + 持久化 + 计费）。
 
@@ -1222,6 +1223,7 @@ git push → GitHub Actions
 - **现状实锤**：成本守卫=月度三红线（用户 ¥200/月、公司 ¥800/月、单次≤公司剩余 50%，**代码默认值**；机制即 §3.9 cost-guard，内部版已实现）——内部团队模型，¥200/月 ≈ 500 张（¥0.40/张）≈ 100 套默认套图，对 toC 免费用户宽到等于没有闸；**无免费额度概念、无付费、无支付通道、无订单/发票**。
 - **可复用底子**：per-user 月配额 + 预扣/回正/回滚 + append-only 流水**机制已有**，改数值 + 加充值即可，底子不差。
 - **✅ 定案（用户授权代拍 #475 + 三方对裁决二 #485）**：① **新用户免费额度 = 5 张**——与套图默认 1/2/2=5 耦合设计：注册即免费出一整套（获客钩子，真实成本 ≈$0.25/注册，7.C 防滥用兜底）→ 单图 ¥0.4 续用 → 充值，漏斗三级；② **计费 = 积分制**（电商卖家用量波动大、按量付费门槛低，竞品美豆同路；会员制后置）；③ 支付通道（微信/支付宝——需营业执照 + 商户进件，**周期长杆之二**，可后置灰度）；④ 收费后随附订单记录与发票能力（可灰度后补，与 ③ 联动）。
+- **实现注记（2026-06-12，Style 4 轮衍生 backlog）**：前端「免费额度」chip 暂缓——现有 BudgetSnapshot（cost-guard 内部月额度）**≠** toC 免费 5 张/积分（dev #729 语义警示：拿内部额度数据冒充免费额度 = 与造假数据同性质）；正确路径 = 本 gate 积分制 PRD 排上时 dev 出读模型（届时涉积分表 = **DB 用户亲签铁律**）、frontend 再接 chip。
 
 ### 7.E 🔴 法务页面（工作量小、必须有）
 - **现状实锤**：**零**——无用户协议、无隐私政策、无备案号页脚（收集邮箱即触《个保法》告知义务）。
@@ -1231,10 +1233,12 @@ git push → GitHub Actions
 - **现状实锤**：单机双容器（api+nginx）+ 复用 MySQL、`restart: unless-stopped`、**无冗余**；监控仅 `/_metrics` 端点（无 Prometheus/告警/Sentry）；**备份纯手动**（无定时 dump）；MySQL 3306 公网 bind（ISSUE-0036，安全组挡住但纵深缺口）；22 端口公网。
 - **建议（灰度最低限）**：定时备份 + 基础告警（进程挂/磁盘满/出图失败率）+ Sentry + 收 3306 bind 到 127.0.0.1。多副本/高可用等量级上来再说。
 - **✅ 安全加固冲刺收口（2026-06-11；审计报告 `image-ops/docs/安全审计报告-20260611.md`、变更归档 `image-ops/docs/安全加固变更计划-20260611.md`）**：B-1 双部署止血（runner 停用、部署转 manual-only）+ B-1① 迁移前 mysqldump 强制备份（部署实锤 `db-backup-20260611-154544.sql`）+ B-1② CI 转 PR 门禁（ruff + pytest 38 绿 + gitleaks，含**卡↔code 逐字核对自动闸**）+ A-2 nginx（根+/api 两族 docs/metrics 公网 404、安全头 HSTS/X-Frame=DENY/nosniff/Referrer、server_tokens off、limit_req 429）+ `16715b7` app 源头 docs 关（secure-by-default，与 nginx 双层封死）+ A-4 频控（见 7.C）。QA 闸①② prod 验证全绿；三层独立审查各抓一真问题（/api 假关闭、503 语义、默认值纵深）。**缓做（用户拍，待用户物理操作）**：A-3 SSH root+密码、A-1 mysql 3306 bind+安全组、GitHub 删 runner、branch protection。**本 gate 剩余项**：定时备份（B-1① 是部署时备份、非定时）/ 基础告警 / Sentry / 收 3306 bind——灰度前收尾口径不变。
+- **部署 SOP 结构性补强（2026-06-11）**：0040 上线 demo 抓出**前端 dist 漏部署**（手搓 rsync 跳过 push.sh + 原 push.sh「dist 存在即用不 build」静默陷阱）→ ops `82047c8`：push.sh 改**无条件 build 前端**（缺 index.html fail-fast）+ 新增 `image-ops/docs/部署SOP-checklist.md`（铁律=永远走 push.sh 不手搓 rsync）；2026-06-12 Style 4 轮实战验证通过。
 
 ### 7.G ✅ 品牌与定位（已关闭：用户定名 2026-06-10）
 - **产品名 =「实朴电商图片工作站」，简称「实朴」**（用户拍定，coordinator #475）；英文/域名 slug 走拼音 **shipu** 系（ops 出域名候选清单：可注册性+价位，只查不买；注册/备案/付费均需用户实名操作）。
-- 遗留：对外落地页 + 定价页（随 7.D 计费接入做）；现有页面 4 处旧名（设计中台/出图/STUDIO COPILOT/design_hub）替换为「实朴」= frontend 一次文案轮，随首发改。
+- **✅ 站内品牌落地（2026-06-12，随 Style 4 全站换肤上线）**：用户两轮预览选型拍定 UI = **Style 4「Glass SaaS」**（浅灰玻璃+白卡软投影+单一紫 accent）；三连 commit 上线 prod（令牌化 `8233689` 零视觉清洗 → Style 4+动画 `9952ba6` → 品牌 `982e45f`）——顶栏「实朴」字标+渐变方章、登录/注册页「实朴 · 电商图片工作站」「SHIPU · AI 出图引擎」、标签页标题，旧「设计中台/STUDIO COPILOT/design_hub」全退场，用户批准。
+- 仍遗留：对外落地页 + 定价页（随 7.D 计费接入做）。
 
 ### 7.H 🟡 客服与反馈
 - **现状**：无任何反馈入口。**建议**：MVP 一个反馈表单/邮箱即可。
