@@ -58,3 +58,10 @@ prod smoke（登录→出图→计费正常、管理后台无死链）。
   用户签字：8 表 DROP + 看板案 A + 角色文案档 a（#774）→ 实现棒开闸。PM 开本条 + PRD 落定性修订
   （§0 + §2.3/§3.3/§3.11/§4 ❌ 废止标记 + §3.12.12 客户档案保留句修订 + toC 成本看板 backlog）。
   owner=开发（第一棒删码+迁移），流转：dev → frontend-b → QA 回归 → ops 部署 → PM 验收关闭。
+- 2026-06-12 [开发] dev 棒完成（commit cdb6be0，47 文件 +56/−2650）：整删 36 文件（14 死模块闭包
+  + customers 链 + dashboard 链案 A）；enums 11 删 3 保、域模型 15 删 7 保、ORM 8 删 6 保；
+  迁移 a1f7c3d9e5b2 DROP 8 表 children-first（downgrade=NotImplementedError，回滚走备份），
+  临时库从零 upgrade head 实跑验证终态恰 6 表 ✓；openapi 再生 18→15 paths（customers/dashboard
+  消失）；门禁 ruff ✅ + pytest 49 绿（tests 零受影响、无世界A测试可删——验收第 4 条"门禁数字
+  随之更新"实际数字不变=49）；6 保留表/provider generate()/guard 预扣链零触碰。状态→实现中，
+  接力 frontend-b（codegen 重拉）+ QA（4-prong gate）。
