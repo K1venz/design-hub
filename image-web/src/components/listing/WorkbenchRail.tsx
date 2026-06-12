@@ -12,7 +12,7 @@ const ITEMS = [
 /** Left category rail — route-driven (active = current page). */
 export function WorkbenchRail() {
   return (
-    <div className="flex w-20 shrink-0 flex-col items-center gap-2 border-r border-[#ece8e2] bg-white py-4">
+    <div className="flex w-20 shrink-0 flex-col items-center gap-2 border-r border-wb-line-1 bg-white py-4">
       {ITEMS.map((it) => (
         <NavLink
           key={it.to}
@@ -20,8 +20,8 @@ export function WorkbenchRail() {
           end={it.end}
           className={({ isActive }) =>
             cn(
-              'w-16 rounded-[13px] py-2.5 text-center text-[11.5px] text-[#7a746c]',
-              isActive && 'bg-[#f4f0ff] font-semibold text-[#4733b8]',
+              'w-16 rounded-[13px] py-2.5 text-center text-[11.5px] text-wb-ink-5',
+              isActive && 'bg-wb-tint-1 font-semibold text-wb-brand-deep',
             )
           }
         >
@@ -29,8 +29,8 @@ export function WorkbenchRail() {
             <>
               <span
                 className={cn(
-                  'mx-auto mb-1.5 grid size-[30px] place-items-center rounded-[10px] bg-[#efeae3]',
-                  isActive && 'bg-gradient-to-br from-[#7c6cff] to-[#ff9a62] text-white',
+                  'mx-auto mb-1.5 grid size-[30px] place-items-center rounded-[10px] bg-wb-surface-5',
+                  isActive && 'bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white',
                 )}
               >
                 <it.icon className="size-4" />

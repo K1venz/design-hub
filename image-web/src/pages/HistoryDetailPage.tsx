@@ -20,7 +20,7 @@ export function HistoryDetailPage() {
     <div className="space-y-5">
       <button
         onClick={() => navigate('/history')}
-        className="flex items-center gap-1.5 text-[13px] text-[#5b554e] transition-colors hover:text-[#4733b8]"
+        className="flex items-center gap-1.5 text-[13px] text-wb-ink-4 transition-colors hover:text-wb-brand-deep"
       >
         <ArrowLeftIcon className="size-4" /> 返回历史
       </button>
@@ -28,30 +28,30 @@ export function HistoryDetailPage() {
       {q.isLoading ? (
         <Skeleton className="h-40 rounded-2xl" />
       ) : q.isError || !d ? (
-        <div className="rounded-2xl border border-[#ece8e2] bg-white p-10 text-center text-sm text-[#8a857e]">
+        <div className="rounded-2xl border border-wb-line-1 bg-white p-10 text-center text-sm text-wb-ink-6">
           任务不存在或无权查看。
         </div>
       ) : (
         <>
-          <div className="rounded-2xl border border-[#ece8e2] bg-white p-5">
+          <div className="rounded-2xl border border-wb-line-1 bg-white p-5">
             <div className="mb-3 flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-[#1c1b1a]">
+              <h2 className="text-lg font-semibold text-wb-ink-1">
                 {d.platform ? `${d.platform} · ${d.ratio}` : d.ratio}
               </h2>
               <JobStatusBadge status={d.status} />
               {d.clone_mode && (
-                <span className="rounded-md border border-[#f3d9c4] bg-[#fdf3ea] px-2 py-0.5 text-[12px] font-medium text-[#b45309]">
+                <span className="rounded-md border border-wb-amber-line bg-wb-amber-tint px-2 py-0.5 text-[12px] font-medium text-wb-amber">
                   复刻 · {d.clone_mode}
                 </span>
               )}
               {d.edit_mode && (
-                <span className="rounded-md border border-[#ddd5f5] bg-[#f4f1ff] px-2 py-0.5 text-[12px] font-medium text-[#4733b8]">
+                <span className="rounded-md border border-wb-tint-line bg-wb-tint-2 px-2 py-0.5 text-[12px] font-medium text-wb-brand-deep">
                   ✎ {editModeLabel(d.edit_mode)}
                 </span>
               )}
             </div>
-            <p className="mb-3 whitespace-pre-wrap text-[14px] leading-relaxed text-[#2c2824]">{d.prompt}</p>
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-[#8a857e]">
+            <p className="mb-3 whitespace-pre-wrap text-[14px] leading-relaxed text-wb-ink-2">{d.prompt}</p>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-wb-ink-6">
               <span>尺寸 {d.size}</span>
               <span>张数 {d.n}</span>
               <span>成本 {fmtListingCost(d.total_cost)}</span>
@@ -65,7 +65,7 @@ export function HistoryDetailPage() {
               ))}
             </div>
             {d.parent_job_id && (
-              <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#ece8e2] bg-[#faf8f5] p-2.5">
+              <div className="mt-3 flex items-center gap-3 rounded-xl border border-wb-line-1 bg-wb-surface-1 p-2.5">
                 {d.source_image_url && (
                   <img
                     src={d.source_image_url}
@@ -74,14 +74,14 @@ export function HistoryDetailPage() {
                     onError={(e) => {
                       e.currentTarget.style.display = 'none'
                     }}
-                    className="size-14 rounded-[10px] border border-[#ece8e2] object-cover"
+                    className="size-14 rounded-[10px] border border-wb-line-1 object-cover"
                   />
                 )}
                 <div className="flex flex-col gap-1">
-                  <span className="text-[12.5px] text-[#5b554e]">
+                  <span className="text-[12.5px] text-wb-ink-4">
                     改自这张
                     {d.source_image_type && (
-                      <span className="ml-1.5 text-[11.5px] text-[#9b958c]">
+                      <span className="ml-1.5 text-[11.5px] text-wb-ink-7">
                         {IMAGE_TYPE_FIELDS.find((f) => f.key === d.source_image_type)?.label ??
                           d.source_image_type}
                       </span>
@@ -89,7 +89,7 @@ export function HistoryDetailPage() {
                   </span>
                   <Link
                     to={`/history/${d.parent_job_id}`}
-                    className="flex w-fit items-center gap-0.5 text-[12px] text-[#4733b8] hover:underline"
+                    className="flex w-fit items-center gap-0.5 text-[12px] text-wb-brand-deep hover:underline"
                   >
                     查看来源任务 <ArrowUpRightIcon className="size-3.5" />
                   </Link>
@@ -122,9 +122,9 @@ export function HistoryDetailPage() {
                   .filter((g) => g.images.length > 0)
                   .map((g) => (
                     <div key={g.label}>
-                      <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">
+                      <h3 className="mb-2.5 text-[14px] font-bold text-wb-ink-1">
                         {g.label}
-                        <span className="ml-1.5 text-[12px] font-normal text-[#8a857e]">{g.images.length}</span>
+                        <span className="ml-1.5 text-[12px] font-normal text-wb-ink-6">{g.images.length}</span>
                       </h3>
                       <ImageGrid images={g.images} namePrefix={g.prefix} jobId={d.job_id} />
                     </div>
@@ -132,14 +132,14 @@ export function HistoryDetailPage() {
               </div>
             ) : (
               <div>
-                <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">候选图（{d.images.length}）</h3>
+                <h3 className="mb-2.5 text-[14px] font-bold text-wb-ink-1">候选图（{d.images.length}）</h3>
                 <ImageGrid images={d.images} namePrefix={d.platform ?? 'listing'} jobId={d.job_id} />
               </div>
             ))}
 
           {d.input_urls.length > 0 && (
             <div>
-              <h3 className="mb-2.5 text-[14px] font-bold text-[#1c1b1a]">
+              <h3 className="mb-2.5 text-[14px] font-bold text-wb-ink-1">
                 {d.clone_mode ? '输入图（产品 / 参考）' : '输入产品图'}
               </h3>
               <div className="flex flex-wrap gap-3">
@@ -155,9 +155,9 @@ export function HistoryDetailPage() {
                         onError={(e) => {
                           e.currentTarget.style.display = 'none'
                         }}
-                        className="size-20 rounded-xl border border-[#ece8e2] object-cover"
+                        className="size-20 rounded-xl border border-wb-line-1 object-cover"
                       />
-                      {roleLabel && <span className="text-[11px] text-[#9b958c]">{roleLabel}</span>}
+                      {roleLabel && <span className="text-[11px] text-wb-ink-7">{roleLabel}</span>}
                     </div>
                   )
                 })}
@@ -178,21 +178,21 @@ function ImageGrid({
       {images.map((img, i) => (
         <div
           key={i}
-          className="group relative aspect-square overflow-hidden rounded-2xl border border-[#ece8e2] bg-white"
+          className="group relative aspect-square overflow-hidden rounded-2xl border border-wb-line-1 bg-white"
         >
           <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
           {img.status === IMAGE_SUCCESS_STATUS && (
             // 仅成功张可作编辑源（失败张无入口 + 后端 404 双层，Q-δ）
             <Link
               to={`/edit/${jobId}/${img.image_key}`}
-              className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+              className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
             >
               <SquarePenIcon className="mr-1 inline size-3.5" /> 基于此图再编辑
             </Link>
           )}
           <button
             onClick={() => downloadImage(img.url, `${namePrefix}-${i + 1}.png`)}
-            className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-[#2c2824]/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+            className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
           >
             <DownloadIcon className="mr-1 inline size-3.5" /> 下载
           </button>

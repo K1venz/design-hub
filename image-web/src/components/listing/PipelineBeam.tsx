@@ -3,8 +3,8 @@ import { ImagesIcon, SparklesIcon, UploadIcon } from 'lucide-react'
 
 import { AnimatedBeam } from '@/components/visual/AnimatedBeam'
 
-const GRAD_FROM = '#7c6cff'
-const GRAD_TO = '#ff9a62'
+const GRAD_FROM = 'var(--wb-grad-from)'
+const GRAD_TO = 'var(--wb-grad-to)'
 
 function Node({
   nodeRef,
@@ -21,13 +21,13 @@ function Node({
     <div className="relative z-10 flex flex-col items-center gap-2">
       <div
         ref={nodeRef}
-        className={`grid size-14 place-items-center rounded-2xl border bg-white text-[#7c6cff] shadow-[0_12px_30px_-16px_rgba(60,50,40,0.3)] transition-colors duration-500 ${
-          active ? 'border-[#a855f7]' : 'border-[#ece8e2]'
+        className={`grid size-14 place-items-center rounded-2xl border bg-white text-wb-brand shadow-[0_12px_30px_-16px_rgba(60,50,40,0.3)] transition-colors duration-500 ${
+          active ? 'border-wb-grad-via' : 'border-wb-line-1'
         }`}
       >
         {icon}
       </div>
-      <span className="text-[12px] font-medium text-[#8a857e]">{label}</span>
+      <span className="text-[12px] font-medium text-wb-ink-6">{label}</span>
     </div>
   )
 }

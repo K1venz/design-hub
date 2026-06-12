@@ -6,7 +6,7 @@ import { DotPattern } from '@/components/visual/DotPattern'
 /** 管理页外壳：与工作台共用顶栏导航，内容区居中。 */
 export function AppLayout() {
   return (
-    <div className="flex min-h-svh flex-col bg-[#f6f4f1]">
+    <div className="flex min-h-svh flex-col bg-wb-surface-3">
       <AppTopBar />
       <main className="relative flex-1 px-6 py-7">
         <DotPattern className="[mask-image:radial-gradient(ellipse_at_top,white,transparent_72%)]" />
