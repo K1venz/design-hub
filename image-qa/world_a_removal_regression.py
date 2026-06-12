@@ -1,19 +1,20 @@
-"""世界 A 移除回归（ISSUE-0046 验收①②，dev+fe 完工后跑）。
+"""世界 A 移除回归（ISSUE-0046 验收①②）。qa gate + prod 公网复核同一脚本。
 
 prong①「listing/uploads/auth/出图全链零变化」——实证删世界 A 没误伤共享依赖（唯一真风险）：
   auth(register/login/me) → uploads → 单图流 n=1 → 套图 plan 1/1/1 → history(jobs/详情)
-  全活，cost 价无关核（total>0 且 ==Σ成功张、张数对）。FULL=1 再加 edit(0040)+clone 全链。
-prong②「/customers·/dashboard 前后端 404」——端点直探（docs default-OFF）：
-  删的世界 A 路由 → 404（路由没了）；**反向核** 保留路由 /users·/admin/models → 非 404
-  （仍挂载、只是鉴权 401/403）= 证选择性删除没误删活路由。
+  全活，cost 价无关核（total>0 且 ==Σ成功张、张数对）。FULL=1 再加 edit(0040) 链。
+prong②「/customers·/dashboard 后端 404」——端点直探（docs default-OFF）：
+  删的世界 A 路由 → 404（路由没了）；**反向核** 保留路由 /admin/users·/admin/models·/listing/jobs
+  → 非 404（仍挂载、只是鉴权 401/403）= 证选择性删除没误删活路由。
 prong③(DB 8表DROP/6表完好) 见 world_a_db_check.py；prong④(后端 pytest) 直接跑命令。
-bounded：默认单图+套图（≈¥1.6/qa 占位价更高也只 2 单）；FULL 加 edit+clone。
-用法：QA_BASE=http://localhost:8444 [FULL=1] uv run python ../image-qa/world_a_removal_regression.py
+bounded：默认单图+套图；FULL 加 edit。
+用法：
+  qa 直连：QA_BASE=http://localhost:8444 uv run python ../image-qa/world_a_removal_regression.py
+  prod 公网：PROD_BASE=https://14.103.51.191 API_PREFIX=/api uv run python ../image-qa/world_a_removal_regression.py
 """
 
 import asyncio
 import io
-import json
 import os
 import time
 from decimal import Decimal
@@ -21,7 +22,8 @@ from decimal import Decimal
 import httpx
 from PIL import Image
 
-BASE = os.environ.get("QA_BASE", "").rstrip("/")
+BASE = (os.environ.get("QA_BASE") or os.environ.get("PROD_BASE") or "").rstrip("/")
+PREFIX = os.environ.get("API_PREFIX", "").rstrip("/")  # 公网=/api、直连容器=空
 FULL = os.environ.get("FULL", "") == "1"
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
 U = (f"qa-worlda-{int(time.time())}@example.com", "qa-worlda-123", "QA世界A回归")
@@ -60,7 +62,7 @@ def cost_ok(d, k):  # noqa: ANN001
 
 async def wait_job(c, H, tok, job):  # noqa: ANN001
     try:
-        async with c.stream("GET", f"/listing/{job}/events", params={"access_token": tok}) as s:
+        async with c.stream("GET", f"{PREFIX}/listing/{job}/events", params={"access_token": tok}) as s:
             ev = None
             async for line in s.aiter_lines():
                 if line.startswith("event:"):
@@ -70,23 +72,24 @@ async def wait_job(c, H, tok, job):  # noqa: ANN001
     except httpx.RemoteProtocolError:
         pass
     for _ in range(200):
-        d = (await c.get(f"/listing/jobs/{job}", headers=H)).json()
+        d = (await c.get(f"{PREFIX}/listing/jobs/{job}", headers=H)).json()
         if d.get("status") in ("完成", "失败"):
             return d
         await asyncio.sleep(3)
-    return (await c.get(f"/listing/jobs/{job}", headers=H)).json()
+    return (await c.get(f"{PREFIX}/listing/jobs/{job}", headers=H)).json()
 
 
 async def gen(c, H, tok, uid, body_extra):  # noqa: ANN001
     body = {"upload_ids": [uid], "prompt": "电商主图：产品主体清晰、背景干净得体、质感真实突出",
             "ratio": "1:1", "category": "FOOD", "modifiers": MODS, **body_extra}
-    job = (await c.post("/listing/generate", headers=H, json=body)).json()["job_id"]
+    job = (await c.post(f"{PREFIX}/listing/generate", headers=H, json=body)).json()["job_id"]
     return await wait_job(c, H, tok, job)
 
 
 async def probe_404(c, H, label, method, path, expect_gone=True):  # noqa: ANN001
-    """expect_gone=True：删的路由应 404；False：保留路由应非 404（仍挂载、401/403/200/422 都行）。"""
-    r = await (c.post(path, headers=H, json={}) if method == "POST" else c.get(path, headers=H))
+    """expect_gone=True：删的路由应 404；False：保留路由应非 404（仍挂载、401/403/200/422 都行）。path 不含 PREFIX。"""
+    full = f"{PREFIX}{path}"
+    r = await (c.post(full, headers=H, json={}) if method == "POST" else c.get(full, headers=H))
     sc = r.status_code
     if expect_gone:
         return check(f"{label} {method} {path} → 404(路由已删)", sc == 404, f"got {sc}")
@@ -95,22 +98,22 @@ async def probe_404(c, H, label, method, path, expect_gone=True):  # noqa: ANN00
 
 async def main() -> None:
     if not BASE:
-        raise SystemExit("✋ QA_BASE 未设置（指向 dev+fe 完工后重建的 qa 容器，如 http://localhost:8444）。")
-    print(f"== 世界 A 移除回归（ISSUE-0046 ①②）== BASE={BASE} FULL={FULL}")
+        raise SystemExit("✋ 未设 QA_BASE/PROD_BASE（qa 容器 http://localhost:8444 或 prod 公网 https://14.103.51.191 + API_PREFIX=/api）。")
+    print(f"== 世界 A 移除回归（ISSUE-0046 ①②）== BASE={BASE}{PREFIX or ''} FULL={FULL}")
 
-    async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=900.0) as c:
+    async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=900.0) as c:
         # ===== prong① auth 零变化 =====
         print("\n[① auth/uploads 零变化]")
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
+        r = await c.post(f"{PREFIX}/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
         if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
+            r = await c.post(f"{PREFIX}/auth/login", json={"email": U[0], "password": U[1]})
         check("auth register/login → jwt", r.status_code == 200 and "jwt" in r.json(), f"got {r.status_code}")
         tok = r.json()["jwt"]
         H = {"Authorization": f"Bearer {tok}"}
-        me = await c.get("/me", headers=H)
+        me = await c.get(f"{PREFIX}/me", headers=H)
         # MeResponse 字段=user_id/name/role/dept（无 email）；核 name=注册名 = 身份回显正确
         check("GET /me → 200 带账号", me.status_code == 200 and me.json().get("name") == U[2], f"got {me.status_code}")
-        up = await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})
+        up = await c.post(f"{PREFIX}/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})
         check("POST /uploads → id", up.status_code == 200 and "id" in up.json(), f"got {up.status_code}")
         uid = up.json()["id"]
 
@@ -131,17 +134,17 @@ async def main() -> None:
 
         # ===== prong① history 零变化 =====
         print("\n[① history 零变化]")
-        jobs = await c.get("/listing/jobs", headers=H)
+        jobs = await c.get(f"{PREFIX}/listing/jobs", headers=H)
         jl = jobs.json() if jobs.status_code == 200 else {}
         cnt = len(jl) if isinstance(jl, list) else len(jl.get("jobs", jl.get("items", [])))
         check("GET /listing/jobs → 列表(≥2 单)", jobs.status_code == 200 and cnt >= 2, f"status={jobs.status_code} cnt={cnt}")
 
-        # ===== prong① FULL：edit(0040) + clone 全链 =====
+        # ===== prong① FULL：edit(0040) 链 =====
         if FULL:
             print("\n[① FULL: 二次编辑 0040 链零变化]")
             key = (imgs[0].get("image_key") if imgs else None)
             if key:
-                er = await c.post("/listing/edit", headers=H,
+                er = await c.post(f"{PREFIX}/listing/edit", headers=H,
                                   json={"source_image_key": key, "edit_mode": "delta", "prompt": "把背景调亮一点"})
                 if er.status_code == 200:
                     ed = await wait_job(c, H, tok, er.json()["job_id"])
