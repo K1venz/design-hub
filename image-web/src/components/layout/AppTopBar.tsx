@@ -34,10 +34,10 @@ export function AppTopBar({ children }: { children?: ReactNode }) {
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#ece8e2] bg-white px-5">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-wb-line-1 bg-white px-5">
       <div className="flex items-center gap-4">
-        <NavLink to="/" className="flex items-center gap-2 font-bold text-[#1c1b1a]">
-          <span className="size-6 rounded-[7px] bg-gradient-to-br from-[#7c6cff] to-[#ff9a62]" />出图
+        <NavLink to="/" className="flex items-center gap-2 font-bold text-wb-ink-1">
+          <span className="size-6 rounded-[7px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to" />出图
         </NavLink>
         {children}
       </div>
@@ -50,8 +50,8 @@ export function AppTopBar({ children }: { children?: ReactNode }) {
               end={i.end}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[13px] text-[#5b554e] transition-colors hover:bg-[#f4f0ff] hover:text-[#4733b8]',
-                  isActive && 'bg-[#f4f0ff] font-medium text-[#4733b8]',
+                  'flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[13px] text-wb-ink-4 transition-colors hover:bg-wb-tint-1 hover:text-wb-brand-deep',
+                  isActive && 'bg-wb-tint-1 font-medium text-wb-brand-deep',
                 )
               }
             >
@@ -60,11 +60,11 @@ export function AppTopBar({ children }: { children?: ReactNode }) {
             </NavLink>
           ))}
         </nav>
-        <div className="mx-1.5 h-5 w-px bg-[#ece8e2]" />
+        <div className="mx-1.5 h-5 w-px bg-wb-line-1" />
         <DropdownMenu>
-          <DropdownMenuTrigger className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#cdbfff]">
+          <DropdownMenuTrigger className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-wb-brand-soft">
             <Avatar className="size-8">
-              <AvatarFallback className="bg-[#f4f0ff] text-xs font-semibold text-[#4733b8]">
+              <AvatarFallback className="bg-wb-tint-1 text-xs font-semibold text-wb-brand-deep">
                 {user.name.slice(-1)}
               </AvatarFallback>
             </Avatar>

@@ -18,8 +18,8 @@ export function HistoryPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-semibold tracking-tight text-[#1c1b1a]">出图历史</h2>
-        <p className="text-sm text-[#8a857e]">你的每次商品套图出图任务，可回看与重新下载。</p>
+        <h2 className="text-xl font-semibold tracking-tight text-wb-ink-1">出图历史</h2>
+        <p className="text-sm text-wb-ink-6">你的每次商品套图出图任务，可回看与重新下载。</p>
       </div>
 
       {jobs.isLoading ? (
@@ -29,16 +29,16 @@ export function HistoryPage() {
           ))}
         </div>
       ) : jobs.isError ? (
-        <div className="rounded-2xl border border-[#ece8e2] bg-white p-10 text-center text-sm text-[#8a857e]">
+        <div className="rounded-2xl border border-wb-line-1 bg-white p-10 text-center text-sm text-wb-ink-6">
           加载失败，请稍后重试。
         </div>
       ) : items.length === 0 && offset === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-[#ece8e2] bg-white py-20">
-          <InboxIcon className="size-12 text-[#cabfb0]" strokeWidth={1.5} />
-          <p className="text-sm text-[#8a857e]">还没有出图记录</p>
+        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-wb-line-1 bg-white py-20">
+          <InboxIcon className="size-12 text-wb-faint-4" strokeWidth={1.5} />
+          <p className="text-sm text-wb-ink-6">还没有出图记录</p>
           <button
             onClick={() => navigate('/')}
-            className="rounded-[10px] bg-gradient-to-r from-[#7c6cff] to-[#ff9a62] px-5 py-2 text-[13px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(124,108,255,.55)]"
+            className="rounded-[10px] bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-5 py-2 text-[13px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(124,108,255,.55)]"
           >
             去出图
           </button>
@@ -54,15 +54,15 @@ export function HistoryPage() {
             <button
               disabled={offset === 0}
               onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}
-              className="rounded-[10px] border border-[#ece8e2] bg-white px-4 py-1.5 text-[13px] text-[#4a443d] disabled:opacity-40"
+              className="rounded-[10px] border border-wb-line-1 bg-white px-4 py-1.5 text-[13px] text-wb-ink-3 disabled:opacity-40"
             >
               上一页
             </button>
-            <span className="text-[13px] text-[#8a857e]">第 {offset / LIMIT + 1} 页</span>
+            <span className="text-[13px] text-wb-ink-6">第 {offset / LIMIT + 1} 页</span>
             <button
               disabled={items.length < LIMIT}
               onClick={() => setOffset((o) => o + LIMIT)}
-              className="rounded-[10px] border border-[#ece8e2] bg-white px-4 py-1.5 text-[13px] text-[#4a443d] disabled:opacity-40"
+              className="rounded-[10px] border border-wb-line-1 bg-white px-4 py-1.5 text-[13px] text-wb-ink-3 disabled:opacity-40"
             >
               下一页
             </button>
@@ -77,13 +77,13 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
   return (
     <button
       onClick={onClick}
-      className="group overflow-hidden rounded-2xl border border-[#ece8e2] bg-white text-left transition-shadow hover:shadow-[0_12px_30px_-16px_rgba(60,50,40,.25)]"
+      className="group overflow-hidden rounded-2xl border border-wb-line-1 bg-white text-left transition-shadow hover:shadow-[0_12px_30px_-16px_rgba(60,50,40,.25)]"
     >
-      <div className="relative aspect-[4/3] bg-[#f1ece5]">
+      <div className="relative aspect-[4/3] bg-wb-surface-4">
         {job.first_image_url ? (
           <img src={job.first_image_url} alt="" loading="lazy" className="size-full object-cover" />
         ) : (
-          <div className="grid size-full place-items-center text-[12px] text-[#bdb6ab]">无图</div>
+          <div className="grid size-full place-items-center text-[12px] text-wb-faint-3">无图</div>
         )}
         <JobStatusBadge status={job.status} className="absolute left-2 top-2" />
         {job.image_count > 0 && (
@@ -94,17 +94,17 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
       </div>
       <div className="space-y-1 p-3">
         <div className="flex items-center justify-between text-[13px]">
-          <span className="flex items-center gap-1.5 font-medium text-[#2c2824]">
+          <span className="flex items-center gap-1.5 font-medium text-wb-ink-2">
             {job.platform ?? '通用'}
             {job.edit_mode && (
-              <span className="rounded border border-[#ddd5f5] bg-[#f4f1ff] px-1.5 py-px text-[10.5px] font-medium text-[#4733b8]">
+              <span className="rounded border border-wb-tint-line bg-wb-tint-2 px-1.5 py-px text-[10.5px] font-medium text-wb-brand-deep">
                 ✎ {editModeLabel(job.edit_mode)}
               </span>
             )}
           </span>
-          <span className="text-[#8a857e]">{job.ratio} · {job.n}张</span>
+          <span className="text-wb-ink-6">{job.ratio} · {job.n}张</span>
         </div>
-        <div className="flex items-center justify-between text-[12px] text-[#8a857e]">
+        <div className="flex items-center justify-between text-[12px] text-wb-ink-6">
           <span>{fmtListingTime(job.created_at)}</span>
           <span>{fmtListingCost(job.total_cost)}</span>
         </div>

@@ -105,12 +105,12 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={items.length >= max}
-        className="flex w-full flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-[#d8d1c6] bg-[#fbfaf8] px-4 py-5 text-[13px] text-[#9b958c] transition-colors hover:border-[#cdbfff] disabled:opacity-50"
+        className="flex w-full flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-wb-line-4 bg-wb-surface-2 px-4 py-5 text-[13px] text-wb-ink-7 transition-colors hover:border-wb-brand-soft disabled:opacity-50"
       >
         <span className="flex items-center gap-2">
           <UploadIcon className="size-4" /> 上传图片（最多 {max} 张）
         </span>
-        <span className="text-[11px] text-[#b8b2a8]">{ACCEPT_HINT}</span>
+        <span className="text-[11px] text-wb-faint-2">{ACCEPT_HINT}</span>
       </button>
       <input
         ref={inputRef}
@@ -123,11 +123,11 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
       {items.length > 0 && (
         <div className="mt-2.5 flex flex-wrap gap-2">
           {items.map((it) => (
-            <div key={it.key} className="relative size-16 overflow-hidden rounded-xl border border-[#ece8e2]">
+            <div key={it.key} className="relative size-16 overflow-hidden rounded-xl border border-wb-line-1">
               <img src={it.previewUrl} alt="" className="size-full object-cover" />
               {it.status === 'uploading' && (
                 <div className="absolute inset-0 grid place-items-center bg-white/55">
-                  <Loader2Icon className="size-5 animate-spin text-[#7c6cff]" />
+                  <Loader2Icon className="size-5 animate-spin text-wb-brand" />
                 </div>
               )}
               {it.status === 'error' && (
@@ -135,7 +135,7 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
                   type="button"
                   onClick={() => retry(it.key)}
                   title={it.error}
-                  className="absolute inset-0 grid place-items-center gap-0.5 bg-[#2c2824]/70 text-[10px] text-white"
+                  className="absolute inset-0 grid place-items-center gap-0.5 bg-wb-ink-2/70 text-[10px] text-white"
                 >
                   <RotateCwIcon className="size-4" /> 重传
                 </button>
@@ -143,7 +143,7 @@ export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
               <button
                 type="button"
                 onClick={() => remove(it.key)}
-                className="absolute -right-1.5 -top-1.5 grid size-4.5 place-items-center rounded-full bg-[#2c2824] text-white"
+                className="absolute -right-1.5 -top-1.5 grid size-4.5 place-items-center rounded-full bg-wb-ink-2 text-white"
               >
                 <XIcon className="size-3" />
               </button>

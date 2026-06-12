@@ -19,6 +19,49 @@
     --color-highlight: var(--highlight);
     --color-highlight-foreground: var(--highlight-foreground);
 
+    /* 工作台语义 token（commit ①：值=原硬编码 hex 原样迁入，像素零变更；
+       Style 4 换肤=只改 :root 值并收敛近似阶，见 --wb-* 值块注释） */
+    --color-wb-surface-1: var(--wb-surface-1);
+    --color-wb-surface-2: var(--wb-surface-2);
+    --color-wb-surface-3: var(--wb-surface-3);
+    --color-wb-surface-4: var(--wb-surface-4);
+    --color-wb-surface-5: var(--wb-surface-5);
+    --color-wb-surface-6: var(--wb-surface-6);
+    --color-wb-line-1: var(--wb-line-1);
+    --color-wb-line-2: var(--wb-line-2);
+    --color-wb-line-3: var(--wb-line-3);
+    --color-wb-line-4: var(--wb-line-4);
+    --color-wb-ink-1: var(--wb-ink-1);
+    --color-wb-ink-2: var(--wb-ink-2);
+    --color-wb-ink-3: var(--wb-ink-3);
+    --color-wb-ink-4: var(--wb-ink-4);
+    --color-wb-ink-5: var(--wb-ink-5);
+    --color-wb-ink-6: var(--wb-ink-6);
+    --color-wb-ink-7: var(--wb-ink-7);
+    --color-wb-faint-1: var(--wb-faint-1);
+    --color-wb-faint-2: var(--wb-faint-2);
+    --color-wb-faint-3: var(--wb-faint-3);
+    --color-wb-faint-4: var(--wb-faint-4);
+    --color-wb-brand: var(--wb-brand);
+    --color-wb-brand-deep: var(--wb-brand-deep);
+    --color-wb-brand-mid: var(--wb-brand-mid);
+    --color-wb-brand-soft: var(--wb-brand-soft);
+    --color-wb-tint-1: var(--wb-tint-1);
+    --color-wb-tint-2: var(--wb-tint-2);
+    --color-wb-tint-3: var(--wb-tint-3);
+    --color-wb-tint-line: var(--wb-tint-line);
+    --color-wb-grad-from: var(--wb-grad-from);
+    --color-wb-grad-via: var(--wb-grad-via);
+    --color-wb-grad-to: var(--wb-grad-to);
+    --color-wb-warm: var(--wb-warm);
+    --color-wb-warm-muted: var(--wb-warm-muted);
+    --color-wb-red: var(--wb-red);
+    --color-wb-red-line: var(--wb-red-line);
+    --color-wb-red-tint: var(--wb-red-tint);
+    --color-wb-amber: var(--wb-amber);
+    --color-wb-amber-line: var(--wb-amber-line);
+    --color-wb-amber-tint: var(--wb-amber-tint);
+
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -99,6 +142,56 @@
     --chart-3: oklch(0.602 0.118 42);
     --chart-4: oklch(0.548 0.072 252);
     --chart-5: oklch(0.512 0.102 332);
+
+    /* ── 工作台 token 值（commit ① 原样迁入：14 个 tsx 的硬编码 hex 一一对应、
+       不同值绝不共 token；近似阶收敛属 commit ② Style 4 换肤的设计决策） ── */
+    /* 纸面阶（页底/槽底/chip 底） */
+    --wb-surface-1: #faf8f5;
+    --wb-surface-2: #fbfaf8;
+    --wb-surface-3: #f6f4f1;
+    --wb-surface-4: #f1ece5;
+    --wb-surface-5: #efeae3;
+    --wb-surface-6: #eee7df;
+    /* 边线阶（主边框/spinner 轨/虚线框） */
+    --wb-line-1: #ece8e2;
+    --wb-line-2: #e7e0d6;
+    --wb-line-3: #e4ddd2;
+    --wb-line-4: #d8d1c6;
+    /* 暖灰墨阶（标题→次要文字） */
+    --wb-ink-1: #1c1b1a;
+    --wb-ink-2: #2c2824;
+    --wb-ink-3: #4a443d;
+    --wb-ink-4: #5b554e;
+    --wb-ink-5: #7a746c;
+    --wb-ink-6: #8a857e;
+    --wb-ink-7: #9b958c;
+    /* 极淡墨（占位/弱提示/空态图标） */
+    --wb-faint-1: #b0a89c;
+    --wb-faint-2: #b8b2a8;
+    --wb-faint-3: #bdb6ab;
+    --wb-faint-4: #cabfb0;
+    /* 紫 brand 阶 */
+    --wb-brand: #7c6cff;
+    --wb-brand-deep: #4733b8;
+    --wb-brand-mid: #a78bfa;
+    --wb-brand-soft: #cdbfff;
+    --wb-tint-1: #f4f0ff;
+    --wb-tint-2: #f4f1ff;
+    --wb-tint-3: #f8f6ff;
+    --wb-tint-line: #ddd5f5;
+    /* 渐变三连（CTA/进度条/品牌块）——②换肤只动这三个即可换渐变 */
+    --wb-grad-from: #7c6cff;
+    --wb-grad-via: #a855f7;
+    --wb-grad-to: #ff9a62;
+    /* 暖橙与状态 */
+    --wb-warm: #ff9a62;
+    --wb-warm-muted: #b08968;
+    --wb-red: #c2410c;
+    --wb-red-line: #f0c8b4;
+    --wb-red-tint: #fdf6f2;
+    --wb-amber: #b45309;
+    --wb-amber-line: #f3d9c4;
+    --wb-amber-tint: #fdf3ea;
 
     /* 侧导航：比主底略深一档以分区 */
     --sidebar: oklch(0.948 0.004 255);

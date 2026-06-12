@@ -113,9 +113,9 @@ export function EditWorkbenchPage() {
   if (parent.isError) {
     return (
       <div className="grid flex-1 place-items-center p-6">
-        <div className="rounded-2xl border border-[#ece8e2] bg-white p-10 text-center text-sm text-[#8a857e]">
+        <div className="rounded-2xl border border-wb-line-1 bg-white p-10 text-center text-sm text-wb-ink-6">
           任务不存在或无权查看。
-          <Link to="/history" className="ml-2 text-[#4733b8] hover:underline">
+          <Link to="/history" className="ml-2 text-wb-brand-deep hover:underline">
             返回历史
           </Link>
         </div>
@@ -125,7 +125,7 @@ export function EditWorkbenchPage() {
   if (parent.isLoading) {
     return (
       <div className="grid flex-1 place-items-center">
-        <div className="size-7 animate-spin rounded-full border-[3px] border-[#e7e0d6] border-t-[#7c6cff]" />
+        <div className="size-7 animate-spin rounded-full border-[3px] border-wb-line-2 border-t-wb-brand" />
       </div>
     )
   }

@@ -10,10 +10,10 @@ interface ConfigSelectProps {
 /** designkit-style inline labeled dropdown: label left, current value right, opens the Radix rich select. */
 export function ConfigSelect({ label, value, options, onChange }: ConfigSelectProps) {
   return (
-    <label className="flex items-center justify-between rounded-xl border border-[#ece8e2] bg-white px-3 py-2.5 text-[13px] text-[#7a746c]">
+    <label className="flex items-center justify-between rounded-xl border border-wb-line-1 bg-white px-3 py-2.5 text-[13px] text-wb-ink-5">
       <span>{label}</span>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-auto gap-1 border-0 bg-transparent px-0 py-0 font-semibold text-[#2c2824] shadow-none focus-visible:ring-0">
+        <SelectTrigger className="h-auto gap-1 border-0 bg-transparent px-0 py-0 font-semibold text-wb-ink-2 shadow-none focus-visible:ring-0">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
