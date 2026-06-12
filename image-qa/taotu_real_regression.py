@@ -22,7 +22,8 @@ OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/套图回归")
 U = (f"qa-taotu-r-{int(time.time())}@example.com", "qa-taotu-123", "QA套图真图")
 # 原精修花生图目录已被移走（2026-06-10 发现）；改用 QA 已落盘的通用块回归产物作源（含完整产品袋，保真核基线=该袋）
 PEANUT = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
-LOZENGE = "/Users/Zhuanz/Downloads/6e746f45b2cb84cb5eedc38f4b0c7106.jpg"
+# 原 Downloads 润喉糖图被移走（2026-06-12 发现）；改用 QA 已落盘的润喉糖白底产物作源（干净润喉糖产品图）
+LOZENGE = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/套图回归/润喉糖-白底.png"
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 PLAN = {"白底": 1, "场景": 1, "卖点": 1}
 
