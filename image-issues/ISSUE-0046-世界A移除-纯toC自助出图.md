@@ -85,3 +85,12 @@ prod smoke（登录→出图→计费正常、管理后台无死链）。
   name/role/dept（无 email、我误断 email）、users 路由在 `/admin/users`（prefix=/admin、我误探裸 /users）；
   读代码+活探（/me 401、/admin/users 401）坐实路由/字段无恙，**修正为正确断言**（非削弱让其假绿）后重跑 15/15。
   gate 脚本 8d4d1ee + 本笔修正提交。→ **QA 验收全绿、放行**，owner 交 coordinator（放行 ops 部署）。
+- 2026-06-12 [运维] **ops 末棒部署完成、核验全绿**：带标签备份 prod
+  (`prod-db-backup-worldA-20260612-211427.sql` 21450B)+**test-restore 验证 restorable** → push.sh(世界A前端整删、
+  新 bundle BpWigf8b、dashboard chunk 消失、recharts 卸载) → deploy.sh(api build + 迁移 e4a9b2c61f73→a1f7c3d9e5b2
+  DROP 8 表 children-first) → prod smoke 全绿：**SHOW TABLES 15→7**(8 世界A DROP / 6 保留+alembic head a1f7c3d9e5b2)、
+  **zhaokai TOC 数据逐项不变**(app_user3/listing_job3/listing_image13/cost_ledger5/model_config4)、customer 表 doesn't exist、
+  公网世界A路由 404·listing/admin 活·加固(docs 404)持续。
+  **DROP 前 STOP-and-ask**：审计发现 customer 表非 0 行（zhaokai 的 APPLE/COOK 测试录入，dev 蓝图「0 行零损失」对此已不成立）
+  → 报 coordinator → 用户拍「删」（随表删、已在备份可恢复）。三重回滚保险（显式备份 + [6a] 备份 + api 旧镜像 rollback-20260612-211822）。
+  → 待 QA 公网复核 + PM 验收关闭。
