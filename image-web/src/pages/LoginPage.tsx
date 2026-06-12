@@ -30,7 +30,7 @@ export function LoginPage() {
   return (
     <AuthLayout>
       <div className="space-y-2">
-        <h2 className="pt-2 text-2xl font-semibold tracking-tight text-foreground">登录设计中台</h2>
+        <h2 className="pt-2 text-2xl font-semibold tracking-tight text-foreground">登录实朴</h2>
         <p className="text-sm text-muted-foreground">用邮箱和密码登录。</p>
       </div>
 

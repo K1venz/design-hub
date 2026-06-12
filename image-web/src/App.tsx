@@ -31,20 +31,23 @@ const DashboardPage = lazy(() =>
   import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
 )
 
-// UI 风格预览（throwaway 选型用，第二轮 Western AI-product）：仅 DEV 注册路由 + 懒加载，不进 prod bundle
-const StylePreviewIndex = lazy(() =>
+// UI 风格预览（throwaway 选型用，第二轮 Western AI-product）：仅 DEV 注册路由。
+// import() 必须在 DEV 分支内（静态可消除），否则 chunk 仍会被产出进 prod dist。
+const devLazy = (load: () => Promise<{ default: React.ComponentType }>) =>
+  import.meta.env.DEV ? lazy(load) : () => null
+const StylePreviewIndex = devLazy(() =>
   import('@/pages/style-preview/StylePreviewIndex').then((m) => ({ default: m.StylePreviewIndex })),
 )
-const LinearPreview = lazy(() =>
+const LinearPreview = devLazy(() =>
   import('@/pages/style-preview/LinearPreview').then((m) => ({ default: m.LinearPreview })),
 )
-const GeistPreview = lazy(() =>
+const GeistPreview = devLazy(() =>
   import('@/pages/style-preview/GeistPreview').then((m) => ({ default: m.GeistPreview })),
 )
-const ClaudePreview = lazy(() =>
+const ClaudePreview = devLazy(() =>
   import('@/pages/style-preview/ClaudePreview').then((m) => ({ default: m.ClaudePreview })),
 )
-const GlassPreview = lazy(() =>
+const GlassPreview = devLazy(() =>
   import('@/pages/style-preview/GlassPreview').then((m) => ({ default: m.GlassPreview })),
 )
 

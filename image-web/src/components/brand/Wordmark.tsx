@@ -10,7 +10,7 @@ export function BrandMark({ className }: { className?: string }) {
       viewBox="0 0 32 32"
       className={cn('size-8 shrink-0', className)}
       role="img"
-      aria-label="设计中台"
+      aria-label="实朴"
     >
       <rect x="0.5" y="0.5" width="31" height="31" rx="8" className="fill-primary" />
       <rect
@@ -49,10 +49,10 @@ export function Wordmark({ className, markOnly = false }: WordmarkProps) {
       {!markOnly && (
         <div className="flex flex-col leading-none">
           <span className="text-[15px] font-semibold tracking-tight text-foreground">
-            设计中台
+            实朴
           </span>
-          <span className="font-display text-[11px] tracking-[0.14em] text-muted-foreground">
-            STUDIO COPILOT
+          <span className="text-[11px] tracking-[0.18em] text-muted-foreground">
+            电商图片工作站
           </span>
         </div>
       )}
