@@ -42,7 +42,9 @@ interface WorkbenchState {
   setActiveGenerating: (u: Updater<boolean>) => void
   /** 发起新一单：预铺槽位、进入续播态（job_id 稍后由请求返回回填）。 */
   startActive: (slots: ResultSlot[]) => void
-  /** 请求失败/放弃：清空进行中态（结果区回落服务端最近一单）。 */
+  /** 接回服务端进行中单（F5 恢复）：已知 job_id + 计划张数，铺 shimmer 占位续播 SSE。 */
+  adoptActive: (jobId: string, count: number) => void
+  /** 请求失败/放弃 / 终态释放：清空进行中态（结果区回落服务端最近一单）。 */
   clearActive: () => void
   /** 「新建任务」：清即时态回到初始（含 bump resetKey 清上传器内部态）。 */
   reset: () => void
@@ -69,6 +71,14 @@ export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   setActiveGenerating: (u) => set((s) => ({ activeGenerating: apply(u, s.activeGenerating) })),
   startActive: (slots) =>
     set({ activeJobId: null, activeSlots: slots, activeDone: 0, activeGenerating: true }),
+  adoptActive: (jobId, count) =>
+    set({
+      activeJobId: jobId,
+      // 无计划分型信息，铺无标签占位；SSE 到达的带型图按序填入（详见 WorkbenchPage 匹配）。
+      activeSlots: Array.from({ length: count }, () => ({ url: null }) as ResultSlot),
+      activeDone: 0,
+      activeGenerating: true,
+    }),
   clearActive: () => set({ ...EMPTY_ACTIVE }),
   reset: () =>
     set((s) => ({

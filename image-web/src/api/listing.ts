@@ -9,13 +9,23 @@ import {
 } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
+/** HTTP 非 2xx 错误（携带 status 供调用方区分 404 owner 隔离 / 5xx 瞬时抖动）。 */
+export class HttpError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'HttpError'
+    this.status = status
+  }
+}
+
 /** Authenticated GET helper for listing JSON endpoints. fail-fast on non-2xx. */
 async function authGet<T>(path: string): Promise<T> {
   const token = useAuthStore.getState().token
   const res = await fetch(`/api${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  if (!res.ok) throw new Error(`请求失败（${res.status}）：${await res.text()}`)
+  if (!res.ok) throw new HttpError(res.status, `请求失败（${res.status}）：${await res.text()}`)
   return res.json() as Promise<T>
 }
 
