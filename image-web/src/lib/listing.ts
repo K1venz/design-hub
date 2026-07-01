@@ -294,6 +294,15 @@ export type ListingJobImage = Schemas['ListingImageOut']
 /** 图片行成功态字面值（backend models.py ListingImageRow.status：成功|失败）。 */
 export const IMAGE_SUCCESS_STATUS = '成功'
 
+/** listing_job.status 字面值（backend infrastructure/db/models.py：生成中|完成|部分完成|失败）。
+ *  注：当前后端仅在终态落库，「生成中」为设计保留、恢复流程读不到进行中历史行（见 detailToResultSlots）。 */
+export const JOB_STATUS = {
+  generating: '生成中',
+  done: '完成',
+  partial: '部分完成',
+  failed: '失败',
+} as const
+
 /** edit_mode → 列表/详情徽标展示名（✎ 微调/重做）。未知值原样回显。 */
 export function editModeLabel(mode: string): string {
   return EDIT_MODES.find((m) => m.key === mode)?.label ?? mode
@@ -345,3 +354,23 @@ export function fmtListingCost(c: string | number): string {
 
 /** GET /listing/jobs/{id} 详情。 */
 export type ListingJobDetail = Schemas['ListingJobDetailOut']
+
+// ── 工作台「恢复最近一单」（2026-07-01 设计稿）────────────────
+// 服务端详情（终态权威快照）→ 结果区槽位。成功图带 image_key（挂「基于此图再编辑」）
+// + image_type（套图分组）；整单失败（无成功图）合成单一失败槽让原因可见。
+// 后端在终态前不落库，故此函数只映射终态；进行中续播走 SSE（见 WorkbenchPage）。
+// 部分完成：失败张为 SSE-only 不落库，恢复时只映射已成功张（best-effort）。
+export function detailToResultSlots(detail: ListingJobDetail): ResultSlotLike[] {
+  const success = detail.images.filter((im) => im.status === IMAGE_SUCCESS_STATUS)
+  if (success.length > 0) {
+    return success.map((im) => ({
+      url: im.url,
+      imageType: im.image_type ?? undefined,
+      imageKey: im.image_key,
+    }))
+  }
+  if (detail.status === JOB_STATUS.failed) {
+    return [{ url: null, error: detail.error ?? '出图失败' }]
+  }
+  return []
+}
