@@ -356,18 +356,20 @@ export function fmtListingCost(c: string | number): string {
 export type ListingJobDetail = Schemas['ListingJobDetailOut']
 
 // ── 工作台「恢复最近一单」（2026-07-01 设计稿）────────────────
-// 服务端详情（终态权威快照）→ 结果区槽位。成功图带 image_key（挂「基于此图再编辑」）
-// + image_type（套图分组）；整单失败（无成功图）合成单一失败槽让原因可见。
-// 后端在终态前不落库，故此函数只映射终态；进行中续播走 SSE（见 WorkbenchPage）。
-// 部分完成：失败张为 SSE-only 不落库，恢复时只映射已成功张（best-effort）。
+// 服务端详情（终态权威快照）→ 结果区槽位。逐张映射（不丢失败张）：
+//  - 成功张 → 图槽，带 image_key（挂「基于此图再编辑」）+ image_type（套图分组）；
+//  - 失败张（部分完成，status='失败'）→ 失败槽，带 image_type + 顶层 error 原因，
+//    使分母含失败张 → 结果区可如实呈现「X/N（M 失败）」；
+//  - 无图行的整单失败（status='失败'）→ 合成单一失败槽让原因可见；
+//  - 其余（无图、非失败）→ 空。
+// 进行中（status='生成中'）不在此映射——由 SSE 续播（见 WorkbenchPage 接回逻辑）。
 export function detailToResultSlots(detail: ListingJobDetail): ResultSlotLike[] {
-  const success = detail.images.filter((im) => im.status === IMAGE_SUCCESS_STATUS)
-  if (success.length > 0) {
-    return success.map((im) => ({
-      url: im.url,
-      imageType: im.image_type ?? undefined,
-      imageKey: im.image_key,
-    }))
+  if (detail.images.length > 0) {
+    return detail.images.map((im) =>
+      im.status === IMAGE_SUCCESS_STATUS
+        ? { url: im.url, imageType: im.image_type ?? undefined, imageKey: im.image_key }
+        : { url: null, imageType: im.image_type ?? undefined, error: detail.error ?? '生成失败' },
+    )
   }
   if (detail.status === JOB_STATUS.failed) {
     return [{ url: null, error: detail.error ?? '出图失败' }]

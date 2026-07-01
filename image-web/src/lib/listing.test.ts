@@ -10,13 +10,16 @@ import {
   buildModifiers,
   buildListingBody,
   buildSetListingBody,
+  detailToResultSlots,
   editModeLabel,
   mergeSlotsWithDetail,
   parseListingEvent,
   planTotal,
   estimateCost,
+  JOB_STATUS,
   type ListingConfig,
   type ListingGenerateInput,
+  type ListingJobDetail,
   type ListingJobImage,
   type ResultSlotLike,
 } from '@/lib/listing'
@@ -231,6 +234,77 @@ describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口
     )
     expect(merged[0].imageKey).toBe('k-b1')
     expect(merged[1]).toEqual({ url: 'sse://2', imageType: '场景' })
+  })
+})
+
+describe('detailToResultSlots（恢复最近一单：终态详情 → 结果槽）', () => {
+  const okImg = (key: string, type: string | null): ListingJobImage =>
+    ({ url: `http://x/${key}.png`, image_key: key, seed: 0, cost: '0.40', status: '成功', image_type: type }) as ListingJobImage
+  const failImg = (type: string | null): ListingJobImage =>
+    ({ url: '', image_key: '', seed: 0, cost: '0', status: '失败', image_type: type }) as ListingJobImage
+  const detail = (over: Partial<ListingJobDetail>): ListingJobDetail =>
+    ({
+      job_id: 'j1', prompt: '', modifiers: {}, platform: null, ratio: '1:1', size: '1024x1024',
+      n: 1, status: JOB_STATUS.done, total_cost: '0', error: null,
+      created_at: '2026-07-01T00:00:00Z', completed_at: null, images: [], input_urls: [], input_roles: [],
+      ...over,
+    }) as ListingJobDetail
+
+  it('完成：每张成功图 → 图槽（带 image_key + image_type），无失败槽', () => {
+    const slots = detailToResultSlots(
+      detail({
+        status: JOB_STATUS.done,
+        images: [okImg('k-b1', '白底'), okImg('k-s1', '场景'), okImg('k-m1', '卖点')],
+      }),
+    )
+    expect(slots).toEqual([
+      { url: 'http://x/k-b1.png', imageType: '白底', imageKey: 'k-b1' },
+      { url: 'http://x/k-s1.png', imageType: '场景', imageKey: 'k-s1' },
+      { url: 'http://x/k-m1.png', imageType: '卖点', imageKey: 'k-m1' },
+    ])
+    expect(slots.filter((s) => s.url)).toHaveLength(3) // done=3 / total=3
+  })
+
+  it('部分完成：失败张铺失败槽（保 image_type + 顶层 error），分母含失败张 → X/N（M 失败）', () => {
+    const slots = detailToResultSlots(
+      detail({
+        status: JOB_STATUS.partial,
+        error: '卖点：boom',
+        images: [okImg('k-b1', '白底'), okImg('k-s1', '场景'), failImg('卖点')],
+      }),
+    )
+    expect(slots).toEqual([
+      { url: 'http://x/k-b1.png', imageType: '白底', imageKey: 'k-b1' },
+      { url: 'http://x/k-s1.png', imageType: '场景', imageKey: 'k-s1' },
+      { url: null, imageType: '卖点', error: '卖点：boom' },
+    ])
+    expect(slots).toHaveLength(3) // 分母含失败张
+    expect(slots.filter((s) => s.url)).toHaveLength(2) // done=2
+    expect(slots.filter((s) => s.error)).toHaveLength(1) // 1 失败
+  })
+
+  it('部分完成缺顶层 error：失败槽回退默认原因', () => {
+    const slots = detailToResultSlots(
+      detail({ status: JOB_STATUS.partial, error: null, images: [okImg('k1', '白底'), failImg('场景')] }),
+    )
+    expect(slots[1]).toEqual({ url: null, imageType: '场景', error: '生成失败' })
+  })
+
+  it('整单失败（无图行）：合成单一失败槽，顶层原因可见', () => {
+    expect(detailToResultSlots(detail({ status: JOB_STATUS.failed, error: '超时' }))).toEqual([
+      { url: null, error: '超时' },
+    ])
+  })
+
+  it('整单失败缺原因：失败槽回退默认文案', () => {
+    expect(detailToResultSlots(detail({ status: JOB_STATUS.failed, error: null }))).toEqual([
+      { url: null, error: '出图失败' },
+    ])
+  })
+
+  it('空（新账号 / 无图非失败 / 进行中无图）：空数组', () => {
+    expect(detailToResultSlots(detail({ status: JOB_STATUS.done, images: [] }))).toEqual([])
+    expect(detailToResultSlots(detail({ status: JOB_STATUS.generating, images: [] }))).toEqual([])
   })
 })
 
