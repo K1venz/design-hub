@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import random
 import time
 from decimal import Decimal
 from typing import Any
@@ -39,6 +40,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         trust_env: bool = True,
         max_retries: int = 0,
         retry_backoff: float = 2.0,
+        retry_max_sleep: float = 30.0,
     ) -> None:
         self.name = name
         self.unit_cost = unit_cost
@@ -54,10 +56,12 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         # connect 快失败(≤15s)，read/write 容忍慢响应：gpt-image 图生图 edit 实测 ~187s
         # （ISSUE-0007：edit 比文生图慢得多，单一短超时会卡在临界点误判超时）
         self._client_timeout = httpx.Timeout(timeout, connect=min(timeout, 15.0))
-        # 瞬时错误(超时/5xx/429"系统繁忙")重试：中转站 edit 端点间歇过载（ISSUE-0007）。
-        # I/O 域允许重试；默认 0 不重试(保 dev/CI 行为)，生产装配开启。4xx 不重试。
+        # 瞬时错误(超时/5xx/429"系统繁忙"/限流)重试：中转站 edit 端点间歇过载（ISSUE-0007）、
+        # apikey 轮换后新 key 分组并发档低致套图并发打满 429（ISSUE-0047）。
+        # I/O 域允许重试；默认 0 不重试(保 dev/CI 行为)，生产装配开启。4xx 业务错不重试(fail-fast)。
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
+        self._retry_max_sleep = retry_max_sleep
         # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
         self._trust_env = trust_env
 
@@ -92,11 +96,20 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             else:
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 return await self._parse(response.json(), seed, latency_ms, expected_n=n)
-            # 瞬时网络/服务端错误（I/O 域）：退避后重试，超出上限才抛
+            # 瞬时网络/服务端错误（429/超时/5xx，I/O 域）：抖动退避后重试，超上限才抛。
+            # 4xx 业务错在 _raise_for_status 已抛 DomainError、不入本分支（fail-fast）。
             if attempt >= self._max_retries:
                 raise error
             attempt += 1
-            await asyncio.sleep(self._retry_backoff * attempt)
+            await asyncio.sleep(self._retry_sleep(attempt))
+
+    def _retry_sleep(self, attempt: int) -> float:
+        # 指数退避 + equal-jitter 抖动（ISSUE-0047）：套图多路并发同时撞 429 时，若无抖动
+        # 会在同一时刻齐刷刷重发、再次打满同一限流窗口；抖动把重发时刻去相关、错峰散开。
+        # 退避随 attempt 指数增长给上游限流窗口恢复时间，_retry_max_sleep 封顶防失控。
+        # equal jitter：下界=backoff/2 保底退避量、上界=backoff 加随机扰动。
+        backoff = min(self._retry_max_sleep, self._retry_backoff * 2.0 ** (attempt - 1))
+        return backoff / 2 + random.uniform(0, backoff / 2)
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         # 按 status_code 分流（不对错误体调 .json()，诗云 502 是 nginx HTML）

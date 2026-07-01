@@ -85,6 +85,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         type_registry=ImageTypeRegistry(),
         clone_registry=CloneModeRegistry(),
         edit_registry=EditModeRegistry(),
+        concurrency=settings.listing_concurrency,  # ISSUE-0047 保守降档，settings 可覆盖
     )
     # 二次编辑源图读回（ISSUE-0040）：generate 桶/本地 generated/ 的读取面
     app.state.image_store = build_image_store(settings)

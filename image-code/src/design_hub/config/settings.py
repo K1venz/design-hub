@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     gpt_image_base_url: str = ""
     gpt_image_api_key: SecretStr = SecretStr("")
     gpt_image_model: str = ""
+    # 套图并发窗口（ISSUE-0047）：apikey 轮换后新 key 分组并发档位低，5 路并发打满上游 429
+    # → 套图「只出 1 张」。保守默认 3；ops 可经 .env 下调至 2 而无需改码。单图流 n=1 恒 1 路，
+    # 任何 ≥1 的取值都不改其行为。
+    listing_concurrency: int = 3
+    # gpt-image 中转站瞬时错误（429/超时/5xx）重试预算（ISSUE-0007/0047，仅 I/O 域，4xx 不重试）
+    gpt_image_max_retries: int = 5
+    # 指数退避基数（秒）：第 n 次退避 ~ base*2^(n-1)，叠 equal-jitter 抖动错峰
+    gpt_image_retry_backoff: float = 2.0
+    gpt_image_retry_max_sleep: float = 30.0  # 单次退避封顶（秒），防指数增长失控
     # 本地出图落点（图生图 b64 解码后写入；gitignored）
     image_output_dir: str = "./generated"
     # 出图 url 公网前缀（ISSUE-0029）：非空→绝对 https://host/img/<name>；空→相对 /img/<name>
