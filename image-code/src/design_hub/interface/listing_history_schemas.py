@@ -88,7 +88,8 @@ class ListingJobDetailOut(BaseModel):
             completed_at=d.completed_at,
             images=[
                 ListingImageOut(
-                    url=signer.generated_url(im.image_key),
+                    # 失败张（两阶段 ISSUE-0047）无产物、key 空：不签 url，前端据 status 展失败位
+                    url=(signer.generated_url(im.image_key) if im.status == "成功" else ""),
                     image_key=im.image_key,
                     seed=im.seed,
                     cost=im.cost,

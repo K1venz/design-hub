@@ -5,15 +5,27 @@ from design_hub.application.listing.listing_service import ListingGenerationServ
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.media import image_key_from_url
-from design_hub.domain.models import ListingJobImage, ListingJobOutcome, TaskEvent
+from design_hub.domain.models import ListingJobImage, ListingJobStart, TaskEvent
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.task_queue import GenerationCommand
 
+# 失败张（套图部分完成）无产物：image_key 空串占位、seed 哨兵；读侧按 status 区分、不签 url。
+_FAILED_IMAGE_KEY = ""
+_FAILED_SEED = -1
+
+
+def _failure_summary(failures: tuple[tuple[str, str], ...]) -> str:
+    """套图部分失败摘要（图型：原因），落 listing_job.error（既有列，无 per-image 原因列）。"""
+    return "；".join(f"{image_type}：{error}" for image_type, error in failures)
+
 
 @dataclass
 class ListingGenerationCommand(GenerationCommand):
-    """listing 异步命令：service 出图 → 沿途发事件 → 持久化任务/图/输入（成功与失败都落库）。"""
+    """listing 异步命令：入队建行(生成中) → service 出图 → 增量落图(成功+失败) → 终态改状态。
+
+    两阶段落库（ISSUE-0047）：进行中单在 DB 即有行、可查、可续播；套图失败张也留痕。
+    """
 
     service: ListingGenerationService
     events: EventPublisher
@@ -30,8 +42,9 @@ class ListingGenerationCommand(GenerationCommand):
     overlay_texts: tuple[str, ...] = ()
 
     async def run(self, job_id: str) -> None:
-        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         size = "{}x{}".format(*ratio_to_size(self.ratio))
+        await self.history.start(self._start(job_id, size))  # 入队建行：status='生成中'
+        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
             result = await self.service.generate(
                 prompt=self.prompt,
@@ -45,11 +58,11 @@ class ListingGenerationCommand(GenerationCommand):
                 category=self.category,
             )
         except Exception as exc:
+            await self.history.finalize(
+                job_id, status="失败", total_cost=Decimal("0"), error=str(exc)
+            )
             await self.events.publish(
                 TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})
-            )
-            await self.history.record(
-                self._outcome(job_id, size, "失败", Decimal("0"), str(exc), ())
             )
             raise
         await self.events.publish(
@@ -63,7 +76,7 @@ class ListingGenerationCommand(GenerationCommand):
                     {"url": image.url, "seed": image.seed, "image_type": image.image_type},
                 )
             )
-        for image_type, error in result.failures:  # 套图单张失败（D2：SSE 即时可见、不留痕）
+        for image_type, error in result.failures:  # 套图单张失败（SSE 即时可见）
             await self.events.publish(
                 TaskEvent(
                     job_id,
@@ -71,7 +84,7 @@ class ListingGenerationCommand(GenerationCommand):
                     {"image_type": image_type, "error": error},
                 )
             )
-        images = tuple(
+        success_images = tuple(
             ListingJobImage(
                 image_key=image_key_from_url(im.url),
                 seed=im.seed,
@@ -81,9 +94,21 @@ class ListingGenerationCommand(GenerationCommand):
             )
             for im in result.images
         )
-        status = "完成" if len(images) >= self._requested() else "部分完成"
-        await self.history.record(
-            self._outcome(job_id, size, status, result.total_cost, None, images)
+        failure_images = tuple(
+            ListingJobImage(
+                image_key=_FAILED_IMAGE_KEY,
+                seed=_FAILED_SEED,
+                cost=Decimal("0"),
+                status="失败",
+                image_type=image_type,
+            )
+            for image_type, _ in result.failures
+        )
+        await self.history.add_images(job_id, success_images + failure_images)
+        status = "完成" if len(success_images) >= self._requested() else "部分完成"
+        job_error = _failure_summary(result.failures) if result.failures else None
+        await self.history.finalize(  # 终态提交先于 TASK_COMPLETED（前端据完成事件详情必 200）
+            job_id, status=status, total_cost=result.total_cost, error=job_error
         )
         await self.events.publish(
             TaskEvent(
@@ -95,16 +120,8 @@ class ListingGenerationCommand(GenerationCommand):
         """请求总张数：单图流=n、套图=Σplan（历史 n 列与状态判定共用）。"""
         return self.n if self.n is not None else sum((self.plan or {}).values())
 
-    def _outcome(
-        self,
-        job_id: str,
-        size: str,
-        status: str,
-        total_cost: Decimal,
-        error: str | None,
-        images: tuple[ListingJobImage, ...],
-    ) -> ListingJobOutcome:
-        return ListingJobOutcome(
+    def _start(self, job_id: str, size: str) -> ListingJobStart:
+        return ListingJobStart(
             job_id=job_id,
             user_id=self.user_id,
             prompt=self.prompt,
@@ -112,17 +129,13 @@ class ListingGenerationCommand(GenerationCommand):
             ratio=self.ratio,
             size=size,
             n=self._requested(),
-            status=status,
-            total_cost=total_cost,
-            error=error,
-            images=images,
             upload_keys=self.upload_keys,
         )
 
 
 @dataclass
 class EditCommand(GenerationCommand):
-    """二次编辑异步命令（PRD §3.12.13/ISSUE-0040）：service.edit 出 1 张 → 事件 → 持久化迭代链。
+    """二次编辑异步命令（PRD §3.12.13/ISSUE-0040）：建行 → service.edit 出 1 张 → 落图 → 终态。
 
     modifiers=路由已叠新的 effective（R3：落库与组装同值，每单自包含）；
     upload_keys=链根产品锚（role=product），源图经 source_image_key 列回显。
@@ -142,16 +155,8 @@ class EditCommand(GenerationCommand):
     ratio: str
     edit_mode: str  # delta | full
 
-    def _outcome(
-        self,
-        job_id: str,
-        size: str,
-        status: str,
-        total_cost: Decimal,
-        error: str | None,
-        images: tuple[ListingJobImage, ...],
-    ) -> ListingJobOutcome:
-        return ListingJobOutcome(
+    def _start(self, job_id: str, size: str) -> ListingJobStart:
+        return ListingJobStart(
             job_id=job_id,
             user_id=self.user_id,
             prompt=self.prompt,
@@ -159,10 +164,6 @@ class EditCommand(GenerationCommand):
             ratio=self.ratio,
             size=size,
             n=1,
-            status=status,
-            total_cost=total_cost,
-            error=error,
-            images=images,
             upload_keys=self.anchor_keys,
             input_roles=("product",) * len(self.anchor_keys),
             parent_job_id=self.parent_job_id,
@@ -171,8 +172,9 @@ class EditCommand(GenerationCommand):
         )
 
     async def run(self, job_id: str) -> None:
-        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         size = "{}x{}".format(*ratio_to_size(self.ratio))
+        await self.history.start(self._start(job_id, size))
+        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
             result = await self.service.edit(
                 prompt=self.prompt,
@@ -184,11 +186,11 @@ class EditCommand(GenerationCommand):
                 edit_mode=self.edit_mode,
             )
         except Exception as exc:
+            await self.history.finalize(
+                job_id, status="失败", total_cost=Decimal("0"), error=str(exc)
+            )
             await self.events.publish(
                 TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})
-            )
-            await self.history.record(
-                self._outcome(job_id, size, "失败", Decimal("0"), str(exc), ())
             )
             raise
         await self.events.publish(
@@ -208,8 +210,9 @@ class EditCommand(GenerationCommand):
             )
             for im in result.images
         )
-        await self.history.record(
-            self._outcome(job_id, size, "完成", result.total_cost, None, images)
+        await self.history.add_images(job_id, images)
+        await self.history.finalize(
+            job_id, status="完成", total_cost=result.total_cost, error=None
         )
         await self.events.publish(
             TaskEvent(
@@ -220,7 +223,7 @@ class EditCommand(GenerationCommand):
 
 @dataclass
 class CloneCommand(GenerationCommand):
-    """爆款复刻异步命令（PRD §3.13）：service.clone 出 1 张 → 事件 → 持久化（含档位+双角色）。"""
+    """爆款复刻异步命令（PRD §3.13）：建行 → clone 出 1 张 → 落图 → 终态（含档位+双角色）。"""
 
     service: ListingGenerationService
     events: EventPublisher
@@ -238,16 +241,8 @@ class CloneCommand(GenerationCommand):
     def _roles(self) -> tuple[str, ...]:
         return ("product",) + ("reference",) * len(self.reference_images)
 
-    def _outcome(
-        self,
-        job_id: str,
-        size: str,
-        status: str,
-        total_cost: Decimal,
-        error: str | None,
-        images: tuple[ListingJobImage, ...],
-    ) -> ListingJobOutcome:
-        return ListingJobOutcome(
+    def _start(self, job_id: str, size: str) -> ListingJobStart:
+        return ListingJobStart(
             job_id=job_id,
             user_id=self.user_id,
             prompt=self.prompt,
@@ -255,18 +250,15 @@ class CloneCommand(GenerationCommand):
             ratio=self.ratio,
             size=size,
             n=1,
-            status=status,
-            total_cost=total_cost,
-            error=error,
-            images=images,
             upload_keys=self.upload_keys,
-            clone_mode=self.clone_mode,
             input_roles=self._roles(),
+            clone_mode=self.clone_mode,
         )
 
     async def run(self, job_id: str) -> None:
-        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         size = "{}x{}".format(*ratio_to_size(self.ratio))
+        await self.history.start(self._start(job_id, size))
+        await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
             result = await self.service.clone(
                 prompt=self.prompt,
@@ -279,11 +271,11 @@ class CloneCommand(GenerationCommand):
                 clone_mode=self.clone_mode,
             )
         except Exception as exc:
+            await self.history.finalize(
+                job_id, status="失败", total_cost=Decimal("0"), error=str(exc)
+            )
             await self.events.publish(
                 TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})
-            )
-            await self.history.record(
-                self._outcome(job_id, size, "失败", Decimal("0"), str(exc), ())
             )
             raise
         await self.events.publish(
@@ -303,8 +295,9 @@ class CloneCommand(GenerationCommand):
             )
             for im in result.images
         )
-        await self.history.record(
-            self._outcome(job_id, size, "完成", result.total_cost, None, images)
+        await self.history.add_images(job_id, images)
+        await self.history.finalize(
+            job_id, status="完成", total_cost=result.total_cost, error=None
         )
         await self.events.publish(
             TaskEvent(

@@ -38,8 +38,12 @@ class ListingJobImage:
 
 
 @dataclass(frozen=True)
-class ListingJobOutcome:
-    """listing 一次出图任务的可持久化快照（ISSUE-0030，写历史用）。"""
+class ListingJobStart:
+    """listing 出图任务入库初始快照（两阶段落库·入队即落一行）。
+
+    落 status='生成中'、total_cost=0、error/completed_at 空、无候选图（图经 add_images
+    逐张增量落、状态经 finalize 改）。job 元数据 + 输入产品图一次性随建行写入。
+    """
 
     job_id: str
     user_id: str
@@ -47,11 +51,7 @@ class ListingJobOutcome:
     modifiers: dict[str, str]
     ratio: str
     size: str  # 形如 1024x1536
-    n: int
-    status: str  # 完成 | 部分完成 | 失败
-    total_cost: Decimal
-    error: str | None
-    images: tuple[ListingJobImage, ...]
+    n: int  # 计划总张数（单图流=n、套图=Σplan、复刻/编辑=1）
     upload_keys: tuple[str, ...]
     # 爆款复刻（PRD §3.13）：档位（参考风格|高度复刻；None=非复刻）+ 输入图角色
     # （product|reference，与 upload_keys 同序对齐；空=旧行为全 None）
