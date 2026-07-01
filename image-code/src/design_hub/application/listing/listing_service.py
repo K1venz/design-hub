@@ -24,7 +24,9 @@ _MAX_IMAGES = 3
 _MAX_N = 7  # 单图流张数上限（现行，不动）
 _MIN_TOTAL = 3  # 套图总数下限（PRD §3.12.14，保「套」语义）
 _MAX_TOTAL = 10  # 套图总数上限（gpt 实测批量上限内、单任务成本封顶）
-_CONCURRENCY = 5  # 套图并发窗口（10 张超 n=7 实测包络，分批防上游限流）
+# 套图并发窗口默认档（保守，ISSUE-0047）：apikey 轮换后新 key 分组并发档位低，5 路并发打满
+# 上游 429 → 套图「只出 1 张」。降到 3 避开限流档；经 settings.listing_concurrency 可覆盖下调至 2。
+_DEFAULT_CONCURRENCY = 3
 _MAX_OVERLAY_TEXTS = 2
 _MAX_OVERLAY_LEN = 12
 
@@ -98,8 +100,9 @@ class ListingGenerationService:
     """listing 出图用例：组装 prompt → 守门预扣 → gpt-image-2 出图 → 回正。
 
     单图流（n）= n 个并发单图请求（现行，零破坏）；套图（plan）= 按图型展开后经
-    并发窗口（Semaphore=_CONCURRENCY）分批出图，每张带图型标签、部分失败容错
+    并发窗口（Semaphore=concurrency）分批出图，每张带图型标签、部分失败容错
     （≥1 成功即返回、failures 记图型+原因，对接 ISSUE-0030「部分完成」）。
+    concurrency 从 settings 注入（ISSUE-0047 保守降档，避开新 key 分组低并发限流）。
     """
 
     registry: ProviderRegistry
@@ -109,6 +112,11 @@ class ListingGenerationService:
     type_registry: ImageTypeRegistry
     clone_registry: CloneModeRegistry
     edit_registry: EditModeRegistry
+    concurrency: int = _DEFAULT_CONCURRENCY
+
+    def __post_init__(self) -> None:
+        if self.concurrency < 1:
+            raise ValueError(f"concurrency 需 ≥1，实际 {self.concurrency}")
 
     async def generate(
         self,
@@ -137,7 +145,7 @@ class ListingGenerationService:
         ref = list(images)
         # 卖点有字张走 high 档（宪章 §2.1 图上文字；prompt 卡建议、#491 知会 PM）
         overlay_quality = "high" if overlay_texts else None
-        sem = asyncio.Semaphore(_CONCURRENCY)
+        sem = asyncio.Semaphore(self.concurrency)
 
         async def one(seed: int, image_type: str | None, final_prompt: str) -> list[GeneratedImage]:
             async with sem:
