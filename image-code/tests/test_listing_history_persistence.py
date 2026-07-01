@@ -2,12 +2,18 @@
 进行中单可查、部分完成失败张留痕。DB 层走真实 SQLite 往返，命令层走 fakes 校验编排/时序。"""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from design_hub.application.listing.commands import ListingGenerationCommand
+from design_hub.application.listing.commands import (
+    CloneCommand,
+    EditCommand,
+    ListingGenerationCommand,
+)
 from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.models import (
     GeneratedImage,
@@ -19,16 +25,26 @@ from design_hub.domain.models import (
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
+from design_hub.infrastructure.db.models import ListingJobRow
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 
 
-async def _fresh_repos() -> tuple[SqlAlchemyListingHistory, SqlAlchemyListingHistoryQuery]:
+async def _fresh_stack() -> tuple[
+    SqlAlchemyListingHistory,
+    SqlAlchemyListingHistoryQuery,
+    async_sessionmaker[AsyncSession],
+]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     sf = async_sessionmaker(engine, expire_on_commit=False)
-    return SqlAlchemyListingHistory(sf), SqlAlchemyListingHistoryQuery(sf)
+    return SqlAlchemyListingHistory(sf), SqlAlchemyListingHistoryQuery(sf), sf
+
+
+async def _fresh_repos() -> tuple[SqlAlchemyListingHistory, SqlAlchemyListingHistoryQuery]:
+    hist, query, _ = await _fresh_stack()
+    return hist, query
 
 
 def _start(**kw: object) -> ListingJobStart:
@@ -130,8 +146,11 @@ def test_finalize_missing_row_fails_fast() -> None:
 
 
 class _FakeHistory(ListingHistory):
-    def __init__(self, log: list[tuple[str, object]]) -> None:
+    def __init__(
+        self, log: list[tuple[str, object]], *, add_images_error: Exception | None = None
+    ) -> None:
         self._log = log
+        self._add_images_error = add_images_error  # Finding A：注入落图段故障（DB 抖断等）
         self.starts: list[ListingJobStart] = []
         self.batches: list[tuple[str, tuple[ListingJobImage, ...]]] = []
         self.finals: list[tuple[str, str, Decimal, str | None]] = []
@@ -141,6 +160,9 @@ class _FakeHistory(ListingHistory):
         self._log.append(("start", job.job_id))
 
     async def add_images(self, job_id: str, images: tuple[ListingJobImage, ...]) -> None:
+        if self._add_images_error is not None:
+            self._log.append(("add_images_boom", len(images)))
+            raise self._add_images_error
         self.batches.append((job_id, images))
         self._log.append(("add_images", len(images)))
 
@@ -149,6 +171,9 @@ class _FakeHistory(ListingHistory):
     ) -> None:
         self.finals.append((job_id, status, total_cost, error))
         self._log.append(("finalize", status))
+
+    async def reap_stale(self, *, older_than: timedelta, error: str) -> int:
+        return 0
 
 
 class _FakeEvents(EventPublisher):
@@ -166,11 +191,65 @@ class _FakeService:
         self._result = result
         self._exc = exc
 
-    async def generate(self, **_kw: object) -> ListingResult:
+    async def _run(self) -> ListingResult:
         if self._exc is not None:
             raise self._exc
         assert self._result is not None
         return self._result
+
+    async def generate(self, **_kw: object) -> ListingResult:
+        return await self._run()
+
+    async def clone(self, **_kw: object) -> ListingResult:
+        return await self._run()
+
+    async def edit(self, **_kw: object) -> ListingResult:
+        return await self._run()
+
+
+def _single(url: str) -> ListingResult:
+    """复刻/编辑用：单张成功结果（image_type 恒 None、failures 恒空）。"""
+    return ListingResult(
+        prompt="p",
+        used_model=ModelName.GPT_IMAGE_2,
+        images=(GeneratedImage(url=url, seed=3, latency_ms=5, cost=Decimal("0.4")),),
+        total_cost=Decimal("0.4"),
+    )
+
+
+def _clone_command(service: _FakeService, history: ListingHistory, events: EventPublisher):
+    return CloneCommand(
+        service=service,  # type: ignore[arg-type]
+        events=events,
+        history=history,
+        user_id="u1",
+        prompt="",
+        modifiers={"platform": "抖音电商"},
+        product_image=b"p",
+        reference_images=(b"r",),
+        upload_keys=("u1/p.png", "u1/r.png"),
+        ratio="1:1",
+        category="FOOD",
+        clone_mode="参考风格",
+    )
+
+
+def _edit_command(service: _FakeService, history: ListingHistory, events: EventPublisher):
+    return EditCommand(
+        service=service,  # type: ignore[arg-type]
+        events=events,
+        history=history,
+        user_id="u1",
+        prompt="把背景换成米色",
+        modifiers={"platform": "抖音电商"},
+        source_image=b"s",
+        anchor_images=(b"a",),
+        anchor_keys=("u1/a.png",),
+        parent_job_id="parent1",
+        source_image_key="src.png",
+        ratio="1:1",
+        edit_mode="delta",
+    )
 
 
 def _command(service: _FakeService, history: ListingHistory, events: EventPublisher):
@@ -274,6 +353,195 @@ def test_command_failure_path_finalizes_failed_before_task_failed_no_images() ->
     assert error is not None and "上游 429" in error
     # 时序：finalize(失败) 先于 TASK_FAILED 事件
     assert log.index(("finalize", "失败")) < log.index(("event", TaskEventType.TASK_FAILED))
+
+
+# ── 复刻/编辑命令编排 + 时序（单张流：start→add_images→finalize 先于 TASK_COMPLETED）──
+
+
+def test_clone_command_orchestration_and_ordering() -> None:
+    log: list[tuple[str, object]] = []
+    history = _FakeHistory(log)
+    events = _FakeEvents(log)
+    cmd = _clone_command(_FakeService(_single("/img/c.png")), history, events)
+
+    asyncio.run(cmd.run("jc"))
+
+    # 建行快照：单张（n=1）+ 双角色（产品前·参考后）+ 复刻档
+    assert len(history.starts) == 1
+    snap = history.starts[0]
+    assert snap.n == 1
+    assert snap.clone_mode == "参考风格"
+    assert snap.input_roles == ("product", "reference")
+    assert snap.upload_keys == ("u1/p.png", "u1/r.png")
+    # 落图：单张成功（image_type=None）、终态=完成、无失败原因
+    assert len(history.batches) == 1
+    (persisted,) = history.batches[0][1]
+    assert persisted.status == "成功" and persisted.image_key == "c.png"
+    assert persisted.image_type is None
+    assert history.finals[0][1] == "完成" and history.finals[0][3] is None
+    # 时序：start / add_images / finalize 全部先于 TASK_COMPLETED
+    completed_at = log.index(("event", TaskEventType.TASK_COMPLETED))
+    assert [k for k, _ in log].index("start") < completed_at
+    assert log.index(("add_images", 1)) < completed_at
+    assert log.index(("finalize", "完成")) < completed_at
+
+
+def test_edit_command_orchestration_and_ordering() -> None:
+    log: list[tuple[str, object]] = []
+    history = _FakeHistory(log)
+    events = _FakeEvents(log)
+    cmd = _edit_command(_FakeService(_single("/img/e.png")), history, events)
+
+    asyncio.run(cmd.run("je"))
+
+    # 建行快照：迭代链回显（parent/source/edit_mode）+ 链根锚 role=product
+    assert len(history.starts) == 1
+    snap = history.starts[0]
+    assert snap.n == 1
+    assert snap.parent_job_id == "parent1"
+    assert snap.source_image_key == "src.png"
+    assert snap.edit_mode == "delta"
+    assert snap.input_roles == ("product",)
+    assert snap.upload_keys == ("u1/a.png",)
+    # 落图：单张成功、终态=完成；时序先于 TASK_COMPLETED
+    (persisted,) = history.batches[0][1]
+    assert persisted.status == "成功" and persisted.image_key == "e.png"
+    assert history.finals[0][1] == "完成"
+    completed_at = log.index(("event", TaskEventType.TASK_COMPLETED))
+    assert log.index(("add_images", 1)) < completed_at
+    assert log.index(("finalize", "完成")) < completed_at
+
+
+# ── Finding A：出图成功后的落库/发事件段抛错 → fail-closed 兜底（终态失败，非僵尸单）──
+
+
+def test_command_persist_failure_fails_closed_to_failed() -> None:
+    log: list[tuple[str, object]] = []
+    boom = RuntimeError("DB 抖断（add_images）")
+    history = _FakeHistory(log, add_images_error=boom)  # 出图成功、落图段抛错
+    events = _FakeEvents(log)
+    result = ListingResult(
+        prompt="p",
+        used_model=ModelName.GPT_IMAGE_2,
+        images=(
+            GeneratedImage(
+                url="/img/aa.png", seed=7, latency_ms=10, cost=Decimal("0.4"), image_type="白底"
+            ),
+        ),
+        total_cost=Decimal("0.4"),
+        failures=(("卖点", "boom"),),
+    )
+    cmd = _command(_FakeService(result), history, events)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(cmd.run("j1"))
+
+    # generate 成功后落图段确曾进入（add_images 抛错），随后 fail-closed 终态=失败
+    assert ("add_images_boom", 2) in [(k, v) for k, v in log]
+    assert history.batches == []  # 成功批未落
+    assert len(history.finals) == 1
+    _, status, total_cost, error = history.finals[0]
+    assert status == "失败"
+    assert total_cost == Decimal("0")
+    assert error is not None and "DB 抖断" in error
+    # 时序：finalize(失败) 先于 TASK_FAILED；且绝不误发 TASK_COMPLETED（非成功、非僵尸）
+    assert log.index(("finalize", "失败")) < log.index(("event", TaskEventType.TASK_FAILED))
+    assert ("event", TaskEventType.TASK_COMPLETED) not in log
+
+
+# ── Finding B：启动 reaper 把进程崩/部署撞出图中留下的「生成中」僵尸行扫成失败 ──
+
+
+async def _backdate(
+    sf: async_sessionmaker[AsyncSession], job_id: str, created_at: datetime
+) -> None:
+    async with sf() as session:
+        await session.execute(
+            update(ListingJobRow).where(ListingJobRow.id == job_id).values(created_at=created_at)
+        )
+        await session.commit()
+
+
+def test_reaper_sweeps_stale_in_progress_only() -> None:
+    """僵尸单场景（start 后不 finalize 的持久态）+ 启动 reaper 扫成失败；新鲜/终态单不误伤。"""
+
+    async def _impl() -> None:
+        hist, query, sf = await _fresh_stack()
+        old = datetime.now(UTC) - timedelta(hours=1)
+        # 僵尸：start 后无 finalize（进程崩），且超龄
+        await hist.start(_start(job_id="stale", n=1))
+        await _backdate(sf, "stale", old)
+        # 新鲜：生成中但刚建（仍可能在飞，绝不误杀）
+        await hist.start(_start(job_id="fresh", n=1))
+        # 终态：完成（即便超龄也不该被碰）
+        await hist.start(_start(job_id="done", n=1))
+        await _backdate(sf, "done", old)
+        await hist.finalize("done", status="完成", total_cost=Decimal("0.4"), error=None)
+
+        # 扫前：僵尸单持久态=生成中、可查（SSE 会永久转圈、霸占最近一单）
+        pre = await query.get_job(job_id="stale", user_id="u1")
+        assert pre is not None and pre.status == "生成中" and pre.completed_at is None
+
+        reaped = await hist.reap_stale(
+            older_than=timedelta(minutes=15), error="进程重启中断/超时兜底"
+        )
+        assert reaped == 1  # 只扫僵尸那一行
+
+        stale = await query.get_job(job_id="stale", user_id="u1")
+        assert stale is not None and stale.status == "失败"
+        assert stale.error is not None and "超时兜底" in stale.error
+        assert stale.completed_at is not None  # 补终态时间，SSE/前端不再转圈
+        fresh = await query.get_job(job_id="fresh", user_id="u1")
+        assert fresh is not None and fresh.status == "生成中"  # 新鲜单不误杀
+        done = await query.get_job(job_id="done", user_id="u1")
+        assert done is not None and done.status == "完成"  # 终态不改
+
+    asyncio.run(_impl())
+
+
+def test_reaper_noop_when_nothing_stale() -> None:
+    async def _impl() -> None:
+        hist, _, _ = await _fresh_stack()
+        await hist.start(_start(job_id="fresh", n=1))  # 刚建、未超龄
+        assert await hist.reap_stale(older_than=timedelta(minutes=15), error="x") == 0
+
+    asyncio.run(_impl())
+
+
+# ── resolve_edit_source：失败哨兵（image_key=''）不可被当编辑源解析（Q-δ 状态闸）──
+
+
+def test_resolve_edit_source_ignores_failed_sentinel() -> None:
+    async def _impl() -> None:
+        hist, query, _ = await _fresh_stack()
+        # 根单（无 parent）：1 成功白底 + 1 失败卖点哨兵（image_key=''），产品输入 role=None
+        await hist.start(_start(job_id="root", n=1))
+        await hist.add_images(
+            "root",
+            (
+                ListingJobImage(
+                    image_key="ok.png", seed=1, cost=Decimal("0.4"),
+                    status="成功", image_type="白底",
+                ),
+                ListingJobImage(
+                    image_key="", seed=-1, cost=Decimal("0"),
+                    status="失败", image_type="卖点",
+                ),
+            ),
+        )
+        await hist.finalize(
+            "root", status="部分完成", total_cost=Decimal("0.4"), error="卖点：boom"
+        )
+
+        # 正控：成功张可反解为编辑源（链根产品锚回显）
+        src = await query.resolve_edit_source(source_image_key="ok.png", user_id="u1")
+        assert src is not None
+        assert src.parent_job_id == "root"
+        assert src.root_product_upload_keys == ("u1/a.png",)
+        # 反控：失败哨兵（image_key=''）绝不可被解析为编辑源（否则空 key 当源图链根）
+        assert await query.resolve_edit_source(source_image_key="", user_id="u1") is None
+
+    asyncio.run(_impl())
 
 
 if __name__ == "__main__":  # pragma: no cover

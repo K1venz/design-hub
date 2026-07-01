@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import timedelta
 from decimal import Decimal
 
 from design_hub.domain.models import ListingJobImage, ListingJobStart
@@ -29,4 +30,15 @@ class ListingHistory(ABC):
         self, job_id: str, *, status: str, total_cost: Decimal, error: str | None
     ) -> None:
         """终态：改 status + total_cost + error，补 completed_at。行须已由 start 建出。"""
+        ...
+
+    @abstractmethod
+    async def reap_stale(self, *, older_than: timedelta, error: str) -> int:
+        """启动扫尾（Finding B）：把超龄未终态的 status='生成中' 僵尸行兜底改'失败'。
+
+        单进程 asyncio 出图，进程崩/部署重启会杀掉在飞任务而不跑 finalize，留永久
+        「生成中」死单（SSE 永久转圈、霸占最近一单）。扫 created_at 早于 now-older_than
+        的行、UPDATE 成失败 + 标 error + 补 completed_at；纯现列 query+update，无迁移。
+        返回扫改行数。
+        """
         ...
