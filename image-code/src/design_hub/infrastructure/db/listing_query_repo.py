@@ -43,20 +43,29 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             )
             rows = list((await session.execute(stmt)).scalars().all())
         return [
-            ListingJobSummary(
-                job_id=r.id,
-                status=r.status,
-                platform=r.platform,
-                ratio=r.ratio,
-                n=r.n,
-                total_cost=r.total_cost,
-                created_at=r.created_at,
-                first_image_key=(r.images[0].image_key if r.images else None),
-                image_count=len(r.images),
-                edit_mode=r.edit_mode,
-            )
+            self._summary_of(r)
             for r in rows
         ]
+
+    @staticmethod
+    def _summary_of(r: ListingJobRow) -> ListingJobSummary:
+        # 失败张也落库（两阶段 ISSUE-0047）：缩略图/计数只算成功张，保 image_count 旧语义
+        # （历史上仅成功张入库，前端据此展缩略、失败张空 image_key 不可展）。按 id 稳序取首成功。
+        successes = sorted(
+            (im for im in r.images if im.status == "成功"), key=lambda im: im.id
+        )
+        return ListingJobSummary(
+            job_id=r.id,
+            status=r.status,
+            platform=r.platform,
+            ratio=r.ratio,
+            n=r.n,
+            total_cost=r.total_cost,
+            created_at=r.created_at,
+            first_image_key=(successes[0].image_key if successes else None),
+            image_count=len(successes),
+            edit_mode=r.edit_mode,
+        )
 
     async def get_job(self, *, job_id: str, user_id: str) -> ListingJobDetail | None:
         async with self._session_factory() as session:
