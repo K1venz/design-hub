@@ -1,6 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any, cast
 
+from sqlalchemy import CursorResult, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from design_hub.domain.models import ListingJobImage, ListingJobStart
@@ -83,3 +85,20 @@ class SqlAlchemyListingHistory(ListingHistory):
             row.error = error
             row.completed_at = datetime.now(UTC)
             await session.commit()
+
+    async def reap_stale(self, *, older_than: timedelta, error: str) -> int:
+        cutoff = datetime.now(UTC) - older_than
+        async with self._session_factory() as session:
+            result = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    update(ListingJobRow)
+                    .where(
+                        ListingJobRow.status == _IN_PROGRESS,
+                        ListingJobRow.created_at < cutoff,
+                    )
+                    .values(status="失败", error=error, completed_at=datetime.now(UTC))
+                ),
+            )
+            await session.commit()
+            return result.rowcount

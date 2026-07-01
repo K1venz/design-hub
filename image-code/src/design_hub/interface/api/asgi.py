@@ -7,6 +7,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 from fastapi import Depends, FastAPI
 
@@ -88,6 +89,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 二次编辑源图读回（ISSUE-0040）：generate 桶/本地 generated/ 的读取面
     app.state.image_store = build_image_store(settings)
     app.state.listing_history = SqlAlchemyListingHistory(session_factory)
+    # 启动扫尾（Finding B）：单进程 asyncio 出图，进程崩/部署撞在飞任务会杀掉未终态的
+    # create_task，留永久「生成中」僵尸行（SSE 永久转圈、霸占最近一单）。单进程下启动扫
+    # 一次即够（此刻 queue 空、无在飞任务竞争，不需定时任务）。阈值 15 分钟为宽松安全值：
+    # 远超 gpt-image edit 实测 ~187s + 套图并发批次余量，绝不误杀滚动部署时旧进程仍在
+    # 收尾的真实任务；纯现列 UPDATE，无迁移。
+    await app.state.listing_history.reap_stale(
+        older_than=timedelta(minutes=15), error="进程重启中断/超时兜底（Finding B）"
+    )
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)
     # 历史/SSE 图 url 签名器（TOS 私有→预签名；本地→/img 静态，ISSUE-0029）
     app.state.media_signer = build_media_signer(settings)
