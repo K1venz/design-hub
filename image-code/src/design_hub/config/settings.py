@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     text_llm_model: str = ""
     # 对话会话级出图闸（#884②）：单会话最多出图单数，保守默认 5，可配。
     chat_session_max_jobs: int = 5
+    # 图像 Provider 真实/Mock 开关：默认 True（prod 走真实 gpt-image-2）。
+    # 本地/前端联调设 REAL_GPT_IMAGE=false → Mock 图像（零 API 成本、不触真中转站）。
+    real_gpt_image: bool = True
     # 套图并发窗口（ISSUE-0047）：apikey 轮换后新 key 分组并发档位低，5 路并发打满上游 429
     # → 套图「只出 1 张」。保守默认 3；ops 可经 .env 下调至 2 而无需改码。单图流 n=1 恒 1 路，
     # 任何 ≥1 的取值都不改其行为。
