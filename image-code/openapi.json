@@ -798,6 +798,32 @@
         }
       }
     },
+    "/showcase": {
+      "get": {
+        "tags": [
+          "showcase"
+        ],
+        "summary": "Showcase",
+        "description": "公开成果展示：精选出图现签 url，按清单序返回；清单空 → []。",
+        "operationId": "showcase_showcase_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ShowcaseItemOut"
+                  },
+                  "type": "array",
+                  "title": "Response Showcase Showcase Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/models": {
       "get": {
         "tags": [
@@ -1816,6 +1842,30 @@
           "role"
         ],
         "title": "RoleUpdate"
+      },
+      "ShowcaseItemOut": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "image_type": {
+            "type": "string",
+            "title": "Image Type"
+          },
+          "caption": {
+            "type": "string",
+            "title": "Caption"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "image_type",
+          "caption"
+        ],
+        "title": "ShowcaseItemOut",
+        "description": "GET /showcase 列表项：现签 url + 图型 + 首页说明（公开，无用户数据）。"
       },
       "UploadResponse": {
         "properties": {

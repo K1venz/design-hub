@@ -57,6 +57,7 @@ from design_hub.interface.api.routes import (
     auth,
     chat,
     listing,
+    showcase,
     uploads,
     users,
 )
@@ -183,6 +184,8 @@ def create_production_app() -> FastAPI:
     app.include_router(chat.router)
     # 图片上传两步流（ISSUE-0026）：POST /uploads + GET /uploads/{id} 预览代理
     app.include_router(uploads.router)
+    # 公开首页成果展示（无鉴权）：精选清单现签 url，无用户数据/prompt 泄漏
+    app.include_router(showcase.router)
     # 仅管理者：模型配置 + 用户管理
     app.include_router(admin.router, dependencies=manager_only)
     app.include_router(users.router, dependencies=manager_only)
