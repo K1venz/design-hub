@@ -1,11 +1,12 @@
-"""「帮我设计」方案 C 对话编排单测（固化原手工 E2E，ISSUE-0048 chat 测试债）。
+"""「帮我设计」方案 C 对话编排 + 持久化单测（ISSUE-0048 chat 测试债 + ISSUE-0051 持久化）。
 
-覆盖：ChatOrchestrator 事件序 / 费用闸（cost_confirm 暂停不出图）/ confirm 启 job + job_event
-转发 / confirm_token 一次性·跨用户·cancel·过期 / 会话级出图闸 / 占位 ratio→转澄清 /
-澄清轮无工具；ListingJobLauncher.validate 纯校验；InMemorySessionStore token 语义。
+覆盖：ChatOrchestrator 事件序 / 费用闸(cost_confirm 暂停不出图) / confirm 启 job+job_event 转发 /
+confirm_token 一次性·跨用户·cancel·过期 / 会话级闸(DB 派生) / 占位 ratio→转澄清 / 澄清轮无工具;
+ListingJobLauncher.validate 纯校验; PendingStore token 语义; ChatSessionRepository 持久化(刷新
+不丢/owner 404/CASCADE 删/job_count) + 转录落库(user 消息+assistant 答复+job_id,过程态不落)。
 
-真出图链走 mock 图像 provider（零成本）+ 真 InMemoryEventBus/InProcessTaskQueue + sqlite 历史。
-文本 LLM 用确定性 Stub（真 provider 的流式/工具解析在 test_text_llm_adapter.py 覆盖）。
+真出图链走 mock 图像 provider(零成本)+ 真 InMemoryEventBus/InProcessTaskQueue + sqlite。
+文本 LLM 用确定性 Stub(真 provider 流式/工具解析在 test_text_llm_adapter.py 覆盖)。
 """
 
 import asyncio
@@ -17,7 +18,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from design_hub.application.chat.orchestrator import ChatOrchestrator
-from design_hub.application.chat.session_store import InMemorySessionStore
+from design_hub.application.chat.pending_store import PendingStore
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.guard import CostGuard
 from design_hub.application.listing.job_launcher import ListingJobLauncher
@@ -42,12 +43,14 @@ from design_hub.domain.enums import ModelName, Role
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import AuthUser, BudgetSnapshot
 from design_hub.infrastructure.db.base import Base
+from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.infrastructure.storage.local import LocalImageStore
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
+from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.text_llm import (
     ChatMessage,
@@ -75,7 +78,7 @@ class _FakeLedger(LedgerRepository):
 
 
 class StubTextLLM(TextLLMPort):
-    """确定性文本 LLM：每次带工具的调用取下一条脚本；收尾轮（无工具）产固定收尾语。"""
+    """确定性文本 LLM：每次带工具的调用取下一条脚本；收尾轮(无工具)产固定收尾语。"""
 
     is_live = False
 
@@ -114,13 +117,15 @@ class Infra:
     uploads: UploadService
     registry: ProviderRegistry
     events: InMemoryEventBus
-    sessions: InMemorySessionStore
+    chat_repo: ChatSessionRepository
+    pending: PendingStore
     max_session_jobs: int
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
         return ChatOrchestrator(
             text_llm=text_llm, launcher=self.launcher, event_stream=self.events,
-            registry=self.registry, sessions=self.sessions, max_session_jobs=self.max_session_jobs,
+            registry=self.registry, chat_repo=self.chat_repo, pending=self.pending,
+            max_session_jobs=self.max_session_jobs,
         )
 
 
@@ -143,7 +148,10 @@ async def _infra(tmp: str, *, max_session_jobs: int = 5) -> Infra:
         history=SqlAlchemyListingHistory(sf), queue=InProcessTaskQueue(),
         query=SqlAlchemyListingHistoryQuery(sf), image_store=LocalImageStore(tmp),
     )
-    return Infra(launcher, uploads, registry, events, InMemorySessionStore(), max_session_jobs)
+    return Infra(
+        launcher, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
+        PendingStore(), max_session_jobs,
+    )
 
 
 async def _drain(agen: AsyncIterator) -> list[tuple[str, dict]]:
@@ -175,11 +183,13 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
         cc = _first(ev, "cost_confirm")
         assert cc["count"] == 5
         unit = inf.registry.get(ModelName.GPT_IMAGE_2).unit_cost
-        assert cc["estimate_cny"] == str(unit * 5)  # 与工作台同源（#884③）
+        assert cc["estimate_cny"] == str(unit * 5)  # 与工作台同源(#884③)
         assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
-        # 费用闸：确认前会话 job_count=0（未出图、未扣费）
-        session = inf.sessions.get(_first(ev, "session")["session_id"], USER.user_id)
-        assert session is not None and session.job_count == 0
+        sid = _first(ev, "session")["session_id"]
+        # 费用闸：确认前 DB 无 job(未出图);user 消息已落、assistant 未落(答复留到 confirm)
+        assert await inf.chat_repo.job_count(sid) == 0
+        t = await inf.chat_repo.get_transcript(sid, USER.user_id)
+        assert t is not None and [m.role for m in t.messages] == ["user"]
 
     asyncio.run(_impl())
 
@@ -201,6 +211,10 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
         assert je.count("image_generated") == 5
         assert "task_completed" in je
         assert conf[-1] == ("assistant_end", {"status": "complete"})
+        # 转录：user 消息 + assistant 最终答复(带 job_id);过程态不落
+        t = await inf.chat_repo.get_transcript(sid, USER.user_id)
+        assert t is not None and [m.role for m in t.messages] == ["user", "assistant"]
+        assert t.messages[1].job_id == _first(conf, "job_started")["job_id"]
 
     asyncio.run(_impl())
 
@@ -298,7 +312,61 @@ def test_clarify_turn_without_tool_completes(tmp_path) -> None:
     asyncio.run(_impl())
 
 
-# ── ListingJobLauncher.validate 纯校验（#884⑤ 与出图同一校验源）─────────────────
+# ── 持久化(ISSUE-0051 验收)：刷新不丢 / owner 404 / CASCADE 删 ─────────────────
+
+
+def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
+    """验收①：会话与消息落库，新 orchestrator 实例(模拟刷新/重启)仍能回显。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        orch = inf.orch(StubTextLLM(("你好呀，需要出什么图？", ())))
+        msg = await _drain(orch.handle_message(USER, None, "你好", []))
+        sid = _first(msg, "session")["session_id"]
+        # 新 orchestrator + 全新 PendingStore(内存态丢失)，共享同一 DB
+        inf2 = Infra(
+            inf.launcher, inf.uploads, inf.registry, inf.events, inf.chat_repo,
+            PendingStore(), inf.max_session_jobs,
+        )
+        t = await inf2.chat_repo.get_transcript(sid, USER.user_id)
+        assert t is not None
+        assert [m.role for m in t.messages] == ["user", "assistant"]
+        assert t.messages[0].content == "你好"
+        sessions = await inf2.chat_repo.list_sessions(USER.user_id)
+        assert len(sessions) == 1 and sessions[0].id == sid and sessions[0].message_count == 2
+
+    asyncio.run(_impl())
+
+
+def test_get_transcript_owner_isolation_404(tmp_path) -> None:
+    """验收③：越权他人会话 → None(路由 404 anti-enum)。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        orch = inf.orch(StubTextLLM(("在的~", ())))
+        msg = await _drain(orch.handle_message(USER, None, "hi", []))
+        sid = _first(msg, "session")["session_id"]
+        assert await inf.chat_repo.get_transcript(sid, OTHER.user_id) is None
+        assert await inf.chat_repo.list_sessions(OTHER.user_id) == []
+
+    asyncio.run(_impl())
+
+
+def test_delete_session_cascade_and_owner(tmp_path) -> None:
+    """验收④：删会话级联删消息、列表消失；他人删→False(404)、不受影响。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        orch = inf.orch(StubTextLLM(("好的", ())))
+        msg = await _drain(orch.handle_message(USER, None, "hi", []))
+        sid = _first(msg, "session")["session_id"]
+        assert await inf.chat_repo.delete_session(sid, OTHER.user_id) is False  # 他人删拒
+        assert await inf.chat_repo.get_transcript(sid, USER.user_id) is not None  # 仍在
+        assert await inf.chat_repo.delete_session(sid, USER.user_id) is True  # 本人删
+        assert await inf.chat_repo.get_transcript(sid, USER.user_id) is None  # 级联消失
+        assert await inf.chat_repo.list_sessions(USER.user_id) == []
+
+    asyncio.run(_impl())
+
+
+# ── ListingJobLauncher.validate 纯校验(#884⑤ 与出图同一校验源) ─────────────────
 
 
 def test_validate_rejects_bad_ratio(tmp_path) -> None:
@@ -346,42 +414,30 @@ def test_validate_edit_delta_rejects_ratio(tmp_path) -> None:
     asyncio.run(_impl())
 
 
-# ── InMemorySessionStore：confirm_token 一次性 / 绑 user / 过期 / cancel ─────────
+# ── PendingStore：confirm_token 一次性 / 过期 / clear ─────────────────────────
 
 
 def _req() -> ListingGenerateRequest:
     return ListingGenerateRequest(upload_ids=["a"], prompt="p", ratio="1:1", n=1)
 
 
-def test_session_owner_isolation() -> None:
-    s = InMemorySessionStore()
-    sess = s.create("u1")
-    assert s.get(sess.session_id, "u1") is sess
-    assert s.get(sess.session_id, "u2") is None
-    assert s.get("nope", "u1") is None
+def test_pending_take_one_time_and_mismatch_preserves() -> None:
+    p = PendingStore()
+    action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
+    assert p.take("s1", "wrong") is None  # 不匹配不消费
+    assert p.take("s1", action.confirm_token) is action  # 真 token 仍在
+    assert p.take("s1", action.confirm_token) is None  # 一次性，二次拒
 
 
-def test_take_pending_one_time_and_mismatch_preserves() -> None:
-    s = InMemorySessionStore()
-    sess = s.create("u1")
-    p = s.new_pending(sess, tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
-    assert s.take_pending(sess, "wrong") is None  # 不匹配不消费
-    assert s.take_pending(sess, p.confirm_token) is p  # 真 token 仍在
-    assert s.take_pending(sess, p.confirm_token) is None  # 一次性，二次拒
+def test_pending_take_expired() -> None:
+    p = PendingStore(ttl_seconds=-1.0)  # 立即过期
+    action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
+    assert p.take("s1", action.confirm_token) is None  # 匹配但过期
+    assert p.take("s1", action.confirm_token) is None  # 已消费
 
 
-def test_take_pending_expired() -> None:
-    s = InMemorySessionStore(ttl_seconds=-1.0)  # 立即过期
-    sess = s.create("u1")
-    p = s.new_pending(sess, tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
-    assert s.take_pending(sess, p.confirm_token) is None  # 匹配但过期
-    assert sess.pending is None  # 且已消费
-
-
-def test_cancel_pending() -> None:
-    s = InMemorySessionStore()
-    sess = s.create("u1")
-    p = s.new_pending(sess, tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
-    s.cancel_pending(sess)
-    assert sess.pending is None
-    assert s.take_pending(sess, p.confirm_token) is None
+def test_pending_clear() -> None:
+    p = PendingStore()
+    action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
+    p.clear("s1")
+    assert p.take("s1", action.confirm_token) is None
