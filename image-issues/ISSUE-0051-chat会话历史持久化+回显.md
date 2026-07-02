@@ -4,7 +4,7 @@ title: 「帮我设计」对话历史持久化 + 回显（DeerFlow 式多会话�
 status: 已确认        # 用户提需求 + 亲签两表 schema（2026-07-02）；设计定稿、实现棒可开
 severity: P1          # 用户直接提需求；chat MVP 会话内存态刷新即丢的核心补齐
 reporter: PM          # 用户提需求（本会话），PM 主持 brainstorm 定稿 + 开条
-owner: 开发           # dev 第一棒（迁移建 2 表[已签]→持久化层→会话 API）；frontend-b 回显 UI 随后
+owner: frontend-b     # dev 后端棒完成(迁移+repo+编排+3API+openapi,E2E绿)→交 frontend-b 回显 UI
 created: 2026-07-02
 updated: 2026-07-02
 related:
@@ -64,3 +64,17 @@ related:
   SSE 契约完全不变**（落库是服务端透明加，frontend live 流零改零回归），仅新增 3 会话 API（shape 对齐 0051 设计：
   列表 {id,title,updated_at,message_count} / 详情 {messages:[{seq,role,content,job_id?,attachment_upload_ids?}]} / DELETE，
   越权 404 CASCADE）。编排=dev 等 coordinator「image-code 已释放」口令即执行（避 /showcase 部署 rsync 捎带半成品）。
+- 2026-07-02 [dev] **后端棒完成**（coordinator「image-code 已释放」口令后执行，3 提交）：
+  ① `1e2e6d7` DB 层——chat_session/chat_message 两表（签字 schema 零偏离，migration down_revision=a1f7c3d9e5b2，
+     实测 upgrade/downgrade/单 head）；② `513946e` ChatSessionRepository 端口 + SQLAlchemy 适配器（owner 隔离在端口内、
+     job_count DB 派生），sqlite smoke 12/12；③ `ced50bf` 编排+API——InMemorySessionStore 转录职责迁 DB（session_store→
+     pending_store，内存只留 confirm_token 过程态取舍⑤）；ChatOrchestrator 改 chat_repo(DB)+pending，落 user 消息+assistant
+     最终答复(+job_id)、过程态不落库、LLM 上下文每轮 DB 重建（刷新可续）、会话级闸 DB 派生；**现有 /chat/messages+/chat/confirm
+     SSE 事件序完全不变=前端零回归**；新增 3 会话 API（GET /chat/sessions 列表 / GET /chat/sessions/{id} 回显 / DELETE，越权
+     404 anti-enum、CASCADE）；openapi 再生含 3 端点。
+  **验证**：全量 96 绿（1 known WIP red）+ ruff/mypy；**真 HTTP E2E 全 PASS**——出图落转录（user 消息+assistant 带 job_id）/
+  GET sessions 列表字段+message_count / GET 详情回显（含 job_id + attachment_upload_ids + shape）/ 刷新持久化不丢 /
+  他人 GET·DELETE→404·列表空 / 本人 DELETE→CASCADE 删。对验收 ①②③④⑤⑥ 自测覆盖。
+  **交接**：openapi 已再生 → @frontend-b 二次进场做回显 UI（会话侧栏+列表+回显页，job_id 走 useListingJob 现签、attachment 走
+  uploadPreviewUrl）；上线走迁移轮纪律（deploy.sh 自带 mysqldump 备份 + qa 先行，coordinator 编排）→ QA 验收 6 条。
+  owner→frontend-b（回显 UI）。
