@@ -72,3 +72,11 @@ MVP 内测灰度、**非公众全量**（7.B 内容安全前置未做 + §7.A �
 - 2026-07-02 [dev] backlog 收口：**chat pytest 测试债现补完成**（coordinator #921「不用等下轮」）——手工 E2E
   固化为 committed pytest，+22 测试、全量 90 绿（commit 060f181），含 PM 强调的「占位参数进费用闸前拦下转澄清」
   回归单测 + reasoning_content 过滤单测。详见 **ISSUE-0049→待验证（owner=QA）**。ISSUE-0050（job 时区 P3）待细化。
+- 2026-07-02 [前端] 用户 prod 复核反馈「UI 动画看起来卡卡的」→ 动效性能修完成（commit 99695a1，保 Style 4 观感零倒退）：
+  ① 登录极光 4 团 filter:blur(72~95px) 每帧 GPU 重滤（头号元凶）→ 预渲染 radial-gradient 柔边 + 纯 transform 漂移（滤镜面→0）；
+  ② BorderBeam motion 每帧 JS → 纯 CSS offset-distance + will-change 提层；③ aurora-text 隔离独立小合成层；
+  ④ 首页 6 个永不可见的 showcase animate-pulse 清零；⑤ 13 卡 hover box-shadow 插值→lift-card（transform+::after opacity 交叉淡入）；
+  ⑥ chat 气泡 glass-panel→glass-lite（滚动区去 backdrop-filter，观感等价），真毛玻璃保留给 SideNav/顶栏/Hero 框/输入坞；
+  ⑦ prefers-reduced-motion 全静止。量化（headless CDP 6s 静置同基准）：/login 主线程 Task 550→332ms、Script 44→10、
+  RecalcStyle 204→66；/ 首页 Task 216→171、常驻动画 7→1；门禁 tsc/eslint/vitest 41/build 全绿；
+  截图 image-web/docs/screenshots/perf-before-* vs perf-after-* 逐页比对。待用户 prod 复核动画流畅度。
