@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     text_llm_base_url: str = ""
     text_llm_api_key: SecretStr = SecretStr("")
     text_llm_model: str = ""
+    # thinking 模型关思考（火山 ARK doubao：thinking:{"type":"disabled"}）。默认 False=不透传
+    # (通用 OpenAI 兼容安全默认)；ARK 部署在 .env 设 true——实测关思考 tool-call 3.5s vs 开 13.8s，
+    # 结构化选工具正确性不降，聊天入口延迟优先故本部署关。
+    text_llm_thinking_disabled: bool = False
     # 对话会话级出图闸（#884②）：单会话最多出图单数，保守默认 5，可配。
     chat_session_max_jobs: int = 5
     # 图像 Provider 真实/Mock 开关：默认 True（prod 走真实 gpt-image-2）。
