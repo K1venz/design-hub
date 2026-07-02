@@ -46,6 +46,7 @@ export function ChatPage() {
     setState((prev) => pushUserMessage(prev, text, uploadIds && uploadIds.length ? attached.map((a) => a.url) : undefined))
     setDraft('')
     setAttached([])
+    abortRef.current?.abort() // 中止上一条在途流（至多一条活跃）
     const ac = new AbortController()
     abortRef.current = ac
     try {
@@ -62,6 +63,7 @@ export function ChatPage() {
     const sid = stateRef.current.sessionId
     if (!sid) return
     setState((prev) => clearAwaiting(prev))
+    abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
     try {
@@ -84,8 +86,6 @@ export function ChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => () => abortRef.current?.abort(), [])
 
   // 新内容滚到底
   useEffect(() => {

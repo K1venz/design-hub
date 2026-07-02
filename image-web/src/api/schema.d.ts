@@ -110,9 +110,6 @@ export interface paths {
         /**
          * Edit Listing
          * @description 二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。
-         *
-         *     源图=唯一不透明 handle（source_image_key），owner/parent 链全部服务端反解；
-         *     喂图=[源图, 链根产品锚 1..3]（D2：每轮锚链根原图，漂移不随轮数叠加）。
          */
         post: operations["edit_listing_listing_edit_post"];
         delete?: never;
@@ -172,6 +169,49 @@ export interface paths {
         get: operations["listing_events_listing__job_id__events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Messages
+         * @description 发一句话，流式收一轮（帮我设计 Agent 对话入口，方案 C）。Bearer 头鉴权。
+         *
+         *     事件序：session → assistant_delta* → [step → tool_call → cost_confirm] → assistant_end。
+         *     触发出图时在 cost_confirm 暂停（不出图、不扣费），等用户 POST /chat/confirm。
+         */
+        post: operations["chat_messages_chat_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Confirm
+         * @description 费用确认的显式用户动作。confirm→启 job 流式回传 job_event；cancel→作废 token。
+         */
+        post: operations["chat_confirm_chat_confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -293,12 +333,39 @@ export interface components {
             file: string;
         };
         /**
+         * ChatConfirmRequest
+         * @description POST /chat/confirm 入参（费用闸的显式用户动作）。
+         */
+        ChatConfirmRequest: {
+            /** Session Id */
+            session_id: string;
+            /** Confirm Token */
+            confirm_token: string;
+            /**
+             * Action
+             * @default confirm
+             */
+            action: string;
+        };
+        /**
+         * ChatMessageRequest
+         * @description POST /chat/messages 入参。session_id 首轮传 null，服务端建会话经 session 事件回传。
+         */
+        ChatMessageRequest: {
+            /** Session Id */
+            session_id?: string | null;
+            /** Message */
+            message: string;
+            /** Upload Ids */
+            upload_ids?: string[];
+        };
+        /**
          * CloneRequest
          * @description 爆款图复刻入参（PRD §3.13，POST /listing/clone）。
          *
          *     双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序
          *     「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。
-         *     边界仍走路由 fail-fast 统一 400（ISSUE-0024 口径）。
+         *     边界仍走 launcher fail-fast 统一 400（ISSUE-0024 口径）。
          */
         CloneRequest: {
             /** Product Upload Ids */
@@ -331,7 +398,7 @@ export interface components {
          *     生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。
          *     不收 category（R2：编辑组装无品类块、库无列，死参数不收）。
          *     prompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；
-         *     edit_mode/ratio 仍走路由 fail-fast 400（域值校验，单一事实源在卡/映射表）。
+         *     edit_mode/ratio 仍走 launcher fail-fast 400（域值校验，单一事实源在卡/映射表）。
          */
         EditRequest: {
             /** Source Image Key */
@@ -359,7 +426,7 @@ export interface components {
          * ListingGenerateRequest
          * @description listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。
          *
-         *     数量/范围/比例/下拉的具体边界在路由同步 fail-fast 校验（统一 400），不靠 Pydantic 约束
+         *     数量/范围/比例/下拉的具体边界在 launcher 同步 fail-fast 校验（统一 400），不靠 Pydantic 约束
          *     （避免 422 与 spec 的 400 口径不一致，ISSUE-0024）。
          */
         ListingGenerateRequest: {
@@ -898,6 +965,76 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_messages_chat_messages_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_confirm_chat_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatConfirmRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
