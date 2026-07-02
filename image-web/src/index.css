@@ -266,7 +266,11 @@
   letter-spacing: -0.01em;
 }
 
-/* ── Style 4 玻璃质感（毛玻璃面板 / 顶栏 pill / 浮卡） ── */
+/* ── Style 4 玻璃质感（毛玻璃面板 / 顶栏 pill / 浮卡） ──
+   性能约定：真 backdrop-filter 只用在「背后内容基本静止」的少数大件
+   （SideNav / 顶栏 / Hero 聊天框 / chat 输入坞）。跟随内容滚动、或会随
+   会话无限增多的面（聊天气泡等）用下面的 glass-lite —— 底色近乎纯色时
+   blur 采样结果与半透明白无异，观感等价、GPU 零重滤。 */
 @utility glass-panel {
   border-radius: 1rem;
   border: 1px solid rgb(255 255 255 / 0.72);
@@ -274,6 +278,38 @@
   box-shadow: 0 8px 32px -12px rgb(40 40 90 / 0.12);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+}
+
+/* 玻璃观感等价替身（无 backdrop-filter）：用在滚动内容里的玻璃面。 */
+@utility glass-lite {
+  border-radius: 1rem;
+  border: 1px solid rgb(255 255 255 / 0.72);
+  background-color: rgb(255 255 255 / 0.82);
+  box-shadow: 0 8px 32px -12px rgb(40 40 90 / 0.12);
+}
+
+/* GPU 友好悬浮卡：hover 只动 transform；hover 阴影预渲染在 ::after 上做
+   opacity 交叉淡入（替代逐帧插值 box-shadow 的重绘）。静态阴影仍由使用方
+   的 shadow-* 类提供；hover 阴影可用 --lift-shadow 覆写。 */
+@utility lift-card {
+  position: relative;
+  transition: transform 0.2s ease;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    box-shadow: var(--lift-shadow, 0 12px 28px -14px rgb(91 91 214 / 0.35));
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  &:hover {
+    transform: translateY(-2px);
+  }
+  &:hover::after {
+    opacity: 1;
+  }
 }
 
 /* 画布极淡色斑（Style 4 底层氛围，近乎不可见） */
@@ -308,12 +344,45 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
 }
 
-/* ── 流动极光：大尺寸模糊色团缓慢漂移（纯 CSS，零 JS） ── */
+/* ── 流动极光：大尺寸柔边色晕缓慢漂移（纯 CSS，零 JS） ──
+   性能关键：柔边由预渲染的 radial-gradient 直接画出（多段停靠近似高斯
+   衰减），替代原「实心圆 + filter:blur(72~95px)」——后者让 4 个大面积
+   render surface 在 transform 动画期间每帧重跑大核模糊。渐变版光栅一次，
+   之后每帧只有合成器 transform。 */
+@utility aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  background-image: radial-gradient(
+    closest-side,
+    var(--blob) 0%,
+    color-mix(in srgb, var(--blob) 82%, transparent) 24%,
+    color-mix(in srgb, var(--blob) 48%, transparent) 50%,
+    color-mix(in srgb, var(--blob) 16%, transparent) 72%,
+    transparent 94%
+  );
+  will-change: transform;
+}
+
 @keyframes aurora-drift {
   0%   { transform: translate(0, 0) scale(1); }
   33%  { transform: translate(7%, -5%) scale(1.18); }
   66%  { transform: translate(-6%, 6%) scale(0.92); }
   100% { transform: translate(0, 0) scale(1); }
+}
+
+/* ── 流光描边光点的环绕轨道：纯 CSS offset-distance（transform 系、可合成），
+   替代 motion 每帧 JS 写样式；时长/错峰由内联 animation-duration/delay 提供。 ── */
+@keyframes border-beam-orbit {
+  to { offset-distance: 100%; }
+}
+.border-beam {
+  offset-distance: 0%;
+  animation-name: border-beam-orbit;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  /* Promote the dot to its own layer: per-frame motion stays compositor-only
+     instead of repainting the host card region. */
+  will-change: transform;
 }
 
 /* ── 流光渐变文字：背景位移制造流动高光 ── */
@@ -322,6 +391,11 @@
   50%      { background-position: 100% 50%; }
 }
 .aurora-text {
+  /* background-position 不可合成、每帧必有 recalc+paint——用 inline-block +
+     will-change 把它隔离成自己的小合成层，重绘只波及标题自身的小纹理，
+     不再逐帧弄脏页面滚动层的大 tile。 */
+  display: inline-block;
+  will-change: transform;
   background-image: linear-gradient(
     110deg,
     var(--primary) 0%,
@@ -338,7 +412,9 @@
   animation: aurora-text-pan 7s ease-in-out infinite;
 }
 
-/* 可访问性：尊重「减少动态效果」系统偏好 */
+/* 可访问性：尊重「减少动态效果」系统偏好——常驻动画一律静止/隐藏 */
 @media (prefers-reduced-motion: reduce) {
   .aurora-text { animation: none; }
+  .aurora-blob { animation: none; }
+  .border-beam { display: none; }
 }
