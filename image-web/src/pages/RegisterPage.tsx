@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, type Location } from 'react-router-dom'
 import { TriangleAlertIcon } from 'lucide-react'
 
 import { useRegister } from '@/api/auth'
@@ -34,9 +34,17 @@ const STRENGTH_META = [
   { label: '强', tone: 'bg-emerald-500', bars: 3 },
 ] as const
 
+/** 登录墙回跳目标（与登录页同源）。 */
+function backTo(location: Location): string {
+  const from = (location.state as { from?: Location } | null)?.from
+  if (from?.pathname) return `${from.pathname}${from.search ?? ''}`
+  return '/'
+}
+
 export function RegisterPage() {
   const token = useAuthStore((s) => s.token)
   const navigate = useNavigate()
+  const location = useLocation()
   const register = useRegister()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -50,7 +58,8 @@ export function RegisterPage() {
   const valid =
     email.trim() && password.length >= MIN_PASSWORD && confirm === password && agreed
 
-  if (token) return <Navigate to="/" replace />
+  const dest = backTo(location)
+  if (token) return <Navigate to={dest} replace />
 
   async function submit() {
     if (!valid) return
@@ -58,7 +67,7 @@ export function RegisterPage() {
       // 昵称选填：留空则用邮箱前缀兜底（后端仍需一个 name）
       const finalName = name.trim() || email.trim().split('@')[0] || '用户'
       await register.mutateAsync({ email: email.trim(), name: finalName, password })
-      navigate('/', { replace: true })
+      navigate(dest, { replace: true })
     } catch {
       // 错误经 register.error 呈现
     }
@@ -163,9 +172,9 @@ export function RegisterPage() {
           />
           <span>
             我已阅读并同意
-            <a className="text-primary hover:underline" href="#">《服务条款》</a>
+            <Link className="text-primary hover:underline" to="/terms" target="_blank" rel="noreferrer">《用户协议》</Link>
             与
-            <a className="text-primary hover:underline" href="#">《隐私政策》</a>
+            <Link className="text-primary hover:underline" to="/privacy" target="_blank" rel="noreferrer">《隐私政策》</Link>
           </span>
         </label>
 
@@ -181,7 +190,7 @@ export function RegisterPage() {
 
       <p className="text-center text-sm text-muted-foreground">
         已有账号？
-        <Link to="/login" className="text-primary ml-1 font-medium hover:underline">
+        <Link to="/login" state={location.state} className="text-primary ml-1 font-medium hover:underline">
           去登录
         </Link>
       </p>
