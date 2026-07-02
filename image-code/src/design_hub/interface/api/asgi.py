@@ -16,6 +16,7 @@ from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.guard import CostGuard
+from design_hub.application.listing.job_launcher import ListingJobLauncher
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -25,6 +26,7 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.application.rate_limit import UserRateLimiter
 from design_hub.composition import (
     build_image_store,
     build_media_signer,
@@ -54,7 +56,6 @@ from design_hub.interface.api.routes import (
     uploads,
     users,
 )
-from design_hub.interface.api.throttle import UserRateLimiter
 
 
 @asynccontextmanager
@@ -103,6 +104,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.media_signer = build_media_signer(settings)
     # 图片上传两步流（ISSUE-0026）：上传图落本地 assets/，预览经 GET /uploads/{id} 代理
     app.state.upload_service = UploadService(store=build_upload_store(settings))
+    # 出图启动器（#884⑤ 单一事实源）：listing 路由与 chat orchestrator 共调，
+    # 频控/owner 隔离/成本守卫/卡链全在此链内继承。
+    app.state.job_launcher = ListingJobLauncher(
+        service=app.state.listing_service,
+        uploads=app.state.upload_service,
+        rate_limiter=app.state.rate_limiter,
+        events=app.state.event_stream,
+        history=app.state.listing_history,
+        queue=app.state.task_queue,
+        query=app.state.listing_query,
+        image_store=app.state.image_store,
+    )
     app.state.model_config_service = model_config_service
     # 鉴权（WP-G/ISSUE-0015）：JWT 令牌服务 + 自建邮箱密码认证
     token_service = PyJwtTokenService(
