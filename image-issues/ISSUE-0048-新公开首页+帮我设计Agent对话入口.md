@@ -48,3 +48,4 @@ MVP 内测灰度、**非公众全量**（7.B 内容安全前置未做 + §7.A �
   提三条对齐（agent 只产请求体字段/7.B 登录内测/单会话出图上限）→ coordinator #878 全采纳、dev #879 认同。
   owner=开发（dev 文本 LLM 探明 + 后端 / frontend-b 首页+/chat 并行，A 批前端已 #875 开工）。
   前端路由重构（`/`→新首页、套图挪 `/set`、内部零改）frontend-b 拍、coordinator #877 认可（纯前端非安全决策）。
+- 2026-07-02 [前端] frontend-b A 批完成（commit efc5019，不依赖 dev chat 后端）：新公开首页 HomePage（Hero 大聊天框+6 快捷卡+工具区双 banner/宫格/≤2 即将上线卡+成果区占位懒加载+Footer 真协议链接/备案占位）+ 全局左侧竖导航 SideNav（6 项，替旧 2 项 rail，AppShell 统一外壳，AppTopBar 容忍未登录+内测免费徽标）+ 登录墙（ProtectedRoute state.from 回跳含 query，Login/Register 读 from 回跳）+ 路由重构（/→新首页公开、套图挪 /set、/chat A 批占位携首句、/terms+/privacy 公开协议页 LegalDoc，RegisterPage 勾选 #→协议页）。门禁 eslint/tsc/vitest 31 绿/build 全过；qa env 全流程实拍（首页未登录全版块/登录墙/注册回跳/套图新壳零回归/协议页/chat 占位，截图入 image-web/docs/screenshots/）。B 批（/chat 真流）按 dev 契约 0048（ad14a8a+431d696）待 mock 骨架落 qa 联调。
