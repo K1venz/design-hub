@@ -14,6 +14,8 @@ from fastapi import Depends, FastAPI
 from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
+from design_hub.application.chat.orchestrator import ChatOrchestrator
+from design_hub.application.chat.session_store import InMemorySessionStore
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.guard import CostGuard
 from design_hub.application.listing.job_launcher import ListingJobLauncher
@@ -31,6 +33,7 @@ from design_hub.composition import (
     build_image_store,
     build_media_signer,
     build_registry,
+    build_text_llm,
     build_upload_store,
     default_model_configs,
 )
@@ -52,6 +55,7 @@ from design_hub.interface.api.deps import require_role
 from design_hub.interface.api.routes import (
     admin,
     auth,
+    chat,
     listing,
     uploads,
     users,
@@ -116,6 +120,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         query=app.state.listing_query,
         image_store=app.state.image_store,
     )
+    # 「帮我设计」Agent 对话（方案 C）：复用 job_launcher（频控/owner/成本/卡链全继承）+
+    # 同一 event_stream 转发 job 事件 + registry 读 unit_cost（费用确认与工作台同源）。
+    # 文本 LLM 未配 key 时用 Mock（探明：现有 key 仅图像权限，文本待用户开）。MVP 会话内存态。
+    app.state.chat_orchestrator = ChatOrchestrator(
+        text_llm=build_text_llm(settings),
+        launcher=app.state.job_launcher,
+        event_stream=app.state.event_stream,
+        registry=registry,
+        sessions=InMemorySessionStore(),
+        max_session_jobs=settings.chat_session_max_jobs,
+    )
     app.state.model_config_service = model_config_service
     # 鉴权（WP-G/ISSUE-0015）：JWT 令牌服务 + 自建邮箱密码认证
     token_service = PyJwtTokenService(
@@ -161,6 +176,8 @@ def create_production_app() -> FastAPI:
     app.include_router(auth.router)  # 公开：/auth/register、/auth/login；/me 自带 current_user
     # listing 一键出图主线：鉴权 Bearer + SSE ?access_token=（ISSUE-0011）
     app.include_router(listing.router)
+    # 「帮我设计」Agent 对话入口（方案 C）：POST /chat/messages + /chat/confirm，Bearer 头鉴权
+    app.include_router(chat.router)
     # 图片上传两步流（ISSUE-0026）：POST /uploads + GET /uploads/{id} 预览代理
     app.include_router(uploads.router)
     # 仅管理者：模型配置 + 用户管理
