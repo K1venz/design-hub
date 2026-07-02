@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -90,3 +91,36 @@ class AuthUser:
     name: str
     role: Role
     dept: str | None = None
+
+
+# ── 「帮我设计」对话历史持久化读模型（ISSUE-0051）──
+
+
+@dataclass(frozen=True)
+class ChatMessageRecord:
+    """一条转录消息（回显 + LLM 上下文重建用）。"""
+
+    seq: int
+    role: str  # user | assistant
+    content: str
+    job_id: str | None = None
+    attachment_upload_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ChatSessionSummary:
+    """会话列表项（侧栏）。"""
+
+    id: str
+    title: str
+    updated_at: datetime
+    message_count: int
+
+
+@dataclass(frozen=True)
+class ChatTranscript:
+    """完整会话转录（回显页）。"""
+
+    id: str
+    title: str
+    messages: tuple[ChatMessageRecord, ...]
