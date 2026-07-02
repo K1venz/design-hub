@@ -130,3 +130,46 @@ class ListingJobInputRow(Base):
     ord: Mapped[int] = mapped_column(Integer)
 
     job: Mapped["ListingJobRow"] = relationship(back_populates="inputs")
+
+
+# ── 「帮我设计」对话历史持久化（ISSUE-0051，用户亲签 schema 2026-07-02，新增两表·零改现有）──
+
+
+class ChatSessionRow(Base):
+    """一条持久化对话会话（DeerFlow 式多会话存档）。转录事实源；过程态不落库。"""
+
+    __tablename__ = "chat_session"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # uuid4().hex
+    user_id: Mapped[str] = mapped_column(String(64), index=True)  # 与 listing_job.user_id 同口径
+    title: Mapped[str] = mapped_column(String(255))  # 首条 user 消息截断
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 最近消息时间（列表倒序）；append_message 时由 repo 显式 bump（触发是子表 INSERT，非本表 UPDATE）
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    messages: Mapped[list["ChatMessageRow"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class ChatMessageRow(Base):
+    """会话内一条转录消息（只存 user 消息 + assistant 最终答复，取舍①过程态不落库）。"""
+
+    __tablename__ = "chat_message"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # uuid4().hex
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_session.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer)  # 会话内顺序（回显排序）
+    role: Mapped[str] = mapped_column(String(16))  # user | assistant
+    content: Mapped[str] = mapped_column(Text)
+    # 该轮出图 job（→listing_job 回显图；回显时 job_id→image_key→现签 URL，绝不存签名 URL，取舍②）
+    job_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    # 带图轮用户上传图 id（回显缩略图，走 uploadPreviewUrl）；NULL=无附图
+    attachment_upload_ids: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped["ChatSessionRow"] = relationship(back_populates="messages")
