@@ -722,8 +722,9 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 > 落地分工（coordinator #535 棒次）：PM 本节（第一棒）→ prompt 两档指令草案 + dev 技术方案（入口形态两案权衡 + 双角色传参 + DB 变更点单独列）+ frontend-b 表单（双上传区/两档/导航挪最左）三方并行 → QA 用例骨架 → 三方对（入口形态用户拍）→ 实现 → QA 回归 + prod smoke → 上线。
 
-### 3.14 实朴新公开首页 + 「帮我设计」Agent 对话入口（需求 · 2026-07-02）🔨 设计已签、实现中
-> **状态=用户已签设计稿、实现棒开闸（coordinator #874）**。实现权威 = `docs/superpowers/specs/2026-07-02-public-home-agent-chat-design.md` + 调研 `调研-DeerFlow式对话创作入口-2026-07.md`（方案 C）。ISSUE-0048 追踪。
+### 3.14 实朴新公开首页 + 「帮我设计」Agent 对话入口（需求 · 2026-07-02）✅ 已上线 prod（2026-07-02·内测灰度·待用户复核）
+> **状态=已上线 prod（2026-07-02 当日 kickoff→prod 闭环），ISSUE-0048 待用户复核关账**。实现权威 = `docs/superpowers/specs/2026-07-02-public-home-agent-chat-design.md` + 调研 `调研-DeerFlow式对话创作入口-2026-07.md`（方案 C）。
+> **上线记录（当日闭环）**：PM PRD/ISSUE-0048 → dev 文本 LLM 探明命中 STOP（apinebula 现有 key 仅图像权限→报用户）→ 用户给**火山 ARK 豆包 2.0-pro 接入点**（thinking 模型，adapter 过滤 `reasoning_content`、默认关 thinking 提速 13.8s→3.5s）→ dev 方案 C 后端（`fdfc99e` 抽 **ListingJobLauncher** 单一事实源不绕 interface 校验 + `7abc5b4` TextLLMPort/openai_compat_text/InMemorySessionStore/ChatOrchestrator/`POST /chat/messages`+`/chat/confirm` 契约冻结 `ad14a8a`：confirm_token 一次性+绑 session/user+TTL10min、会话级出图闸 `chat_session_max_jobs=5` 可配）+ frontend 新公开首页（`efc5019`：`/`→公开首页、套图挪 `/set`、登录墙回跳、Footer 真协议页）+ `/chat` 真流式页（`0bccc88`，复用 `parseListingEvent` 落槽零第二条流）→ mock 全链 e2e → **qa 真豆包+真 gpt+真 TOS 流式实拍**（job e3a01e97，5/5 真图产品保真跨图一致）→ **QA 0048 验收 8/8 全 PASS**（`36dc626`，真花费 ¥2.0）→ prod 部署（.env 接豆包+备份回滚镜像 `rollback-20260702-154541`+迁移 no-op）→ prod smoke 全绿（公开首页/协议页/chat 路由/401 闸/docs 404/真豆包澄清轮 prod 实测/老工作台零回归）。**衍生 backlog**：ISSUE-0049（chat pytest 测试债 P2）、ISSUE-0050（job 时区口径 P3）、暖场 nudge（可选）、上传预览 URL 坑已修（`8958cf6`）。**放量边界**：内测灰度、**非公众全量**（§7.B 内容安全 + §7.A 域名备案仍前置）。
 > **一句话**：把当前「登录后即工作台」升级为「**公开落地页首页**（未登录可浏览、动作才登录墙）+ 一个**真 Agent 对话入口**『帮我设计』」——对话入口接**方案 C 零框架 tool-use 循环**，把现有三条出图链路（generate/clone/edit）当工具，**复用成本守卫/频控/owner 隔离、不绕卡体系、不造新出图链路**，借 DeerFlow 的「形」（流式+步骤可见）不借它的「体」（多服务 harness）。
 
 **① 定位与两条硬边界**：
@@ -1282,6 +1283,7 @@ git push → GitHub Actions
 ### 7.E 🔴 法务页面（工作量小、必须有）
 - **现状实锤**：**零**——无用户协议、无隐私政策、无备案号页脚（收集邮箱即触《个保法》告知义务）。
 - **建议**：用户协议 + 隐私政策 + AI 生成内容声明 + 备案号页脚，半天工作量，进首发。协议内容须含**账号注销与用户数据处理**条款（个保法配套；数据导出/删除能力可后补，条款先行）。
+- **🔄 进展（2026-07-02，随新公开首页 §3.14/ISSUE-0048 上线）**：**页面框架已落 prod**——`/terms`《用户协议》+`/privacy`《隐私政策》公开可读页（LegalDoc）+ 注册页勾选链接从 `#` 接到真页面 + Footer 备案号占位。**剩余（本 gate 未完）**：① 协议/隐私**正文内容完善 + 法务确认**（当前为页面框架，条文是否含账号注销/数据处理/AIGC 声明、是否法律充分＝待完善）；② 备案号占位待 §7.A 备案下来填真。**页面在、内容待补**。
 
 ### 7.F 🟡 运维可靠性
 - **现状实锤**：单机双容器（api+nginx）+ 复用 MySQL、`restart: unless-stopped`、**无冗余**；监控仅 `/_metrics` 端点（无 Prometheus/告警/Sentry）；**备份纯手动**（无定时 dump）；MySQL 3306 公网 bind（ISSUE-0036，安全组挡住但纵深缺口）；22 端口公网。
@@ -1292,7 +1294,7 @@ git push → GitHub Actions
 ### 7.G ✅ 品牌与定位（已关闭：用户定名 2026-06-10）
 - **产品名 =「实朴电商图片工作站」，简称「实朴」**（用户拍定，coordinator #475）；英文/域名 slug 走拼音 **shipu** 系（ops 出域名候选清单：可注册性+价位，只查不买；注册/备案/付费均需用户实名操作）。
 - **✅ 站内品牌落地（2026-06-12，随 Style 4 全站换肤上线）**：用户两轮预览选型拍定 UI = **Style 4「Glass SaaS」**（浅灰玻璃+白卡软投影+单一紫 accent）；三连 commit 上线 prod（令牌化 `8233689` 零视觉清洗 → Style 4+动画 `9952ba6` → 品牌 `982e45f`）——顶栏「实朴」字标+渐变方章、登录/注册页「实朴 · 电商图片工作站」「SHIPU · AI 出图引擎」、标签页标题，旧「设计中台/STUDIO COPILOT/design_hub」全退场，用户批准。
-- 仍遗留：~~对外落地页~~ **→ 2026-07-02 在建**（新公开首页 §3.14，ISSUE-0048；未登录可浏览的对外落地页=决策 4，落地即补齐 7.G 此项）+ 定价页（随 7.D 计费接入做）。
+- 仍遗留：~~对外落地页~~ **✅ 2026-07-02 已上线 prod（待用户复核）**（新公开首页 §3.14 / ISSUE-0048：未登录可浏览的对外落地页=决策 4，Footer 含真《用户协议》《隐私政策》页 + ICP 备案号占位）+ 定价页（随 7.D 计费接入做）。
 
 ### 7.H 🟡 客服与反馈
 - **现状**：无任何反馈入口。**建议**：MVP 一个反馈表单/邮箱即可。

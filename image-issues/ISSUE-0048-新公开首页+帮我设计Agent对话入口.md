@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0048
 title: 实朴新公开首页（对外落地页）+「帮我设计」真 Agent 对话入口（方案 C 零框架 tool-use）
-status: 已确认        # 用户已签设计稿、实现棒开闸（coordinator #874）；非 bug，借状态机表「已确认=确认要做」
+status: 待验证        # 已上线 prod（2026-07-02，QA 验收 8/8 + smoke 全绿）；待用户 prod 复核 → PM 关账
 severity: P1          # toC 上线关键能力：对外落地页（补 7.G）+ 对话式创作入口（交互代差补齐）
 reporter: PM          # 用户拍板设计稿（2026-07-02），coordinator kickoff #874，PM 开条追踪
-owner: 开发           # dev 第一棒（文本 LLM 探明 + 方案 C 后端）+ frontend-b（首页+/chat+登录墙）并行；PM 已交 PRD
+owner: PM             # 已上线 prod、待用户 prod 复核 → PM 终验收关账
 created: 2026-07-02
 updated: 2026-07-02
 related:
@@ -63,3 +63,9 @@ MVP 内测灰度、**非公众全量**（7.B 内容安全前置未做 + §7.A �
   /chat 路由 200、未登录 401、docs 仍 404、**真豆包澄清轮 prod 实测干净**、老工作台零回归。
   「新公开首页 + 帮我设计（内测）」正式上线 prod。遗留入 backlog：chat pytest 测试债(P2)、
   job 时区口径(P3)、暖场气泡 nudge(可选)、上传预览 URL 坑已修(8958cf6)。status→待用户复核关账。
+- 2026-07-02 [PM] 收口入档（承 coordinator #918 派）：① **两条 backlog 已开条**——ISSUE-0049（chat agent 后端
+  pytest 测试债，P2，dev 下轮补，尤其「占位参数进费用闸前拦下转澄清」#904 坑建议锁回归单测）+ ISSUE-0050
+  （job 时区口径，P3，dev 细化根因）；上传预览 URL 坑已修（8958cf6，UploadResponse.url 相对路径需 uploadPreviewUrl
+  拼 /api+access_token，记供后来人复用）；暖场 nudge=可选打磨不阻塞。② 状态：已上线 prod（QA 8/8 + smoke 全绿）
+  → **待用户 prod 复核**、owner=PM。③ PRD §3.14 转「✅ 已上线 prod（待用户复核）」+ 上线记录、§7.G 落地页项转「已上线（待复核）」。
+  **待用户 prod 复核『帮我设计』内测入口 + 新首页无恙 → PM 终验收 status→已关闭**（内测灰度、非公众全量：7.B 内容安全 + 7.A 备案仍前置）。
