@@ -769,6 +769,35 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 **⑧ 分工（spec §七，coordinator #874）**：PM 本节（PRD+§7.G 标记+ISSUE-0048+验收细化）→ dev（文本 LLM 探明 + 方案 C 后端四件 + openapi 再生）+ frontend-b（新首页全版块 + `/chat` 页 + 登录墙改造 + codegen）并行 → QA（后续拉入，验收 ①-⑧ + 三条真路径真出图回归）→ 上线前 gate（qa 先行 + 备份可回滚，coordinator 编排）。**MVP 内测灰度、非公众全量**（7.B 前置未做）。
 
+#### 3.14.1 「帮我设计」对话历史持久化 + 回显（需求 · 2026-07-02，ISSUE-0051）🔨 设计已签、schema 用户亲签、待开工
+> **背景**：§3.14 的「帮我设计」chat MVP 刻意「会话内存态不落库、刷新即丢」（避 DB 签字）；调研档 P2 列「会话持久化=触发 DB 亲签铁律、先问用户」。**用户 2026-07-02 提需求并亲签两表 schema** → 本节把会话从内存态升级为**持久化多会话存档 + 回显**（对标 DeerFlow：侧栏列出全部过去会话、点任意一条回显完整对话线程含当时出图结果）。范围=用户拍板 **A 多会话完整存档一步到位**。
+
+**① 核心设计取舍（用户已认）**：
+- **存「对话转录（transcript）」、不存「事件回放」**：流式吐字/步骤条/费用确认卡等**过程态不落库**；只存最终转录（user 消息 + assistant 最终答复 + 该轮触发的 `job_id`）。
+- **图片回显 = `job_id` 引用、不存签名 URL**（用户已认、铁律）：⚠️ 签名 TOS URL 有 TTL 会过期（实拍踩过 10s 过期坑）——**绝不存签名 URL**。每轮出图都是正常 `listing_job`，其 `listing_image` 已永久存 image_key+图型+seed+cost；回显时 `chat_message.job_id → listing_image → image_key → 现签 URL → 复用出图结果卡渲染`（与现有出图历史页同机制、零冗余）。**未选**「额外冗余 image_key 自包含」变体（jobs 正常不删，YAGNI）。
+- **owner 隔离 = 每用户会话独立**（用户口径）：人人平等、都能建/删**自己的**会话（非角色门槛）；越权访问他人会话 id → **404 anti-enum**（沿 ISSUE-0032/0039/0041），这是「会话独立」的技术兜底、非能力限制。
+- **硬删**（children-first CASCADE，用户自己的数据）；标题 MVP=首条用户消息截断自动生成。
+
+**② schema（✅ 用户亲签 2026-07-02，两表新增、不动任何现有表）**：
+- **`chat_session`**：`id`(uuid PK) / `user_id`(归属，索引，与 listing_job.user_id 同口径字符串) / `title`(首条消息截断) / `created_at` / `updated_at`(最近消息，列表倒序)。
+- **`chat_message`**：`id`(uuid PK) / `session_id`(FK→chat_session, ON DELETE CASCADE, 索引) / `seq`(会话内顺序) / `role`(user/assistant) / `content`(文本) / `job_id`(可空，关联 listing_job 回显图) / `attachment_upload_ids`(可空，用户带图轮的 upload_id 回显缩略图) / `created_at`。
+- 具体 SQL 列类型 dev 对齐现有模型定稿（同套图 4 列/复刻 2 列签字粒度，语义以上为准）；确需偏离本签字 schema（加列/改语义）→ 再报用户亲签。
+
+**③ 行为 & API（复用现有鉴权/owner 隔离）**：
+- `POST /chat/messages`：首条建会话、之后追加（带 `session_id`）；每轮落 user 消息+assistant 最终答复+触发 job_id。**confirm_token 等过程态仍留内存**（10min TTL、一次性，不落库）。
+- `GET /chat/sessions`：列我的会话（id/title/updated_at/消息数），侧栏用。
+- `GET /chat/sessions/{id}`：取完整转录做回显（越权 404）。
+- `DELETE /chat/sessions/{id}`：删会话（越权 404、CASCADE 删消息）。
+- 全部 `CurrentUserDep`；持久化层建议 `ChatSessionRepository` 端口 + SQL 适配器，`InMemorySessionStore` 的转录职责迁 DB（confirm_token 短时态可留内存）。
+
+**④ 前端回显（DeerFlow 式，frontend-b）**：「帮我设计」页加**会话侧栏/列表**（过去会话，点一条→拉转录→回显：文字气泡 + 按 job_id 重渲染当时出图结果卡 + 用户带图缩略图按 upload_id 走 uploadPreviewUrl）；「新对话」=开新会话；进入=最近会话或新会话空态。
+
+**⑤ 验收标准**：1. **持久化不丢（P0）**：发消息后刷新/重进，会话与消息在（不再内存态丢）。2. **多会话列表 + 回显（P0）**：侧栏列出我全部会话；点历史会话回显完整对话线程 + **当时出图结果图正常回显**（job_id re-link，签名 URL 现签不过期）。3. **owner 隔离（P0）**：只见/删自己的会话；越权他人会话 id→404 anti-enum。4. **删除（P1）**：删会话级联删消息、列表消失、他人不受影响。5. **零回归（P0）**：现有 /chat 实时对话/出图/费用闸 + 工作台全链零变化。6. **fail-fast（P1）**：DB/持久化错不静默吞。
+
+**⑥ 范围外（YAGNI，二期）**：会话重命名 / 全文搜索 / 事件级完美回放（流式重演）/ 跨设备实时同步 / 导出对话 / 自动过期清理 / 冗余 image_key 自包含变体。
+
+**⑦ 分工**：PM 本节（PRD+ISSUE-0051+签字 schema 入档）✅ → **dev**（迁移建 2 表[用户已签]→ ChatSessionRepository+SQL 适配器 → 转录落库改造 → 4 个会话 API → openapi 再生）→ **frontend-b**（会话侧栏+列表+回显页，codegen 等 dev openapi）→ **QA**（验收 6 条 + 持久化/回显/owner 隔离/删除回归）→ 上线前 gate（qa 先行+备份可回滚，含**迁移带 mysqldump 备份**，coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
+
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
 ### 4.1 项目工作台（一单一档）
