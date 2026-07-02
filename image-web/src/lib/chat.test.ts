@@ -6,7 +6,9 @@ import {
   pushUserMessage,
   clearAwaiting,
   initialChatState,
+  sessionMessagesToBubbles,
   type ChatState,
+  type ChatTranscriptMessage,
 } from '@/lib/chat'
 
 describe('parseChatEvent', () => {
@@ -136,5 +138,38 @@ describe('applyChatEvent reducer', () => {
     s = applyChatEvent(s, { kind: 'error', code: 'session_job_limit', message: '本次对话出图已达上限' })
     expect(s.streaming).toBe(false)
     expect(s.error).toEqual({ code: 'session_job_limit', message: '本次对话出图已达上限' })
+  })
+})
+
+describe('sessionMessagesToBubbles（回显：转录→气泡）', () => {
+  const preview = (id: string) => `/api/uploads/${id}?access_token=T`
+
+  it('按 seq 排序、过程态为空、assistant job_id 挂上、user attachment 转预览 url', () => {
+    const msgs: ChatTranscriptMessage[] = [
+      { seq: 2, role: 'assistant', content: '5 张已出好', job_id: 'j1' },
+      { seq: 1, role: 'user', content: '出一套', attachment_upload_ids: ['u1', 'u2'] },
+    ]
+    const bubbles = sessionMessagesToBubbles(msgs, preview)
+    expect(bubbles.map((b) => b.role)).toEqual(['user', 'assistant']) // seq 排序
+    expect(bubbles[0]).toEqual({
+      role: 'user',
+      text: '出一套',
+      images: ['/api/uploads/u1?access_token=T', '/api/uploads/u2?access_token=T'],
+      steps: [],
+      tools: [],
+      ended: true,
+      jobId: undefined,
+    })
+    expect(bubbles[1]).toMatchObject({ role: 'assistant', text: '5 张已出好', jobId: 'j1', steps: [], tools: [] })
+    expect(bubbles[1].images).toBeUndefined()
+  })
+
+  it('无 attachment / 无 job_id → images/jobId 皆 undefined（纯澄清轮回显）', () => {
+    const bubbles = sessionMessagesToBubbles(
+      [{ seq: 1, role: 'assistant', content: '请描述你的产品', job_id: null, attachment_upload_ids: null }],
+      preview,
+    )
+    expect(bubbles[0].images).toBeUndefined()
+    expect(bubbles[0].jobId).toBeUndefined()
   })
 })
