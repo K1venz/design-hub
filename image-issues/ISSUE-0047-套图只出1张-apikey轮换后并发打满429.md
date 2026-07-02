@@ -58,3 +58,15 @@ coordinator 可代放行（碰 prod 出精确变更计划→确认→apply）；
   QA #861 验收设计：**不一遍 5/5 就放行**——跑多遍压并发（默认 5 张 + 更大 plan 8~10、连跑 3~5 遍）证降并发后稳定全出，
   断言 ① 请求 N 张出全 N ② IMAGE_FAILED=0 ③ cost=请求张数×单价（间歇性 429 不能单遍绿放行）。status→修复中。
   **若 fix 碰 DB/资损面 dev STOP 报 coordinator**（预计纯并发参数、无 schema 无迁移、deploy.sh 迁移 no-op）。
+- 2026-07-02 [coordinator] **修复已实现并上线 prod**（子 agent 链，按用户"默认子 agent"编排）：
+  ① fix `5b53555`——根因实锤 = listing_service 并发度写死 `_CONCURRENCY=5` + provider 线性退避无抖动齐步重发；
+  改为 settings `listing_concurrency`(默认 3、`.env` 可下调至 2 免改码) + provider 指数退避 equal-jitter
+  (`gpt_image_max_retries` 2→5、`retry_max_sleep=30s`)，仅 429/超时/5xx/瞬时网络错重试（业务 4xx 仍 fail-fast）。
+  8 条新单测（并发不越界/单图恒 1 路/重试语义），pytest 68 绿。
+  ② 顺带随两阶段落库(`5af8a04`+`2f82799`)同批部署：套图**失败张现在落库留痕**、僵尸「生成中」单有
+  fail-closed 兜底 + 启动 reaper。
+  ③ 部署：push.sh + deploy.sh（备份 db-backup-20260702-110604.sql、回滚镜像 rollback-20260702-110427、
+  无迁移）；prod smoke 单图 ¥0.4 全链绿（出图中详情 200/status=生成中 → 终态完成/1图/计费对）。
+  **status→待验证**：真 429 只能真出图压测验——待跑 `image-qa/taotu_concurrency_verify.py` 多遍压并发
+  （QA #861 验收口径：大 plan 8~10、连跑 3~5 遍、出全 N/IMAGE_FAILED=0/cost 对），及用户/美工真实使用复测。
+  若默认并发 3 仍偶发 429：ops 在 prod `.env` 设 `LISTING_CONCURRENCY=2` 后 force-recreate api 即可（无需重部署）。
