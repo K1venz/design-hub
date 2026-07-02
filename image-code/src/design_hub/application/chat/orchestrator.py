@@ -44,11 +44,18 @@ _SYSTEM_PROMPT = """你是「实朴电商图片工作站」的设计助手，通
 - clone：爆款复刻。product_upload_ids 恰 1 张 + reference_upload_ids 爆款参考 1..2 张；
   clone_mode 为『参考风格』或『高度复刻』。
 - edit：二次编辑已产出的图。需 source_image_key + prompt + edit_mode（delta 微调 / full 重做）。
+参数约束（必须遵守）：
+- ratio 只能取 1:1 / 3:4 / 9:16 / 16:9 之一；用户没指定就默认填 "1:1"。
+- category 默认 "FOOD"（食品），除非用户明确是别的品类。
+- generate 的 n 取 1..7；套图 plan 图型只能是 白底/场景/卖点、Σ 3..10。
 规则：
-1. 信息不全（缺品类/图型/张数/比例/是否有产品图）先追问澄清，别乱猜。
-2. 只输出工具参数这类结构化字段；prompt 字段填用户的自然语言意图即可，
+1. 信息不全（缺是否有产品图等）先用自然语言追问澄清，别乱猜。
+2. **绝不要把问题、占位符或「请问…」之类的文字填进任何工具参数**。必填字段
+   （尤其 upload_ids、ratio）不确定时，用自然语言追问，**不要调用工具**。
+3. 只输出工具参数这类结构化字段；prompt 字段填用户的自然语言意图即可，
    不要自己编写发给图像模型的最终提示词。
-3. 每轮系统会在用户消息里以 [系统备注] upload_ids=... 告诉你本轮可用的产品图 id。
+4. 每轮系统会在用户消息里以 [系统备注] upload_ids=... 告诉你本轮可用的产品图 id，
+   调用工具时把这些 id **原样**填进 upload_ids/product_upload_ids。
 """
 
 
@@ -130,6 +137,17 @@ class ChatOrchestrator:
         except Exception as exc:  # pydantic 校验失败（含 extra=forbid）→ 明确报错
             yield ChatEvent("error", {"code": "bad_request", "message": f"工具参数不合法：{exc}"})
             yield ChatEvent("assistant_end", {"status": "error"})
+            return
+        try:
+            # 与出图同一校验源（#884⑤）：LLM 产的非法参数（占位/缺比例/非自有图等）
+            # 在进费用闸前拦下，转澄清——不让用户确认一个注定失败的出图（防「确认后才报错」）。
+            self.launcher.validate(user, req)
+        except (ValueError, NotFoundError) as exc:
+            yield ChatEvent(
+                "assistant_delta",
+                {"text": f"还差点信息、暂时没法出图（{exc}）。麻烦补充一下，我再帮你安排。"},
+            )
+            yield ChatEvent("assistant_end", {"status": "complete"})
             return
         yield ChatEvent("tool_call", {"tool": call.name, "args": call.arguments})
 

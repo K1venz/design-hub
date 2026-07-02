@@ -56,23 +56,49 @@ class ListingJobLauncher:
     query: ListingHistoryQuery
     image_store: ImageStore
 
+    def validate(
+        self, user: AuthUser, req: ListingGenerateRequest | CloneRequest | EditRequest
+    ) -> None:
+        """出图前**纯校验**（无副作用：数量/比例/枚举/图型卡/owner 前缀）——launch_* 与
+        ChatOrchestrator 费用确认前预检共用（#884⑤ 单一校验源）。edit 的源图反解(DB 只读)
+        在 launch 时做，本方法只校验 edit 的纯参数（档位 / delta-ratio 冲突）。"""
+        if isinstance(req, ListingGenerateRequest):
+            if not 1 <= len(req.upload_ids) <= 3:
+                raise ValueError(f"upload_ids 数量需为 1..3，实际 {len(req.upload_ids)}")
+            ratio_to_size(req.ratio)
+            overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
+            build_listing_prompts(
+                req.prompt, req.modifiers, self.service.modifier_registry,
+                self.service.card_registry, self.service.type_registry,
+                category=req.category, n=req.n, plan=req.plan, overlay_texts=overlay,
+            )
+            for uid in req.upload_ids:
+                if not owns(uid, user.user_id):
+                    raise NotFoundError(f"upload 不存在或无权访问：{uid}")
+        elif isinstance(req, CloneRequest):
+            if len(req.product_upload_ids) != 1:
+                raise ValueError(f"产品图需为 1 张，实际 {len(req.product_upload_ids)}")
+            if not 1 <= len(req.reference_upload_ids) <= 2:
+                raise ValueError(f"爆款参考图需为 1..2 张，实际 {len(req.reference_upload_ids)}")
+            ratio_to_size(req.ratio)
+            compose_clone_prompt(
+                req.prompt, req.modifiers, self.service.modifier_registry,
+                category=req.category, card_registry=self.service.card_registry,
+                clone_registry=self.service.clone_registry, clone_mode=req.clone_mode,
+            )
+            for uid in [*req.product_upload_ids, *req.reference_upload_ids]:
+                if not owns(uid, user.user_id):
+                    raise NotFoundError(f"upload 不存在或无权访问：{uid}")
+        else:  # EditRequest
+            self.service.edit_registry.block(req.edit_mode)  # 未知档位 → 400
+            if req.edit_mode == "delta" and req.ratio is not None:
+                raise ValueError("delta（微调）继承原图比例，不接受 ratio（改比例请用 full 重做）")
+
     async def launch_generate(self, user: AuthUser, req: ListingGenerateRequest) -> str:
         """listing 出图（单图 n / 套图 plan 互斥，PRD §3.12.14）：入队返回 job_id。"""
         # 边界 fail-fast（ISSUE-0024）：入队前同步校验完所有输入，任一非法 → 4xx，不入队。
-        if not 1 <= len(req.upload_ids) <= 3:
-            raise ValueError(f"upload_ids 数量需为 1..3，实际 {len(req.upload_ids)}")
-        ratio_to_size(req.ratio)
+        self.validate(user, req)
         overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
-        # 互斥/枚举/范围/overlay/图型卡/品类/下拉 全部 fail-fast（与出图用例同一事实源）
-        build_listing_prompts(
-            req.prompt, req.modifiers, self.service.modifier_registry,
-            self.service.card_registry, self.service.type_registry,
-            category=req.category, n=req.n, plan=req.plan, overlay_texts=overlay,
-        )
-        for uid in req.upload_ids:
-            # 非自有/不存在 upload → 404：防枚举、对齐 GET /uploads 与 get_job（ISSUE-0032）
-            if not owns(uid, user.user_id):
-                raise NotFoundError(f"upload 不存在或无权访问：{uid}")
         # 本人命名空间内：load() 对非法格式→400、缺文件→404
         images = tuple([(await self.uploads.load(uid))[0] for uid in req.upload_ids])
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：5 单/分 + ≤2 in-flight，超限 429
@@ -101,22 +127,8 @@ class ListingJobLauncher:
     async def launch_clone(self, user: AuthUser, req: CloneRequest) -> str:
         """爆款图复刻（PRD §3.13）：产品图==1 + 爆款参考图 1..2，两档复刻，返回 job_id。"""
         # 边界 fail-fast（ISSUE-0024 口径）：入队前同步校验完所有输入。
-        if len(req.product_upload_ids) != 1:
-            raise ValueError(f"产品图需为 1 张，实际 {len(req.product_upload_ids)}")
-        if not 1 <= len(req.reference_upload_ids) <= 2:
-            raise ValueError(f"爆款参考图需为 1..2 张，实际 {len(req.reference_upload_ids)}")
-        ratio_to_size(req.ratio)
-        # 档位/品类/下拉 fail-fast（与出图用例同一组装函数；prompt 选填、空=合法）
-        compose_clone_prompt(
-            req.prompt, req.modifiers, self.service.modifier_registry,
-            category=req.category, card_registry=self.service.card_registry,
-            clone_registry=self.service.clone_registry, clone_mode=req.clone_mode,
-        )
+        self.validate(user, req)
         ordered_ids = [*req.product_upload_ids, *req.reference_upload_ids]  # 产品前·参考后=角色契约
-        for uid in ordered_ids:
-            # 非自有/不存在 upload → 404：防枚举（ISSUE-0032/0041 血脉），双角色同口径
-            if not owns(uid, user.user_id):
-                raise NotFoundError(f"upload 不存在或无权访问：{uid}")
         loaded = [(await self.uploads.load(uid))[0] for uid in ordered_ids]
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：与 generate 同闸（计费动作统一限）
         job_id = uuid.uuid4().hex
@@ -146,9 +158,7 @@ class ListingJobLauncher:
         源图=唯一不透明 handle（source_image_key），owner/parent 链全部服务端反解；
         喂图=[源图, 链根产品锚 1..3]（D2：每轮锚链根原图，漂移不随轮数叠加）。
         """
-        self.service.edit_registry.block(req.edit_mode)  # 未知档位 → 400（单一事实源在卡 registry）
-        if req.edit_mode == "delta" and req.ratio is not None:
-            raise ValueError("delta（微调）继承原图比例，不接受 ratio（改比例请用 full 重做）")
+        self.validate(user, req)  # 档位 + delta/ratio 冲突（纯校验）；源图反解在下（DB 只读）
         # 反解源图（E-δ）：本人∧成功∧最新行 → 父上下文 + 链根产品锚；任一环不满足 → 404 防枚举
         source = await self.query.resolve_edit_source(
             source_image_key=req.source_image_key, user_id=user.user_id

@@ -37,6 +37,7 @@ class OpenAICompatTextProvider(TextLLMPort):
         client: httpx.AsyncClient | None = None,
         timeout: float = 120.0,
         trust_env: bool = False,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if not api_key:
@@ -47,6 +48,9 @@ class OpenAICompatTextProvider(TextLLMPort):
         # connect 快失败(≤15s)，read 容忍慢首 token
         self._timeout = httpx.Timeout(timeout, connect=min(timeout, 15.0))
         self._trust_env = trust_env
+        # 供应商特定透传参（如火山 ARK thinking 模型的 thinking:{"type":"disabled"} 关思考提速）；
+        # 装配层注入，adapter 本身保持 provider 无关。
+        self._extra_body = extra_body or {}
 
     async def complete(
         self, *, messages: list[ChatMessage], tools: list[ToolSpec]
@@ -55,6 +59,7 @@ class OpenAICompatTextProvider(TextLLMPort):
             "model": self._model,
             "messages": [self._to_openai_msg(m) for m in messages],
             "stream": True,
+            **self._extra_body,  # 供应商特定参（thinking 开关等）
         }
         if tools:
             payload["tools"] = [
@@ -83,6 +88,8 @@ class OpenAICompatTextProvider(TextLLMPort):
                 delta = self._delta(data)
                 if delta is None:
                     continue
+                # 只取 content；thinking 模型（火山 ARK doubao 等）的内部推理在
+                # delta["reasoning_content"]——刻意不读，绝不混进用户可见的 assistant_delta。
                 content = delta.get("content")
                 if content:
                     yield TextChunk(content)

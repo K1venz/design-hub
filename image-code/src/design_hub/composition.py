@@ -136,10 +136,16 @@ def build_text_llm(settings: Settings) -> TextLLMPort:
     """
     key = settings.text_llm_api_key.get_secret_value()
     if key and settings.text_llm_base_url and settings.text_llm_model:
+        # ARK thinking 模型关思考提速（结构化选工具正确性不降、延迟 13.8s→3.5s）；
+        # 通用供应商默认不透传，由 .env TEXT_LLM_THINKING_DISABLED 显式开启。
+        extra_body = (
+            {"thinking": {"type": "disabled"}} if settings.text_llm_thinking_disabled else {}
+        )
         return OpenAICompatTextProvider(
             base_url=settings.text_llm_base_url,
             api_key=key,
             model=settings.text_llm_model,
+            extra_body=extra_body,
         )
     return MockTextLLMProvider()
 
