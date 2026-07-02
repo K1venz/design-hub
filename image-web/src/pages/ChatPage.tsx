@@ -12,12 +12,25 @@ import {
   type ChatBubble, type ChatState, type CostConfirm,
 } from '@/lib/chat'
 import type { UploadedImage } from '@/lib/listing'
+import { useAuthStore } from '@/stores/auth-store'
 
 const PHASE_LABEL: Record<string, string> = {
   understood: '已理解需求',
   planning: '正在规划',
   generating: '正在出图',
   done: '完成',
+}
+
+/**
+ * 上传预览 url：后端 UploadResponse.url = "/uploads/{id}"（后端相对路径），前端需经
+ * 代理前缀 /api 才能到后端（同 useListingEvents 的 "/api/listing/.../events" 先例），
+ * 且 /uploads 代理路由鉴权走 ?access_token=（原生 <img> 不能带 Bearer 头，ISSUE-0011）。
+ * 已是完整/签名 url（http…）则原样返回。
+ */
+function uploadPreviewUrl(url: string): string {
+  if (!url.startsWith('/uploads/')) return url
+  const token = useAuthStore.getState().token
+  return `/api${url}${token ? `?access_token=${encodeURIComponent(token)}` : ''}`
 }
 
 /**
@@ -43,7 +56,7 @@ export function ChatPage() {
   async function send(message: string, uploadIds?: string[]) {
     const text = message.trim()
     if (!text || stateRef.current.streaming || stateRef.current.awaiting) return
-    setState((prev) => pushUserMessage(prev, text, uploadIds && uploadIds.length ? attached.map((a) => a.url) : undefined))
+    setState((prev) => pushUserMessage(prev, text, uploadIds && uploadIds.length ? attached.map((a) => uploadPreviewUrl(a.url)) : undefined))
     setDraft('')
     setAttached([])
     abortRef.current?.abort() // 中止上一条在途流（至多一条活跃）
@@ -153,7 +166,7 @@ export function ChatPage() {
               <div className="mb-1.5 flex gap-2 px-1">
                 {attached.map((a, i) => (
                   <span key={a.id} className="relative">
-                    <img src={a.url} alt="" className="size-12 rounded-lg border border-wb-line-1 object-cover" />
+                    <img src={uploadPreviewUrl(a.url)} alt="" className="size-12 rounded-lg border border-wb-line-1 object-cover" />
                     <button
                       onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
                       className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-wb-ink-2 text-white"
