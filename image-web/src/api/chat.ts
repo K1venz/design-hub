@@ -1,4 +1,4 @@
-import { parseChatEvent, type ChatEvent } from '@/lib/chat'
+import { parseChatEvent, type ChatEvent, type ChatSessionSummary, type ChatSessionDetail } from '@/lib/chat'
 import { useAuthStore } from '@/stores/auth-store'
 
 /** 从一个 SSE 帧（event:/data: 行块）取出事件名与 data JSON。 */
@@ -82,4 +82,30 @@ export function confirmChat(
     onEvent,
     signal,
   )
+}
+
+// ── 会话历史 CRUD（ISSUE-0051，契约 dev #939；dev openapi 到位后可切 openapi-fetch 客户端）──
+async function authJson<T>(path: string, method: 'GET' | 'DELETE'): Promise<T> {
+  const token = useAuthStore.getState().token
+  const res = await fetch(`/api${path}`, {
+    method,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`请求失败（${res.status}）`)
+  return (method === 'DELETE' ? undefined : await res.json()) as T
+}
+
+/** GET /chat/sessions → 本人会话列表（updated_at desc）。 */
+export function listChatSessions(): Promise<ChatSessionSummary[]> {
+  return authJson<ChatSessionSummary[]>('/chat/sessions', 'GET')
+}
+
+/** GET /chat/sessions/{id} → 会话转录（越权 404）。 */
+export function getChatSession(id: string): Promise<ChatSessionDetail> {
+  return authJson<ChatSessionDetail>(`/chat/sessions/${id}`, 'GET')
+}
+
+/** DELETE /chat/sessions/{id} → 硬删（越权 404、CASCADE）。 */
+export function deleteChatSession(id: string): Promise<void> {
+  return authJson<void>(`/chat/sessions/${id}`, 'DELETE')
 }

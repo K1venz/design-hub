@@ -93,6 +93,8 @@ export interface ChatBubble {
   /** assistant 气泡携带的费用确认卡（awaiting）；确认/取消后清。 */
   cost?: CostConfirm
   ended?: boolean
+  /** 回显专用：该 assistant 气泡对应的出图 job（转录只存 job_id，图靠 useListingJob 现签）。 */
+  jobId?: string
 }
 
 export interface ChatState {
@@ -201,4 +203,52 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
 /** 清空 awaiting（用户点取消后本地即时反映；服务端 cancel 流会补收尾语）。 */
 export function clearAwaiting(state: ChatState): ChatState {
   return { ...state, awaiting: null, streaming: true }
+}
+
+// ── 会话历史持久化 + 回显（ISSUE-0051，契约 dev #939；本地类型，dev openapi 到位后切 codegen 派生）──
+/** GET /chat/sessions 列表项。 */
+export interface ChatSessionSummary {
+  id: string
+  title: string
+  updated_at: string
+  message_count: number
+}
+
+/** GET /chat/sessions/{id} 的一条转录消息（只存 user 消息 + assistant 最终答复 + job_id，取舍①）。 */
+export interface ChatTranscriptMessage {
+  seq: number
+  role: 'user' | 'assistant'
+  content: string
+  job_id?: string | null
+  attachment_upload_ids?: string[] | null
+}
+
+export interface ChatSessionDetail {
+  id: string
+  title: string
+  messages: ChatTranscriptMessage[]
+}
+
+/**
+ * 把持久化转录还原成 UI 气泡（回显）：过程态（流式/步骤/费用卡）不落库故为空；
+ * assistant 消息的 job_id 挂上（UI 据此 useListingJob 现签重渲出图卡，取舍②）；
+ * user 消息的 attachment_upload_ids 经 previewOf 转成预览 url（/api/uploads/{id}?access_token=）。
+ * previewOf 由调用方注入（需 token，属 IO/presentation，纯函数不自取）。
+ */
+export function sessionMessagesToBubbles(
+  messages: ChatTranscriptMessage[],
+  previewOf: (uploadId: string) => string,
+): ChatBubble[] {
+  return messages
+    .slice()
+    .sort((a, b) => a.seq - b.seq)
+    .map((m) => ({
+      role: m.role,
+      text: m.content,
+      images: m.attachment_upload_ids?.length ? m.attachment_upload_ids.map(previewOf) : undefined,
+      steps: [],
+      tools: [],
+      ended: true,
+      jobId: m.job_id ?? undefined,
+    }))
 }
