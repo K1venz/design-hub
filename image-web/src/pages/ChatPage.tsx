@@ -248,7 +248,9 @@ function Bubble({
   const activeCost = bubble.cost && awaiting?.confirmToken === bubble.cost.confirmToken ? bubble.cost : null
   return (
     <div className="flex justify-start">
-      <div className="glass-panel max-w-[88%] space-y-2.5 rounded-2xl rounded-tl-md px-4 py-3">
+      {/* glass-lite: bubbles live inside the scroller and grow unbounded — real
+          backdrop-filter here would re-blur every bubble on each scrolled frame. */}
+      <div className="glass-lite max-w-[88%] space-y-2.5 rounded-2xl rounded-tl-md px-4 py-3">
         {bubble.steps.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {bubble.steps.map((s, i) => (
@@ -306,7 +308,7 @@ function CostCard({
 function ResultBlock({ slots, done, total }: { slots: { url: string | null; imageType?: string; error?: string }[]; done: number; total: number }) {
   const generating = done < total && slots.some((s) => s.url === null && !s.error)
   return (
-    <div className="glass-panel max-w-[88%] rounded-2xl rounded-tl-md p-3">
+    <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md p-3">
       <p className="mb-2 px-1 text-[12.5px] font-medium text-wb-ink-3">
         出图结果 <span className="text-wb-ink-6">{done}/{total}</span>
         {generating && <Loader2Icon className="ml-1.5 inline size-3 animate-spin text-wb-brand" />}

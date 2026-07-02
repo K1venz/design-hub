@@ -80,7 +80,7 @@ function Hero() {
           <button
             key={c.key}
             onClick={() => askAgent(c.intent)}
-            className="group flex items-start gap-2.5 rounded-2xl border border-white/70 bg-white/70 p-3 text-left shadow-[0_4px_18px_-12px_rgba(40,40,90,.2)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-14px_rgba(91,91,214,.35)]"
+            className="lift-card group flex items-start gap-2.5 rounded-2xl border border-white/70 bg-white/70 p-3 text-left shadow-[0_4px_18px_-12px_rgba(40,40,90,.2)]"
           >
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-wb-tint-1 text-wb-brand-deep transition-colors group-hover:bg-wb-brand group-hover:text-white">
               <c.icon className="size-[18px]" />
@@ -107,7 +107,7 @@ function ToolSection() {
           <Link
             key={b.key}
             to={b.to}
-            className="group relative overflow-hidden rounded-2xl border border-white/70 bg-gradient-to-br from-wb-tint-1 to-white p-5 shadow-[0_8px_28px_-16px_rgba(91,91,214,.3)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-16px_rgba(91,91,214,.45)]"
+            className="lift-card group rounded-2xl border border-white/70 bg-gradient-to-br from-wb-tint-1 to-white p-5 shadow-[0_8px_28px_-16px_rgba(91,91,214,.3)] [--lift-shadow:0_16px_36px_-16px_rgba(91,91,214,.45)]"
           >
             <span className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.6)]">
               <b.icon className="size-5" />
@@ -126,7 +126,7 @@ function ToolSection() {
           <Link
             key={t.key}
             to={t.to}
-            className="group flex flex-col gap-2 rounded-2xl border border-white/70 bg-white/70 p-3.5 shadow-[0_4px_18px_-12px_rgba(40,40,90,.2)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-14px_rgba(91,91,214,.35)]"
+            className="lift-card group flex flex-col gap-2 rounded-2xl border border-white/70 bg-white/70 p-3.5 shadow-[0_4px_18px_-12px_rgba(40,40,90,.2)]"
           >
             <span className="grid size-9 place-items-center rounded-xl bg-wb-tint-1 text-wb-brand-deep transition-colors group-hover:bg-wb-brand group-hover:text-white">
               <t.icon className="size-[18px]" />
@@ -175,7 +175,9 @@ function ShowcaseSection() {
                     案例占位
                   </div>
                 ) : (
-                  <div className="size-full animate-pulse bg-wb-surface-4" />
+                  // Static placeholder: IO (rootMargin 120px) swaps in content before
+                  // this is ever visible, so an infinite pulse would only burn frames.
+                  <div className="size-full bg-wb-surface-4" />
                 )}
                 <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
                   {s.tag}
