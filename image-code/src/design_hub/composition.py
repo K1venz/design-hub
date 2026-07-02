@@ -12,7 +12,9 @@ from design_hub.application.registry import ProviderRegistry
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.providers.mock import MockModelProvider
+from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
+from design_hub.infrastructure.providers.openai_compat_text import OpenAICompatTextProvider
 from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.infrastructure.storage.tos import (
@@ -24,6 +26,7 @@ from design_hub.infrastructure.storage.tos import (
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.model_config_repository import ModelConfigRecord
+from design_hub.ports.text_llm import TextLLMPort
 from design_hub.ports.upload_store import UploadStore
 
 # Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
@@ -123,6 +126,22 @@ def build_upload_store(settings: Settings) -> UploadStore:
     if _tos_enabled(settings):
         return TosUploadStore(build_tos_client(settings), settings.tos_upload_bucket)
     return LocalUploadStore(settings.asset_output_dir)
+
+
+def build_text_llm(settings: Settings) -> TextLLMPort:
+    """文本 LLM（方案 C「帮我设计」Agent）：配了 TEXT_LLM_* → 真实 OpenAI 兼容适配器；否则 Mock。
+
+    ⚠️ 现有 GPT_IMAGE key 仅图像权限组（探明实测：文本模型 403 no access）；文本需用户
+    另开 key/access（apinebula 开文本权限或单独接 DeepSeek）。未配 → Mock 全链可联调。
+    """
+    key = settings.text_llm_api_key.get_secret_value()
+    if key and settings.text_llm_base_url and settings.text_llm_model:
+        return OpenAICompatTextProvider(
+            base_url=settings.text_llm_base_url,
+            api_key=key,
+            model=settings.text_llm_model,
+        )
+    return MockTextLLMProvider()
 
 
 def build_registry(

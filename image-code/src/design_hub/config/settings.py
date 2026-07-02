@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     gpt_image_base_url: str = ""
     gpt_image_api_key: SecretStr = SecretStr("")
     gpt_image_model: str = ""
+    # 文本 LLM（方案 C「帮我设计」Agent）：配 TEXT_LLM_* 三项即启真实适配器，否则用 Mock。
+    # ⚠️ 现有 GPT_IMAGE key 仅图像权限（探明实测文本 403）；文本需用户另开 key/access。
+    text_llm_base_url: str = ""
+    text_llm_api_key: SecretStr = SecretStr("")
+    text_llm_model: str = ""
+    # 对话会话级出图闸（#884②）：单会话最多出图单数，保守默认 5，可配。
+    chat_session_max_jobs: int = 5
     # 套图并发窗口（ISSUE-0047）：apikey 轮换后新 key 分组并发档位低，5 路并发打满上游 429
     # → 套图「只出 1 张」。保守默认 3；ops 可经 .env 下调至 2 而无需改码。单图流 n=1 恒 1 路，
     # 任何 ≥1 的取值都不改其行为。
