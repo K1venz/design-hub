@@ -5,8 +5,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from design_hub.application.chat.orchestrator import ChatEvent, ChatOrchestrator
+from design_hub.domain.errors import NotFoundError
 from design_hub.interface.api.deps import CurrentUserDep
-from design_hub.interface.chat_schemas import ChatConfirmRequest, ChatMessageRequest
+from design_hub.interface.chat_schemas import (
+    ChatConfirmRequest,
+    ChatMessageRequest,
+    ChatSessionSummaryOut,
+    ChatTranscriptOut,
+)
+from design_hub.ports.chat_repository import ChatSessionRepository
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -15,6 +22,12 @@ def _orchestrator(request: Request) -> ChatOrchestrator:
     orch = request.app.state.chat_orchestrator
     assert isinstance(orch, ChatOrchestrator)
     return orch
+
+
+def _chat_repo(request: Request) -> ChatSessionRepository:
+    repo = request.app.state.chat_repo
+    assert isinstance(repo, ChatSessionRepository)
+    return repo
 
 
 def _sse(event: ChatEvent) -> str:
@@ -55,3 +68,34 @@ async def chat_confirm(
             yield _sse(event)
 
     return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+# ── 对话历史回显（ISSUE-0051）：复用 Bearer 鉴权 + owner 隔离（越权 404 anti-enum）──
+
+
+@router.get("/sessions")
+async def list_sessions(request: Request, user: CurrentUserDep) -> list[ChatSessionSummaryOut]:
+    """我的会话列表（侧栏，updated_at 倒序、带消息数）。"""
+    summaries = await _chat_repo(request).list_sessions(user.user_id)
+    return [ChatSessionSummaryOut.of(s) for s in summaries]
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(
+    session_id: str, request: Request, user: CurrentUserDep
+) -> ChatTranscriptOut:
+    """完整转录回显（非本人 / 不存在 → 404 anti-enum）。job_id 消息前端 useListingJob 现签取图。"""
+    transcript = await _chat_repo(request).get_transcript(session_id, user.user_id)
+    if transcript is None:
+        raise NotFoundError(f"会话不存在或无权访问：{session_id}")
+    return ChatTranscriptOut.of(transcript)
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str, request: Request, user: CurrentUserDep
+) -> dict[str, bool]:
+    """硬删会话（CASCADE 删消息）；非本人 / 不存在 → 404。"""
+    if not await _chat_repo(request).delete_session(session_id, user.user_id):
+        raise NotFoundError(f"会话不存在或无权访问：{session_id}")
+    return {"ok": True}

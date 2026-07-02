@@ -144,7 +144,7 @@ class ChatSessionRow(Base):
     user_id: Mapped[str] = mapped_column(String(64), index=True)  # 与 listing_job.user_id 同口径
     title: Mapped[str] = mapped_column(String(255))  # 首条 user 消息截断
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    # 最近消息时间（列表倒序）；append_message 时由 repo 显式 bump（触发是子表 INSERT，非本表 UPDATE）
+    # 最近消息时间（列表倒序）；append_message 时 repo 显式 bump（子表 INSERT 不自动触发本表）
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

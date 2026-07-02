@@ -1,20 +1,20 @@
-"""ChatOrchestrator（方案 C 零框架 tool-use 循环）。
+"""ChatOrchestrator（方案 C 零框架 tool-use 循环 + 对话历史持久化 ISSUE-0051）。
 
 多轮澄清 → LLM 产结构化 tool_call（= /listing 请求体字段，绝不直出图像 prompt，铁律①）
 → 费用确认闸（暂停）→ 用户确认 → 经 ListingJobLauncher 走同一出图链（频控/owner/
 成本守卫/卡链全继承，#884⑤）→ 转发 job SSE（包一层 job_event）→ 收尾话术。
 
-产出 ChatEvent 流，由 /chat 路由序列化为 SSE。MVP 会话内存态、不落库。
+转录持久化（取舍①）：user 消息 + assistant 最终答复(+job_id) 落 ChatSessionRepository；
+过程态（流式吐字/步骤/费用卡/tool_call）不落库。LLM 多轮上下文每轮从 DB 转录重建（刷新/
+重启可续）。confirm_token 留内存（PendingStore，取舍⑤）。产出 ChatEvent 流由 /chat 路由序列化 SSE。
 """
 
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from design_hub.application.chat.session_store import (
-    InMemorySessionStore,
-    PendingAction,
-)
+from design_hub.application.chat.pending_store import PendingAction, PendingStore
 from design_hub.application.listing.job_launcher import ListingJobLauncher
 from design_hub.application.listing.requests import (
     CloneRequest,
@@ -25,7 +25,8 @@ from design_hub.application.rate_limit import RateLimited
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.errors import BudgetExceeded, NotFoundError
-from design_hub.domain.models import AuthUser
+from design_hub.domain.models import AuthUser, ChatTranscript
+from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import EventStream
 from design_hub.ports.text_llm import (
     ChatMessage,
@@ -78,13 +79,31 @@ def _tool_specs() -> list[ToolSpec]:
     ]
 
 
+def _title(message: str) -> str:
+    text = message.strip().replace("\n", " ")
+    return (text[:40] or "新对话")
+
+
+def _to_llm_messages(transcript: ChatTranscript) -> list[ChatMessage]:
+    """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。"""
+    out: list[ChatMessage] = []
+    for m in transcript.messages:
+        content = m.content
+        if m.role == "user" and m.attachment_upload_ids:
+            note = ",".join(m.attachment_upload_ids)
+            content = f"{content}\n\n[系统备注] 本轮可用产品图 upload_ids={note}"
+        out.append(ChatMessage(role=m.role, content=content))
+    return out
+
+
 @dataclass
 class ChatOrchestrator:
     text_llm: TextLLMPort
     launcher: ListingJobLauncher
     event_stream: EventStream
     registry: ProviderRegistry
-    sessions: InMemorySessionStore
+    chat_repo: ChatSessionRepository
+    pending: PendingStore
     max_session_jobs: int = 5  # 会话级出图闸（#884②）
     image_model: ModelName = ModelName.GPT_IMAGE_2
     _tools: list[ToolSpec] = field(default_factory=_tool_specs)
@@ -93,23 +112,29 @@ class ChatOrchestrator:
         self, user: AuthUser, session_id: str | None, message: str, upload_ids: list[str]
     ) -> AsyncIterator[ChatEvent]:
         if session_id is None:
-            session = self.sessions.create(user.user_id)
-        else:
-            got = self.sessions.get(session_id, user.user_id)
-            if got is None:
-                yield ChatEvent("error", {"code": "bad_request", "message": "会话不存在或无权访问"})
-                yield ChatEvent("assistant_end", {"status": "error"})
-                return
-            session = got
-        yield ChatEvent("session", {"session_id": session.session_id})
-        session.pending = None  # 新消息作废旧 pending（重新规划）
+            session_id = uuid.uuid4().hex
+            await self.chat_repo.create_session(
+                session_id=session_id, user_id=user.user_id, title=_title(message)
+            )
+        elif not await self.chat_repo.session_owned(session_id, user.user_id):
+            yield ChatEvent("error", {"code": "bad_request", "message": "会话不存在或无权访问"})
+            yield ChatEvent("assistant_end", {"status": "error"})
+            return
+        yield ChatEvent("session", {"session_id": session_id})
+        self.pending.clear(session_id)  # 新消息作废旧 pending（重新规划）
 
-        content = message
-        if upload_ids:
-            content = f"{message}\n\n[系统备注] 本轮可用产品图 upload_ids={','.join(upload_ids)}"
-        session.messages.append(ChatMessage(role="user", content=content))
+        # 落 user 消息（原始文本 + 附图；[系统备注] 是重建 LLM 上下文时注回，不入持久转录）
+        await self.chat_repo.append_message(
+            session_id=session_id, role="user", content=message,
+            attachment_upload_ids=tuple(upload_ids),
+        )
+        transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
+        assert transcript is not None  # 刚 owner-check + append，必存在
+        llm_messages = [
+            ChatMessage(role="system", content=_SYSTEM_PROMPT),
+            *_to_llm_messages(transcript),
+        ]
 
-        llm_messages = [ChatMessage(role="system", content=_SYSTEM_PROMPT), *session.messages]
         assistant_text = ""
         tool_calls: tuple[ToolCall, ...] = ()
         try:
@@ -123,10 +148,11 @@ class ChatOrchestrator:
             yield ChatEvent("error", {"code": "llm_unavailable", "message": str(exc)})
             yield ChatEvent("assistant_end", {"status": "error"})
             return
-        session.messages.append(
-            ChatMessage(role="assistant", content=assistant_text, tool_calls=tool_calls)
-        )
-        if not tool_calls:
+
+        if not tool_calls:  # 纯澄清轮：落 assistant 转录，收尾
+            await self.chat_repo.append_message(
+                session_id=session_id, role="assistant", content=assistant_text
+            )
             yield ChatEvent("assistant_end", {"status": "complete"})
             return
 
@@ -134,18 +160,18 @@ class ChatOrchestrator:
         yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
         try:
             req = self._parse_req(call.name, call.arguments)
-        except Exception as exc:  # pydantic 校验失败（含 extra=forbid）→ 明确报错
+        except Exception as exc:  # pydantic 校验失败（含 extra=forbid）
             yield ChatEvent("error", {"code": "bad_request", "message": f"工具参数不合法：{exc}"})
             yield ChatEvent("assistant_end", {"status": "error"})
             return
         try:
-            # 与出图同一校验源（#884⑤）：LLM 产的非法参数（占位/缺比例/非自有图等）
-            # 在进费用闸前拦下，转澄清——不让用户确认一个注定失败的出图（防「确认后才报错」）。
+            # 与出图同一校验源（#884⑤）：非法参数（占位/缺比例/非自有图）进费用闸前拦下转澄清
             self.launcher.validate(user, req)
         except (ValueError, NotFoundError) as exc:
-            yield ChatEvent(
-                "assistant_delta",
-                {"text": f"还差点信息、暂时没法出图（{exc}）。麻烦补充一下，我再帮你安排。"},
+            clar = f"还差点信息、暂时没法出图（{exc}）。麻烦补充一下，我再帮你安排。"
+            yield ChatEvent("assistant_delta", {"text": clar})
+            await self.chat_repo.append_message(
+                session_id=session_id, role="assistant", content=clar
             )
             yield ChatEvent("assistant_end", {"status": "complete"})
             return
@@ -154,13 +180,10 @@ class ChatOrchestrator:
         count = self._count(call.name, req)
         unit_cost = self.registry.get(self.image_model).unit_cost  # 与工作台同源（#884③）
         estimate = unit_cost * count
-        # 只保留被选中的 tool_call（收尾轮 tool 消息按其 id 回链）
-        session.messages[-1] = ChatMessage(
-            role="assistant", content=assistant_text, tool_calls=(call,)
+        pending = self.pending.new(
+            session_id, tool=call.name, req=req, count=count, estimate=estimate
         )
-        pending = self.sessions.new_pending(
-            session, tool=call.name, req=req, count=count, estimate=estimate, tool_call_id=call.id
-        )
+        # assistant 最终答复（收尾语+job_id）留到 confirm 后落库；tool_call/cost_confirm 不落库
         yield ChatEvent(
             "cost_confirm",
             {
@@ -177,16 +200,18 @@ class ChatOrchestrator:
     async def handle_confirm(
         self, user: AuthUser, session_id: str, confirm_token: str, action: str
     ) -> AsyncIterator[ChatEvent]:
-        session = self.sessions.get(session_id, user.user_id)
-        if session is None:
+        if not await self.chat_repo.session_owned(session_id, user.user_id):
             yield ChatEvent("error", {"code": "bad_request", "message": "会话不存在或无权访问"})
             yield ChatEvent("assistant_end", {"status": "error"})
             return
-        yield ChatEvent("session", {"session_id": session.session_id})
+        yield ChatEvent("session", {"session_id": session_id})
 
         if action == "cancel":
-            self.sessions.cancel_pending(session)
+            self.pending.clear(session_id)
             yield ChatEvent("assistant_delta", {"text": "已取消本次出图。"})
+            await self.chat_repo.append_message(
+                session_id=session_id, role="assistant", content="已取消本次出图。"
+            )
             yield ChatEvent("assistant_end", {"status": "complete"})
             return
         if action != "confirm":
@@ -194,7 +219,7 @@ class ChatOrchestrator:
             yield ChatEvent("assistant_end", {"status": "error"})
             return
 
-        pending = self.sessions.take_pending(session, confirm_token)
+        pending = self.pending.take(session_id, confirm_token)
         if pending is None:
             yield ChatEvent(
                 "error",
@@ -203,7 +228,8 @@ class ChatOrchestrator:
             yield ChatEvent("assistant_end", {"status": "error"})
             return
 
-        if session.job_count >= self.max_session_jobs:  # 会话级闸（#884②）：启 job 前查
+        # 会话级闸（#884②）：启 job 前查（DB 派生 job_count，持久正确）
+        if await self.chat_repo.job_count(session_id) >= self.max_session_jobs:
             yield ChatEvent(
                 "error",
                 {
@@ -220,8 +246,6 @@ class ChatOrchestrator:
             yield ChatEvent("error", {"code": self._err_code(exc), "message": str(exc)})
             yield ChatEvent("assistant_end", {"status": "error"})
             return
-        session.job_count += 1
-        # plan（套图图型→张数）随 job_started 下发，前端可预铺分组槽（coordinator 可选优化）
         plan = pending.req.plan if isinstance(pending.req, ListingGenerateRequest) else None
         yield ChatEvent(
             "job_started",
@@ -236,27 +260,28 @@ class ChatOrchestrator:
             if event.type == TaskEventType.TASK_COMPLETED:
                 completed = True
 
-        # 收尾轮：喂 tool 结果 → LLM 产自然收尾语（无工具）
+        # 收尾轮：从 DB 转录重建上下文 + 系统提示出图结果 → LLM 产自然收尾语（无工具）
         summary = "出图完成" if completed else "出图失败或部分失败"
-        session.messages.append(
-            ChatMessage(
-                role="tool",
-                content=f"{pending.tool} 结果：{summary}",
-                tool_call_id=pending.tool_call_id,
-            )
+        transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
+        note = ChatMessage(
+            role="user",
+            content=f"（系统提示）刚才的出图已{summary}，请用一句自然的话向用户收尾，不要再调用工具。",
         )
+        history = _to_llm_messages(transcript) if transcript is not None else []
+        llm_messages = [ChatMessage(role="system", content=_SYSTEM_PROMPT), *history, note]
         closing = ""
         try:
-            llm_messages = [ChatMessage(role="system", content=_SYSTEM_PROMPT), *session.messages]
             async for chunk in self.text_llm.complete(messages=llm_messages, tools=[]):
                 if isinstance(chunk, TextChunk):
                     closing += chunk.text
                     yield ChatEvent("assistant_delta", {"text": chunk.text})
         except TextLLMError:
-            fallback = "已完成，可在结果区查看。" if completed else "很抱歉，出图未成功，请重试。"
-            yield ChatEvent("assistant_delta", {"text": fallback})
-            closing = fallback
-        session.messages.append(ChatMessage(role="assistant", content=closing))
+            closing = "已完成，可在结果区查看。" if completed else "很抱歉，出图未成功，请重试。"
+            yield ChatEvent("assistant_delta", {"text": closing})
+        # 落 assistant 最终答复（+job_id，回显时 job_id→image_key→现签图，取舍②）
+        await self.chat_repo.append_message(
+            session_id=session_id, role="assistant", content=closing, job_id=job_id
+        )
         yield ChatEvent("assistant_end", {"status": "complete"})
 
     async def _launch(self, user: AuthUser, pending: PendingAction) -> str:

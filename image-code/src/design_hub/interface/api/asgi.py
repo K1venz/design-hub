@@ -15,7 +15,7 @@ from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.chat.orchestrator import ChatOrchestrator
-from design_hub.application.chat.session_store import InMemorySessionStore
+from design_hub.application.chat.pending_store import PendingStore
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.guard import CostGuard
 from design_hub.application.listing.job_launcher import ListingJobLauncher
@@ -41,6 +41,7 @@ from design_hub.config.settings import Settings
 from design_hub.domain.enums import Role
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
+from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
@@ -126,13 +127,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # 「帮我设计」Agent 对话（方案 C）：复用 job_launcher（频控/owner/成本/卡链全继承）+
     # 同一 event_stream 转发 job 事件 + registry 读 unit_cost（费用确认与工作台同源）。
-    # 文本 LLM 未配 key 时用 Mock（探明：现有 key 仅图像权限，文本待用户开）。MVP 会话内存态。
+    # 转录持久化（ISSUE-0051）走 chat_repo（DB）；confirm_token 过程态留内存（PendingStore）。
+    app.state.chat_repo = SqlAlchemyChatSessionRepository(session_factory)
     app.state.chat_orchestrator = ChatOrchestrator(
         text_llm=build_text_llm(settings),
         launcher=app.state.job_launcher,
         event_stream=app.state.event_stream,
         registry=registry,
-        sessions=InMemorySessionStore(),
+        chat_repo=app.state.chat_repo,
+        pending=PendingStore(),
         max_session_jobs=settings.chat_session_max_jobs,
     )
     app.state.model_config_service = model_config_service
