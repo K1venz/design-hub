@@ -57,3 +57,9 @@ MVP 内测灰度、**非公众全量**（7.B 内容安全前置未做 + §7.A �
 - 2026-07-02 [前端] frontend-b B 批 live 联调（本机 mock 127.0.0.1:8000）全链通过（commit dadbbc3）：snapshot 逐帧实证 ?q= 自动首发→澄清 / 带图上传→套图消息→步骤条→费用卡（5 张 ¥2.0000）→费用闸（输入禁用）→确认→job_event 逐张→出图结果 5/5→收尾「已完成」→输入重启用；job_event 复用 parseListingEvent 落槽正确、前端零第二条流。联调中抓并修 StrictMode 双挂载 abort seed 首发流的真 bug（改发新消息时才中止上一条在途流）。mock:// 图不渲染=预期，真图流式实拍待 dev 换真 provider（用户 key 路 A/B 待拍）→ qa env。门禁 eslint/tsc/vitest 41 绿。
 - 2026-07-02 [前端] frontend-b 真图流式实拍完成（qa 真豆包+真gpt+真TOS，commit 390841a）：全链 ?q自动首条→真豆包澄清(业务上下文完整/零推理泄漏)→带图上传→套图消息→步骤条→费用卡(5张¥2.0000)+费用闸→确认→真gpt出图5/5(产品保真跨图一致)+自然收尾→输入重启用；后端 job e3a01e97 完成 n=5 cost=2.0000 真图落 qa TOS，一套控成本。观感反馈：出图轮无前置文字气泡(步骤条直跳费用卡)、可接受、暖场nudge可选不阻塞。小polish(低优backlog)：用户气泡自传图缩略图 qa 不渲染(/uploads预览url破图)、出图真图正常。截图 chat-real-costconfirm/chat-real-result 入 docs/screenshots。→ 待 QA 跑 0048 验收 8 条。
 - 2026-07-02 [前端] frontend-b 当场修缩略图破图（commit 8958cf6）：用户气泡/输入 chip 拿 UploadResponse.url="/uploads/{id}" 作 <img> 破图，根因两层——① 缺 /api 代理前缀（无前缀被当前端路由返 SPA html=200 非 401）② 缺 ?access_token=（原生 img 不能带 Bearer）。修 uploadPreviewUrl 拼 /api+token；实证 /api/uploads/{id}?access_token=→200 image/png。工作台 ImageUploader 用本地 blob 故没踩坑。
+- 2026-07-02 [coordinator] **QA 验收 8/8 全 PASS（36dc626，真花费 ¥2.0）→ 按用户预授权部署 prod**：
+  prod .env 追加 TEXT_LLM_*（豆包 ARK、thinking 关，备份+chmod600）→ push.sh + deploy.sh
+  （备份/回滚镜像 rollback-20260702-154541、迁移 no-op）→ prod smoke 全绿：公开首页/协议页/
+  /chat 路由 200、未登录 401、docs 仍 404、**真豆包澄清轮 prod 实测干净**、老工作台零回归。
+  「新公开首页 + 帮我设计（内测）」正式上线 prod。遗留入 backlog：chat pytest 测试债(P2)、
+  job 时区口径(P3)、暖场气泡 nudge(可选)、上传预览 URL 坑已修(8958cf6)。status→待用户复核关账。
