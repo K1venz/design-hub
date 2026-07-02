@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
+from design_hub.application.rate_limit import RateLimited, ThrottledCommand, UserRateLimiter
 from design_hub.domain.media import image_key_from_url
-from design_hub.interface.api.throttle import RateLimited, ThrottledCommand, UserRateLimiter
 from design_hub.ports.task_queue import GenerationCommand
 from design_hub.ports.upload_store import owns, upload_ns
 

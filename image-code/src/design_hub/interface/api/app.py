@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from design_hub.application.rate_limit import RateLimited
 from design_hub.domain.errors import (
     AuthenticationError,
     BudgetExceeded,
@@ -8,7 +9,6 @@ from design_hub.domain.errors import (
     NotFoundError,
     PermissionDenied,
 )
-from design_hub.interface.api.throttle import RateLimited
 from design_hub.ports.model_provider import ProviderError
 
 
