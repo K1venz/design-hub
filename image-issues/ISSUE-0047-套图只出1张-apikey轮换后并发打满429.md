@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0047
 title: 套图只出 1 张（真实用户#1）— apikey 轮换后新 key 分组并发档低，5 路并发打满 429
-status: 修复中        # coordinator 代放行（#858，真实用户保障安全流·非安全非DB·用户有停拦权）+ 优先于完全复刻；dev 推进修复
+status: 待验证        # fix 5b53555 已上线 prod（2026-07-02 大批次，smoke 绿）；待 QA prod 复测确认真实流量套图稳定全出
 severity: P1          # 旗舰功能(套图=北极星需求#1)对真实用户严重降级：请求 5 张实得 1 张；无资损(成本 reconcile 只计成功张)、非全站阻断，故 P1 非 P0
 reporter: dev         # 真实用户#1 反馈，dev 读码坐实根因
-owner: 开发           # dev 持球（根因已坐实 + 修复方案已想透，待用户放行才动 prod）
+owner: QA             # fix 已上线 prod（5b53555）；待 QA prod 复测（真实流量套图稳定全出）
 created: 2026-06-15
 updated: 2026-06-15
 related:
@@ -58,6 +58,8 @@ coordinator 可代放行（碰 prod 出精确变更计划→确认→apply）；
   QA #861 验收设计：**不一遍 5/5 就放行**——跑多遍压并发（默认 5 张 + 更大 plan 8~10、连跑 3~5 遍）证降并发后稳定全出，
   断言 ① 请求 N 张出全 N ② IMAGE_FAILED=0 ③ cost=请求张数×单价（间歇性 429 不能单遍绿放行）。status→修复中。
   **若 fix 碰 DB/资损面 dev STOP 报 coordinator**（预计纯并发参数、无 schema 无迁移、deploy.sh 迁移 no-op）。
+- 2026-07-02 [coordinator/开发] **fix 已上线 prod（commit `5b53555`）**：`listing_concurrency` 默认 3 可配（从「一次全并发」降到保守值）+ provider 指数退避 + equal-jitter + retries 2→5（避 429 撞限流、重试错峰）。随同批大批次上线（工作台「最近一单」恢复 ed79ecd+a8f01df / **两阶段落库** 5af8a04+2f82799：入队即落『生成中』行+逐张增量+失败张留痕+fail-closed+reaper，commands.py 重构为模板方法基类 / auth 打磨 e36f311）。部署 2026-07-02、prod smoke 绿。**纯并发参数+I/O 退避、无 schema 无迁移**（deploy.sh 迁移 no-op）。status→**待验证**、owner→QA。
+- 2026-07-02 [PM] 黑板同步（承 #877 coordinator 纠偏——本 bug 在 dev 休眠期已由子 agent 链修复上线，PM 之前记的「修复中·待用户放行」为旧态）：更新 status→待验证、owner→QA、补 fix commit `5b53555` + 部署记录。**QA 复测口径（#861/#863 已定，务必守）**：间歇性 429 **不一遍 5/5 就放行**——跑多遍压并发（默认 5 + 大 plan 8~10、连跑 3~5 遍）证降并发后稳定全出（请求 N 张出全 N / IMAGE_FAILED=0 / cost=N×单价）。QA prod 复测绿 → PM 终验收关闭。
 - 2026-07-02 [coordinator] **修复已实现并上线 prod**（子 agent 链，按用户"默认子 agent"编排）：
   ① fix `5b53555`——根因实锤 = listing_service 并发度写死 `_CONCURRENCY=5` + provider 线性退避无抖动齐步重发；
   改为 settings `listing_concurrency`(默认 3、`.env` 可下调至 2 免改码) + provider 指数退避 equal-jitter
