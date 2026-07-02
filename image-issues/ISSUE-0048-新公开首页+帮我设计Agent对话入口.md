@@ -69,3 +69,6 @@ MVP 内测灰度、**非公众全量**（7.B 内容安全前置未做 + §7.A �
   拼 /api+access_token，记供后来人复用）；暖场 nudge=可选打磨不阻塞。② 状态：已上线 prod（QA 8/8 + smoke 全绿）
   → **待用户 prod 复核**、owner=PM。③ PRD §3.14 转「✅ 已上线 prod（待用户复核）」+ 上线记录、§7.G 落地页项转「已上线（待复核）」。
   **待用户 prod 复核『帮我设计』内测入口 + 新首页无恙 → PM 终验收 status→已关闭**（内测灰度、非公众全量：7.B 内容安全 + 7.A 备案仍前置）。
+- 2026-07-02 [dev] backlog 收口：**chat pytest 测试债现补完成**（coordinator #921「不用等下轮」）——手工 E2E
+  固化为 committed pytest，+22 测试、全量 90 绿（commit 060f181），含 PM 强调的「占位参数进费用闸前拦下转澄清」
+  回归单测 + reasoning_content 过滤单测。详见 **ISSUE-0049→待验证（owner=QA）**。ISSUE-0050（job 时区 P3）待细化。
