@@ -1,0 +1,140 @@
+import { describe, it, expect } from 'vitest'
+
+import {
+  parseChatEvent,
+  applyChatEvent,
+  pushUserMessage,
+  clearAwaiting,
+  initialChatState,
+  type ChatState,
+} from '@/lib/chat'
+
+describe('parseChatEvent', () => {
+  it('maps session / assistant_delta / step / tool_call', () => {
+    expect(parseChatEvent('session', '{"session_id":"s1"}')).toEqual({ kind: 'session', sessionId: 's1' })
+    expect(parseChatEvent('assistant_delta', '{"text":"你好"}')).toEqual({ kind: 'assistant_delta', text: '你好' })
+    expect(parseChatEvent('step', '{"phase":"understood","detail":"花生·套图·5张"}')).toEqual({
+      kind: 'step',
+      step: { phase: 'understood', detail: '花生·套图·5张' },
+    })
+    expect(parseChatEvent('tool_call', '{"tool":"generate","args":{}}')).toEqual({ kind: 'tool_call', tool: 'generate' })
+  })
+
+  it('maps cost_confirm with camelCased fields', () => {
+    const e = parseChatEvent(
+      'cost_confirm',
+      '{"confirm_token":"ct_1","tool":"generate","count":5,"unit_cost":"0.40","estimate_cny":"2.00"}',
+    )
+    expect(e).toEqual({
+      kind: 'cost_confirm',
+      confirm: { confirmToken: 'ct_1', tool: 'generate', count: 5, unitCost: '0.40', estimateCny: '2.00' },
+    })
+  })
+
+  it('maps assistant_end / error / job_started', () => {
+    expect(parseChatEvent('assistant_end', '{"status":"awaiting_confirm"}')).toEqual({
+      kind: 'assistant_end',
+      status: 'awaiting_confirm',
+    })
+    expect(parseChatEvent('error', '{"code":"session_job_limit","message":"超出本会话上限"}')).toEqual({
+      kind: 'error',
+      code: 'session_job_limit',
+      message: '超出本会话上限',
+    })
+    expect(parseChatEvent('job_started', '{"job_id":"j1","tool":"generate","count":5}')).toEqual({
+      kind: 'job_started',
+      jobId: 'j1',
+      tool: 'generate',
+      count: 5,
+    })
+  })
+
+  it('unwraps job_event → inner listing event via parseListingEvent', () => {
+    const e = parseChatEvent(
+      'job_event',
+      '{"job_id":"j1","type":"image_generated","data":{"url":"http://x/1.png","seed":0,"image_type":"白底"}}',
+    )
+    expect(e).toEqual({
+      kind: 'job',
+      jobId: 'j1',
+      inner: { kind: 'image', url: 'http://x/1.png', seed: 0, imageType: '白底' },
+      imageType: '白底',
+    })
+  })
+
+  it('unwraps job_event image_failed', () => {
+    const e = parseChatEvent('job_event', '{"job_id":"j1","type":"image_failed","data":{"image_type":"场景","error":"provider 500"}}')
+    expect(e).toEqual({
+      kind: 'job',
+      jobId: 'j1',
+      inner: { kind: 'image_failed', imageType: '场景', error: 'provider 500' },
+      imageType: undefined,
+    })
+  })
+
+  it('returns unknown for unrecognized type', () => {
+    expect(parseChatEvent('whatever', '{}')).toEqual({ kind: 'unknown' })
+  })
+})
+
+describe('applyChatEvent reducer', () => {
+  const feed = (s: ChatState, evs: Parameters<typeof applyChatEvent>[1][]) => evs.reduce(applyChatEvent, s)
+
+  it('accumulates assistant delta into a fresh assistant bubble after user msg', () => {
+    let s = pushUserMessage(initialChatState(), '给我的花生出一套 5 张')
+    expect(s.streaming).toBe(true)
+    s = feed(s, [
+      { kind: 'session', sessionId: 's1' },
+      { kind: 'assistant_delta', text: '好的，' },
+      { kind: 'assistant_delta', text: '这就出。' },
+    ])
+    expect(s.sessionId).toBe('s1')
+    expect(s.bubbles).toHaveLength(2)
+    expect(s.bubbles[0]).toMatchObject({ role: 'user', text: '给我的花生出一套 5 张' })
+    expect(s.bubbles[1]).toMatchObject({ role: 'assistant', text: '好的，这就出。' })
+  })
+
+  it('cost_confirm sets awaiting + attaches card; assistant_end ends stream', () => {
+    let s = pushUserMessage(initialChatState(), 'x')
+    s = feed(s, [
+      { kind: 'tool_call', tool: 'generate' },
+      { kind: 'step', step: { phase: 'planning', detail: '套图 5 张' } },
+      {
+        kind: 'cost_confirm',
+        confirm: { confirmToken: 'ct_1', tool: 'generate', count: 5, unitCost: '0.40', estimateCny: '2.00' },
+      },
+      { kind: 'assistant_end', status: 'awaiting_confirm' },
+    ])
+    expect(s.awaiting?.confirmToken).toBe('ct_1')
+    expect(s.bubbles[1].cost?.estimateCny).toBe('2.00')
+    expect(s.bubbles[1].tools).toEqual(['generate'])
+    expect(s.bubbles[1].steps).toHaveLength(1)
+    expect(s.bubbles[1].ended).toBe(true)
+    expect(s.streaming).toBe(false)
+  })
+
+  it('confirm flow: job_started prefills slots, job images fill by image_type', () => {
+    let s: ChatState = { ...initialChatState(), sessionId: 's1', awaiting: { confirmToken: 'ct_1', tool: 'generate', count: 3, unitCost: '0.40', estimateCny: '1.20' } }
+    s = clearAwaiting(s)
+    expect(s.awaiting).toBeNull()
+    s = feed(s, [{ kind: 'job_started', jobId: 'j1', tool: 'generate', count: 3 }])
+    expect(s.slots).toHaveLength(3)
+    expect(s.jobTotal).toBe(3)
+    // 三张陆续到达
+    s = feed(s, [
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image', url: 'http://x/a.png', imageType: '白底' }, imageType: '白底' },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image', url: 'http://x/b.png', imageType: '场景' }, imageType: '场景' },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image_failed', imageType: '场景', error: '失败' }, imageType: undefined },
+    ])
+    expect(s.jobDone).toBe(2)
+    expect(s.slots.filter((x) => x.url).length).toBe(2)
+    expect(s.slots.some((x) => x.error === '失败')).toBe(true)
+  })
+
+  it('error event stops streaming and records code', () => {
+    let s = pushUserMessage(initialChatState(), 'x')
+    s = applyChatEvent(s, { kind: 'error', code: 'session_job_limit', message: '本次对话出图已达上限' })
+    expect(s.streaming).toBe(false)
+    expect(s.error).toEqual({ code: 'session_job_limit', message: '本次对话出图已达上限' })
+  })
+})
