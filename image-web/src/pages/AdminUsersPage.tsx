@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ROLE_DESIGNER, ROLE_MANAGER, useCurrentUser, type Role } from '@/stores/auth-store'
+import { ROLE_DESIGNER, ROLE_MANAGER, roleLabel, useCurrentUser, type Role } from '@/stores/auth-store'
 
 export function AdminUsersPage() {
   const me = useCurrentUser()
@@ -41,7 +41,7 @@ export function AdminUsersPage() {
     <div className="space-y-6">
       <div className="space-y-1">
         <h2 className="text-xl font-semibold tracking-tight text-foreground">用户管理</h2>
-        <p className="text-sm text-muted-foreground">分配角色：设计师 / 管理者。仅管理者可见。</p>
+        <p className="text-sm text-muted-foreground">分配角色：用户 / 管理者。仅管理者可见。</p>
       </div>
 
       <Card className="overflow-hidden p-0">
@@ -83,8 +83,8 @@ export function AdminUsersPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={ROLE_DESIGNER}>{ROLE_DESIGNER}</SelectItem>
-                        <SelectItem value={ROLE_MANAGER}>{ROLE_MANAGER}</SelectItem>
+                        <SelectItem value={ROLE_DESIGNER}>{roleLabel(ROLE_DESIGNER)}</SelectItem>
+                        <SelectItem value={ROLE_MANAGER}>{roleLabel(ROLE_MANAGER)}</SelectItem>
                       </SelectContent>
                     </Select>
                   </TableCell>

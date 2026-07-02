@@ -5,6 +5,7 @@ import { TriangleAlertIcon } from 'lucide-react'
 import { useLogin } from '@/api/auth'
 import { AuthLayout } from '@/components/auth/AuthLayout'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/auth-store'
@@ -15,6 +16,7 @@ export function LoginPage() {
   const login = useLogin()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(true)
 
   if (token) return <Navigate to="/" replace />
 
@@ -70,6 +72,18 @@ export function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
           />
+        </div>
+        <div className="flex items-center justify-between">
+          <label className="text-muted-foreground flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            记住我
+          </label>
+          <span
+            className="text-muted-foreground/70 cursor-not-allowed text-sm"
+            title="找回密码即将上线"
+          >
+            忘记密码？
+          </span>
         </div>
         <Button
           type="submit"

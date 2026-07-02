@@ -1,15 +1,38 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { TriangleAlertIcon } from 'lucide-react'
 
 import { useRegister } from '@/api/auth'
 import { AuthLayout } from '@/components/auth/AuthLayout'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 const MIN_PASSWORD = 8
+
+/** 密码强度：0 无 / 1 弱 / 2 中 / 3 强。基于长度 + 字符种类。 */
+function passwordStrength(pw: string): 0 | 1 | 2 | 3 {
+  if (!pw) return 0
+  let variety = 0
+  if (/[a-z]/.test(pw)) variety++
+  if (/[A-Z]/.test(pw)) variety++
+  if (/\d/.test(pw)) variety++
+  if (/[^a-zA-Z0-9]/.test(pw)) variety++
+  if (pw.length < MIN_PASSWORD) return 1
+  if (pw.length >= 12 && variety >= 3) return 3
+  if (variety >= 2) return 2
+  return 1
+}
+
+const STRENGTH_META = [
+  { label: '', tone: '', bars: 0 },
+  { label: '弱', tone: 'bg-red-500', bars: 1 },
+  { label: '中', tone: 'bg-amber-500', bars: 2 },
+  { label: '强', tone: 'bg-emerald-500', bars: 3 },
+] as const
 
 export function RegisterPage() {
   const token = useAuthStore((s) => s.token)
@@ -18,16 +41,23 @@ export function RegisterPage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [agreed, setAgreed] = useState(false)
+
+  const strength = useMemo(() => passwordStrength(password), [password])
+  const pwTooShort = password.length > 0 && password.length < MIN_PASSWORD
+  const mismatch = confirm.length > 0 && confirm !== password
+  const valid =
+    email.trim() && password.length >= MIN_PASSWORD && confirm === password && agreed
 
   if (token) return <Navigate to="/" replace />
-
-  const pwTooShort = password.length > 0 && password.length < MIN_PASSWORD
-  const valid = email.trim() && name.trim() && password.length >= MIN_PASSWORD
 
   async function submit() {
     if (!valid) return
     try {
-      await register.mutateAsync({ email: email.trim(), name: name.trim(), password })
+      // 昵称选填：留空则用邮箱前缀兜底（后端仍需一个 name）
+      const finalName = name.trim() || email.trim().split('@')[0] || '用户'
+      await register.mutateAsync({ email: email.trim(), name: finalName, password })
       navigate('/', { replace: true })
     } catch {
       // 错误经 register.error 呈现
@@ -56,12 +86,14 @@ export function RegisterPage() {
         }}
       >
         <div className="space-y-2">
-          <Label htmlFor="reg-name">姓名</Label>
+          <Label htmlFor="reg-name">
+            昵称 <span className="text-muted-foreground font-normal">（选填）</span>
+          </Label>
           <Input
             id="reg-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="你的名字"
+            placeholder="怎么称呼你"
             autoFocus
           />
         </div>
@@ -87,8 +119,56 @@ export function RegisterPage() {
             placeholder={`至少 ${MIN_PASSWORD} 位`}
             aria-invalid={pwTooShort}
           />
+          {password.length > 0 && (
+            <div className="flex items-center gap-2 pt-0.5">
+              <div className="flex flex-1 gap-1">
+                {[1, 2, 3].map((i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      'h-1 flex-1 rounded-full transition-colors',
+                      i <= STRENGTH_META[strength].bars
+                        ? STRENGTH_META[strength].tone
+                        : 'bg-border',
+                    )}
+                  />
+                ))}
+              </div>
+              <span className="text-muted-foreground w-6 text-xs">
+                {STRENGTH_META[strength].label}
+              </span>
+            </div>
+          )}
           {pwTooShort && <p className="text-destructive text-xs">密码至少 {MIN_PASSWORD} 位</p>}
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="reg-confirm">确认密码</Label>
+          <Input
+            id="reg-confirm"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="再输一次密码"
+            aria-invalid={mismatch}
+          />
+          {mismatch && <p className="text-destructive text-xs">两次密码不一致</p>}
+        </div>
+
+        <label className="text-muted-foreground flex cursor-pointer items-start gap-2 text-xs leading-relaxed">
+          <Checkbox
+            className="mt-0.5"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+          />
+          <span>
+            我已阅读并同意
+            <a className="text-primary hover:underline" href="#">《服务条款》</a>
+            与
+            <a className="text-primary hover:underline" href="#">《隐私政策》</a>
+          </span>
+        </label>
+
         <Button
           type="submit"
           size="lg"

@@ -9,6 +9,20 @@ export type AuthUser = components['schemas']['MeResponse']
 export const ROLE_DESIGNER: Role = '设计师'
 export const ROLE_MANAGER: Role = '管理者'
 
+/**
+ * 角色**显示名**映射（DB 枚举值保持不变，仅前端展示）。
+ * 世界 A 移除后实朴为纯 toC，普通用户不再叫「设计师」→ 展示为「用户」。
+ */
+export const ROLE_LABELS: Record<Role, string> = {
+  设计师: '用户',
+  管理者: '管理者',
+}
+
+/** 取角色的对外显示名（回退到原值以防未来新增枚举）。 */
+export function roleLabel(role: Role): string {
+  return ROLE_LABELS[role] ?? role
+}
+
 interface AuthState {
   /** JWT (Bearer). null = 未登录. */
   token: string | null
