@@ -12,14 +12,18 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
+import { ChatPage } from '@/pages/ChatPage'
 import { CloneWorkbenchPage } from '@/pages/CloneWorkbenchPage'
 import { EditWorkbenchPage } from '@/pages/EditWorkbenchPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { HistoryDetailPage } from '@/pages/HistoryDetailPage'
+import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { RegisterPage } from '@/pages/RegisterPage'
+import { TermsPage } from '@/pages/legal/TermsPage'
+import { PrivacyPage } from '@/pages/legal/PrivacyPage'
 import { WorkbenchPage } from '@/pages/WorkbenchPage'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { RoleRoute } from '@/routes/RoleRoute'
@@ -64,9 +68,17 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+
+      {/* 公开落地页（未登录可浏览，页面自带 AppShell）：首页 + 协议页 */}
+      <Route index element={<HomePage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+
       <Route element={<ProtectedRoute />}>
+        {/* 帮我设计（登录内测，自带 AppShell） */}
+        <Route path="chat" element={<ChatPage />} />
         <Route element={<WorkbenchLayout />}>
-          <Route index element={<WorkbenchPage />} />
+          <Route path="set" element={<WorkbenchPage />} />
           <Route path="clone" element={<CloneWorkbenchPage />} />
           <Route path="edit/:jobId/:imageKey" element={<EditWorkbenchPage />} />
         </Route>

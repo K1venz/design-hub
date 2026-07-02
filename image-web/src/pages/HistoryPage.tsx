@@ -37,7 +37,7 @@ export function HistoryPage() {
           <InboxIcon className="size-12 text-wb-faint-4" strokeWidth={1.5} />
           <p className="text-sm text-wb-ink-6">还没有出图记录</p>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/set')}
             className="rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-5 py-2 text-[13px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.55)] transition-shadow hover:shadow-[0_10px_24px_-8px_rgba(91,91,214,.7)]"
           >
             去出图

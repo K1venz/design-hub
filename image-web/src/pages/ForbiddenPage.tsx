@@ -17,7 +17,7 @@ export function ForbiddenPage() {
         </p>
       </div>
       <Button asChild variant="outline">
-        <Link to="/">返回工作台</Link>
+        <Link to="/">返回首页</Link>
       </Button>
     </div>
   )

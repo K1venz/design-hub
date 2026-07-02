@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import { useMe } from '@/api/auth'
 import { FullPageLoader } from '@/components/feedback/FullPageLoader'
@@ -18,6 +18,7 @@ export function ProtectedRoute() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
   const clear = useAuthStore((s) => s.clear)
+  const location = useLocation()
 
   const { data, isError } = useMe(Boolean(token) && !user)
 
@@ -29,7 +30,8 @@ export function ProtectedRoute() {
     if (isError) clear()
   }, [isError, clear])
 
-  if (!token) return <Navigate to="/login" replace />
-  if (!user) return <FullPageLoader label="正在载入工作台…" />
+  // 登录墙：带上当前意图（含 query，如 /chat?q=…）→ 登录后回跳原处
+  if (!token) return <Navigate to="/login" state={{ from: location }} replace />
+  if (!user) return <FullPageLoader label="正在载入…" />
   return <Outlet />
 }

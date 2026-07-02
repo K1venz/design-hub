@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, type Location } from 'react-router-dom'
 import { TriangleAlertIcon } from 'lucide-react'
 
 import { useLogin } from '@/api/auth'
@@ -10,20 +10,29 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/auth-store'
 
+/** 登录墙回跳目标：ProtectedRoute 存进 state.from 的原始 location（含 query）。 */
+function backTo(location: Location): string {
+  const from = (location.state as { from?: Location } | null)?.from
+  if (from?.pathname) return `${from.pathname}${from.search ?? ''}`
+  return '/'
+}
+
 export function LoginPage() {
   const token = useAuthStore((s) => s.token)
   const navigate = useNavigate()
+  const location = useLocation()
   const login = useLogin()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
 
-  if (token) return <Navigate to="/" replace />
+  const dest = backTo(location)
+  if (token) return <Navigate to={dest} replace />
 
   async function submit() {
     try {
       await login.mutateAsync({ email: email.trim(), password })
-      navigate('/', { replace: true })
+      navigate(dest, { replace: true })
     } catch {
       // 错误经 login.error 呈现
     }
@@ -97,7 +106,7 @@ export function LoginPage() {
 
       <p className="text-center text-sm text-muted-foreground">
         还没有账号？
-        <Link to="/register" className="text-primary ml-1 font-medium hover:underline">
+        <Link to="/register" state={location.state} className="text-primary ml-1 font-medium hover:underline">
           去注册
         </Link>
       </p>

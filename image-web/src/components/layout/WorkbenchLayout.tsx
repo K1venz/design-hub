@@ -3,16 +3,15 @@ import { PlusIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import { toast } from 'sonner'
 
-import { AppTopBar } from '@/components/layout/AppTopBar'
-import { WorkbenchRail } from '@/components/listing/WorkbenchRail'
+import { AppShell } from '@/components/layout/AppShell'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 
-/** 全屏工作台外壳：共享顶栏(带「新建任务」) + 左 rail + 内容（路由切换轻过渡）。 */
+/** 出图工作台外壳：全局 SideNav（AppShell）+ 顶栏「新建任务」+ 内容（路由切换轻过渡）。 */
 export function WorkbenchLayout() {
   const location = useLocation()
   return (
-    <div className="canvas-blobs flex h-svh flex-col bg-background text-wb-ink-1">
-      <AppTopBar>
+    <AppShell
+      topbarLeft={
         <button
           onClick={() => {
             newTaskBus.emit()
@@ -22,19 +21,17 @@ export function WorkbenchLayout() {
         >
           <PlusIcon className="size-4" /> 新建任务
         </button>
-      </AppTopBar>
-      <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4 pt-2">
-        <WorkbenchRail />
-        <motion.div
-          key={location.pathname}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
-          className="flex min-h-0 min-w-0 flex-1 gap-4"
-        >
-          <Outlet />
-        </motion.div>
-      </div>
-    </div>
+      }
+    >
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+        className="flex min-h-0 min-w-0 flex-1 gap-3 pb-3 pr-3"
+      >
+        <Outlet />
+      </motion.div>
+    </AppShell>
   )
 }
