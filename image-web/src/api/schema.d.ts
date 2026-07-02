@@ -255,6 +255,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/showcase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Showcase
+         * @description 公开成果展示：精选出图现签 url，按清单序返回；清单空 → []。
+         */
+        get: operations["showcase_showcase_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/models": {
         parameters: {
             query?: never;
@@ -624,6 +644,18 @@ export interface components {
         /** RoleUpdate */
         RoleUpdate: {
             role: components["schemas"]["Role"];
+        };
+        /**
+         * ShowcaseItemOut
+         * @description GET /showcase 列表项：现签 url + 图型 + 首页说明（公开，无用户数据）。
+         */
+        ShowcaseItemOut: {
+            /** Url */
+            url: string;
+            /** Image Type */
+            image_type: string;
+            /** Caption */
+            caption: string;
         };
         /**
          * UploadResponse
@@ -1122,6 +1154,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    showcase_showcase_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowcaseItemOut"][];
                 };
             };
         };
