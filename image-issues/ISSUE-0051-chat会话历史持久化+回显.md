@@ -58,3 +58,9 @@ related:
   PM 落 PRD §3.14.1 + 开本条（含签字 schema + 全设计 + 验收 6 条 + 分工）。owner=开发（迁移建表[已签]→持久化层→会话 API），
   frontend-b 回显 UI 随 openapi，QA 验收。**仍内测灰度**（7.B/7.A 前置不变）；**上线前迁移须带 mysqldump 备份**（DROP 类纪律沿 ISSUE-0046）。
   待 coordinator 编排开工。
+- 2026-07-02 [PM] **DB 签字 gate 闭合确认**（dev #939 纯读准备亮牌）：dev 确认签字两表**零偏离可落**——
+  id=uuid String(32)(同 listing_job)/user_id String(64)/title String(255)/attachment_upload_ids=JSON 列表/
+  FK CASCADE + 索引(user_id·updated_at·session_id)，**无加列无改语义→无需再签**。且**现有 /chat/messages+/chat/confirm
+  SSE 契约完全不变**（落库是服务端透明加，frontend live 流零改零回归），仅新增 3 会话 API（shape 对齐 0051 设计：
+  列表 {id,title,updated_at,message_count} / 详情 {messages:[{seq,role,content,job_id?,attachment_upload_ids?}]} / DELETE，
+  越权 404 CASCADE）。编排=dev 等 coordinator「image-code 已释放」口令即执行（避 /showcase 部署 rsync 捎带半成品）。
