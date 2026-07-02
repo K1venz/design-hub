@@ -3,7 +3,7 @@
 - 日期：2026-07-02
 - 作者：dev
 - 权威：`docs/superpowers/specs/2026-07-02-public-home-agent-chat-design.md`（用户已签）+ PRD §3.14 + ISSUE-0048
-- 状态：**草案，待三方（dev/frontend-b/coordinator）对齐**；SSE 事件契约冻结前 frontend-b B 批以此为准
+- 状态：coordinator #884 五条硬化已并入；**待 frontend-b UI 侧 ACK 即冻结**；SSE 事件契约以此为准
 - ⚠️ 有一处**待用户拍板阻塞**（文本 LLM key/access，见 §0），不阻塞前端 B 批 UI 与本契约对齐
 
 ---
@@ -73,8 +73,9 @@ SSE 事件序（`event: <type>\ndata: <json>\n\n`）：
 ```json
 { "session_id": "abc123", "confirm_token": "ct_xxx", "action": "confirm | cancel" }
 ```
-- `action:"cancel"` → 单个 `assistant_delta`（「已取消」）+ `assistant_end{complete}`，不出图。
-- `action:"confirm"` → 服务端经 Launcher 启 job，流式回传：
+- `confirm_token` 硬约束（coordinator #884①④）：**一次性**（用后即焚）+ **绑 session_id** + **绑 user_id**（owner 校验，跨用户 confirm → 拒）+ **TTL 10 分钟**过期。防重放 / 跨用户确认 / 悬挂 pending 占内存。
+- `action:"cancel"` → **token 立即作废**（其后同 token confirm 必须拒）+ 单个 `assistant_delta`（「已取消」）+ `assistant_end{complete}`，不出图。
+- `action:"confirm"` → 校验 token（一次性/session/owner/TTL 全过）→ 查会话级闸（§5）→ 经 Launcher 启 job，流式回传：
 
 | event | data | 含义 |
 |---|---|---|
@@ -119,14 +120,23 @@ LLM 的 tool schema 输出**逐字段对齐现有请求体**，`prompt` 字段=�
 
 路由退化为薄壳（旧码适配新架构，无兼容层/shim）。
 
+**工具执行路径硬约束（coordinator #884⑤）**：orchestrator **不 HTTP 自调用、不绕 interface 校验层**。LLM 的 tool args（dict）先经**同一 pydantic 请求模型**解析（`ListingGenerateRequest/CloneRequest/EditRequest`，`EditRequest` 的 `extra=forbid` 等约束原样生效）→ 再交 `ListingJobLauncher`，跑与路由**完全同一条校验链**（数量/枚举/互斥/overlay/图型卡/upload 归属/频控/成本守卫）。即 Launcher 入参 = 已解析的请求模型对象，校验链在 Launcher 内单一实现，路由与 orchestrator 共享同一实现、无第二份。
+
 ---
 
 ## 5. 费用确认协议 + 会话级出图闸
 
-- **估价口径与工作台一致**：`estimate_cny = unit_cost × count`，`count` = `n`（单图）/ `Σplan`（套图）/ `1`（clone/edit）。`unit_cost` 取自图像 provider（与 `listing_service` 同一 Decimal 源）。→ 验收③口径一致。
-- **确认是显式独立动作**：`cost_confirm` 只给 `confirm_token`+估价，服务端暂停；用户在对话里点确认 → `POST /chat/confirm`。**防「聊着聊着被扣钱」。**
-- **会话级出图闸**（PRD 铁律③）：设置 `chat_session_max_jobs: int = 5`（保守默认，可配）。在 confirm 启 job 前检查会话已启 job 数，超限 → `error{code:"session_job_limit"}`。叠加在既有 per-user 频控之上。
-- **fail-fast 错误码**（`error.code`）：`llm_unavailable` / `budget_exceeded`（映射 402/域）/ `rate_limited`（429）/ `session_job_limit` / `bad_request`（4xx，不重试）。
+- **估价口径与工作台同源，禁硬编码**（coordinator #884③，0042 价格快照教训）：`estimate_cny = unit_cost × count`，`count` = `n`（单图）/ `Σplan`（套图）/ `1`（clone/edit）。`unit_cost` **取自 model_config 的 unit_cost**（`listing_service` precheck 用的同一 Decimal 源），不在 chat 层复制常量。
+- **确认是显式独立动作**：`cost_confirm` 只给 `confirm_token`+估价，服务端暂停；用户在对话里点确认 → `POST /chat/confirm`。**防「聊着聊着被扣钱」。** confirm_token 硬约束见 §2.2。
+- **会话级出图闸**（PRD 铁律③ / coordinator #884②）：设置 `chat_session_max_jobs: int = 5`（保守默认，可配）。在 **confirm 启 job 前**检查本会话已启 job 数，超限 → **明确错误事件** `error{code:"session_job_limit", message:...}`（非静默丢弃）。叠加在既有 per-user 频控之上。
+- **fail-fast 错误码**（`error.code`）：`llm_unavailable` / `budget_exceeded`（映射 402/域）/ `rate_limited`（429）/ `session_job_limit` / `invalid_confirm_token`（过期/已用/跨用户/session 不匹配）/ `bad_request`（4xx，不重试）。
+
+### 契约冻结硬化点汇总（coordinator #884，已并入上文）
+① confirm_token 一次性 + 绑 session_id + 绑 user_id + TTL 10min（§2.2）。
+② 会话级闸在 confirm 启 job 前查，超限返明确错误事件（本节）。
+③ estimate 取 model_config unit_cost 同源、禁硬编码（本节）。
+④ cancel 立即作废 token，其后同 token confirm 必拒（§2.2）。
+⑤ 工具执行走同一 application service + 完整校验链，不 HTTP 自调用、不绕 interface 校验（§4）。
 
 ---
 
