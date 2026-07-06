@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0050
 title: job 时间戳时区口径待统一（历史/详情时间显示口径）
-status: 已确认        # dev 代码审计定位根因（时间戳生成口径不统一），机制明确；待 PM 排期修复（P3）
+status: 已确认        # 根因明确+档A口径确认+PM排期已给(P3 slot 排前端波次+0052后)；待 coordinator 到点派 dev 执行→转修复中
 severity: P3          # 轻微：显示/口径问题，不影响出图/计费/owner 隔离
 reporter: PM          # coordinator #918 收口备忘，PM 入档占位
-owner: PM             # 根因已细化→球回 PM 排期（P3 低优）+ 拍档 A 零迁移口径；修复归 dev
+owner: 开发            # 口径=档A、排期已定；待 coordinator 到点派工，dev 执行时转修复中（含存量历史行偏移处置）
 created: 2026-07-02
 updated: 2026-07-06
 related:
@@ -56,3 +56,15 @@ coordinator #918 收口备忘列出「job 时区口径 P3、另开小 issue」�
   时长为负、历史绝对时间偏移。**给出修复档 A（全链 UTC 单一事实源、零 DDL 可落）推荐 vs 档 B（DB 钉 UTC，不彻底）**。
   status 待复现→已确认（机制明确）。**球回 PM 排期**（P3 低优，不阻断真实用户）+ 确认「档 A 纯 ORM/序列化层改、零迁移」口径；
   PM 排到即 dev 执行（image-code 内、无 DB DDL、无 撞车）。owner=开发→PM。
+- 2026-07-06 [PM] **口径确认 = 档 A + 排期已给**：
+  ① **口径拍板档 A**（全链 UTC 单一事实源 + 序列化带 Z）——符合「散落 func.now() 收敛进 app 层单一 UTC 事实源」的干净重构，
+     非双时钟妥协。**零 DDL/零迁移=纯 ORM 默认值+序列化层改、不碰建表/改 schema→不触 DB 亲签铁律**（coordinator #961 已拍这条，
+     PM 认可：这不是 DB-schema 决策，无需用户签字）。
+  ② **排期（PM 权）**：P3 不阻断真实用户，正式 slot **排在「前端优化小波次（记住我修复+忘记密码占位）」+ ISSUE-0052 白底剥离（P2）之后**；
+     认可 coordinator #961 时序（改面不小=所有 created_at 调用点，需 QA 回归，别现在插队撞档期）。到点由 coordinator 编排派工，dev 执行时转「修复中」。
+  ③ **⚠️ dev 修复设计须处置的暗坑——存量历史 created_at 行偏移**：档 A 后新行 created_at=app-UTC-naive、序列化统一加 `Z`；但**存量历史行的
+     created_at 当初是 DB-local(疑 CST) naive 写入的**，被序列化统一标 `Z` 后前端会把旧 CST 值当 UTC 解析 → **旧行 created_at 显示 +8h（偏到未来）**。
+     两条出路请 dev 在修复方案里明确二选一：(a) **P3 接受旧行偏移不订正**（内测数据量小、旧行本就已经时长为负的脏态，成本零）；
+     (b) **一次性 backfill 数据订正**（`UPDATE ... created_at -= 偏移`，属数据订正非 DDL、但仍碰 prod 数据=须走备份+可回滚+coordinator 编排，
+     且偏移量硬编码 CST 脆弱）。**PM 倾向 (a)**（P3+内测+YAGNI，不值一次 prod 数据订正的风险），但把决定权留给 dev 按实际 prod 数据量定，QA 验收时**新行/旧行分别验**。
+  owner=开发（口径+排期已定，待 coordinator 到点派）。
