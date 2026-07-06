@@ -4,6 +4,7 @@
 
 import { parseListingEvent, type ListingEvent } from '@/lib/listing'
 import type { ResultSlot } from '@/components/listing/ResultGallery'
+import type { components } from '@/api/schema'
 
 export type ChatTool = 'generate' | 'clone' | 'edit'
 
@@ -205,29 +206,15 @@ export function clearAwaiting(state: ChatState): ChatState {
   return { ...state, awaiting: null, streaming: true }
 }
 
-// ── 会话历史持久化 + 回显（ISSUE-0051，契约 dev #939；本地类型，dev openapi 到位后切 codegen 派生）──
-/** GET /chat/sessions 列表项。 */
-export interface ChatSessionSummary {
-  id: string
-  title: string
-  updated_at: string
-  message_count: number
-}
+// ── 会话历史持久化 + 回显（ISSUE-0051）：类型由 OpenAPI codegen 派生（单一契约源）──
+/** GET /chat/sessions 列表项（侧栏，updated_at 倒序、带消息数）。 */
+export type ChatSessionSummary = components['schemas']['ChatSessionSummaryOut']
 
 /** GET /chat/sessions/{id} 的一条转录消息（只存 user 消息 + assistant 最终答复 + job_id，取舍①）。 */
-export interface ChatTranscriptMessage {
-  seq: number
-  role: 'user' | 'assistant'
-  content: string
-  job_id?: string | null
-  attachment_upload_ids?: string[] | null
-}
+export type ChatTranscriptMessage = components['schemas']['ChatMessageOut']
 
-export interface ChatSessionDetail {
-  id: string
-  title: string
-  messages: ChatTranscriptMessage[]
-}
+/** GET /chat/sessions/{id} 完整转录回显。 */
+export type ChatSessionDetail = components['schemas']['ChatTranscriptOut']
 
 /**
  * 把持久化转录还原成 UI 气泡（回显）：过程态（流式/步骤/费用卡）不落库故为空；
@@ -243,7 +230,7 @@ export function sessionMessagesToBubbles(
     .slice()
     .sort((a, b) => a.seq - b.seq)
     .map((m) => ({
-      role: m.role,
+      role: m.role === 'assistant' ? 'assistant' : 'user',
       text: m.content,
       images: m.attachment_upload_ids?.length ? m.attachment_upload_ids.map(previewOf) : undefined,
       steps: [],

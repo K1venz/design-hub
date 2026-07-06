@@ -1,4 +1,6 @@
 import { parseChatEvent, type ChatEvent, type ChatSessionSummary, type ChatSessionDetail } from '@/lib/chat'
+import { api } from '@/api/client'
+import { errorMessage } from '@/api/errors'
 import { useAuthStore } from '@/stores/auth-store'
 
 /** 从一个 SSE 帧（event:/data: 行块）取出事件名与 data JSON。 */
@@ -84,28 +86,30 @@ export function confirmChat(
   )
 }
 
-// ── 会话历史 CRUD（ISSUE-0051，契约 dev #939；dev openapi 到位后可切 openapi-fetch 客户端）──
-async function authJson<T>(path: string, method: 'GET' | 'DELETE'): Promise<T> {
-  const token = useAuthStore.getState().token
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!res.ok) throw new Error(`请求失败（${res.status}）`)
-  return (method === 'DELETE' ? undefined : await res.json()) as T
-}
+// ── 会话历史 CRUD（ISSUE-0051）：走类型化契约客户端（auth 中间件注入 Bearer、单一契约源）──
+/** 会话列表 react-query 键（发消息后 invalidate 触发侧栏刷新）。 */
+export const CHAT_SESSIONS_KEY = ['chat', 'sessions'] as const
 
 /** GET /chat/sessions → 本人会话列表（updated_at desc）。 */
-export function listChatSessions(): Promise<ChatSessionSummary[]> {
-  return authJson<ChatSessionSummary[]>('/chat/sessions', 'GET')
+export async function listChatSessions(): Promise<ChatSessionSummary[]> {
+  const { data, error } = await api.GET('/chat/sessions')
+  if (error || !data) throw new Error(errorMessage(error, '获取会话列表失败'))
+  return data
 }
 
-/** GET /chat/sessions/{id} → 会话转录（越权 404）。 */
-export function getChatSession(id: string): Promise<ChatSessionDetail> {
-  return authJson<ChatSessionDetail>(`/chat/sessions/${id}`, 'GET')
+/** GET /chat/sessions/{id} → 会话转录（非本人 / 不存在 → 404 anti-enum）。 */
+export async function getChatSession(id: string): Promise<ChatSessionDetail> {
+  const { data, error } = await api.GET('/chat/sessions/{session_id}', {
+    params: { path: { session_id: id } },
+  })
+  if (error || !data) throw new Error(errorMessage(error, '获取会话失败'))
+  return data
 }
 
-/** DELETE /chat/sessions/{id} → 硬删（越权 404、CASCADE）。 */
-export function deleteChatSession(id: string): Promise<void> {
-  return authJson<void>(`/chat/sessions/${id}`, 'DELETE')
+/** DELETE /chat/sessions/{id} → 硬删（非本人 / 不存在 → 404，CASCADE 删消息）。 */
+export async function deleteChatSession(id: string): Promise<void> {
+  const { error } = await api.DELETE('/chat/sessions/{session_id}', {
+    params: { path: { session_id: id } },
+  })
+  if (error) throw new Error(errorMessage(error, '删除会话失败'))
 }
