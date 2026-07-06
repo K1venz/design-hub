@@ -166,7 +166,7 @@ describe('sessionMessagesToBubbles（回显：转录→气泡）', () => {
 
   it('无 attachment / 无 job_id → images/jobId 皆 undefined（纯澄清轮回显）', () => {
     const bubbles = sessionMessagesToBubbles(
-      [{ seq: 1, role: 'assistant', content: '请描述你的产品', job_id: null, attachment_upload_ids: null }],
+      [{ seq: 1, role: 'assistant', content: '请描述你的产品', job_id: null }],
       preview,
     )
     expect(bubbles[0].images).toBeUndefined()

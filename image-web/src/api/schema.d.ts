@@ -218,6 +218,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sessions
+         * @description 我的会话列表（侧栏，updated_at 倒序、带消息数）。
+         */
+        get: operations["list_sessions_chat_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session
+         * @description 完整转录回显（非本人 / 不存在 → 404 anti-enum）。job_id 消息前端 useListingJob 现签取图。
+         */
+        get: operations["get_session_chat_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Session
+         * @description 硬删会话（CASCADE 删消息）；非本人 / 不存在 → 404。
+         */
+        delete: operations["delete_session_chat_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/uploads": {
         parameters: {
             query?: never;
@@ -368,6 +412,22 @@ export interface components {
             action: string;
         };
         /**
+         * ChatMessageOut
+         * @description 回显消息。job_id 非空→前端 useListingJob(job_id) 现签取图（取舍②，后端不内联 URL）。
+         */
+        ChatMessageOut: {
+            /** Seq */
+            seq: number;
+            /** Role */
+            role: string;
+            /** Content */
+            content: string;
+            /** Job Id */
+            job_id?: string | null;
+            /** Attachment Upload Ids */
+            attachment_upload_ids?: string[];
+        };
+        /**
          * ChatMessageRequest
          * @description POST /chat/messages 入参。session_id 首轮传 null，服务端建会话经 session 事件回传。
          */
@@ -378,6 +438,35 @@ export interface components {
             message: string;
             /** Upload Ids */
             upload_ids?: string[];
+        };
+        /**
+         * ChatSessionSummaryOut
+         * @description GET /chat/sessions 列表项（侧栏，updated_at 倒序）。
+         */
+        ChatSessionSummaryOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Message Count */
+            message_count: number;
+        };
+        /**
+         * ChatTranscriptOut
+         * @description GET /chat/sessions/{id} 完整转录回显。
+         */
+        ChatTranscriptOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Messages */
+            messages: components["schemas"]["ChatMessageOut"][];
         };
         /**
          * CloneRequest
@@ -1075,6 +1164,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sessions_chat_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionSummaryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_chat_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTranscriptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_session_chat_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Validation Error */

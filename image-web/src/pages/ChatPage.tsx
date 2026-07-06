@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImagePlusIcon, Loader2Icon, SendIcon, SparklesIcon, WandSparklesIcon, XIcon } from 'lucide-react'
 
 import { AppShell } from '@/components/layout/AppShell'
-import { sendChatMessage, confirmChat } from '@/api/chat'
-import { useUploadImage } from '@/api/listing'
+import { SessionSidebar } from '@/components/chat/SessionSidebar'
+import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
+import { useListingJob, useUploadImage } from '@/api/listing'
 import { downloadImage } from '@/lib/download'
 import {
-  applyChatEvent, clearAwaiting, initialChatState, pushUserMessage,
+  applyChatEvent, clearAwaiting, initialChatState, pushUserMessage, sessionMessagesToBubbles,
   type ChatBubble, type ChatState, type CostConfirm,
 } from '@/lib/chat'
-import type { UploadedImage } from '@/lib/listing'
+import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
 const PHASE_LABEL: Record<string, string> = {
@@ -33,6 +35,11 @@ function uploadPreviewUrl(url: string): string {
   return `/api${url}${token ? `?access_token=${encodeURIComponent(token)}` : ''}`
 }
 
+/** 回显：转录只存 attachment 的 upload id，还原成可鉴权预览 url。 */
+function uploadIdPreviewUrl(uploadId: string): string {
+  return uploadPreviewUrl(`/uploads/${uploadId}`)
+}
+
 /**
  * 「帮我设计」对话页（登录内测，方案 C）。Hero/快捷卡带来的 `?q=` 自动发首条。
  * 流式气泡 + 步骤条 + 工具透明 + 费用确认闸 + 出图结果卡（job_event 复用工作台渲染）。
@@ -43,6 +50,7 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
   const upload = useUploadImage()
+  const qc = useQueryClient()
   const abortRef = useRef<AbortController | null>(null)
   const stateRef = useRef(state)
   useEffect(() => {
@@ -52,6 +60,35 @@ export function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const on = (e: Parameters<typeof applyChatEvent>[1]) => setState((prev) => applyChatEvent(prev, e))
+
+  // 一轮流结束后刷新会话列表（首轮新建会话入列、后续轮更新标题/时间/消息数）。
+  const refreshSessions = () => qc.invalidateQueries({ queryKey: CHAT_SESSIONS_KEY })
+
+  // 选中历史会话 → 拉转录还原成气泡（过程态不落库故为空；出图靠 job_id 现签重渲）。
+  const loadSession = useMutation({
+    mutationFn: getChatSession,
+    onSuccess: (detail) =>
+      setState({
+        ...initialChatState(),
+        sessionId: detail.id,
+        bubbles: sessionMessagesToBubbles(detail.messages, uploadIdPreviewUrl),
+      }),
+    onError: (e) => toast.error(e instanceof Error ? e.message : '加载会话失败'),
+  })
+
+  function selectSession(id: string) {
+    if (id === stateRef.current.sessionId || loadSession.isPending) return
+    abortRef.current?.abort()
+    loadSession.mutate(id)
+  }
+
+  function newSession() {
+    abortRef.current?.abort()
+    loadSession.reset()
+    setState(initialChatState())
+    setDraft('')
+    setAttached([])
+  }
 
   async function send(message: string, uploadIds?: string[]) {
     const text = message.trim()
@@ -64,6 +101,7 @@ export function ChatPage() {
     abortRef.current = ac
     try {
       await sendChatMessage({ sessionId: stateRef.current.sessionId, message: text, uploadIds }, on, ac.signal)
+      refreshSessions()
     } catch (err) {
       if (!ac.signal.aborted) {
         setState((prev) => ({ ...prev, streaming: false }))
@@ -81,6 +119,7 @@ export function ChatPage() {
     abortRef.current = ac
     try {
       await confirmChat({ sessionId: sid, confirmToken: c.confirmToken, action }, on, ac.signal)
+      refreshSessions()
     } catch (err) {
       if (!ac.signal.aborted) {
         setState((prev) => ({ ...prev, streaming: false }))
@@ -122,8 +161,14 @@ export function ChatPage() {
 
   return (
     <AppShell>
-      <main className="min-h-0 flex-1 overflow-hidden pb-3 pr-3">
-        <div className="mx-auto flex h-full max-w-3xl flex-col">
+      <main className="flex min-h-0 flex-1 gap-3 overflow-hidden pb-3 pr-3">
+        <SessionSidebar
+          activeId={state.sessionId}
+          loadingId={loadSession.isPending ? loadSession.variables ?? null : null}
+          onSelect={selectSession}
+          onNew={newSession}
+        />
+        <div className="mx-auto flex h-full max-w-3xl flex-1 flex-col">
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto px-2 py-4">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-wb-ink-2">
               <span className="grid size-7 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white">
@@ -140,7 +185,10 @@ export function ChatPage() {
             )}
 
             {state.bubbles.map((b, i) => (
-              <Bubble key={i} bubble={b} awaiting={state.awaiting} onResolve={resolveConfirm} />
+              <Fragment key={i}>
+                <Bubble bubble={b} awaiting={state.awaiting} onResolve={resolveConfirm} />
+                {b.jobId && <JobResult jobId={b.jobId} />}
+              </Fragment>
             ))}
 
             {state.jobTotal > 0 && (
@@ -303,6 +351,32 @@ function CostCard({
       )}
     </div>
   )
+}
+
+/**
+ * 回显出图卡：转录只存 job_id，进页按需 useListingJob(job_id) 现签取终态图（取舍②）。
+ * 与实时流的 ResultBlock 同渲染——只是数据源从 SSE 槽换成详情快照。
+ */
+function JobResult({ jobId }: { jobId: string }) {
+  const q = useListingJob(jobId)
+  if (q.isLoading) {
+    return (
+      <div className="glass-lite flex max-w-[88%] items-center gap-2 rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
+        <Loader2Icon className="size-3.5 animate-spin" /> 正在载入出图结果…
+      </div>
+    )
+  }
+  if (q.error || !q.data) {
+    return (
+      <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
+        出图结果已失效或无法载入
+      </div>
+    )
+  }
+  const slots = detailToResultSlots(q.data)
+  if (slots.length === 0) return null
+  const done = slots.filter((s) => s.url).length
+  return <ResultBlock slots={slots} done={done} total={slots.length} />
 }
 
 function ResultBlock({ slots, done, total }: { slots: { url: string | null; imageType?: string; error?: string }[]; done: number; total: number }) {
