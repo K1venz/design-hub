@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
+import { useMe } from '@/api/auth'
 import { UNAUTHORIZED_EVENT } from '@/api/client'
 import { queryClient } from '@/api/query-client'
 import { FullPageLoader } from '@/components/feedback/FullPageLoader'
@@ -27,7 +28,7 @@ import { PrivacyPage } from '@/pages/legal/PrivacyPage'
 import { WorkbenchPage } from '@/pages/WorkbenchPage'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { RoleRoute } from '@/routes/RoleRoute'
-import { ROLE_MANAGER } from '@/stores/auth-store'
+import { ROLE_MANAGER, useAuthStore } from '@/stores/auth-store'
 
 // UI 风格预览（throwaway 选型用，第二轮 Western AI-product）：仅 DEV 注册路由。
 // import() 必须在 DEV 分支内（静态可消除），否则 chunk 仍会被产出进 prod dist。
@@ -48,6 +49,24 @@ const ClaudePreview = devLazy(() =>
 const GlassPreview = devLazy(() =>
   import('@/pages/style-preview/GlassPreview').then((m) => ({ default: m.GlassPreview })),
 )
+
+/**
+ * 应用级用户水合：有 token 但 user 未载入时拉 /me 填 store。
+ * 修「登录后回到公开页（首页等），顶栏仍显示登录/注册、要切进墙内页才更新」——
+ * 此前 /me 只在 ProtectedRoute 里拉，公开页没人水合 user。与 ProtectedRoute 共用
+ * 同一 ['me'] 查询（react-query 去重，不双发）；失败在公开页 fail-soft（401 由
+ * client 中间件统一清会话广播，其余瞬时错不打扰浏览）。
+ */
+function AuthHydrator() {
+  const token = useAuthStore((s) => s.token)
+  const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+  const { data } = useMe(Boolean(token) && !user)
+  useEffect(() => {
+    if (data) setUser(data)
+  }, [data, setUser])
+  return null
+}
 
 /** 监听 401 广播：提示并跳登录（会话已被中间件清空）. */
 function UnauthorizedWatcher() {
@@ -144,6 +163,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={200}>
         <BrowserRouter>
+          <AuthHydrator />
           <UnauthorizedWatcher />
           <AppRoutes />
         </BrowserRouter>
