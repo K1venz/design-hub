@@ -80,3 +80,4 @@ MVP 内测灰度、**非公众全量**（7.B 内容安全前置未做 + §7.A �
   ⑦ prefers-reduced-motion 全静止。量化（headless CDP 6s 静置同基准）：/login 主线程 Task 550→332ms、Script 44→10、
   RecalcStyle 204→66；/ 首页 Task 216→171、常驻动画 7→1；门禁 tsc/eslint/vitest 41/build 全绿；
   截图 image-web/docs/screenshots/perf-before-* vs perf-after-* 逐页比对。待用户 prod 复核动画流畅度。
+- 2026-07-06 [coordinator/PM] **[真实用户 bug·已修复上线]**（0048 域内回归，coordinator #950 修+PM 记）：用户报「登录后顶栏不显示登录人、切页才更新」——根因=A 批 `AppTopBar 容忍未登录`（efc5019）后 SPA 缺应用级 auth 水合、登录态不即时反映到顶栏。coordinator 已修+上线 prod：`8a06dd1`（应用级 `AuthHydrator` 水合 /me）+ `1a352ea`（公开页 401 静默降级、不把未登录用户赶走）；真登录实测顶栏即时更新。**干净 worktree 快照部署**、未捎带 frontend 未提交的 0051 回显半成品（只动 App.tsx、与 0051 文件不相交）。非安全非 DB、真实用户保障流内 coordinator 代修上线，PM 补记归档；随 0048 一并待用户复核。
