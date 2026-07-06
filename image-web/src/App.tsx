@@ -69,10 +69,16 @@ function AuthHydrator() {
 }
 
 /** 监听 401 广播：提示并跳登录（会话已被中间件清空）. */
+/** 未登录也可浏览的路径：401 只静默清会话（顶栏回未登录态），不弹窗不赶去登录页。 */
+const PUBLIC_PATHS = new Set(['/', '/terms', '/privacy', '/login', '/register'])
+
 function UnauthorizedWatcher() {
   const navigate = useNavigate()
   useEffect(() => {
     function onUnauthorized() {
+      // 公开页带过期 token（AuthHydrator 水合 401）：会话已被 client 中间件清空，
+      // 静默降级为未登录浏览即可；仅墙内页才提示+跳登录。
+      if (PUBLIC_PATHS.has(window.location.pathname)) return
       toast.error('登录已过期，请重新登录')
       navigate('/login', { replace: true })
     }
