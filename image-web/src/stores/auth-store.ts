@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
 import type { components } from '@/api/schema'
+import { rememberAwareStorage } from '@/stores/auth-storage'
 
 export type Role = components['schemas']['Role']
 export type AuthUser = components['schemas']['MeResponse']
@@ -34,8 +35,9 @@ interface AuthState {
 }
 
 /**
- * 鉴权会话单一事实源。token 持久化到 localStorage（任务指定），
- * 刷新后免重登；user 由 ProtectedRoute 经 /me 重新拉取（不强依赖持久化副本）。
+ * 鉴权会话单一事实源。token 经「记住我」存储路由持久化（勾选→localStorage 重开仍在、
+ * 不勾→sessionStorage 关浏览器即登出，见 auth-storage）；刷新后免重登；
+ * user 由 ProtectedRoute / AuthHydrator 经 /me 重新拉取（不强依赖持久化副本）。
  */
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -48,6 +50,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'design-hub-auth',
+      storage: createJSONStorage(() => rememberAwareStorage),
       partialize: (s) => ({ token: s.token }),
     },
   ),

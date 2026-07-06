@@ -6,9 +6,58 @@ import { useLogin } from '@/api/auth'
 import { AuthLayout } from '@/components/auth/AuthLayout'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { setAuthPersistent } from '@/stores/auth-storage'
 import { useAuthStore } from '@/stores/auth-store'
+
+/**
+ * 内测期占位：管理员联系方式。用户尚未拍板是否公开具体邮箱/微信——
+ * 先留空，弹窗只提示「联系管理员协助」；用户给了填此常量即自动显示。
+ */
+const ADMIN_CONTACT = ''
+
+/** 忘记密码占位弹窗（内测期无自助找回，引导联系管理员）。 */
+function ForgotPasswordDialog() {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="text-muted-foreground/80 hover:text-foreground text-sm transition-colors hover:underline"
+        >
+          忘记密码？
+        </button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>找回密码</DialogTitle>
+          <DialogDescription>
+            内测期间暂未开放自助找回密码。如需重置，请联系管理员协助。
+          </DialogDescription>
+        </DialogHeader>
+        {ADMIN_CONTACT ? (
+          <p className="text-foreground text-sm">联系方式：{ADMIN_CONTACT}</p>
+        ) : null}
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">知道了</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 /** 登录墙回跳目标：ProtectedRoute 存进 state.from 的原始 location（含 query）。 */
 function backTo(location: Location): string {
@@ -30,6 +79,7 @@ export function LoginPage() {
   if (token) return <Navigate to={dest} replace />
 
   async function submit() {
+    setAuthPersistent(remember) // 决定 token 落 localStorage(持久) 还是 sessionStorage(仅会话)
     try {
       await login.mutateAsync({ email: email.trim(), password })
       navigate(dest, { replace: true })
@@ -87,12 +137,7 @@ export function LoginPage() {
             <Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} />
             记住我
           </label>
-          <span
-            className="text-muted-foreground/70 cursor-not-allowed text-sm"
-            title="找回密码即将上线"
-          >
-            忘记密码？
-          </span>
+          <ForgotPasswordDialog />
         </div>
         <Button
           type="submit"
