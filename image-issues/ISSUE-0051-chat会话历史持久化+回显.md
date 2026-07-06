@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0051
 title: 「帮我设计」对话历史持久化 + 回显（DeerFlow 式多会话完整存档）
-status: 已确认        # 用户提需求 + 亲签两表 schema（2026-07-02）；设计定稿、实现棒可开
+status: 待验证        # 后端棒(dev)+回显 UI(frontend-b)均完成、门禁绿+本地 mock 联调全过；待 QA 验收 6 条
 severity: P1          # 用户直接提需求；chat MVP 会话内存态刷新即丢的核心补齐
 reporter: PM          # 用户提需求（本会话），PM 主持 brainstorm 定稿 + 开条
-owner: frontend-b     # dev 后端棒完成(迁移+repo+编排+3API+openapi,E2E绿)→交 frontend-b 回显 UI
+owner: coordinator    # 回显 UI 交付→coordinator 编排(重建 qa 捎全量+迁移 → QA 子 agent 验收 6 条 → 绿即上 prod)
 created: 2026-07-02
-updated: 2026-07-02
+updated: 2026-07-06
 related:
   - PRD: §3.14.1 对话历史持久化 + 回显
   - issue: ISSUE-0048（「帮我设计」chat MVP，会话内存态不落库=本条前身）
@@ -78,3 +78,19 @@ related:
   **交接**：openapi 已再生 → @frontend-b 二次进场做回显 UI（会话侧栏+列表+回显页，job_id 走 useListingJob 现签、attachment 走
   uploadPreviewUrl）；上线走迁移轮纪律（deploy.sh 自带 mysqldump 备份 + qa 先行，coordinator 编排）→ QA 验收 6 条。
   owner→frontend-b（回显 UI）。
+- 2026-07-06 [frontend-b] **回显 UI 棒完成**（二次进场，1 提交）：
+  ① 类型切 OpenAPI codegen 派生——`lib/chat.ts` 三会话类型改为 `ChatSessionSummaryOut/ChatMessageOut/ChatTranscriptOut` 别名
+     （删手写副本，单一契约源）；`api/chat.ts` 3 端点由手写 fetch 改走类型化 client（auth 中间件注入 Bearer、错误归一 errorMessage）。
+  ② 新增 `components/chat/SessionSidebar.tsx`——会话列表（GET /chat/sessions，updated_at 倒序）+ 新对话 + 删除（DELETE，
+     react-query invalidate 刷新；删当前会话→回新对话空态）；加载/空/错三态。
+  ③ `ChatPage.tsx` 集成——侧栏列，选中会话→getChatSession→`sessionMessagesToBubbles` 回显（同页切换、不跳路由）；
+     **出图回显 `JobResult`**：转录只存 job_id → `useListingJob(job_id)` 现签取终态图（取舍②，复用工作台 `detailToResultSlots`+
+     `ResultBlock`）；带图轮 attachment_upload_ids → `uploadIdPreviewUrl`(/api/uploads/{id}?access_token=) 缩略图；
+     发消息/确认后 invalidate 会话列表；**live /chat 流零改**（send/confirm/reducer 全未动）。
+  **门禁四件套全绿**：lint / tsc / vitest 43 passed / build。
+  **本地 mock 联调全过**（run_local_mock.sh：mock 文本+图、REAL_GPT_IMAGE=false、sqlite、零成本零触 prod）——
+  侧栏列会话(updated_at 倒序)✓ / 选中回显文字转录(user+assistant 气泡)✓ / **带图套图轮回显：用户附件缩略图真实加载 1254×1254✓
+  + 出图卡「5/5」5 槽经 job_id 现签重渲✓** / 新对话重置✓ / 删除级联(列表消失+404+CASCADE)✓ / 后端契约(空列表·404 anti-enum
+  GET+DELETE·转录 shape)✓。（mock 生成图为占位 URL 本环境不解析，prod 走真实签名 TOS URL、同工作台历史详情页 code path、QA 已验。）
+  提交 pathspec 限 image-web 7 文件（openapi.json/schema.d.ts/lib chat.ts+test/api chat.ts/pages ChatPage.tsx/新 SessionSidebar.tsx），
+  未捎他人改动（coordinator 的 App.tsx AuthHydrator 不相交）。owner→coordinator：编排重建 qa 捎全量(含两表迁移)→QA 子 agent 验收 6 条→绿即上 prod。
