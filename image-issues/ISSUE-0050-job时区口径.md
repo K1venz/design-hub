@@ -4,7 +4,7 @@ title: job 时间戳时区口径待统一（历史/详情时间显示口径）
 status: 已确认        # 根因明确+档A口径确认+PM排期已给(P3 slot 排前端波次+0052后)；待 coordinator 到点派 dev 执行→转修复中
 severity: P3          # 轻微：显示/口径问题，不影响出图/计费/owner 隔离
 reporter: PM          # coordinator #918 收口备忘，PM 入档占位
-owner: 开发            # 口径=档A、排期已定；待 coordinator 到点派工，dev 执行时转修复中（含存量历史行偏移处置）
+owner: 开发            # 口径=档A、排期已定、存量行=(a)接受偏移不订正已拍；待 coordinator 到点派工，dev 执行转修复中
 created: 2026-07-02
 updated: 2026-07-06
 related:
@@ -68,3 +68,9 @@ coordinator #918 收口备忘列出「job 时区口径 P3、另开小 issue」�
      (b) **一次性 backfill 数据订正**（`UPDATE ... created_at -= 偏移`，属数据订正非 DDL、但仍碰 prod 数据=须走备份+可回滚+coordinator 编排，
      且偏移量硬编码 CST 脆弱）。**PM 倾向 (a)**（P3+内测+YAGNI，不值一次 prod 数据订正的风险），但把决定权留给 dev 按实际 prod 数据量定，QA 验收时**新行/旧行分别验**。
   owner=开发（口径+排期已定，待 coordinator 到点派）。
+- 2026-07-06 [coordinator+PM] **存量历史行处置拍定 = (a) 接受旧行偏移、不订正**（coordinator #964 拍、PM 一致）：
+  理由=P3 + 内测低量（prod 真实历史本就少、旧行多为测试脏态且已时长为负）+ (b) backfill 碰 prod 数据+硬编码 CST 偏移脆弱、
+  为一个 P3 显示问题吃 prod 数据订正风险不划算（YAGNI + 本仓「不主动迁移/订正」铁律）。→ **档 A 最终 = 只保新行正确（app-UTC+Z），
+  旧行不动**；QA 新行/旧行分别验、旧行偏移标注为已知可接受。兜底：若到点 prod 真实行量意外大，再单独重估（默认仍 (a)）。
+  三条队列确认：前端小波次 → 0052 → 0050。dev #962 已确认档 A 不插队、created_at 全调用点切 datetime.now(UTC) 改面心里有数、
+  带 QA 回归清单交棒。
