@@ -769,7 +769,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 **⑧ 分工（spec §七，coordinator #874）**：PM 本节（PRD+§7.G 标记+ISSUE-0048+验收细化）→ dev（文本 LLM 探明 + 方案 C 后端四件 + openapi 再生）+ frontend-b（新首页全版块 + `/chat` 页 + 登录墙改造 + codegen）并行 → QA（后续拉入，验收 ①-⑧ + 三条真路径真出图回归）→ 上线前 gate（qa 先行 + 备份可回滚，coordinator 编排）。**MVP 内测灰度、非公众全量**（7.B 前置未做）。
 
-#### 3.14.1 「帮我设计」对话历史持久化 + 回显（需求 · 2026-07-02，ISSUE-0051）🔨 设计已签、schema 用户亲签、待开工
+#### 3.14.1 「帮我设计」对话历史持久化 + 回显（需求 · 2026-07-02，ISSUE-0051）✅ 已上线 prod（2026-07-06，待用户复核关账）
 > **背景**：§3.14 的「帮我设计」chat MVP 刻意「会话内存态不落库、刷新即丢」（避 DB 签字）；调研档 P2 列「会话持久化=触发 DB 亲签铁律、先问用户」。**用户 2026-07-02 提需求并亲签两表 schema** → 本节把会话从内存态升级为**持久化多会话存档 + 回显**（对标 DeerFlow：侧栏列出全部过去会话、点任意一条回显完整对话线程含当时出图结果）。范围=用户拍板 **A 多会话完整存档一步到位**。
 
 **① 核心设计取舍（用户已认）**：
@@ -797,6 +797,13 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 **⑥ 范围外（YAGNI，二期）**：会话重命名 / 全文搜索 / 事件级完美回放（流式重演）/ 跨设备实时同步 / 导出对话 / 自动过期清理 / 冗余 image_key 自包含变体。
 
 **⑦ 分工**：PM 本节（PRD+ISSUE-0051+签字 schema 入档）✅ → **dev**（迁移建 2 表[用户已签]→ ChatSessionRepository+SQL 适配器 → 转录落库改造 → 4 个会话 API → openapi 再生）→ **frontend-b**（会话侧栏+列表+回显页，codegen 等 dev openapi）→ **QA**（验收 6 条 + 持久化/回显/owner 隔离/删除回归）→ 上线前 gate（qa 先行+备份可回滚，含**迁移带 mysqldump 备份**，coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
+
+**✅ 上线记录（2026-07-06，从签字 schema 到 prod 一条龙闭环）**：后端（dev）+ 回显 UI（frontend-b）+ 两表迁移全链上线 prod。
+- **后端**（dev 3 提交 `1e2e6d7`/`513946e`/`ced50bf`）：chat_session/chat_message 两表零偏离签字 schema（migration `b3f8c1a24d90`，down_revision `a1f7c3d9e5b2`）+ ChatSessionRepository 端口/SQL 适配器（owner 隔离在端口内）+ InMemorySessionStore 转录职责迁 DB（内存只留 confirm_token 过程态）+ 3 会话 API（GET 列表/GET 回显/DELETE，越权 404 anti-enum、CASCADE）；**现有 /chat/messages+/chat/confirm SSE 事件序完全不变=前端零回归**。
+- **前端**（frontend-b `8eef9fe`）：类型切 codegen 派生（单一契约源）+ 会话侧栏（列表/新建/删除）+ 同页切换回显（文字气泡 + job_id 经 useListingJob 现签重渲出图卡 + attachment_upload_ids 走 uploadIdPreviewUrl 缩略图）+ **live 流零改**。
+- **QA 验收 6/6 全绿**（子 agent 报告 `f4e1104`，¥0 零成本）：持久化不丢/多会话列表+带图回显/owner 隔离 404/删除 CASCADE/零回归/fail-fast 全过。
+- **迁移轮部署纪律**（coordinator）：回滚镜像 `rollback-20260706-164436` + `mysqldump db-backup-20260706-164518.sql` + alembic `a1f7c3d9e5b2→b3f8c1a24d90`；prod smoke 全绿（迁移落库确认 version=b3f8c1a24d90/两表在、GET /chat/sessions 带 token 200·无 token 401·不存在 404 anti-enum、/me·/listing/jobs·showcase 零回归、前端 bundle 换新 `index-BzNAczR6.js`）。
+- **仍内测灰度**（7.B/7.A 前置不变）；**待用户 prod 复核后 PM 终关 ISSUE-0051**。
 
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
