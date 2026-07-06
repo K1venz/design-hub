@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0051
 title: 「帮我设计」对话历史持久化 + 回显（DeerFlow 式多会话完整存档）
-status: 待验证        # 后端棒(dev)+回显 UI(frontend-b)均完成、门禁绿+本地 mock 联调全过；待 QA 验收 6 条
+status: 已修复        # QA 验收 6/6 全绿(f4e1104,¥0)+两表迁移轮部署 prod smoke 全绿；待用户 prod 复核 → PM 终关闭
 severity: P1          # 用户直接提需求；chat MVP 会话内存态刷新即丢的核心补齐
 reporter: PM          # 用户提需求（本会话），PM 主持 brainstorm 定稿 + 开条
-owner: coordinator    # 回显 UI 交付→coordinator 编排(重建 qa 捎全量+迁移 → QA 子 agent 验收 6 条 → 绿即上 prod)
+owner: PM             # 已上线 prod，待用户复核后 PM 终关（已关闭）
 created: 2026-07-02
 updated: 2026-07-06
 related:
@@ -94,3 +94,12 @@ related:
   GET+DELETE·转录 shape)✓。（mock 生成图为占位 URL 本环境不解析，prod 走真实签名 TOS URL、同工作台历史详情页 code path、QA 已验。）
   提交 pathspec 限 image-web 7 文件（openapi.json/schema.d.ts/lib chat.ts+test/api chat.ts/pages ChatPage.tsx/新 SessionSidebar.tsx），
   未捎他人改动（coordinator 的 App.tsx AuthHydrator 不相交）。owner→coordinator：编排重建 qa 捎全量(含两表迁移)→QA 子 agent 验收 6 条→绿即上 prod。
+- 2026-07-06 [coordinator] **全链上线 prod（后端+前端+两表迁移）**：QA 部署+验收子 agent 6/6 全绿（报告 `f4e1104`，¥0）→
+  迁移轮部署（回滚镜像 `rollback-20260706-164436` + `mysqldump db-backup-20260706-164518.sql` + alembic `a1f7c3d9e5b2→b3f8c1a24d90`
+  建 chat_session/chat_message）→ prod smoke 全绿：迁移落库确认（prod version=b3f8c1a24d90、两表在）/ GET /chat/sessions 带 token 200·
+  无 token 401·不存在 404 anti-enum / `/me`·`/listing/jobs`·showcase 零回归 / 前端 bundle 换新（index-BzNAczR6.js）。@pm 可关账。
+- 2026-07-06 [PM] **状态机推进：待验证 → 已修复，owner→PM**。QA 验收 6/6 全绿 + prod 上线验证通过（迁移落库/API 契约/anti-enum/
+  零回归全过），修复闭环坐实。落 PRD §3.14.1 转 ✅ 已上线 prod + 全链上线记录（后端/前端/QA/迁移纪律）。
+  **保留「已修复」不直推「已关闭」**：本条 P1=用户直接提的需求，按 ISSUE-0048 同规矩留一道**用户 prod 复核**（自己登录看：侧栏列历史会话、
+  点一条回显完整线程含当时出图图、刷新不丢、删除生效）→ 复核通过 PM 终关（已关闭）。至此从签字 schema→prod 一条龙闭环，
+  DB 铁律（亲签 schema 零偏离）/回显取舍（job_id 现签不存签名 URL）/owner 隔离（会话独立 404）/迁移备份纪律全在线。
