@@ -47,6 +47,13 @@ coordinator #918 收口备忘列出「job 时区口径 P3、另开小 issue」�
 
 **档 B（不推荐）「DB 会话钉 UTC」**：engine `connect_args`/`init_command="SET time_zone='+00:00'"` 让 `func.now()` 也出 UTC。改动小，但①仍留「序列化无 Z→前端本地误解」第二坑没治；②sqlite 不吃这套、本地 prod 仍不同源 → 不彻底。
 
+### 存量历史行偏移处置 = (a) 接受旧行偏移、不订正（PM #963 倾向 + coordinator #964 拍板，dev 认可）
+- 档 A 后**新行** created_at=app-UTC-naive + 序列化加 `Z` = 全对；**存量旧行** created_at 是当初 DB-local naive 写入，被统一加 `Z` 后会偏移（若 prod=CST 则 +8h、偏到未来）。**接受不订正**——P3 + 内测低量 + 旧行本就时长为负脏态 + (b) backfill 要碰 prod 数据且硬编码偏移量脆弱，为 P3 显示问题吃一次 prod 数据订正风险不划算（YAGNI + 本仓「不主动迁移/订正」铁律）。代价=列内新旧口径混存（旧 CST-naive / 新 UTC-naive）、display-only 容忍，旧脏行随真实使用增长占比自然 →0。
+- **⚠️ 前置必做（dev 执行时第一步）：实测 prod DB 实际时区**——`SELECT @@session.time_zone, @@global.time_zone, NOW(), UTC_TIMESTAMP();`。因为**整个 bug 量级与旧行偏移都取决于 prod DB 会话 tz**，方案不假设 CST、实测拍板：
+  - 若 **prod DB=CST**（`NOW()` ≠ `UTC_TIMESTAMP()`）：8h 双时钟 bug 真实、旧行 created_at 按 (a) 接受 +8h 已知偏移。
+  - 若 **prod DB 本就=UTC**（`NOW()` == `UTC_TIMESTAMP()`）：则 created_at 一直是 UTC-naive、**根本无 8h 双时钟 bug**；档 A 加 `Z` 反把新旧行一起顺带修正（旧行也无偏移）→ 0050 近乎 no-op 收尾。
+- **QA 口径**：新行 created_at/completed_at/时长 必须全对（app-UTC+Z、按用户本地渲染）；旧行按实测——prod=CST 则旧行 +8h 标注为**已知可接受、非回归**，prod=UTC 则旧行亦对。**新行/旧行分别验**。
+
 ## 处理记录
 - 2026-07-02 [PM] coordinator #918 收口备忘入档占位（P3 轻微、非阻断）。root cause + 范围待 dev 细化后转「已确认」。
   owner=开发（时间戳口径归代码侧）。若细化后发现涉迁移/schema=按铁律先报用户签字。
@@ -74,3 +81,7 @@ coordinator #918 收口备忘列出「job 时区口径 P3、另开小 issue」�
   旧行不动**；QA 新行/旧行分别验、旧行偏移标注为已知可接受。兜底：若到点 prod 真实行量意外大，再单独重估（默认仍 (a)）。
   三条队列确认：前端小波次 → 0052 → 0050。dev #962 已确认档 A 不插队、created_at 全调用点切 datetime.now(UTC) 改面心里有数、
   带 QA 回归清单交棒。
+- 2026-07-06 [dev] **(a) 认可 + 落修复方案技术设计**（修复方案 §存量历史行偏移处置）：认可 (a) 接受旧行偏移不订正。
+  补关键前置=**dev 执行第一步先实测 prod DB 会话 tz**（`SELECT @@session.time_zone, NOW(), UTC_TIMESTAMP()`）——因 bug 量级与旧行偏移
+  都取决于它：prod=CST 则 8h bug 真实+旧行按 (a) 接 +8h；**prod 若本就=UTC 则根本无双时钟 bug、档 A 加 Z 顺带修新旧行、0050 近 no-op**。
+  方案不假设 CST、实测拍板；QA 口径=新行必全对、旧行按实测（CST 则 +8h 标已知可接受非回归）。设计完备封存，待 slot 到点 coordinator 派、dev 执行转「修复中」。owner 保持开发。
