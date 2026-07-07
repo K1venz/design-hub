@@ -2069,6 +2069,46 @@
         "title": "ModelConfigUpdate",
         "description": "部分更新：仅传入的字段生效（None = 不改）。"
       },
+      "RecipeOut": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "ratio": {
+            "type": "string",
+            "title": "Ratio"
+          },
+          "plan": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Plan"
+          },
+          "styling": {
+            "type": "string",
+            "title": "Styling"
+          },
+          "modifiers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Modifiers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "ratio",
+          "plan",
+          "styling",
+          "modifiers"
+        ],
+        "title": "RecipeOut",
+        "description": "做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。\n\n仅用户可复用输入；**不含内部卡 prompt、overlay_texts、uploads**（口径铁律）。"
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -2129,16 +2169,20 @@
           "caption": {
             "type": "string",
             "title": "Caption"
+          },
+          "recipe": {
+            "$ref": "#/components/schemas/RecipeOut"
           }
         },
         "type": "object",
         "required": [
           "url",
           "image_type",
-          "caption"
+          "caption",
+          "recipe"
         ],
         "title": "ShowcaseItemOut",
-        "description": "GET /showcase 列表项：现签 url + 图型 + 首页说明（公开，无用户数据）。"
+        "description": "GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。"
       },
       "UploadResponse": {
         "properties": {
