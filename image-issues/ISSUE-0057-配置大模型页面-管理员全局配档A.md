@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0057
 title: 「配置大模型」页面——管理员全局配 model_config + 通用中转 provider + 用户选模型（档 A）
-status: 待确认        # 用户拍档 A、dev 出技术设计+schema 提案；待 PM 立需求 + 用户签 DB schema 后方可开工
+status: 待确认        # 用户已亲签 DB schema + 拍密钥 A1；DB 铁律闸已过。待 PM 立需求定稿(渠道切换一等公民)→到 0050 批后 slot dev 开工
 severity: P2          # 新特性（获客/灵活性 + 附带缓解 ISSUE-0056 单点故障）；非阻断、非资损
 reporter: 开发        # 用户 2026-07-07 经 dev 窗口提需求（盘点占位符时衍生），dev 出技术设计并路由 PM 立需求
 owner: PM             # 立需求：反转 ISSUE-0017「不做其他模型」范围 + 定 UX + 关账口径；DB schema 待用户签字
@@ -64,3 +64,8 @@ related:
   三点定调：① 档 A 已用户拍板、PM 照此立需求；② **「渠道故障切换」升为一等公民写进需求**（非附带）——本条最大战略价值=治 ISSUE-0056 这类单点，
   下次中转站抖动管理员切渠道即恢复；③ 密钥存储 coordinator **倾向 A1**（env 引用、密钥不入库，避加密/轮转复杂度、与现行实践一致），理由带给用户拍板。
   **签字流程**：dev 的 model_config DDL 提案**等 PM 需求定稿后**由 coordinator 拿去给用户亲签（含 A1/A2 拍板），**签字前零动表**。@pm 立需求顺带记录 ISSUE-0017 范围反转。
+- 2026-07-07 [dev] **用户亲签 DB schema + 拍密钥存储 A1**（用户直接回 dev「schema 签。密钥存储 A1。」）：
+  → **DB 铁律闸已过**（对本条 §DB schema 提案的当前形态：扩 model_config + `provider_type`/`base_url`/`model`/`is_default`/`api_key_env`；
+  **A1=密钥不入库、DB 仅存 env 变量名**、真 key 留 server .env）。⚠️ 若 PM 立需求把「渠道故障切换」做成一等公民而**新增/改动 schema 字段**
+  （如 fallback 顺序列），该 delta 由 coordinator 再拿给用户确认（本次签字覆盖当前提案、增量另签）。**仍不立即开工**：0057 排 0050 批之后、待 PM 需求定稿 + slot。
+  另：用户确认 **`openai_api_key` 死配置删**（已执行 `896fdde`，同 dashscope 类）、**mock 兜底保留**（本地联调基建、非死码）。
