@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
@@ -11,12 +12,14 @@ import {
   useListingJob,
 } from '@/api/listing'
 import { ListingConfigPanel } from '@/components/listing/ListingConfigPanel'
+import { RecipeDrawer } from '@/components/listing/RecipeDrawer'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import {
   detailToResultSlots,
   IMAGE_TYPE_FIELDS,
   JOB_STATUS,
+  type ListingConfig,
   type ListingJobDetail,
   type ListingJobSummary,
 } from '@/lib/listing'
@@ -51,9 +54,21 @@ export function WorkbenchPage() {
   const adoptActive = useWorkbenchStore((s) => s.adoptActive)
   const clearActive = useWorkbenchStore((s) => s.clearActive)
   const resetWorkbench = useWorkbenchStore((s) => s.reset)
+  const applyPrefill = useWorkbenchStore((s) => s.applyPrefill)
   const generate = useListingGenerate()
   const generateSet = useListingSetGenerate()
   const qc = useQueryClient()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // 复用配方预填（ISSUE-0053）：携 state.prefill 进入 → 覆盖 config、清 uploads，
+  // 随即清除 history state 防刷新/返回重复预填。
+  useEffect(() => {
+    const prefill = (location.state as { prefill?: Partial<ListingConfig> } | null)?.prefill
+    if (!prefill) return
+    applyPrefill(prefill)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.state, location.pathname, applyPrefill, navigate])
 
   // 「最近一单」= 账号本人时间倒序首条（服务端源，F5 不丢）。
   const latest = useListingJobs(1, 0)
@@ -187,6 +202,11 @@ export function WorkbenchPage() {
         total={view.slots.length}
         generating={activeGenerating}
         editJobId={view.editJobId}
+        headerAction={
+          detail.data && view.editJobId === detail.data.job_id ? (
+            <RecipeDrawer detail={detail.data} />
+          ) : undefined
+        }
       />
     </>
   )

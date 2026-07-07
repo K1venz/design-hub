@@ -3,6 +3,7 @@ import { ArrowLeftIcon, ArrowUpRightIcon, DownloadIcon, SquarePenIcon } from 'lu
 
 import { useListingJob } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
+import { RecipeDrawer } from '@/components/listing/RecipeDrawer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { downloadImage } from '@/lib/download'
 import {
@@ -49,6 +50,9 @@ export function HistoryDetailPage() {
                   ✎ {editModeLabel(d.edit_mode)}
                 </span>
               )}
+              <div className="ml-auto">
+                <RecipeDrawer detail={d} />
+              </div>
             </div>
             <p className="mb-3 whitespace-pre-wrap text-[14px] leading-relaxed text-wb-ink-2">{d.prompt}</p>
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-wb-ink-6">
