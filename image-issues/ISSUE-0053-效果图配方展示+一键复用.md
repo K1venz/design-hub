@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0053
 title: 效果图「配方展示 + 一键复用」——展示可复用配方（非内部卡 prompt）+ 一键预填出同款
-status: 修复中        # spec 定稿派单、dev+frontend-b 并行开工中（feature 走 issue 生命周期）
+status: 已修复        # QA 独立验收 15绿0红(b289ae9,¥0)+零迁移轮部署 prod smoke 全绿(泄漏扫描干净)；待用户 prod 复核 → PM 终关
 severity: P1          # 用户直接提需求；获客/复用闭环（成果区做同款 + 历史复用配置）
 reporter: PM          # 用户提需求（coordinator #971 转达），spec 定稿 ec9e80a，PM 入档
-owner: 开发+frontend-b # 并行：dev 落点B后端(recipe字段+prod只读回填)、frontend-b 落点A+B UI+预填机制
+owner: PM             # 已上线 prod，待用户复核后 PM 终关（已关闭），随 0048/0051 一并挂复核批次
 created: 2026-07-07
 updated: 2026-07-07
 related:
@@ -111,3 +111,13 @@ chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / �
   **门禁四件套全绿**（lint/tsc/vitest 54/build）。**Playwright E2E**：登出态「查看详情」弹卡按参考卡形渲染（截图核对 大图/发丝行列表/末行强调/
   通栏紫 CTA）、全项配方齐、**无内部 prompt 泄漏**、**console 零报错**（motion+radix 干净）；弹卡内「做同款」→ /login 携配方不变。
   **交接**：视觉/动画皮落完、一次验到位 → @coordinator 拉 QA（一轮验全）→ 零迁移轮部署。owner→coordinator。
+- 2026-07-07 [coordinator] **全链上线 prod**（用户预授权 QA 绿即上）：QA 独立验收 **15 绿 0 红**（5 正验 + 3 边界：连续预填不串值/
+  F5 干净重置/非套图单无复用按钮，报告 `b289ae9`，¥0）→ 零迁移轮部署（回滚镜像 `rollback-20260707-123514` + 备份
+  `db-backup-20260707-123555`）→ prod smoke 全绿：13 卡 recipe 上线（键=category/ratio/plan/styling/modifiers）、**泄漏扫描干净**
+  （无任何内部卡措辞特征=验收③线上坐实）、/me·/listing/jobs·/chat/sessions 零回归、bundle 换新（index-Bd8OPkT7）。@pm 可推「已修复」。
+- 2026-07-07 [PM] **状态机推进：修复中 → 已修复，owner→PM**。QA 15 绿 0 红（5 正验+3 边界超出 spec 5 条本数）+ prod 上线验证通过
+  （recipe 上线/泄漏扫描线上干净/零回归）→ 修复闭环坐实。落 PRD §3.15 转 ✅ 已上线 prod + 上线记录。
+  **保留「已修复」不直推「已关闭」**：本条 P1=用户直接提的需求，随 ISSUE-0048/0051 一并挂**用户 prod 复核批次**（自己看：出图历史/结果卡「查看配方」
+  +「复用配置出图」到 /set 预填；首页成果卡双按钮「做同款/查看详情」、查看详情弹卡免登录看饱、做同款过登录墙回填）→ 复核通过 PM 终关（已关闭）。
+  单日闭环全程铁律在线：只展示可复用配方（口径①）/内部卡 prompt 绝不外泄（验收③线上泄漏扫描干净）/文案裁决 (a)/零迁移零建表/prod 只读回填不写/
+  预填不带 uploads·overlayTexts/部署带备份可回滚。契约缺口 (a) 前置挖出省返工、双按钮+参考卡形动画细化一次验到位。
