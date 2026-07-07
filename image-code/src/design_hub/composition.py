@@ -85,6 +85,7 @@ def build_gpt_image_provider(
         max_retries=settings.gpt_image_max_retries,
         retry_backoff=settings.gpt_image_retry_backoff,
         retry_max_sleep=settings.gpt_image_retry_max_sleep,
+        retry_max_elapsed=settings.gpt_image_retry_max_elapsed,  # 总重试墙钟（ISSUE-0055 (i)）
     )
 
 

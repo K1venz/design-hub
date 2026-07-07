@@ -28,6 +28,7 @@ from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHis
 from design_hub.infrastructure.db.models import ListingJobRow
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
+from design_hub.ports.model_provider import ProviderTimeout
 
 
 async def _fresh_stack() -> tuple[
@@ -338,9 +339,11 @@ def test_command_failure_path_finalizes_failed_before_task_failed_no_images() ->
     log: list[tuple[str, object]] = []
     history = _FakeHistory(log)
     events = _FakeEvents(log)
-    cmd = _command(_FakeService(None, exc=RuntimeError("上游 429")), history, events)
+    # 上游持久 5xx（apinebula new-api 渠道故障）穷尽重试后上抛（ISSUE-0055 场景）
+    raw = "gpt-image-2 500: prepare chat requirements error (traceid=abc123)"
+    cmd = _command(_FakeService(None, exc=ProviderTimeout(raw)), history, events)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ProviderTimeout):
         asyncio.run(cmd.run("j1"))
 
     # 建行仍发生（进行中单已可查），随后终态=失败、无增量落图
@@ -350,7 +353,10 @@ def test_command_failure_path_finalizes_failed_before_task_failed_no_images() ->
     _, status, total_cost, error = history.finals[0]
     assert status == "失败"
     assert total_cost == Decimal("0")
-    assert error is not None and "上游 429" in error
+    # 用户面=人话 + 出图段未扣费；原始 500/traceid/模型名绝不泄漏（ISSUE-0055 (ii)）
+    assert error is not None
+    assert "图像服务临时繁忙" in error and "本单未扣费" in error
+    assert "500" not in error and "traceid" not in error and "gpt-image-2" not in error
     # 时序：finalize(失败) 先于 TASK_FAILED 事件
     assert log.index(("finalize", "失败")) < log.index(("event", TaskEventType.TASK_FAILED))
 
@@ -443,7 +449,10 @@ def test_command_persist_failure_fails_closed_to_failed() -> None:
     _, status, total_cost, error = history.finals[0]
     assert status == "失败"
     assert total_cost == Decimal("0")
-    assert error is not None and "DB 抖断" in error
+    # 落库段失败：用户面人话、DB 内部错不泄漏；出图已成功计费 → 不宣称「未扣费」(refunded=False)
+    assert error is not None
+    assert "DB 抖断" not in error and "add_images" not in error
+    assert "本单未扣费" not in error
     # 时序：finalize(失败) 先于 TASK_FAILED；且绝不误发 TASK_COMPLETED（非成功、非僵尸）
     assert log.index(("finalize", "失败")) < log.index(("event", TaskEventType.TASK_FAILED))
     assert ("event", TaskEventType.TASK_COMPLETED) not in log
