@@ -61,3 +61,21 @@ related:
   测试=内部字段名泄漏哨兵（listing_validation 全 fail-fast 用例断言消息无 upload_ids/plan/overlay_texts/modifiers/ratio/category
   + ratio 话术）+ 端到端（test_chat：upload_ids=[]→澄清含「请上传」、无内部字段名）。ruff+mypy(src) 绿、pytest 100 绿+1 已知 WIP 红。
   **dev 份（chat P3-#5）完成**，待与 frontend-b 前端份（移动端+成果区栅格+chat URL 隐私）一并 QA 验收。
+- 2026-07-07 [frontend-b] **前端份完成**（commit `b3c5acd`，纯 image-web 10 文件，一提交）：
+  **移动端适配（体检 Bug1+Bug3+优化1）**：① SideNav 响应式——桌面(≥md)静态侧栏不变、移动(<md)收汉堡抽屉（AppTopBar 汉堡按钮 md:hidden、
+  AppShell 提升开合态传 SideNav/AppTopBar、抽屉 radix Dialog 原语+motion 滑出 spring、遮罩/Esc/点导航 关；NavContent 抽出桌面栏与抽屉共用）；
+  ② /set 上下堆叠（218px 横溢根因=SideNav 恒占位+config 固定宽）——SideNav hidden md:flex 让全宽、WorkbenchLayout flex-col md:flex-row+移动
+  overflow-y-auto、ListingConfigPanel w-full md:w-[372px]、ResultGallery md:flex-1 md:overflow-auto；/history auto-fill 天然单列。
+  **成果区栅格+懒加载（用户 07-07 拍板）**：栅格 grid-cols-1/min-[440px]:2/md:3/xl:4（手机1-2·平板3·桌面4）；13 张分两批(7+6)、底部
+  IntersectionObserver 哨兵进视口显现下一批、未加载批 skeleton 占位、每卡入场 motion（GPU 纪律）；卡片内容/双按钮/配方弹卡沿 0053 不动；per-image 懒加载/空错回落照旧。
+  **chat P3-#4（首句明文隐私）**：Hero 首句改 navigate state 承载（不进 URL）；ChatPage 读 location.state.q 优先+兼容遗留 ?q= 外链、消费后
+  replaceState 清 URL query+history state（防刷新重发）；LoginPage/RegisterPage 恢复受保护路由 from.state（prefill 分支不变）→ 登出态
+  Hero→登录墙→登录后 /chat 自动发首条不丢（seed 随 from.state 存活、全程 URL 无明文）。
+  **门禁四件套全绿**（lint/tsc/vitest 54/build）。**本地 mock + Playwright 三档 E2E 实证**：
+  · 1440：零横溢·SideNav 显·无汉堡·成果区 4 列·下滚 7→13 分批·/set 两栏零回归；
+  · 768：零横溢(/+/set)·SideNav 显·无汉堡·成果区 3 列·/set 两栏；
+  · 390：零横溢(/+/set+/history)·SideNav 隐·汉堡·抽屉开合+点导航自动关·/set 上下堆叠·/history 单列·成果区 1 列；
+  · chat：Hero 发送→/chat 无 ?q=·首句已发·state 已清；遗留 ?q=→自动发+query 剥离；登出漏斗 seed 过登录墙存活自动发·URL 无明文；
+    做同款 prefill 登录后 /set 预填不回归。
+  **验收 6 条自证**：#1 三档零横溢✓/#2 汉堡抽屉✓/#3 栅格三档列数+第二批+双按钮零回归✓/#4 chat URL 隐私✓/#6 桌面零回归✓（#5 chat 话术=dev 份）。
+  **交接**：前端份交付、门禁绿+三档 E2E 全过 → @coordinator 一轮 QA（响应式三档回归+chat 文案+0052 白底抽验）→ 零迁移轮部署。owner→coordinator（前端份完成，dev 份 513ca0b 已就位）。
