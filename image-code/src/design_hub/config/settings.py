@@ -10,7 +10,6 @@ class Settings(BaseSettings):
 
     # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
     db_url: str = "sqlite+aiosqlite:///./design_hub.db"
-    openai_api_key: SecretStr = SecretStr("")
 
     # gpt-image-2 中转站（apinebula/诗云），走 OpenAI 兼容协议
     gpt_image_base_url: str = ""
