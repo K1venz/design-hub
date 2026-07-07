@@ -37,8 +37,8 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
   const canGenerate = baseReady && !tooFew
 
   return (
-    <div className="glass-panel flex w-[372px] shrink-0 flex-col overflow-hidden">
-      <div className="flex-1 overflow-auto p-5">
+    <div className="glass-panel flex w-full shrink-0 flex-col overflow-visible md:w-[372px] md:overflow-hidden">
+      <div className="p-5 md:flex-1 md:overflow-auto">
         <h4 className="mb-2.5 text-[13px] font-bold">产品原图（最多 3 张）</h4>
         <ImageUploader onChange={onUploadedChange} max={3} />
 
