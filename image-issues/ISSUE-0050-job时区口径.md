@@ -92,3 +92,6 @@ coordinator #918 收口备忘列出「job 时区口径 P3、另开小 issue」�
   ⚠️ **本条维持 coordinator 编排的协调批次、非纯后端单发**：档 A 的「序列化带 Z」是**前端可见契约变更**（created_at 由无 Z→带 Z，前端
   `new Date` 渲染口径随之变），生成侧(UTC)+序列化(带 Z)须**原子同发**、且**显示本地化需 frontend-b 配合**——故 dev 不在 key/部署波次内单发本条，
   前置(prod tz)已清、待 coordinator 就 0050 批派工（含 frontend-b 显示侧）。owner 保持 coordinator。
+- 2026-07-07 [PM] **排期确认**：前置(prod tz=CST)已清、bug 坐实、档 A 真修 + (a) 旧行接受偏移不变（实测印证前置假设）。
+  **本条 = dev + frontend-b 协调批次**（序列化带 Z 是前端契约变更、须原子同发 + 显示本地化）→ 非纯后端单发。**队列位置**：排在 **ISSUE-0055（P1 优先·已提前）之后**——
+  0050 是 P3 显示口径、非阻断真实用户，不抢 0055/当前 P0 恢复的档期。待 coordinator 编排 dev+frontend-b 同支档期时派工（可与其他前端波次捆或独立协调批次）。owner=coordinator。
