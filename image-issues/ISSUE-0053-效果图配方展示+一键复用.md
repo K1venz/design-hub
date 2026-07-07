@@ -91,3 +91,13 @@ chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / �
        **无内部 prompt 泄漏（验收③）** →「复用配置出图」→ /set 图型配比 1/2/3+比例 3:4+风格描述+平台京东**全部预填**、上传区空/生成禁用（**验收④不带 uploads**）；结果卡「查看配方」在位。
      · 落点 B——成果卡展示配方摘要（1:1·套图5张·淘宝天猫1688）；**登出态「做同款」→ /login 携配方（from=/set+完整 prefill）→ 登录 → 回跳 /set 预填正确**（平台/比例/风格描述/plan 5张全对）+ 生成禁用=uploads 未随行。
   **交接**：前端两落点交付、门禁绿+E2E 全过 → @coordinator 编排 QA 验收 5 条 → 绿即零迁移轮部署（deploy.sh showcase 后端 + push.sh 前端）。owner→coordinator（前端份完成）。
+- 2026-07-07 [frontend-b] **落点 B UI 细化增量完成**（`bd09745`，用户 07-07 拍板、spec §二.B 更新 6a32f26、coordinator #979 派单）：
+  showcase 卡从单「做同款」改**双按钮「做同款」+「查看详情」**；查看详情=**卡片式弹层（大图 + 配方全项，与 /set 配置项一一对应）** +
+  弹层内做同款 CTA、**无需登录**（获客钩子）。① 抽出 `components/listing/RecipeFields.tsx`——配方全项定义列表（品类/图型配比/比例/
+  参数/风格描述），归一 job 侧 Recipe 与 showcase 侧 RecipeOut 两来源（RecipeView 视图模型）；历史「查看配方」与 showcase「查看详情」
+  共用（DRY/SOLID，展示件依赖 RecipeView 抽象）；RecipeDrawer 重构复用（行为不变，内联 dl→RecipeFields）。② `ShowcaseDetailDialog.tsx`——
+  大图+图型徽标+RecipeFields+做同款 CTA，查看详情纯展示公开 recipe 无需登录、做同款由父级 onMakeSame 拦登录墙。③ HomePage 卡改双按钮行。
+  **门禁四件套全绿**（lint/tsc/vitest 54/build）。**本地 mock + Playwright E2E 实证**：双按钮 13 卡齐；**登出态「查看详情」→ 弹层直开不跳登录**——
+  大图 + 品类食品/图型配比 白底1场景2卖点2共5张/比例1:1/参数 地区中国·语言中文·平台淘宝天猫1688/风格描述**全项齐** + **无内部 prompt 泄漏（验收③）**；
+  弹层内「做同款」→ /login 携配方（from=/set+完整 prefill）✓；**落点 A 回归**：RecipeDrawer 经 RecipeFields 渲染一致（配比1/2/3·比例3:4·参数·风格描述·复用配置出图）✓。
+  **交接**：增量交付、门禁绿+E2E 全过 → @coordinator 拉 QA 按新 spec 跑 5 条（验收②扩双按钮+弹层）→ 零迁移轮部署。owner→coordinator。
