@@ -18,22 +18,25 @@ related:
 ## 定性（用户提需求 2026-07-07，coordinator #971 转达）
 效果图展示里做**提示词复用**：展示图片的同时展示**生成配置与提示词**，可**一键复用出同款**。spec 定稿入库、coordinator 派单。
 
+## ⚠️ 契约裁决（PM+coordinator 2026-07-07，frontend-b #973 亮缺口后一致裁 (a)）
+`overlay_texts`（卖点文案）**未持久化**——`listing_job` 无此列、请求期输入组装进卖点图后即弃、`ListingJobDetailOut` 不回吐 → 落点 A 取不回、落点 B 查不到。**裁决 (a)：卖点文案剔出配方复用范围（v1）**。理由：① 卖点文案本就是用户自己产品的卖点，做同款要的是版式质感（图型/比例/风格描述），文案必然自填；② (b) 加列持久化=破「零迁移零建表」+ 触发 DB 签字铁律、为边际召回便利不划算（YAGNI）；③ (c) 只 B 反推=两落点不一致+人工脆弱，否。→ **recipe 收窄 = styling/ratio/图型/platform/modifiers（无文案）**，A/B 预填口径完全一致（都不填 overlayTexts、用户自填）。overlay_texts 持久化留 backlog（若未来要文案召回=另立签字迁移件）。coordinator 同步改 spec §一/§五#1、PM 改本条与 PRD 验收。
+
 ## ✅ 核心口径（铁律·本条最重要）
-展示与复用的对象 = **「配方」= 用户可复用输入**：图型（白底/场景/卖点）配比、比例、张数、平台、风格描述（`listing_job.prompt`=用户自由文本）、卖点文案、modifiers。
+展示与复用的对象 = **「配方」= 用户可复用输入**：图型（白底/场景/卖点）配比、比例、张数、平台、风格描述（`listing_job.prompt`=用户自由文本）、modifiers（**卖点文案剔出·见上裁决**）。
 **绝不展示组装后的完整内部卡 prompt**，三个硬理由：
 1. **根本没存**——`listing_job.prompt` 只存用户自由文本，卡体系组装的完整 prompt 用完即弃（读码实锤）；
 2. 卡体系 = **核心商业资产**（"提示词是唯一质量杠杆"），公开展示 = 泄漏给竞品；
 3. 产品**无完整 prompt 输入口**（prompt 恒走卡链），展示了也无法复用 → **展示配方才是可复用闭环**。
 
 ## 两个落点
-- **A. 出图历史（自己的图）——纯前端、数据已齐、后端零改**：`GET /listing/jobs/{id}`（ListingJobDetailOut）已回吐 prompt/modifiers/platform/ratio/size/n/每张 image_type/clone_mode/edit_mode。UI=历史详情页「查看配方」抽屉（图型配比/比例/风格描述/文案/平台/风格参数 + 复刻·编辑单模式徽标）+ **「复用配置出图」→ 跳 `/set` 预填**；工作台结果卡同给「复用配置」入口（同一详情数据源）。
-- **B. 首页成果展示区（公开获客）——小后端 + 前端**：`ShowcaseEntry` 扩 `recipe` 字段（styling 摘要/ratio/图型/文案要点），值从 prod 那 5 单真实 job **只读回填**、人工写死进静态清单（**零迁移零建表**）；`GET /showcase` 响应加 recipe、依旧无鉴权无用户数据。UI=展示卡 hover/点开显配方 + **「做同款」→ 未登录跳登录墙 → 回跳携配方 → `/set` 预填**。
+- **A. 出图历史（自己的图）——纯前端、数据已齐、后端零改**：`GET /listing/jobs/{id}`（ListingJobDetailOut）已回吐 prompt/modifiers/platform/ratio/size/n/每张 image_type/clone_mode/edit_mode。UI=历史详情页「查看配方」抽屉（图型配比/比例/风格描述/平台/风格参数 + 复刻·编辑单模式徽标）+ **「复用配置出图」→ 跳 `/set` 预填**；工作台结果卡同给「复用配置」入口（同一详情数据源）。
+- **B. 首页成果展示区（公开获客）——小后端 + 前端**：`ShowcaseEntry` 扩 `recipe` 字段（styling 摘要/ratio/图型/platform/modifiers，**不含文案**），值从 prod 那 5 单真实 job **只读回填**、人工写死进静态清单（**零迁移零建表**）；`GET /showcase` 响应加 recipe、依旧无鉴权无用户数据。（showcase 卡 caption 本就概括图上文案风味、展示层不缺表达。）UI=展示卡 hover/点开显配方 + **「做同款」→ 未登录跳登录墙 → 回跳携配方 → `/set` 预填**。
 
 ## 预填机制（前端契约）
-`navigate('/set', { state: { prefill: {...} } })` + workbench-store 加 `applyPrefill(prefill)`（覆盖 config/styling/文案，**不带 uploads**——产品图必须用户自己传，**配方≠素材**）；登录墙回跳复用现有 `location.state.from`，prefill 挂同一 state 随行；预填后用户可改任何项再生成——**配方是起点不是锁定**。
+`navigate('/set', { state: { prefill: {...} } })` + workbench-store 加 `applyPrefill(prefill)`（覆盖 config/styling，**不带 uploads·不带 overlayTexts**——产品图必须用户自己传、卖点文案用户自填，**配方≠素材**）；登录墙回跳复用现有 `location.state.from`，prefill 挂同一 state 随行；预填后用户可改任何项再生成——**配方是起点不是锁定**。
 
-## 验收标准（QA，照 spec §五）
-1. 历史详情/结果卡可看配方，「复用配置」到 /set 各项预填正确（图型配比/比例/风格描述/文案）。
+## 验收标准（QA，照 spec §五，文案项已按裁决剔除）
+1. 历史详情/结果卡可看配方，「复用配置」到 /set 各项预填正确（图型配比/比例/风格描述/平台/风格参数；**文案不在配方=已知裁决、不验**）。
 2. showcase 卡配方展示；未登录点「做同款」→ 登录 → 回跳 /set 预填不丢。
 3. 任何响应/界面**不出现内部卡 prompt 内容**（口径①·核心资产不外泄）。
 4. 预填不带 uploads；用户改动预填项后生成按改后值走。
@@ -49,3 +52,8 @@ chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / �
   frontend-b 落点 A+B UI + /set 预填机制（applyPrefill 不带 uploads·配方≠素材）+ codegen；QA 验收 5 条；
   部署=deploy.sh(showcase 后端)+push.sh **零迁移轮**（coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
   status=修复中、owner=开发+frontend-b（并行开工）。**排队顺延**：移动端适配/chat P3/0052/0050 顺延本条后，真实用户 bug 仍随时打断。
+- 2026-07-07 [PM+coordinator] **契约裁决 = (a) 卖点文案剔出配方复用范围**（frontend-b #973 亮缺口、PM #? 与 coordinator #974 独立同裁）：
+  overlay_texts 未持久化（listing_job 无列·DetailOut 不回吐）→ A 取不回·B 查不到，与 spec「后端零改/零迁移」冲突。裁 (a)——文案剔出配方、
+  不加列不签字、两落点一致（都不填 overlayTexts、用户自填）。**recipe 收窄=styling/ratio/图型/platform/modifiers（无文案）**。
+  PM 同步改：PRD §3.15 加契约裁决段 + ①口径/②落点/③预填/④验收#1 剔文案；coordinator 改 spec §一/§五#1 标已知限制+backlog。
+  overlay_texts 持久化留二期（要文案召回=另立签字迁移件）。dev recipe 字段照此收窄、frontend-b 前向兼容继续落点 A。裁决不阻断开工。
