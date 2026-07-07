@@ -48,7 +48,7 @@ export function ResultGallery({
     : []
 
   return (
-    <div className="min-w-0 flex-1 overflow-auto">
+    <div className="min-w-0 md:flex-1 md:overflow-auto">
       <div className="glass-panel mb-4 flex h-12 items-center justify-between gap-2 rounded-2xl px-5">
         <h2 className="text-[16px] font-semibold tracking-[-0.01em]">{title}</h2>
         <div className="flex items-center gap-2">

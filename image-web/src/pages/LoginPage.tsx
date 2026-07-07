@@ -77,8 +77,10 @@ export function LoginPage() {
 
   const dest = backTo(location)
   // 「做同款」等入口携配方过登录墙：登录后转发 prefill 随行到目标页（WorkbenchPage 消费）。
+  // 否则恢复受保护路由原 state（如 chat 首句 q），使 Hero→登录墙→自动发首条不丢。
   const prefill = (location.state as { prefill?: unknown } | null)?.prefill
-  const navState = prefill ? { prefill } : undefined
+  const fromState = (location.state as { from?: Location } | null)?.from?.state ?? null
+  const navState = prefill ? { prefill } : fromState
   if (token) return <Navigate to={dest} replace state={navState} />
 
   async function submit() {

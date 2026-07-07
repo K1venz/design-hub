@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion } from 'motion/react'
 import { ArrowRightIcon, ImagePlusIcon, SendIcon } from 'lucide-react'
 
 import { AppShell } from '@/components/layout/AppShell'
@@ -35,9 +36,10 @@ function Hero() {
   const [text, setText] = useState('')
 
   // 「帮我设计」= 登录内测：带首句进 /chat（未登录 → ProtectedRoute 回跳登录后继续）。
+  // 首句走 navigate state 承载（不进 URL·隐私），未登录经登录墙由 from.state 恢复。
   function askAgent(q: string) {
     const seed = q.trim()
-    navigate(seed ? `/chat?q=${encodeURIComponent(seed)}` : '/chat')
+    navigate('/chat', seed ? { state: { q: seed } } : undefined)
   }
 
   return (
@@ -160,13 +162,19 @@ function ToolSection() {
   )
 }
 
-// ── ④ 成果展示区：横向滚动 + 懒加载真图（进视口才拉 /showcase；空/错回落占位）──
+// ── ④ 成果展示区：卡片栅格 + 纵向分批懒加载（进视口拉 /showcase；空/错回落占位）──
+// 栅格列数与移动端断点一体：手机 1→2 / 平板 3 / 桌面 4。13 张分两批(7+6)，底部哨兵进视口显现下一批。
+const SHOWCASE_GRID = 'grid grid-cols-1 gap-4 min-[440px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
+const SHOWCASE_BATCH = 7
+
 function ShowcaseSection() {
   const [ref, inView] = useInView<HTMLDivElement>()
   const showcase = useShowcase(inView)
   const real = showcase.data && showcase.data.length > 0 ? showcase.data : null
   const navigate = useNavigate()
   const token = useAuthStore((s) => s.token)
+  const [shown, setShown] = useState(SHOWCASE_BATCH)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   // 「做同款」：配方→/set 预填；未登录先过登录墙，回跳携配方随行（不带 uploads）。
   function makeSame(recipe: ShowcaseItem['recipe']) {
@@ -175,68 +183,109 @@ function ShowcaseSection() {
     else navigate('/login', { state: { from: { pathname: '/set' }, prefill } })
   }
 
+  // 纵向分批懒加载：底部哨兵进视口 → 显现下一批（数据已全量拉取，此为渐进显示 + skeleton 占位）。
+  const more = real != null && shown < real.length
+  useEffect(() => {
+    if (!more) return
+    const el = sentinelRef.current
+    if (!el) return
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) setShown((s) => s + SHOWCASE_BATCH)
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [more])
+
   return (
-    <section className="mt-14">
+    <section ref={ref} className="mt-14">
       <SectionHead title="看看实朴出的图" sub="实朴真实出品 · 一键做同款" />
-      <div ref={ref} className="-mx-4 overflow-x-auto px-4 pb-2">
-        <div className="flex gap-4">
-          {real
-            ? real.map((s, i) => {
-                const total = Object.values(s.recipe.plan).reduce((a, b) => a + b, 0)
-                return (
-                  <figure
-                    key={i}
-                    className="flex w-[230px] shrink-0 flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
-                  >
-                    <div className="relative aspect-[4/3] bg-wb-surface-3">
-                      <img src={s.url} alt={s.caption} loading="lazy" className="size-full object-cover" />
-                      <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
-                        {s.image_type}
-                      </span>
-                    </div>
-                    <figcaption className="flex flex-1 flex-col gap-2 px-3 py-2.5">
-                      <p className="text-[12.5px] font-medium text-wb-ink-3">{s.caption}</p>
-                      <p className="text-[11px] text-wb-ink-6">
-                        {s.recipe.ratio} · 套图 {total} 张
-                        {s.recipe.modifiers.platform && ` · ${s.recipe.modifiers.platform}`}
-                      </p>
-                      <div className="mt-auto flex gap-2">
-                        <ShowcaseDetailDialog item={s} onMakeSame={() => makeSame(s.recipe)} />
-                        <button
-                          onClick={() => makeSame(s.recipe)}
-                          className="flex-1 rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
-                        >
-                          做同款
-                        </button>
-                      </div>
-                    </figcaption>
-                  </figure>
-                )
-              })
-            : // 未进视口 / 加载中 / 空 / 错 → 占位卡（不阻塞首屏）
-              SHOWCASE_PLACEHOLDERS.map((s) => (
-                <figure
-                  key={s.key}
-                  className="w-[230px] shrink-0 overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
-                >
-                  <div className="relative aspect-[4/3] bg-wb-surface-3">
-                    {inView && showcase.isLoading ? (
-                      <div className="size-full animate-pulse bg-wb-surface-4" />
-                    ) : (
-                      <div className="grid size-full place-items-center bg-gradient-to-br from-wb-tint-1 to-wb-surface-3 text-[12px] font-medium text-wb-faint-1">
-                        案例即将上线
-                      </div>
-                    )}
-                    <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
-                      {s.tag}
-                    </span>
-                  </div>
-                  <figcaption className="px-3 py-2.5 text-[12.5px] font-medium text-wb-ink-3">{s.title}</figcaption>
-                </figure>
+      {real ? (
+        <>
+          <div className={SHOWCASE_GRID}>
+            {real.slice(0, shown).map((s, i) => (
+              <ShowcaseCard key={i} item={s} onMakeSame={() => makeSame(s.recipe)} />
+            ))}
+            {more &&
+              Array.from({ length: Math.min(SHOWCASE_BATCH, real.length - shown) }).map((_, i) => (
+                <ShowcaseSkeleton key={`sk-${i}`} />
               ))}
+          </div>
+          {more && <div ref={sentinelRef} className="h-1 w-full" aria-hidden />}
+        </>
+      ) : (
+        // 未进视口 / 加载中 / 空 / 错 → 占位卡（不阻塞首屏）
+        <div className={SHOWCASE_GRID}>
+          {SHOWCASE_PLACEHOLDERS.map((s) => (
+            <figure
+              key={s.key}
+              className="overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
+            >
+              <div className="relative aspect-[4/3] bg-wb-surface-3">
+                {inView && showcase.isLoading ? (
+                  <div className="size-full animate-pulse bg-wb-surface-4" />
+                ) : (
+                  <div className="grid size-full place-items-center bg-gradient-to-br from-wb-tint-1 to-wb-surface-3 text-[12px] font-medium text-wb-faint-1">
+                    案例即将上线
+                  </div>
+                )}
+                <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
+                  {s.tag}
+                </span>
+              </div>
+              <figcaption className="px-3 py-2.5 text-[12.5px] font-medium text-wb-ink-3">{s.title}</figcaption>
+            </figure>
+          ))}
         </div>
-      </div>
+      )}
     </section>
+  )
+}
+
+function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: () => void }) {
+  const total = Object.values(item.recipe.plan).reduce((a, b) => a + b, 0)
+  return (
+    <motion.figure
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: 'easeOut' }}
+      className="flex flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
+    >
+      <div className="relative aspect-[4/3] bg-wb-surface-3">
+        <img src={item.url} alt={item.caption} loading="lazy" className="size-full object-cover" />
+        <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
+          {item.image_type}
+        </span>
+      </div>
+      <figcaption className="flex flex-1 flex-col gap-2 px-3 py-2.5">
+        <p className="text-[12.5px] font-medium text-wb-ink-3">{item.caption}</p>
+        <p className="text-[11px] text-wb-ink-6">
+          {item.recipe.ratio} · 套图 {total} 张
+          {item.recipe.modifiers.platform && ` · ${item.recipe.modifiers.platform}`}
+        </p>
+        <div className="mt-auto flex gap-2">
+          <ShowcaseDetailDialog item={item} onMakeSame={onMakeSame} />
+          <button
+            onClick={onMakeSame}
+            className="flex-1 rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            做同款
+          </button>
+        </div>
+      </figcaption>
+    </motion.figure>
+  )
+}
+
+function ShowcaseSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]">
+      <div className="aspect-[4/3] animate-pulse bg-wb-surface-4" />
+      <div className="flex flex-col gap-2 px-3 py-2.5">
+        <div className="h-3.5 w-2/3 animate-pulse rounded bg-wb-surface-4" />
+        <div className="h-3 w-1/2 animate-pulse rounded bg-wb-surface-4" />
+        <div className="mt-1 h-7 w-full animate-pulse rounded-lg bg-wb-surface-4" />
+      </div>
+    </div>
   )
 }
 

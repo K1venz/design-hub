@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImagePlusIcon, Loader2Icon, SendIcon, SparklesIcon, WandSparklesIcon, XIcon } from 'lucide-react'
 
@@ -46,6 +46,8 @@ function uploadIdPreviewUrl(uploadId: string): string {
  */
 export function ChatPage() {
   const [params] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
@@ -128,14 +130,20 @@ export function ChatPage() {
     }
   }
 
-  // Hero/快捷卡首句：进页自动发一次（guard 防 StrictMode 双发）
+  // Hero/快捷卡首句：进页自动发一次（guard 防 StrictMode 双发）。
+  // 首句走 navigate state 承载（隐私·不进 URL）；兼容遗留 ?q= 外链。消费后 replaceState
+  // 清 URL query（明文）+ history state（防刷新重发）。
   const seededRef = useRef(false)
   useEffect(() => {
-    const seed = params.get('q')?.trim()
+    const stateSeed = (location.state as { q?: string } | null)?.q?.trim()
+    const querySeed = params.get('q')?.trim()
+    const seed = stateSeed || querySeed
     if (seed && !seededRef.current) {
       seededRef.current = true
       void send(seed)
     }
+    // 清 URL query（明文隐私）+ history state（防刷新重发）
+    if (seed || location.state) navigate(location.pathname, { replace: true, state: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

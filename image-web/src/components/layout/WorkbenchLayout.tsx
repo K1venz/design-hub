@@ -28,7 +28,7 @@ export function WorkbenchLayout() {
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex min-h-0 min-w-0 flex-1 gap-3 pb-3 pr-3"
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3 md:flex-row md:overflow-visible md:px-0 md:pr-3"
       >
         <Outlet />
       </motion.div>
