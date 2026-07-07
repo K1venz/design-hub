@@ -62,3 +62,4 @@ qwen-image-pro 当前只是 Mock 占位（无真实 key），实测真实模型�
   seed 4 模型)。**遗留**：真实 MySQL 若已 seed qwen 行，待 DB_URL 就绪后清理(置 enabled=false 或删)。
   状态→待验证，owner→QA。
 - 2026-06-08 [QA] **复验通过关闭**：`grep` 全树无 `QWEN_IMAGE/qwen-image` 残留（qwen-vl 视觉辅助不在范围）；`ModelName` = {gpt-image-2, seedream-5, wanxiang-2.7-pro, lingdong-2}（4 个无 qwen）；路由表 `F7 primary = GPT_IMAGE_2`（中式节庆改投 gpt）。状态=已关闭。
+- 2026-07-07 [PM] **范围反转记录（forward-pointer，本条保持已关闭）**：本条当年的**前向政策**「移除 qwen、收窄到只接 gpt-image-2、其他模型不做」被 **ISSUE-0057「配置大模型页面」（用户 2026-07-07 拍板档 A）反转** → 新政策=「**模型可配、按需接入（注册表制）**」（管理员全局配 model_config + 通用中转 provider + 用户选模型 + 备用渠道切换）。**qwen-image 的具体移除本身仍成立不回滚**（当年多余属实）；变的是「不再接其他模型」这条政策——后续接模型走 ISSUE-0057 注册表制、不必逐个开条移除/新增。记忆 `project_provider_scope_final`（真实模型只接 gpt-image-2）随之被 0057 超越。

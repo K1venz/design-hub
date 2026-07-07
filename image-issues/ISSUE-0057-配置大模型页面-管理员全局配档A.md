@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0057
 title: 「配置大模型」页面——管理员全局配 model_config + 通用中转 provider + 用户选模型（档 A）
-status: 待确认        # 用户已亲签 DB schema + 拍密钥 A1；DB 铁律闸已过。待 PM 立需求定稿(渠道切换一等公民)→到 0050 批后 slot dev 开工
-severity: P2          # 新特性（获客/灵活性 + 附带缓解 ISSUE-0056 单点故障）；非阻断、非资损
+status: 已确认        # 需求定稿(PRD §3.16+反转0017)+用户已签schema+拍A1,前置全清、无PM/用户阻塞；待coordinator排slot(0050批后)派dev+frontend-b开工
+severity: P2          # 新特性（获客/灵活性 + 备用渠道切换=治 ISSUE-0056 单点的结构性解）；非阻断、非资损
 reporter: 开发        # 用户 2026-07-07 经 dev 窗口提需求（盘点占位符时衍生），dev 出技术设计并路由 PM 立需求
-owner: PM             # 立需求：反转 ISSUE-0017「不做其他模型」范围 + 定 UX + 关账口径；DB schema 待用户签字
+owner: coordinator    # 前置全清(需求定稿+schema签+A1)；待 coordinator 排 slot(0050批后)派 dev+frontend-b，纯排期无阻塞
 created: 2026-07-07
 related:
   - issue: ISSUE-0017（曾移除 qwen-image 出图模型——本条反转「其他模型不做」的范围决定，需 PM 记录）
@@ -69,3 +69,7 @@ related:
   **A1=密钥不入库、DB 仅存 env 变量名**、真 key 留 server .env）。⚠️ 若 PM 立需求把「渠道故障切换」做成一等公民而**新增/改动 schema 字段**
   （如 fallback 顺序列），该 delta 由 coordinator 再拿给用户确认（本次签字覆盖当前提案、增量另签）。**仍不立即开工**：0057 排 0050 批之后、待 PM 需求定稿 + slot。
   另：用户确认 **`openai_api_key` 死配置删**（已执行 `896fdde`，同 dashscope 类）、**mock 兜底保留**（本地联调基建、非死码）。
+- 2026-07-07 [PM] **立需求定稿**（用户已亲签 schema+A1，签字轮省）：落 **PRD §3.16**（档 A 全设计 + 战略价值 + 已签 schema/A1 + UX + 验收 7 条 + 范围外 + 分工排队）+ **ISSUE-0017 范围反转记录**（forward-pointer，0017 保持已关闭；qwen 移除本身不回滚，变的是「不接其他模型」政策→注册表制；记忆 project_provider_scope_final 被超越）。
+  **关键裁定——「渠道故障切换」一等公民不触发 delta 签字**：手动切换用**已签 schema 的 `is_default`/`enabled`** 即可（admin 在已配模型间切默认/启禁）→ **无新增字段、无需增量签字**；自动 failover（需 fallback 顺序字段=schema delta）明确划**范围外二期、届时另签**。故本立需求**未引入任何新字段、无 delta**（coordinator #1011 确认「直接按已签 schema+A1 写」）。
+  **验收 7 条**（QA）：①admin 配置即时生效 ②用户选已启用/禁用不可选 ③非法 model→fail-fast 400 ④**备用渠道切换（主渠道故障→切备用→出图恢复）** ⑤默认回退正确 ⑥零回归（gpt-image-2 出图/计费/积分/历史+迁移零丢失）⑦密钥不泄漏（A1 只回 env 名）。
+  status 待确认→**已确认**（需求定稿 + schema 签 + A1 拍，前置全清）；owner→coordinator（排 slot：0050 批后派 dev+frontend-b 开工）。DB 签字闸已过、**开工无 PM/用户阻塞**，纯排期。
