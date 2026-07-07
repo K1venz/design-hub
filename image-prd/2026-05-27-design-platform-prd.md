@@ -805,7 +805,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **迁移轮部署纪律**（coordinator）：回滚镜像 `rollback-20260706-164436` + `mysqldump db-backup-20260706-164518.sql` + alembic `a1f7c3d9e5b2→b3f8c1a24d90`；prod smoke 全绿（迁移落库确认 version=b3f8c1a24d90/两表在、GET /chat/sessions 带 token 200·无 token 401·不存在 404 anti-enum、/me·/listing/jobs·showcase 零回归、前端 bundle 换新 `index-BzNAczR6.js`）。
 - **仍内测灰度**（7.B/7.A 前置不变）；**待用户 prod 复核后 PM 终关 ISSUE-0051**。
 
-#### 3.15 效果图「配方展示 + 一键复用」（需求 · 2026-07-07，ISSUE-0053）🔨 spec 定稿派单、开工中
+#### 3.15 效果图「配方展示 + 一键复用」（需求 · 2026-07-07，ISSUE-0053）✅ 已上线 prod（2026-07-07 单日闭环，待用户复核关账）
 > **背景**：用户需求「效果图展示里做提示词复用——展示图片同时展示生成配置与提示词、可一键复用出同款」。spec 定稿入库 `docs/superpowers/specs/2026-07-07-recipe-reuse-design.md`（coordinator 派单 `ec9e80a`）。
 
 > **⚠️ 契约裁决（PM 2026-07-07，frontend-b #973 亮缺口后裁）**：`overlay_texts`（卖点文案）**未持久化**（`listing_job` 无此列、请求期输入组装后即弃、DetailOut 不回吐）→ 落点 A 取不回、落点 B 查不到。**裁决 (a)：卖点文案剔出配方复用范围（v1）**——不违「零迁移零建表」、不触 DB 签字铁律、两落点一致；配方无文案仍是可复用闭环，且卖点文案本就是用户自己产品的卖点（做同款更该自填而非抄 showcase）。**本节下文凡列「卖点文案/文案」以本裁决剔除**；overlay_texts 持久化留二期（若用户要且值一次 schema 签字再评）。spec §一/§五#1 的「文案」项以本裁决为准修正。
@@ -823,6 +823,13 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 **⑤ 范围外（YAGNI，二期）**：chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / 复刻·编辑单的「复用」（仅展示配方徽标、复用按钮只做套图单）/ overlay 文案逐张映射（展示 job 级要点即可）。
 
 **⑥ 分工**：PM 本节（PRD+ISSUE-0053 入档）→ **dev**（ShowcaseEntry+recipe 扩展 + prod 只读查 5 单 job 回填 + ShowcaseItemOut/openapi 再生、零迁移；历史侧确认零改）→ **frontend-b**（A+B 两落点 UI + /set 预填机制 + codegen，A 落点可先行）→ **QA**（验收 5 条）→ 部署（deploy.sh showcase 后端 + push.sh，**零迁移轮**，coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
+
+**✅ 上线记录（2026-07-07 单日闭环：需求→契约缺口裁定(a)→双按钮细化→参考件卡形动画→QA→prod）**：
+- **落点 B 后端**（dev `b86d4e0`，零迁移零建表）：`ShowcaseEntry.recipe`（category/ratio/plan 图型配比/styling=job.prompt/modifiers），prod 只读 SELECT 回填 07-02 批次 5 单真实配方（13→5 单映射由「品类×图型比例」确定、与各 job 风格描述逐条印证）；平台四值与 `prompt_composer` 完全一致→做同款预填不 400；`RecipeOut`/`ShowcaseItemOut.recipe`+openapi 再生；配方卫兵测试含**内部 prompt 泄漏哨兵**（验收③）；GET /showcase 路由 + 历史侧 DetailOut 零改；97 绿。
+- **前端两落点 + 细化**（frontend-b `7443b3d`+`398639e`+`bd09745`+`d907694`）：落点 A `lib/recipe.ts` 反推套图图型配比（仅套图可复用）+ `applyPrefill` 清 uploads + RecipeDrawer + 历史/结果卡「查看配方」+ 复用配置→/set 预填；落点 B codegen + HomePage 成果卡 + 登录墙携配方回跳；细化=**双按钮「做同款」+「查看详情」**（查看详情=卡片式弹层大图+配方全项、**免登录**获客钩子）；`RecipeFields` 归一 job/showcase 两来源（DRY/SOLID）；参考件卡形（发丝分隔行列表+末行强调+通栏品牌紫 CTA）+ motion 动画（fade+scale+staggerChildren 逐行 spring、零新增依赖、GPU 纪律）；vitest 54 绿。
+- **QA 独立验收 15 绿 0 红**（报告 `b289ae9`，¥0）：5 正验 + 3 边界（连续预填不串值/F5 干净重置/非套图单无复用按钮）。
+- **零迁移轮部署**（coordinator）：回滚镜像 `rollback-20260707-123514` + 备份 `db-backup-20260707-123555`；prod smoke 全绿（13 卡 recipe 上线、**泄漏扫描干净**=验收③线上坐实、/me·/listing/jobs·/chat/sessions 零回归、bundle `index-Bd8OPkT7`）。
+- **仍内测灰度**（7.B/7.A 前置不变）；**待用户 prod 复核后 PM 终关 ISSUE-0053**（随 0048/0051 同批）。
 
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
