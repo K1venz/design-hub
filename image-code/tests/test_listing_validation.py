@@ -13,6 +13,7 @@ from design_hub.application.listing.prompt_composer import (
     compose_edit_prompt,
     compose_prompt,
 )
+from design_hub.application.listing.sizing import ratio_to_size
 
 _MR = PromptModifierRegistry()
 _CR = CategoryCardRegistry()
@@ -28,6 +29,10 @@ def _build(**kw):
     return build_listing_prompts(
         "春节红色背景", _MODS, _MR, _CR, _TR, category="FOOD", **kw
     )
+
+
+# 用户可见文案不得泄漏内部字段/schema 名（P3-#5：校验失败信息过用户话术）。
+_INTERNAL_TOKENS = ("upload_ids", "overlay_texts", "plan", "modifiers", "ratio", "category")
 
 
 @pytest.mark.parametrize(
@@ -49,8 +54,20 @@ def _build(**kw):
     ],
 )
 def test_build_listing_prompts_fail_fast(kw: dict) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as ei:
         _build(**kw)
+    msg = str(ei.value)
+    for tok in _INTERNAL_TOKENS:
+        assert tok not in msg, f"用户可见校验文案泄漏内部字段名 {tok!r}：{msg}"
+
+
+def test_ratio_to_size_message_is_user_facing() -> None:
+    # 无效比例报错=用户话术：含无效值+可选项、不吐内部字段名 "ratio"（P3-#5）。
+    with pytest.raises(ValueError) as ei:
+        ratio_to_size("5:5")
+    msg = str(ei.value)
+    assert "5:5" in msg and "1:1" in msg
+    assert "ratio" not in msg
 
 
 def test_single_mode_no_image_type_block() -> None:

@@ -49,13 +49,13 @@ def build_listing_prompts(
     卖点按有无 overlay_texts 选块（PRD §3.12.14）。plan 与 n 显式互斥。
     """
     if (n is None) == (plan is None):
-        raise ValueError("plan 与 n 互斥，需恰好带其一")
+        raise ValueError("套图配比与单图张数只能二选一")
     if plan is None:
         assert n is not None
         if overlay_texts:
-            raise ValueError("overlay_texts 仅套图（plan）含卖点图时合法")
+            raise ValueError("图上文案仅在套图包含卖点图时可用")
         if not 1 <= n <= _MAX_N:
-            raise ValueError(f"张数需为 1..{_MAX_N}，实际 {n}")
+            raise ValueError(f"单图张数需为 1–{_MAX_N} 张（当前 {n}）")
         final = compose_prompt(
             prompt, modifiers, modifier_registry,
             category=category, card_registry=card_registry,
@@ -63,17 +63,19 @@ def build_listing_prompts(
         return [(None, final)] * n
     unknown = set(plan) - set(IMAGE_TYPES)
     if unknown:
-        raise ValueError(f"未知图型：{'、'.join(sorted(unknown))}（合法：{'/'.join(IMAGE_TYPES)}）")
+        raise ValueError(
+            f"不认识的图型：{'、'.join(sorted(unknown))}（可选：{'/'.join(IMAGE_TYPES)}）"
+        )
     if any(v < 0 for v in plan.values()):
-        raise ValueError("图型张数不能为负")
+        raise ValueError("每种图型的张数不能为负")
     total = sum(plan.values())
     if not _MIN_TOTAL <= total <= _MAX_TOTAL:
-        raise ValueError(f"套图总数需为 {_MIN_TOTAL}..{_MAX_TOTAL}，实际 {total}")
+        raise ValueError(f"套图总张数需为 {_MIN_TOTAL}–{_MAX_TOTAL} 张（当前 {total}）")
     if overlay_texts:
         if plan.get("卖点", 0) <= 0:
-            raise ValueError("overlay_texts 仅在 plan 含卖点图时合法")
+            raise ValueError("图上文案仅在套图包含卖点图时可用")
         if len(overlay_texts) > _MAX_OVERLAY_TEXTS:
-            raise ValueError(f"图上文案最多 {_MAX_OVERLAY_TEXTS} 条，实际 {len(overlay_texts)}")
+            raise ValueError(f"图上文案最多 {_MAX_OVERLAY_TEXTS} 条（当前 {len(overlay_texts)}）")
         for t in overlay_texts:
             if not t.strip():
                 raise ValueError("图上文案不能为空白")

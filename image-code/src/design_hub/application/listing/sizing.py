@@ -12,4 +12,5 @@ def ratio_to_size(ratio: str) -> tuple[int, int]:
     try:
         return _RATIO_TO_SIZE[ratio]
     except KeyError:
-        raise ValueError(f"不支持的比例：{ratio}") from None
+        options = " / ".join(_RATIO_TO_SIZE)
+        raise ValueError(f"不支持的比例：{ratio}（可选 {options}）") from None

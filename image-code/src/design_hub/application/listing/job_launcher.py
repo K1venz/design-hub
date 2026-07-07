@@ -64,7 +64,7 @@ class ListingJobLauncher:
         在 launch 时做，本方法只校验 edit 的纯参数（档位 / delta-ratio 冲突）。"""
         if isinstance(req, ListingGenerateRequest):
             if not 1 <= len(req.upload_ids) <= 3:
-                raise ValueError(f"upload_ids 数量需为 1..3，实际 {len(req.upload_ids)}")
+                raise ValueError(f"请上传 1–3 张产品图（当前 {len(req.upload_ids)} 张）")
             ratio_to_size(req.ratio)
             overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
             build_listing_prompts(
@@ -74,12 +74,14 @@ class ListingJobLauncher:
             )
             for uid in req.upload_ids:
                 if not owns(uid, user.user_id):
-                    raise NotFoundError(f"upload 不存在或无权访问：{uid}")
+                    raise NotFoundError("有产品图找不到或无权访问，请重新上传后再试")
         elif isinstance(req, CloneRequest):
             if len(req.product_upload_ids) != 1:
-                raise ValueError(f"产品图需为 1 张，实际 {len(req.product_upload_ids)}")
+                raise ValueError(f"复刻需要 1 张产品图（当前 {len(req.product_upload_ids)} 张）")
             if not 1 <= len(req.reference_upload_ids) <= 2:
-                raise ValueError(f"爆款参考图需为 1..2 张，实际 {len(req.reference_upload_ids)}")
+                raise ValueError(
+                    f"请上传 1–2 张爆款参考图（当前 {len(req.reference_upload_ids)} 张）"
+                )
             ratio_to_size(req.ratio)
             compose_clone_prompt(
                 req.prompt, req.modifiers, self.service.modifier_registry,
@@ -88,11 +90,11 @@ class ListingJobLauncher:
             )
             for uid in [*req.product_upload_ids, *req.reference_upload_ids]:
                 if not owns(uid, user.user_id):
-                    raise NotFoundError(f"upload 不存在或无权访问：{uid}")
+                    raise NotFoundError("有图片找不到或无权访问，请重新上传后再试")
         else:  # EditRequest
             self.service.edit_registry.block(req.edit_mode)  # 未知档位 → 400
             if req.edit_mode == "delta" and req.ratio is not None:
-                raise ValueError("delta（微调）继承原图比例，不接受 ratio（改比例请用 full 重做）")
+                raise ValueError("微调会沿用原图比例，如需修改比例请改用「重做」")
 
     async def launch_generate(self, user: AuthUser, req: ListingGenerateRequest) -> str:
         """listing 出图（单图 n / 套图 plan 互斥，PRD §3.12.14）：入队返回 job_id。"""
