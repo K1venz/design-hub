@@ -299,6 +299,30 @@ def test_placeholder_ratio_becomes_clarification_not_paid_error(tmp_path) -> Non
     asyncio.run(_impl())
 
 
+def test_validation_clarification_hides_internal_field_names(tmp_path) -> None:
+    """P3-#5：校验失败转澄清的用户文案=话术，不吐 upload_ids 等内部字段名。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        # LLM 产 upload_ids=[] 的 generate（漏带产品图）→ validate 失败 → 澄清而非报错
+        bad = (
+            ToolCall(
+                id="c1", name="generate",
+                arguments={"upload_ids": [], "prompt": "花生", "ratio": "1:1", "n": 1},
+            ),
+        )
+        orch = inf.orch(StubTextLLM(("好的", bad)))
+        ev = await _drain(orch.handle_message(USER, None, "出图", []))
+        types = [t for t, _ in ev]
+        assert "cost_confirm" not in types and "tool_call" not in types
+        text = "".join(d.get("text", "") for t, d in ev if t == "assistant_delta")
+        assert "请上传" in text  # 话术兜底
+        for tok in ("upload_ids", "overlay_texts", "plan", "modifiers", "ratio", "category"):
+            assert tok not in text
+        assert ev[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
 def test_clarify_turn_without_tool_completes(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))

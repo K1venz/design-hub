@@ -28,9 +28,7 @@ class PromptModifierRegistry:
         try:
             return self.fragments[(field_name, value)]
         except KeyError:
-            raise ValueError(
-                f"未知下拉值：{field_name}={value}（未在话术表登记）"
-            ) from None
+            raise ValueError(f"暂不支持的选项：{value}") from None
 
 
 # FOOD 通用产品保真块（产品中性，#366 修「万物皆花生」）：逐字对齐
@@ -67,7 +65,7 @@ class CategoryCardRegistry:
         try:
             return self.cards[category]
         except KeyError:
-            raise ValueError(f"未知品类：{category}（未在品类卡表登记）") from None
+            raise ValueError(f"未知品类：{category}") from None
 
 
 # 图型卡物化块（套图，PRD §3.12.14）：逐字对齐 image-prompt/image-type-cards/<图型>.md
@@ -123,7 +121,7 @@ class ImageTypeRegistry:
                 return _TYPE_SELLING
             joined = "、".join(f"「{t}」" for t in overlay_texts)
             return _TYPE_SELLING_TEXT_TPL.format(overlay_texts=joined)
-        raise ValueError(f"未知图型：{image_type}（未在图型卡表登记）")
+        raise ValueError(f"未知图型：{image_type}")
 
 
 # 复刻模式物化块（爆款复刻 PRD §3.13）：逐字对齐 image-prompt/clone-mode-cards/复刻.md
@@ -264,7 +262,7 @@ def compose_prompt(
     """
     base = prompt.strip()
     if not base:
-        raise ValueError("prompt 不能为空")
+        raise ValueError("请先描述想要的画面（风格、场景等）")
     fidelity = card_registry.card(category)
     fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
     body = base if not fragments else base + "。" + "；".join(fragments)

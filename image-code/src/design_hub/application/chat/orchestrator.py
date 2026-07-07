@@ -160,15 +160,23 @@ class ChatOrchestrator:
         yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
         try:
             req = self._parse_req(call.name, call.arguments)
-        except Exception as exc:  # pydantic 校验失败（含 extra=forbid）
-            yield ChatEvent("error", {"code": "bad_request", "message": f"工具参数不合法：{exc}"})
-            yield ChatEvent("assistant_end", {"status": "error"})
+        except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
+            clar = (
+                "我还没完全弄清出图要求，麻烦再补充一下"
+                "（比如产品、想要的风格和比例），我马上安排。"
+            )
+            yield ChatEvent("assistant_delta", {"text": clar})
+            await self.chat_repo.append_message(
+                session_id=session_id, role="assistant", content=clar
+            )
+            yield ChatEvent("assistant_end", {"status": "complete"})
             return
         try:
-            # 与出图同一校验源（#884⑤）：非法参数（占位/缺比例/非自有图）进费用闸前拦下转澄清
+            # 与出图同一校验源（#884⑤）：非法参数（占位/缺比例/非自有图）进费用闸前拦下转澄清。
+            # validate 的报错文案已是用户话术（无内部字段名，P3-#5），可直接呈现。
             self.launcher.validate(user, req)
         except (ValueError, NotFoundError) as exc:
-            clar = f"还差点信息、暂时没法出图（{exc}）。麻烦补充一下，我再帮你安排。"
+            clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
             yield ChatEvent("assistant_delta", {"text": clar})
             await self.chat_repo.append_message(
                 session_id=session_id, role="assistant", content=clar
