@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0052
 title: 套图白底图被用户 styling/场景 prompt 污染——「纯白无背景」压不过强场景描述
-status: 已确认        # /showcase 子 agent 批量实测发现（5 套 4 中招），现象明确
+status: 待验证        # dev 档A组装侧完成(白底剥离用户文本)、门禁绿；待本波次 QA 真图抽验(带强场景白底仍纯白)
 severity: P2          # 高 P2：白底图=平台主图合规向核心图型，80% 命中率、影响旗舰套图质量；但非资损/非阻断（图仍出、只是背景错）
 reporter: 开发        # /showcase 子 agent 生成 5 套精选时发现（coordinator #933④ 转述）
-owner: 提示词          # prompt+dev 会诊：卡措辞强化 + 组装侧按图型剥离用户场景文本；PM 定产品口径
+owner: coordinator    # dev 组装侧完成→编排本波次 QA 真图抽验；prompt 卡措辞强化=可选后续(不阻口径)
 created: 2026-07-02
-updated: 2026-07-02
+updated: 2026-07-07
 related:
   - PRD: §3.12.14 套图（白底图型语义：纯白底主图/平台主图合规向）
   - 卡体系: 图型卡（白底/场景/卖点）× 用户文本组装序（保真块 × 图型卡 × 用户文本 × modifier）
@@ -41,3 +41,12 @@ related:
   根因初判=路A 用户文本 × 白底图型冲突。修复方向组装侧剥离+卡侧强化。**PM 待定产品口径（档 A 完全剥离 vs 档 B 只剥场景），倾向 A**。
   owner=prompt（卡权威主）+ dev（组装侧）会诊。**排期注**：coordinator #928 排在 /showcase 部署 + 0050/0051 之后，避免同期改 image-code/image-prompt 撞车；prompt 卡侧可先行准备。
 - 2026-07-02 [PM] **产品口径拍板 = 档 A**（白底图型完全剥离用户自由文本）：dev #939 确认组装侧可行（compose 剥离 user prompt、保 modifiers+白底块）、coordinator #938 同倾向 A。落地=组装侧剥离（dev）+ 白底卡措辞强化（prompt 权威在线复核，可选增强、不阻口径）。排期照旧（0051 后）。owner=prompt+dev。验收=带强场景 styling 的套图白底图仍纯白、场景/卖点图不受损。
+- 2026-07-07 [dev] **档 A 组装侧完成**（commit `8eeb6b8`，纯组装侧、校验语义不变；coordinator #988 派工「chat P3-#5 后接 0052」）：
+  ① `ImageTypeRegistry.drops_user_styling(image_type)`=图型语义单一事实源（白底→True），`WHITE_BG_TYPE` 常量消散落魔法串；
+  ② `compose_prompt(drop_user_text)`：白底走剥离分支=仅 **保真块 + 白底卡块 + modifiers**、**不注入用户自由文本**；场景/卖点保留；
+  ③ `build_listing_prompts` 按 image_type 传 `drop_user_text=type_registry.drops_user_styling(...)`。
+  **用户文本仍必填**（供场景/卖点），仅白底图不注入 → **无校验语义改动**（纯组装侧）。
+  自测（mock 验组装产物，强场景 styling=「高山竹匾晾晒花生的自然场景，远处青山蓝天」）：白底**不含**用户场景文本、保 保真块+
+  白底卡块（"纯白无缝影棚背景"）+modifiers；场景/卖点用户文本**不受损**（含）。ruff+mypy(src) 绿、pytest 100 绿+1 已知 WIP 红。
+  **卡措辞强化**（prompt 权威、可选增强不阻口径）待 prompt 窗口回来补；**真图抽验**（带强场景套图白底仍纯白）交 QA（≤¥2）。
+  status 已确认→待验证；owner 提示词→coordinator（编排本波次 QA 真图抽验；prompt 卡措辞为可选后续）。

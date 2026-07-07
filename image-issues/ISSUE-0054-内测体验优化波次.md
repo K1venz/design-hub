@@ -52,3 +52,12 @@ related:
   ② 开本条统一挂**移动端响应式三档 + 成果区栅格 + chat P3-#4/#5** 验收 6 条。分工=frontend-b（移动端+成果区+chat URL）/dev（chat 澄清轮文案映射）并行、写域不相交；**ISSUE-0052 白底剥离**独立条目、同波次 QA/部署抽验。
   完工链=各自 commit → coordinator 拉 QA（响应式三档回归 + chat 文案 + 0052 白底真图抽验 ≤¥2）→ 绿即**零迁移轮部署**（deploy.sh+push.sh）。**仍内测灰度**（7.B/7.A 前置不变）。0050 排 0052 后（dev 先实测 prod tz）。真实用户 bug 随时打断。
   status=修复中、owner=frontend-b+开发（并行开工）。
+- 2026-07-07 [dev] **chat P3-#5 澄清轮话术完成**（commit `513ca0b`，只改呈现不改校验语义）：
+  澄清轮把 `upload_ids`/`plan`/`overlay_texts`/`ratio` 等内部字段名直吐用户 → 全扫用户可见校验文案改用户话术：
+  ① `job_launcher.validate`（upload_ids 数量→「请上传 1–3 张产品图」、去裸 uid、产品图/参考图/delta-ratio）；
+  ② `build_listing_prompts`（plan/n 互斥·overlay·张数·图型·套图总数·文案 全去字段名）；③ `ratio_to_size`（补可选项、无 "ratio" 字样）；
+  ④ `prompt_composer`（下拉值/prompt/未知品类·图型 去内部措辞）；⑤ `orchestrator`（pydantic 解析失败不再吐原始报错、改话术澄清，
+  与 validate 失败同为「LLM 产不可用参数→追问」收敛）。**异常类型/触发条件/校验语义全不变**。
+  测试=内部字段名泄漏哨兵（listing_validation 全 fail-fast 用例断言消息无 upload_ids/plan/overlay_texts/modifiers/ratio/category
+  + ratio 话术）+ 端到端（test_chat：upload_ids=[]→澄清含「请上传」、无内部字段名）。ruff+mypy(src) 绿、pytest 100 绿+1 已知 WIP 红。
+  **dev 份（chat P3-#5）完成**，待与 frontend-b 前端份（移动端+成果区栅格+chat URL 隐私）一并 QA 验收。
