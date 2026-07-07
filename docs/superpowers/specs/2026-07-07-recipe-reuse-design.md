@@ -29,7 +29,7 @@
 
 ## 三、预填机制（前端契约）
 
-- `/set` 接收预填：`navigate('/set', { state: { prefill: {...} } })`；workbench-store 加 `applyPrefill(prefill)`（覆盖 config/styling/文案，**不带 uploads**——产品图必须用户自己传，配方≠素材）。
+- `/set` 接收预填：`navigate('/set', { state: { prefill: {...} } })`；workbench-store 加 `applyPrefill(prefill)`（覆盖 config/styling/modifiers，**不带 uploads 不带文案**——产品图必须用户自己传、卖点文案写自己产品的，配方≠素材）。
 - 登录墙回跳已有 `location.state.from` 机制，prefill 挂同一 state 随行。
 - 预填后用户可改任何项再生成——配方是起点不是锁定。
 
