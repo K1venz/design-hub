@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRightIcon, ImagePlusIcon, SendIcon } from 'lucide-react'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { ShowcaseDetailDialog } from '@/components/listing/ShowcaseDetailDialog'
 import { useShowcase, type ShowcaseItem } from '@/api/showcase'
 import { cn } from '@/lib/utils'
 import { useInView } from '@/lib/use-in-view'
@@ -199,12 +200,15 @@ function ShowcaseSection() {
                         {s.recipe.ratio} · 套图 {total} 张
                         {s.recipe.modifiers.platform && ` · ${s.recipe.modifiers.platform}`}
                       </p>
-                      <button
-                        onClick={() => makeSame(s.recipe)}
-                        className="mt-auto rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
-                      >
-                        做同款
-                      </button>
+                      <div className="mt-auto flex gap-2">
+                        <ShowcaseDetailDialog item={s} onMakeSame={() => makeSame(s.recipe)} />
+                        <button
+                          onClick={() => makeSame(s.recipe)}
+                          className="flex-1 rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+                        >
+                          做同款
+                        </button>
+                      </div>
                     </figcaption>
                   </figure>
                 )
