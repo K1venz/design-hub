@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0055
 title: 持久性 5xx（上游渠道 500）被当瞬时错重试 5 次耗 8 分钟才报 + 错误文案未人话化（真因已坐实）
-status: 已确认        # 真因坐实(coordinator #999 复现单852f6176实证:500→5次退避8分钟fail-closed落败)；dev收窄修法(墙钟+文案)待排期
+status: 待验证        # dev 收窄修法实现完成(9fc98a5:总重试墙钟+失败文案人话化)、门禁绿；待 QA 验收+编排部署(可与0050同批)
 severity: P1          # 非资损，但持久错干等 8 分钟 + 原始 500 报文直吐用户 = fail-fast/体验硬伤
 reporter: coordinator  # ISSUE-0056 P0 事故复盘连带发现（coordinator #995），@pm 请开条
 owner: 开发            # 真因坐实、修法收窄明确；待 PM 排期（与 0050 同批），dev 执行转「修复中」
@@ -50,3 +50,11 @@ key/额度/上游故障场景，出图 job **干等约 8 分钟才报失败** + 
   （累计 sleep 封顶 ~60–90s 超即穷尽 fail-closed，比「同错体连续 N 次」更稳）+ 补测 mock 连续 500 断言总耗时/调用被截断；(ii) error 落库/呈现处
   话术分层映射（5xx→繁忙请稍后重试 / 4xx→暂不可用，均带「本单未扣费」，原始错进日志不进用户面）；(iii) 孤儿僵尸阈值随 0050 reaper 时区修一并校准（8h→15min）。
   **序**：**不动 0055/0050 代码，先走完当前波次**（key 恢复→0052 白底抽验→0054+0052 部署）再到此批；0050 前置=先实测 prod tz。dev 到点补技术修法+测试。owner=开发（候场待派）。
+- 2026-07-07 [dev] **收窄修法实现完成**（commit `9fc98a5`；用户授权「有些能做的先去修改」于部署波次后并行做——纯 image-code、与 image-web/部署不相交）：
+  **(i) 总重试墙钟**——`openai_compat` 重试循环加 `retry_max_elapsed`（`settings.gpt_image_retry_max_elapsed` 默认 90s、composition 装配）：
+  超总墙钟即穷尽 fail-closed 上抛，持久 5xx 不再干等 max_retries×退避；**只 gate 重试、不砍首次/成功请求**。测=墙钟预算 0 截断持久 500 仅 1 次调用（证墙钟压过 max_retries=5）。
+  **(ii) 失败文案人话化**——新 `application/listing/error_messages.humanize_image_error`（SRP）：ProviderTimeout(5xx/429/超时)→「图像服务临时繁忙」/
+  裸 DomainError(4xx)→「暂不可用」/ProviderError→「暂时未能出图」/领域错子类透传/未预期兜底；**原始技术错(500/traceid/模型名)进日志、不进用户面**。
+  `commands._fail` 落库+发 TASK_FAILED 用人话 + `refunded` 标记（出图段=已回滚/未预扣→附「本单未扣费」、落库段=已计费→不附）；套图分张失败原因(service.generate)同人话化。
+  测=分桶+无泄漏单测(test_error_messages) + 命令失败路径测改断言人话+refund 分支。**4xx fail-fast 绿测不动**。ruff+mypy(src) 绿、pytest 106 绿+1 已知 WIP 红。
+  status 已确认→待验证；owner→coordinator（QA 验收 ①持久5xx秒/短墙钟内落败 ②人话 ③瞬态韧性不回退+4xx绿 ④零回归 + 编排部署；可与 0050 同批或单独一轮）。
