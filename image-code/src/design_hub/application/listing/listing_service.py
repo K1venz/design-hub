@@ -92,6 +92,8 @@ def build_listing_prompts(
         final = compose_prompt(
             prompt, modifiers, modifier_registry,
             category=category, card_registry=card_registry, image_type_block=block,
+            # 白底图剥离用户自由文本，防强场景描述污染纯白背景（ISSUE-0052 档A）
+            drop_user_text=type_registry.drops_user_styling(image_type),
         )
         tasks.extend([(image_type, final)] * count)
     return tasks

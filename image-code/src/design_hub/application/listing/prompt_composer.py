@@ -102,6 +102,7 @@ _TYPE_SELLING_TEXT_TPL = (
 )
 
 IMAGE_TYPES = ("白底", "场景", "卖点")  # 中文枚举 key（#486 终裁），与卡文件名/前端/SSE 一字串
+WHITE_BG_TYPE = "白底"  # 平台合规纯白主图：剥离用户自由文本防强场景污染（ISSUE-0052 档A）
 
 
 @dataclass
@@ -111,8 +112,16 @@ class ImageTypeRegistry:
     卖点按有无 overlay_texts 选块：缺省=无字特写；有=模板按卡内格式（全角引号顿号）填充。
     """
 
+    def drops_user_styling(self, image_type: str) -> bool:
+        """该图型是否剥离用户自由文本（ISSUE-0052 档A）。
+
+        白底主图=纯白无缝影棚背景的平台合规主图，用户强场景描述会压过纯白背景 →
+        组装时不注入用户自由文本（仍保保真块+白底卡块+modifiers）。场景/卖点保留用户文本。
+        """
+        return image_type == WHITE_BG_TYPE
+
     def block(self, image_type: str, overlay_texts: tuple[str, ...] = ()) -> str:
-        if image_type == "白底":
+        if image_type == WHITE_BG_TYPE:
             return _TYPE_WHITE_BG
         if image_type == "场景":
             return _TYPE_SCENE
@@ -253,19 +262,31 @@ def compose_prompt(
     category: str,
     card_registry: CategoryCardRegistry,
     image_type_block: str | None = None,
+    drop_user_text: bool = False,
 ) -> str:
     """最终 prompt = 品类保真块 [+ 图型卡块] + 用户自由文本 + 各 modifier 片段。
 
     保真块按 category 选（PRD §3.12.11），拼在最前（QA #196/#198 验过位置）；
     图型卡块仅套图 plan 路径注入（PRD §3.12.14，单图流不带、维持现状零破坏）；
     未知品类 / 未知下拉值均 fail-fast。
+
+    drop_user_text（ISSUE-0052 档A，白底图）：剥离用户自由文本，防强场景描述压过纯白背景 →
+    仅保真块 + 白底卡块 + modifiers。用户文本仍必填（供场景/卖点），此处只是不注入白底图。
     """
     base = prompt.strip()
     if not base:
         raise ValueError("请先描述想要的画面（风格、场景等）")
     fidelity = card_registry.card(category)
     fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
-    body = base if not fragments else base + "。" + "；".join(fragments)
+    mods = "；".join(fragments)
+    if drop_user_text:
+        parts = [fidelity]
+        if image_type_block is not None:
+            parts.append(image_type_block)
+        if mods:
+            parts.append(mods)
+        return "\n".join(parts)
+    body = base if not mods else base + "。" + mods
     if image_type_block is None:
         return fidelity + "\n" + body
     return fidelity + "\n" + image_type_block + "\n" + body
