@@ -832,6 +832,27 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **零迁移轮部署**（coordinator）：回滚镜像 `rollback-20260707-123514` + 备份 `db-backup-20260707-123555`；prod smoke 全绿（13 卡 recipe 上线、**泄漏扫描干净**=验收③线上坐实、/me·/listing/jobs·/chat/sessions 零回归、bundle `index-Bd8OPkT7`）。
 - **仍内测灰度**（7.B/7.A 前置不变）；**待用户 prod 复核后 PM 终关 ISSUE-0053**（随 0048/0051 同批）。
 
+#### 3.16 「配置大模型」页面 —— 管理员全局配 + 通用中转 provider + 用户选模型（需求 · 2026-07-07，ISSUE-0057）🔨 需求已立 · ✅ 用户已签 schema + 拍密钥 A1 · 待排期开工（0050 批后）
+> **背景**：用户 2026-07-07 提需求「做配置大模型的页面、让用户灵活配置需要的模型」。A/B/C 三档中**用户拍板档 A=管理员全局配**。dev 出技术设计 + DB schema 提案（DDL）路由 PM 立需求。**反转 ISSUE-0017 范围**：当年「移除 qwen、只接 gpt-image-2、其他模型不做」的收窄政策 → 本节改为「**模型可配、按需接入（注册表制）**」。
+
+**① 档 A 口径（用户拍板）**：管理者在 admin 页统一管「平台支持哪些模型 + 连接配置 + 单价 + 启用 + 默认」，用户出图时**选用**哪个已启用模型。**走平台 key、积分制不变**（非 per-user 自带 key）。未选 B（用户自带 key，per-user 加密存 key + 计费口径变）/ C（混合）——档 A 最贴现有 `model_config`、改动最小、安全面最低、最快上线。
+
+**② 战略价值 = 备用渠道故障切换（一等公民，非附带）**：可配**多渠道/备用模型** → 主渠道（apinebula）抖动/挂时，**管理员切备用渠道即恢复出图**——直接治 **ISSUE-0056 单点故障**这类事故（本次 P0 的结构性解）。需求把「渠道故障切换」列为一等能力。**手动切换合已签 schema**（admin 改 `is_default`/`enabled` 在已配模型间切换即可、**无新增字段、无需增量签字**）；**自动 failover**（需 fallback 顺序字段=schema delta）范围外二期、届时另签。
+
+**③ 技术方向（dev 提案）**：通用 OpenAI 兼容 image provider 泛化（`base_url+key+model+unit_cost` 形状、**不为每模型写 adapter**）→ `model_config` 表升级为「模型注册表」（每行=一个可用模型完整连接配置）→ **消费 `enabled`**（现未被消费）+ 出图链去掉硬编码 `GPT_IMAGE_2`、改 `registry.get(用户选/默认)` → 请求加可选 `model` 字段（launcher 校验属已启用集、否则 fail-fast 400）→ `/admin/models` 扩完整 CRUD。
+
+**④ ✅ DB schema（DDL·扩 `model_config`·用户已亲签 2026-07-07，铁律闸过）**：新增列 `provider_type`（adapter 选择器，默认 openai_compat_image）/ `base_url` / `model`（上游模型 id）/ `is_default`（恰一个 true）/ **`api_key_env`（密钥存储 = ✅ 用户拍 A1）**；`enabled` 语义从「仅记录」升级为「真 gate」；`gpt-image-2` 现行从 .env 回填、走迁移轮（mysqldump 备份可回滚、零数据丢失）。
+  - **✅ 密钥存储 = A1（用户 2026-07-07 拍板）`api_key_env`**：DB 只存**环境变量名**、真密钥留 server `.env`（不入库、不进群聊、沿用现有 ops 供密）——密钥零入库、零加密负担。新模型 key 需 ops 在 .env 配一次。（未选 A2 加密入库=避泄漏/审计面。）
+  - **签字语义**：用户亲签覆盖**当前提案形态**；若本需求引出**新增字段**（如自动 failover 的 fallback 顺序列）→ 该 delta 另签。本 PRD 立需求**未引入新字段**（手动渠道切换用已签 `is_default`/`enabled`）→ 无需增量签字。
+
+**⑤ UX（frontend-b）**：admin 模型配置页（增删模型 + 改 base_url/model/cost/enabled/default + 切默认/备用）+ 用户出图侧模型选择器（仅列已启用、默认预选）。
+
+**⑥ 验收标准（QA）**：1. admin 配置模型（增/改/启禁/默认）即时生效。2. 用户出图可选已启用模型、禁用/未配不可选。3. 请求非法 model → fail-fast 400（不静默回退）。4. **备用渠道切换**：主渠道模拟故障→管理员切备用→出图恢复。5. 默认模型回退正确（未选=default-enabled）。6. 零回归：现有 gpt-image-2 出图/计费/积分/历史全链不变；迁移零数据丢失。7. **密钥不泄漏**：admin 响应/前端不回吐真实 key（A1=只回 env 名；A2=不回明文）。
+
+**⑦ 范围外（YAGNI，二期）**：档 B/C（用户自带 key、per-user 配置）/ 上游自动故障切换编排（手动配备用先行）/ 非图像模型（文本 LLM 走独立 TEXT_LLM_* 配置、不并入本表）。
+
+**⑧ 分工与排队**：PM 本节（PRD+ISSUE-0057 立需求+反转 0017 记录）✅ → **用户**（① 签 DB schema ✅ 2026-07-07 已亲签；② 拍密钥存储 ✅ A1）→ **dev**（通用 provider 泛化 + model_config 扩 + 消费 enabled + 出图链去硬编码 + 请求 model 字段 + admin CRUD + alembic 迁移，**已签、待 slot**）+ **frontend-b**（admin 配置页 + 用户模型选择器）→ **QA**（验收 7 条）→ 迁移轮部署（mysqldump 备份可回滚，coordinator 编排）。**排队位=当前 P0(key 恢复)→0052/0055/0056 收口→0050 时区批 之后**（非阻断不抢档，coordinator #1009；DB 签字闸已过、待 PM 定稿+coordinator 派 slot 即可开工）。**仍内测灰度**（7.B/7.A 前置不变）。
+
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
 ### 4.1 项目工作台（一单一档）
