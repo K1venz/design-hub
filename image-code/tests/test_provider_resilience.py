@@ -48,7 +48,9 @@ class _SequencedClient:
         return outcome
 
 
-def _provider(client: _SequencedClient, *, max_retries: int) -> OpenAICompatImageProvider:
+def _provider(
+    client: _SequencedClient, *, max_retries: int, retry_max_elapsed: float = 90.0
+) -> OpenAICompatImageProvider:
     # 退避设极小值，单测不真等；契约不依赖具体时长
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
@@ -60,6 +62,7 @@ def _provider(client: _SequencedClient, *, max_retries: int) -> OpenAICompatImag
         max_retries=max_retries,
         retry_backoff=0.001,
         retry_max_sleep=0.005,
+        retry_max_elapsed=retry_max_elapsed,
     )
 
 
@@ -69,6 +72,10 @@ def _ok() -> httpx.Response:
 
 def _429() -> httpx.Response:
     return httpx.Response(429, text="rate limited")
+
+
+def _500() -> httpx.Response:
+    return httpx.Response(500, text="prepare chat requirements error")
 
 
 async def _gen(provider: OpenAICompatImageProvider) -> list[GeneratedImage]:
@@ -91,6 +98,15 @@ def test_generate_exhausts_retry_budget_and_raises() -> None:
     with pytest.raises(ProviderTimeout):
         asyncio.run(_gen(_provider(client, max_retries=3)))
     assert client.calls == 4  # 首发 + 3 次重试
+
+
+def test_wall_clock_budget_stops_persistent_5xx_despite_max_retries() -> None:
+    # ISSUE-0055 (i)：总重试墙钟耗尽即穷尽 fail-closed——持久 5xx 不再干等 max_retries×退避。
+    # 预算=0 → 首次失败后墙钟即耗尽、绝不重试（尽管 max_retries=5 本可 6 次调用）。
+    client = _SequencedClient([_500(), _500(), _500(), _500(), _500(), _500()])
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(_gen(_provider(client, max_retries=5, retry_max_elapsed=0.0)))
+    assert client.calls == 1  # 墙钟预算截断，非 max_retries（否则会 6 次）
 
 
 def test_generate_does_not_retry_4xx_business_error() -> None:

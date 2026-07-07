@@ -1,7 +1,9 @@
+import logging
 from abc import abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 
+from design_hub.application.listing.error_messages import humanize_image_error
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.domain.enums import TaskEventType
@@ -10,6 +12,8 @@ from design_hub.domain.models import ListingJobImage, ListingJobStart, ListingRe
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.task_queue import GenerationCommand
+
+logger = logging.getLogger(__name__)
 
 # 失败张（套图部分完成）无产物：image_key 空串占位、seed 哨兵；读侧按 status 区分、不签 url。
 _FAILED_IMAGE_KEY = ""
@@ -59,15 +63,15 @@ class ListingCommand(GenerationCommand):
         await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
             result = await self._generate()
-        except Exception as exc:  # 出图段兜底（成本回滚已在 service 内）
-            await self._fail(job_id, exc)
+        except Exception as exc:  # 出图段兜底：成本已在 service 内回滚/未预扣 → 本单未扣费
+            await self._fail(job_id, exc, refunded=True)
             raise
         try:
             # fail-closed（Finding A）：出图成功后的「发事件/落图/终态」段裸奔会留永久
             # 「生成中」僵尸行 + SSE 永久转圈，故整段兜底——同 generate 段同构。
             await self._persist_and_complete(job_id, result)
-        except Exception as exc:
-            await self._fail(job_id, exc)
+        except Exception as exc:  # 落库段：出图已成功且已计费 → 不宣称未扣费
+            await self._fail(job_id, exc, refunded=False)
             raise
 
     async def _persist_and_complete(self, job_id: str, result: ListingResult) -> None:
@@ -122,14 +126,21 @@ class ListingCommand(GenerationCommand):
             )
         )
 
-    async def _fail(self, job_id: str, exc: Exception) -> None:
+    async def _fail(self, job_id: str, exc: Exception, *, refunded: bool) -> None:
         """失败兜底：finalize('失败') 先于 TASK_FAILED（时序契约）。finalize 本身失败即
-        抛（DB 真 down 由启动 reaper 扫尾，Finding B），绝不静默吞。成本不动（service 内）。"""
+        抛（DB 真 down 由启动 reaper 扫尾，Finding B），绝不静默吞。成本不动（service 内）。
+
+        用户面错误话术化（ISSUE-0055 (ii)）：原始技术错进日志、落库/发事件用人话；
+        refunded=True（出图段=已回滚/未预扣）附「本单未扣费」，落库段(已计费)不附。"""
+        logger.warning("listing job %s failed: %r", job_id, exc)  # 原始技术错留观测、不进用户面
+        user_error = humanize_image_error(exc)
+        if refunded:
+            user_error += "（本单未扣费）"
         await self.history.finalize(
-            job_id, status="失败", total_cost=Decimal("0"), error=str(exc)
+            job_id, status="失败", total_cost=Decimal("0"), error=user_error
         )
         await self.events.publish(
-            TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": str(exc)})
+            TaskEvent(job_id, TaskEventType.TASK_FAILED, {"error": user_error})
         )
 
 

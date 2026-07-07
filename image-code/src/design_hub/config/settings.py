@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # 指数退避基数（秒）：第 n 次退避 ~ base*2^(n-1)，叠 equal-jitter 抖动错峰
     gpt_image_retry_backoff: float = 2.0
     gpt_image_retry_max_sleep: float = 30.0  # 单次退避封顶（秒），防指数增长失控
+    # 总重试墙钟预算（秒，ISSUE-0055 (i)）：封顶整个重试窗口，持久 5xx 超此即穷尽落「失败」，
+    # 不让用户干等 max_retries×退避（实测上游持续 500 曾拖 ~8 分钟）。只 gate 重试、不砍成功请求。
+    gpt_image_retry_max_elapsed: float = 90.0
     # 本地出图落点（图生图 b64 解码后写入；gitignored）
     image_output_dir: str = "./generated"
     # 出图 url 公网前缀（ISSUE-0029）：非空→绝对 https://host/img/<name>；空→相对 /img/<name>

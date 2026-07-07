@@ -41,6 +41,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         max_retries: int = 0,
         retry_backoff: float = 2.0,
         retry_max_sleep: float = 30.0,
+        retry_max_elapsed: float = 90.0,
     ) -> None:
         self.name = name
         self.unit_cost = unit_cost
@@ -62,6 +63,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_max_sleep = retry_max_sleep
+        # 总重试墙钟预算(ISSUE-0055 (i))：retry_max_sleep 只封单次退避，持续同错(上游持久
+        # 5xx)仍会耗尽 max_retries×退避干等数分钟。本预算封顶整个重试窗口的墙钟——超预算即
+        # 穷尽 fail-closed 落「失败」，用户短墙钟内得反馈而非干等。只 gate 重试、不砍首次/成功请求。
+        self._retry_max_elapsed = retry_max_elapsed
         # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
         self._trust_env = trust_env
 
@@ -79,6 +84,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         composed = self._compose(prompt, negative_prompt)
         size_str = f"{size[0]}x{size[1]}"
         attempt = 0
+        overall_start = time.perf_counter()
         while True:
             start = time.perf_counter()
             try:
@@ -98,10 +104,15 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                 return await self._parse(response.json(), seed, latency_ms, expected_n=n)
             # 瞬时网络/服务端错误（429/超时/5xx，I/O 域）：抖动退避后重试，超上限才抛。
             # 4xx 业务错在 _raise_for_status 已抛 DomainError、不入本分支（fail-fast）。
-            if attempt >= self._max_retries:
+            # 穷尽条件（ISSUE-0055 (i)）：重试次数上限 或 总重试墙钟预算耗尽——持续同错(上游持久
+            # 5xx)不再干等 max_retries×退避，超墙钟即 fail-closed 上抛。
+            elapsed = time.perf_counter() - overall_start
+            if attempt >= self._max_retries or elapsed >= self._retry_max_elapsed:
                 raise error
             attempt += 1
-            await asyncio.sleep(self._retry_sleep(attempt))
+            # 退避不跨出墙钟预算边界（剩余预算内 sleep）
+            sleep = min(self._retry_sleep(attempt), self._retry_max_elapsed - elapsed)
+            await asyncio.sleep(sleep)
 
     def _retry_sleep(self, attempt: int) -> float:
         # 指数退避 + equal-jitter 抖动（ISSUE-0047）：套图多路并发同时撞 429 时，若无抖动

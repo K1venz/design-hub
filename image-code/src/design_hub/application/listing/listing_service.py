@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from design_hub.application.cost.guard import CostGuard
+from design_hub.application.listing.error_messages import humanize_image_error
 from design_hub.application.listing.prompt_composer import (
     IMAGE_TYPES,
     CategoryCardRegistry,
@@ -174,7 +175,8 @@ class ListingGenerationService:
             if isinstance(r, BaseException):
                 first_error = first_error or r
                 if image_type is not None:  # 套图：失败张记图型+原因（SSE IMAGE_FAILED 用）
-                    failures.append((image_type, str(r)))
+                    # 原因人话化（ISSUE-0055 (ii)）：进 IMAGE_FAILED 事件/部分完成 job.error=用户面
+                    failures.append((image_type, humanize_image_error(r)))
             else:
                 generated.extend(r)
         if not generated:
