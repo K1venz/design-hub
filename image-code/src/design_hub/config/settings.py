@@ -10,7 +10,6 @@ class Settings(BaseSettings):
 
     # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
     db_url: str = "sqlite+aiosqlite:///./design_hub.db"
-    dashscope_key: SecretStr = SecretStr("")
     openai_api_key: SecretStr = SecretStr("")
 
     # gpt-image-2 中转站（apinebula/诗云），走 OpenAI 兼容协议
@@ -72,8 +71,3 @@ class Settings(BaseSettings):
     tos_generate_bucket: str = ""  # 出图结果桶
     tos_upload_bucket: str = ""  # 用户上传图桶
     tos_signed_url_ttl: int = 3600  # 预签名 url 有效期（秒）
-
-    @classmethod
-    def from_kms(cls) -> "Settings":
-        # Production secrets pulled from Aliyun KMS at startup; not on disk.
-        raise NotImplementedError("KMS loader wired in deployment milestone")
