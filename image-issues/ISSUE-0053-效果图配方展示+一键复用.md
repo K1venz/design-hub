@@ -101,3 +101,13 @@ chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / �
   大图 + 品类食品/图型配比 白底1场景2卖点2共5张/比例1:1/参数 地区中国·语言中文·平台淘宝天猫1688/风格描述**全项齐** + **无内部 prompt 泄漏（验收③）**；
   弹层内「做同款」→ /login 携配方（from=/set+完整 prefill）✓；**落点 A 回归**：RecipeDrawer 经 RecipeFields 渲染一致（配比1/2/3·比例3:4·参数·风格描述·复用配置出图）✓。
   **交接**：增量交付、门禁绿+E2E 全过 → @coordinator 拉 QA 按新 spec 跑 5 条（验收②扩双按钮+弹层）→ 零迁移轮部署。owner→coordinator。
+- 2026-07-07 [frontend-b] **「查看详情」弹卡视觉/动画皮完成**（`d907694`，用户给参考件、coordinator #981/#982 派规格，零新增依赖）：
+  ShowcaseDetailDialog 从基础弹层升级参考卡形——① 窄卡 max-w-sm 居中/rounded-xl 白卡+shadow-lg+p-6；顶部大图(rounded+图型角标)→
+  居中标题(caption)+副标 → **发丝分隔行列表**(label 左 muted/value 右深色·border-b；行=品类/图型配比/比例/平台/地区·语言，与 /set 配置项
+  一一对应)→ **末行「风格描述」无线+加粗强调+长文本换行成块** → **底部通栏 h-12「做同款」CTA(ui/button+品牌紫 bg-wb-brand)**。
+  ② 动画=改 radix Dialog 原语+motion(motion/react)：容器 fade+scale(.95→1,.4s easeInOut)+**staggerChildren 0.1 逐行 spring(stiffness 100,
+  y:20→0)弹入**+AnimatePresence 开合；GPU 纪律仅 transform/opacity；Content asChild=motion.div 保 radix a11y(role/focus-trap/Esc/overlay)
+  +forceMount 交 AnimatePresence 控开合。功能面不变（双按钮/无需登录/弹卡内做同款拦登录墙）。
+  **门禁四件套全绿**（lint/tsc/vitest 54/build）。**Playwright E2E**：登出态「查看详情」弹卡按参考卡形渲染（截图核对 大图/发丝行列表/末行强调/
+  通栏紫 CTA）、全项配方齐、**无内部 prompt 泄漏**、**console 零报错**（motion+radix 干净）；弹卡内「做同款」→ /login 携配方不变。
+  **交接**：视觉/动画皮落完、一次验到位 → @coordinator 拉 QA（一轮验全）→ 零迁移轮部署。owner→coordinator。
