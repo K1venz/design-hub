@@ -74,3 +74,20 @@ chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / �
   **验证**：ruff+mypy(src) 绿；pytest **97 绿 + 1 已知 WIP 红**(test_clone_blocks_match_card 未动)；全 13 项真实数据端到端序列化通过；
   styling 与 prod job.prompt 逐字一致（做同款忠实复现）。**交接**：openapi 已再生（含 recipe）→ @frontend-b 落点 B codegen 可切类型化；
   历史侧落点 A 后端确认零改可先行。owner 仍开发+frontend-b（我落点 B 后端棒完成，待前端集成 + QA 验收 5 条）。
+- 2026-07-07 [frontend-b] **前端两落点完成**（2 提交，纯 image-web）：
+  **落点 A**（`7443b3d`，后端零改）——① `lib/recipe.ts`（纯函数+9 单测）：`jobToRecipe(detail)` 从每张 image_type 计数反推套图
+     图型配比、识别 set/single/clone/edit（**仅套图可复用**=spec §四「复用按钮只做套图单」）；`recipeToPrefill`→`Partial<ListingConfig>`
+     （ratio 非法回退 1:1、plan/modifiers 深拷、**不含 uploads/overlayTexts**）。② `workbench-store.applyPrefill`：覆盖 config、清空
+     uploads（配方≠素材）+ bump resetKey 重挂面板 + 清进行中态。③ `components/listing/RecipeDrawer.tsx` 配方弹层（复用 ui/dialog）——
+     图型配比/比例/参数/风格描述 + 套图给「复用配置出图」→ `navigate('/set',{state:{prefill}})`；detail 由调用方已加载传入（DRY 不自拉）。
+     ④ HistoryDetailPage 卡头 + WorkbenchPage 结果卡 headerAction（终态 job）挂「查看配方」；WorkbenchPage 消费 `location.state.prefill`
+     → applyPrefill 后清 history state（防刷新/返回重复预填）。⑤ ResultGallery 加 `headerAction` 槽。
+  **落点 B**（`398639e`，对齐 dev recipe 契约）——① codegen（cp openapi + gen:api，schema 含 RecipeOut/ShowcaseItemOut.recipe）；
+     ② `showcaseRecipeToPrefill(RecipeOut)`（styling→prompt、plan 补齐三型、ratio 回退、+2 单测）；③ HomePage 成果卡加配方摘要
+     （比例·套图张数·平台）+「做同款」——已登录 navigate('/set',{prefill})、未登录 navigate('/login',{from:/set, prefill})；
+     ④ LoginPage/RegisterPage 登录/注册后转发 `location.state.prefill` 随行到目标页（含 token 已在的 Navigate 分支）。
+  **门禁四件套全绿**：lint/tsc/vitest **54 passed**（+11 recipe 测试）/build。**本地 mock + Playwright E2E 实证**：
+     · 落点 A——播种真实套图 job（plan 白底1/场景2/卖点3=6张·3:4·京东）→ 历史详情「查看配方」弹层配比/比例/参数/风格描述**精确** +
+       **无内部 prompt 泄漏（验收③）** →「复用配置出图」→ /set 图型配比 1/2/3+比例 3:4+风格描述+平台京东**全部预填**、上传区空/生成禁用（**验收④不带 uploads**）；结果卡「查看配方」在位。
+     · 落点 B——成果卡展示配方摘要（1:1·套图5张·淘宝天猫1688）；**登出态「做同款」→ /login 携配方（from=/set+完整 prefill）→ 登录 → 回跳 /set 预填正确**（平台/比例/风格描述/plan 5张全对）+ 生成禁用=uploads 未随行。
+  **交接**：前端两落点交付、门禁绿+E2E 全过 → @coordinator 编排 QA 验收 5 条 → 绿即零迁移轮部署（deploy.sh showcase 后端 + push.sh 前端）。owner→coordinator（前端份完成）。
