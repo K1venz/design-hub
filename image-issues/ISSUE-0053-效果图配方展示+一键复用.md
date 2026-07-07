@@ -57,3 +57,20 @@ chat 结果卡配方入口（后续小补）/ 配方分享链接·配方库 / �
   不加列不签字、两落点一致（都不填 overlayTexts、用户自填）。**recipe 收窄=styling/ratio/图型/platform/modifiers（无文案）**。
   PM 同步改：PRD §3.15 加契约裁决段 + ①口径/②落点/③预填/④验收#1 剔文案；coordinator 改 spec §一/§五#1 标已知限制+backlog。
   overlay_texts 持久化留二期（要文案召回=另立签字迁移件）。dev recipe 字段照此收窄、frontend-b 前向兼容继续落点 A。裁决不阻断开工。
+- 2026-07-07 [dev] **落点 B 后端完成**（commit `b86d4e0`，零迁移零建表）：
+  ① `config/showcase.py`——新增 `Recipe`(category/ratio/plan 图型配比/styling 风格描述/modifiers)，对齐 ListingGenerateRequest
+     套图**可复用子集**；**recipe 收窄口径已落**（无 overlay_texts、无 uploads、无内部卡 prompt）。
+  ② **prod 只读回填 5 单真实配方**（07-02 showcase 批次 admin 名下、SSH 只读 SELECT，未写任何 prod 数据）：查得 5 job 的
+     prompt(风格描述)/modifiers(region/language/platform)/ratio + 按 listing_image 统计图型配比(全 白1场2卖2)。13 张精选→5 单
+     **归属映射由「品类×图型比例」确定**（花生 1:1淘宝/9:16抖音/16:9英文京东；润喉糖 3:4京东/1:1拼多多；抖音9:16 与京东3:4 像素同为
+     1024×1536、由品类消歧），并与各 job 风格描述逐条印证（如 caption 暖木餐桌↔淘宝 prompt、蜂蜜↔京东 prompt、窗边↔拼多多 prompt）
+     零冲突。分布 3/3/3/2/2=13。写死进静态清单。
+  ③ 平台四值(淘宝天猫1688/抖音电商/京东/拼多多)与 `prompt_composer` 现值**完全一致** → 做同款预填走 launcher 校验通过（不会 400）。
+     ratio 全在留档比例内、category=FOOD 已注册。
+  ④ `showcase_schemas.py`——`RecipeOut` + `ShowcaseItemOut.recipe`；`openapi.json` 再生（+RecipeOut、ShowcaseItemOut.recipe，
+     diff 仅 +46/-2 纯 recipe）。**GET /showcase 路由/历史侧(ListingJobDetailOut)零改**（DetailOut 已回吐全部配方字段，落点 A 后端零改属实）。
+  ⑤ `tests/test_showcase.py`——200 形状含 recipe + 新增**配方卫兵**（图型配比键∈枚举/Σ3..10/本项图型在配比内/platform+language 非空/
+     风格描述非空且**无内部卡组装标记泄漏**=验收③哨兵）。
+  **验证**：ruff+mypy(src) 绿；pytest **97 绿 + 1 已知 WIP 红**(test_clone_blocks_match_card 未动)；全 13 项真实数据端到端序列化通过；
+  styling 与 prod job.prompt 逐字一致（做同款忠实复现）。**交接**：openapi 已再生（含 recipe）→ @frontend-b 落点 B codegen 可切类型化；
+  历史侧落点 A 后端确认零改可先行。owner 仍开发+frontend-b（我落点 B 后端棒完成，待前端集成 + QA 验收 5 条）。
