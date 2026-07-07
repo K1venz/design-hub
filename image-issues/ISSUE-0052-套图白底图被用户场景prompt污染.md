@@ -50,3 +50,8 @@ related:
   白底卡块（"纯白无缝影棚背景"）+modifiers；场景/卖点用户文本**不受损**（含）。ruff+mypy(src) 绿、pytest 100 绿+1 已知 WIP 红。
   **卡措辞强化**（prompt 权威、可选增强不阻口径）待 prompt 窗口回来补；**真图抽验**（带强场景套图白底仍纯白）交 QA（≤¥2）。
   status 已确认→待验证；owner 提示词→coordinator（编排本波次 QA 真图抽验；prompt 卡措辞为可选后续）。
+- 2026-07-07 [PM] **组装代码随 0054 波上线 prod、但待验证保持**（coordinator #1002 提前 key 前部署）：
+  8eeb6b8 白底剥离组装代码随 0054 波上线 prod（bundle/回滚镜像同 0054）；**但组装代码上线 ≠ 关账**——
+  **关账 gate = key 恢复后 ¥2 真图抽验**（带强场景 styling 的套图，验白底纯白 + 场景/卖点不误伤），coordinator 直接在 prod 跑（省 qa 一轮）。
+  当前 P0 事故（ISSUE-0056 apinebula 平台侧）致出图断 → 真图抽验**阻塞在 key 恢复**。status 维持**待验证**、owner=coordinator。
+  key 恢复 → coordinator prod ¥2 抽验绿 → PM 关账 0052。**卡措辞强化**仍待 prompt 窗口（可选、不阻本口径）。
