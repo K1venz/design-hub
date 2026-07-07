@@ -48,6 +48,9 @@ interface WorkbenchState {
   clearActive: () => void
   /** 「新建任务」：清即时态回到初始（含 bump resetKey 清上传器内部态）。 */
   reset: () => void
+  /** 复用配方（ISSUE-0053）：以配方覆盖 config，清空 uploads（配方≠素材、产品图须自传）+
+   *  重置进行中态（含 bump resetKey 重挂上传器/配置面板）。 */
+  applyPrefill: (prefill: Partial<ListingConfig>) => void
 }
 
 const EMPTY_ACTIVE = {
@@ -83,6 +86,13 @@ export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   reset: () =>
     set((s) => ({
       config: DEFAULT_LISTING_CONFIG,
+      uploaded: [],
+      resetKey: s.resetKey + 1,
+      ...EMPTY_ACTIVE,
+    })),
+  applyPrefill: (prefill) =>
+    set((s) => ({
+      config: { ...DEFAULT_LISTING_CONFIG, ...prefill },
       uploaded: [],
       resetKey: s.resetKey + 1,
       ...EMPTY_ACTIVE,

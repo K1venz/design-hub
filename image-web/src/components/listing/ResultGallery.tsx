@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { DownloadIcon, SquarePenIcon, XIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Link } from 'react-router-dom'
@@ -27,12 +28,14 @@ interface ResultGalleryProps {
   resultLabel?: string
   /** 已完成 job id：与 slot.imageKey 一起构成结果区编辑入口 /edit/:jobId/:imageKey。 */
   editJobId?: string
+  /** 结果卡头右侧额外操作（如「查看配方」）——展示在「下载全部」左侧。 */
+  headerAction?: ReactNode
 }
 
 export function ResultGallery({
   title, slots, done, total, generating,
   emptyHint = '上传产品图、写下卖点，点「开始出图」',
-  resultLabel, editJobId,
+  resultLabel, editJobId, headerAction,
 }: ResultGalleryProps) {
   const ready = slots.filter((s) => s.url)
   // 套图流：任一槽带图型 → 按图型分组段渲染（顺序按 IMAGE_TYPE_FIELDS）。
@@ -46,18 +49,21 @@ export function ResultGallery({
 
   return (
     <div className="min-w-0 flex-1 overflow-auto">
-      <div className="glass-panel mb-4 flex h-12 items-center justify-between rounded-2xl px-5">
+      <div className="glass-panel mb-4 flex h-12 items-center justify-between gap-2 rounded-2xl px-5">
         <h2 className="text-[16px] font-semibold tracking-[-0.01em]">{title}</h2>
-        {ready.length > 0 && (
-          <button
-            onClick={() =>
-              ready.forEach((s, i) => void downloadImage(s.url!, `${s.imageType ?? 'listing'}-${i + 1}.png`))
-            }
-            className="rounded-full bg-wb-ink-2 px-3.5 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
-          >
-            <DownloadIcon className="mr-1 inline size-3.5" /> 下载全部
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {headerAction}
+          {ready.length > 0 && (
+            <button
+              onClick={() =>
+                ready.forEach((s, i) => void downloadImage(s.url!, `${s.imageType ?? 'listing'}-${i + 1}.png`))
+              }
+              className="rounded-full bg-wb-ink-2 px-3.5 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <DownloadIcon className="mr-1 inline size-3.5" /> 下载全部
+            </button>
+          )}
+        </div>
       </div>
 
       {generating && total > 0 && (
