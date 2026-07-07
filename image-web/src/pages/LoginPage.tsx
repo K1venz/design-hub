@@ -76,13 +76,16 @@ export function LoginPage() {
   const [remember, setRemember] = useState(true)
 
   const dest = backTo(location)
-  if (token) return <Navigate to={dest} replace />
+  // 「做同款」等入口携配方过登录墙：登录后转发 prefill 随行到目标页（WorkbenchPage 消费）。
+  const prefill = (location.state as { prefill?: unknown } | null)?.prefill
+  const navState = prefill ? { prefill } : undefined
+  if (token) return <Navigate to={dest} replace state={navState} />
 
   async function submit() {
     setAuthPersistent(remember) // 决定 token 落 localStorage(持久) 还是 sessionStorage(仅会话)
     try {
       await login.mutateAsync({ email: email.trim(), password })
-      navigate(dest, { replace: true })
+      navigate(dest, { replace: true, state: navState })
     } catch {
       // 错误经 login.error 呈现
     }
