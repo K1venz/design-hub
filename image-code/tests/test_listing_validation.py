@@ -88,6 +88,20 @@ def test_plan_mode_stable_order_and_blocks() -> None:
     assert "带文案" not in no_overlay["卖点"]  # 不填→无字版
 
 
+def test_white_bg_strips_user_styling_scene_selling_keep() -> None:
+    # ISSUE-0052 档A：白底剥离用户自由文本(prompt='春节红色背景'=强场景/背景描述)，
+    # 场景/卖点保留；白底仍保 保真块 + 白底卡块 + modifiers。
+    tasks = _build(plan={"白底": 1, "场景": 1, "卖点": 1})
+    by_type = dict(tasks)
+    white = by_type["白底"]
+    assert "春节红色背景" not in white  # 白底剥离用户场景文本（防污染纯白背景）
+    assert white.startswith("产品绝对保真")  # 保真块保留、在最前
+    assert "图型·白底主图" in white  # 白底卡块保留
+    assert "抖音电商" in white  # modifiers（平台/语言）保留
+    assert "春节红色背景" in by_type["场景"]  # 场景不受损
+    assert "春节红色背景" in by_type["卖点"]  # 卖点不受损
+
+
 def test_compose_prompt_requires_text() -> None:
     with pytest.raises(ValueError):
         compose_prompt("  ", {}, _MR, category="FOOD", card_registry=_CR)
