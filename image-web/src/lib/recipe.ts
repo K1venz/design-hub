@@ -3,6 +3,7 @@
 // 绝不含组装后的内部卡 prompt（没存·核心资产不外泄·展示了也复用不了）。
 // 卖点文案(overlay_texts) 未持久化 → 按裁决 (a) 不进配方（用户自填），见 ISSUE-0053。
 
+import type { components } from '@/api/schema'
 import {
   DEFAULT_PLAN,
   IMAGE_TYPE_FIELDS,
@@ -77,4 +78,15 @@ export function recipeToPrefill(recipe: Recipe): Partial<ListingConfig> | null {
     plan: { ...(recipe.plan ?? DEFAULT_PLAN) },
     modifiers: { ...recipe.modifiers },
   }
+}
+
+/** showcase 配方（后端 RecipeOut，已是套图可复用子集）→ /set 预填（落点 B「做同款」）。 */
+export function showcaseRecipeToPrefill(recipe: components['schemas']['RecipeOut']): Partial<ListingConfig> {
+  const ratio: Ratio = RATIO_SET.has(recipe.ratio) ? (recipe.ratio as Ratio) : '1:1'
+  const plan: SetPlan = {
+    白底: recipe.plan['白底'] ?? 0,
+    场景: recipe.plan['场景'] ?? 0,
+    卖点: recipe.plan['卖点'] ?? 0,
+  }
+  return { mode: 'set', ratio, prompt: recipe.styling, plan, modifiers: { ...recipe.modifiers } }
 }

@@ -712,6 +712,28 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /**
+         * RecipeOut
+         * @description 做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。
+         *
+         *     仅用户可复用输入；**不含内部卡 prompt、overlay_texts、uploads**（口径铁律）。
+         */
+        RecipeOut: {
+            /** Category */
+            category: string;
+            /** Ratio */
+            ratio: string;
+            /** Plan */
+            plan: {
+                [key: string]: number;
+            };
+            /** Styling */
+            styling: string;
+            /** Modifiers */
+            modifiers: {
+                [key: string]: string;
+            };
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /**
@@ -736,7 +758,7 @@ export interface components {
         };
         /**
          * ShowcaseItemOut
-         * @description GET /showcase 列表项：现签 url + 图型 + 首页说明（公开，无用户数据）。
+         * @description GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。
          */
         ShowcaseItemOut: {
             /** Url */
@@ -745,6 +767,7 @@ export interface components {
             image_type: string;
             /** Caption */
             caption: string;
+            recipe: components["schemas"]["RecipeOut"];
         };
         /**
          * UploadResponse

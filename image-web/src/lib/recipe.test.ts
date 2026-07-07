@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { JOB_STATUS, type ListingJobDetail, type ListingJobImage } from '@/lib/listing'
-import { jobToRecipe, recipeToPrefill } from '@/lib/recipe'
+import type { components } from '@/api/schema'
+import { jobToRecipe, recipeToPrefill, showcaseRecipeToPrefill } from '@/lib/recipe'
 
 const img = (type: string | null, status = '成功'): ListingJobImage =>
   ({ url: `http://x/${type}.png`, image_key: `k-${type}`, seed: 0, cost: '0.40', status, image_type: type }) as ListingJobImage
@@ -80,5 +81,27 @@ describe('recipeToPrefill', () => {
     const prefill = recipeToPrefill(r)!
     expect(prefill.modifiers).not.toBe(r.modifiers)
     expect(prefill.plan).not.toBe(r.plan)
+  })
+})
+
+describe('showcaseRecipeToPrefill（落点 B「做同款」）', () => {
+  const recipe = (over: Partial<components['schemas']['RecipeOut']> = {}): components['schemas']['RecipeOut'] => ({
+    category: 'FOOD', ratio: '9:16', plan: { 白底: 1, 场景: 2, 卖点: 2 }, styling: '窗边暖光野餐',
+    modifiers: { platform: '抖音电商', language: '中文', region: '中国' }, ...over,
+  })
+
+  it('RecipeOut → set 预填（styling→prompt、plan 三型齐、modifiers 副本）', () => {
+    const prefill = showcaseRecipeToPrefill(recipe())
+    expect(prefill).toEqual({
+      mode: 'set', ratio: '9:16', prompt: '窗边暖光野餐',
+      plan: { 白底: 1, 场景: 2, 卖点: 2 },
+      modifiers: { platform: '抖音电商', language: '中文', region: '中国' },
+    })
+  })
+
+  it('plan 缺某图型 → 补 0；非法 ratio → 回退 1:1', () => {
+    const prefill = showcaseRecipeToPrefill(recipe({ ratio: '2:3', plan: { 白底: 1 } }))
+    expect(prefill.ratio).toBe('1:1')
+    expect(prefill.plan).toEqual({ 白底: 1, 场景: 0, 卖点: 0 })
   })
 })

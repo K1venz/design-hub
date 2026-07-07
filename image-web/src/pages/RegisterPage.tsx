@@ -59,7 +59,10 @@ export function RegisterPage() {
     email.trim() && password.length >= MIN_PASSWORD && confirm === password && agreed
 
   const dest = backTo(location)
-  if (token) return <Navigate to={dest} replace />
+  // 「做同款」携配方过登录墙转注册：注册后转发 prefill 随行到目标页（WorkbenchPage 消费）。
+  const prefill = (location.state as { prefill?: unknown } | null)?.prefill
+  const navState = prefill ? { prefill } : undefined
+  if (token) return <Navigate to={dest} replace state={navState} />
 
   async function submit() {
     if (!valid) return
@@ -67,7 +70,7 @@ export function RegisterPage() {
       // 昵称选填：留空则用邮箱前缀兜底（后端仍需一个 name）
       const finalName = name.trim() || email.trim().split('@')[0] || '用户'
       await register.mutateAsync({ email: email.trim(), name: finalName, password })
-      navigate(dest, { replace: true })
+      navigate(dest, { replace: true, state: navState })
     } catch {
       // 错误经 register.error 呈现
     }
