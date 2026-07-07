@@ -85,3 +85,10 @@ coordinator #918 收口备忘列出「job 时区口径 P3、另开小 issue」�
   补关键前置=**dev 执行第一步先实测 prod DB 会话 tz**（`SELECT @@session.time_zone, NOW(), UTC_TIMESTAMP()`）——因 bug 量级与旧行偏移
   都取决于它：prod=CST 则 8h bug 真实+旧行按 (a) 接 +8h；**prod 若本就=UTC 则根本无双时钟 bug、档 A 加 Z 顺带修新旧行、0050 近 no-op**。
   方案不假设 CST、实测拍板；QA 口径=新行必全对、旧行按实测（CST 则 +8h 标已知可接受非回归）。设计完备封存，待 slot 到点 coordinator 派、dev 执行转「修复中」。owner 保持开发。
+- 2026-07-07 [dev] **前置实测 prod tz 完成——bug 坐实、档 A 非 no-op**（用户授权「有些能做的先去修改」窗口内做，只读 SELECT 未写 prod）：
+  `@@session.time_zone=@@global.time_zone=SYSTEM`；`NOW()=2026-07-07 15:56（CST）` vs `UTC_TIMESTAMP()=07:56（UTC）`= **offset +8h → prod DB 是 CST（非 UTC）**。
+  真实样本坐实双时钟分叉：job `created_at=2026-07-06 14:55`（CST·server_default func.now()）vs `completed_at=06:56`（UTC·app datetime.now(UTC)）
+  → **时长 -479 分钟（完成早于创建 ~8h）**，现象实锤。⟹ **档 A 是真修**（走「新行全链 UTC + 序列化带 Z」）；旧行按 (a) 接受 +8h 已知偏移。
+  ⚠️ **本条维持 coordinator 编排的协调批次、非纯后端单发**：档 A 的「序列化带 Z」是**前端可见契约变更**（created_at 由无 Z→带 Z，前端
+  `new Date` 渲染口径随之变），生成侧(UTC)+序列化(带 Z)须**原子同发**、且**显示本地化需 frontend-b 配合**——故 dev 不在 key/部署波次内单发本条，
+  前置(prod tz)已清、待 coordinator 就 0050 批派工（含 frontend-b 显示侧）。owner 保持 coordinator。
