@@ -62,3 +62,11 @@ related:
   **知识库只放稳定信息；管理员可改的波动值（模型配置/单图·套图价格/额度策略）绝不写死、一律走工具实时查。** 落地两点：
   ① `get_pricing_quota` 必须**读 `model_config` 表实时值**（管理员改价后 chat 答案即变；0042「改价需重启才计费生效」快照语义为已知口径，工具答「管理员配置价」即可、不解释快照）+ 顺带返当前启用模型清单（**0057 上线后自动变多模型/渠道视图、天然衔接**）；
   ② **PM 已改知识库 draft**：删掉所有具体价格/额度数字（原「¥0.4/张」「免费 5 张」）→ 改「具体单价/免费额度/套餐=波动值、以实时查询为准」，chat 遇价格问题**调工具而非背知识库**。draft 已更（image-prd/chat-knowledge-base-v1-draft.md），dev 落 config 时带上。dev 按此收工具增量。
+- 2026-07-08 [dev] **A 线交付完成**（harness `8f307c7` + 工具增量 `a71e183`；零框架零依赖、0051 契约零改）：
+  **harness**：`config/chat_knowledge.md`(PM draft 7e20b12 落文件、剥注释头、≤1500 token 实测~1446) + `system_prompt.py` 四段
+  (persona/知识库/工具契约/守则含不编造+费用铁律+安全地板) + `_to_llm_messages` 长会话裁剪(>40 条=~20 轮→首条+省略备注+最近、DB 转录全量不动)。
+  **工具化**：tool-use 循环(读工具即时执行→回喂 LLM→再问、上限 5 轮;写工具→费用闸护栏①;纯文本→收尾;过程态不落库) + 3 读工具
+  (owner-scoped 护栏③、不过闸)——query_my_jobs(本人历史) / get_job_recipe(配方→回填 generate 仍走费用确认) /
+  get_pricing_quota(**价格/启用模型读 model_config 实时值**#1043、额度读 ledger)。走既有 ListingHistoryQuery/ledger/model_config
+  端口(护栏②)。守则「价格走工具不背知识库」+ 知识库删价格数字。测试 test_chat +4 读工具用例。ruff+mypy 绿、pytest 133 绿+1 已知红。
+  待 coordinator 拉 QA A①-⑥。
