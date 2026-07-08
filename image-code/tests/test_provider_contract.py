@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from design_hub.domain.enums import ModelName
+from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_provider import ProviderError
 
@@ -45,7 +46,8 @@ def _provider_with(client: _CapturingClient, **kw: Any) -> OpenAICompatImageProv
 
 async def _run(provider: OpenAICompatImageProvider, *, refs: list[bytes]) -> None:
     await provider.generate(
-        prompt="p", negative_prompt="", reference_images=refs, size=(1024, 1024), n=1
+        prompt="p", negative_prompt="",
+        reference_images=[ReferenceImage(data=b) for b in refs], size=(1024, 1024), n=1,
     )
 
 

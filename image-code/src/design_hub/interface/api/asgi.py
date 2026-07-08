@@ -129,6 +129,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         queue=app.state.task_queue,
         query=app.state.listing_query,
         image_store=app.state.image_store,
+        media_signer=app.state.media_signer,  # 参考图现签 URL（异步 provider 模态，ISSUE-0065）
     )
     # 「帮我设计」Agent 对话（方案 C）：复用 job_launcher（频控/owner/成本/卡链全继承）+
     # 同一 event_stream 转发 job 事件 + registry 读 unit_cost（费用确认与工作台同源）。

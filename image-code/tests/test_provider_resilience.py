@@ -23,7 +23,7 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
-from design_hub.domain.models import GeneratedImage
+from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_provider import ProviderTimeout
 
@@ -80,7 +80,8 @@ def _500() -> httpx.Response:
 
 async def _gen(provider: OpenAICompatImageProvider) -> list[GeneratedImage]:
     return await provider.generate(
-        prompt="p", negative_prompt="", reference_images=[b"img"], size=(1024, 1024), n=1
+        prompt="p", negative_prompt="",
+        reference_images=[ReferenceImage(data=b"img")], size=(1024, 1024), n=1,
     )
 
 
@@ -170,7 +171,7 @@ class _ConcurrencyProbeProvider:
         self.max_inflight = 0
 
     async def generate(
-        self, *, prompt: str, negative_prompt: str, reference_images: list[bytes],
+        self, *, prompt: str, negative_prompt: str, reference_images: list[ReferenceImage],
         size: tuple[int, int], n: int, seed: int | None = None, quality: str | None = None,
     ) -> list[GeneratedImage]:
         self.inflight += 1

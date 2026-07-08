@@ -8,7 +8,13 @@ from design_hub.application.listing.listing_service import ListingGenerationServ
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.media import image_key_from_url
-from design_hub.domain.models import ListingJobImage, ListingJobStart, ListingResult, TaskEvent
+from design_hub.domain.models import (
+    ListingJobImage,
+    ListingJobStart,
+    ListingResult,
+    ReferenceImage,
+    TaskEvent,
+)
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.task_queue import GenerationCommand
@@ -148,7 +154,7 @@ class ListingCommand(GenerationCommand):
 class ListingGenerationCommand(ListingCommand):
     """listing 一键出图：单图流（n）或套图（plan）；套图失败张留痕、状态可「部分完成」。"""
 
-    images: tuple[bytes, ...]
+    images: tuple[ReferenceImage, ...]
     upload_keys: tuple[str, ...]
     category: str
     n: int | None = None
@@ -194,8 +200,8 @@ class EditCommand(ListingCommand):
     upload_keys=链根产品锚（role=product），源图经 source_image_key 列回显。
     """
 
-    source_image: bytes
-    anchor_images: tuple[bytes, ...]  # 链根原始产品图（与 anchor_keys 同序）
+    source_image: ReferenceImage
+    anchor_images: tuple[ReferenceImage, ...]  # 链根原始产品图（与 anchor_keys 同序）
     anchor_keys: tuple[str, ...]
     parent_job_id: str
     source_image_key: str
@@ -233,8 +239,8 @@ class EditCommand(ListingCommand):
 class CloneCommand(ListingCommand):
     """爆款复刻异步命令（PRD §3.13）：单张 clone → 落图 → 终态「完成」（含档位+双角色）。"""
 
-    product_image: bytes
-    reference_images: tuple[bytes, ...]
+    product_image: ReferenceImage
+    reference_images: tuple[ReferenceImage, ...]
     upload_keys: tuple[str, ...]  # 保序：产品图在前、参考图在后（与喂图序一致）
     category: str
     clone_mode: str

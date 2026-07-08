@@ -48,7 +48,7 @@ from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingH
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
-from design_hub.infrastructure.storage.local import LocalImageStore
+from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.ledger import LedgerRepository
@@ -183,6 +183,7 @@ async def _infra(tmp: str, *, max_session_jobs: int = 5) -> Infra:
         service=service, uploads=uploads, rate_limiter=UserRateLimiter(), events=events,
         history=SqlAlchemyListingHistory(sf), queue=InProcessTaskQueue(),
         query=query, image_store=LocalImageStore(tmp),
+        media_signer=LocalMediaUrlSigner(""),
     )
     return Infra(
         launcher, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),

@@ -2,7 +2,7 @@ import asyncio
 from decimal import Decimal
 
 from design_hub.domain.enums import ModelName
-from design_hub.domain.models import GeneratedImage
+from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.model_provider import AbstractModelProvider, ProviderTimeout
 
 
@@ -29,7 +29,7 @@ class MockModelProvider(AbstractModelProvider):
         *,
         prompt: str,
         negative_prompt: str,
-        reference_images: list[bytes],
+        reference_images: list[ReferenceImage],
         size: tuple[int, int],
         n: int,
         seed: int | None = None,

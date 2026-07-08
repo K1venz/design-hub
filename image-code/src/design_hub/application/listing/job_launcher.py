@@ -34,11 +34,13 @@ from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.rate_limit import ThrottledCommand, UserRateLimiter
 from design_hub.domain.errors import NotFoundError
-from design_hub.domain.models import AuthUser
+from design_hub.domain.models import AuthUser, ReferenceImage
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.media_url_signer import MediaUrlSigner
+from design_hub.ports.model_provider import ReferenceMode
 from design_hub.ports.task_queue import TaskQueue
 from design_hub.ports.upload_store import owns
 
@@ -55,6 +57,21 @@ class ListingJobLauncher:
     queue: TaskQueue
     query: ListingHistoryQuery
     image_store: ImageStore
+    media_signer: MediaUrlSigner  # 参考图现签 URL（ISSUE-0065 异步模态；同步模态不用）
+
+    async def _ref_from_upload(self, upload_key: str, mode: ReferenceMode) -> ReferenceImage:
+        """上传桶参考图 → ReferenceImage：url 模态签公网 URL（不载字节，worker 回拉）；
+        bytes 模态载字节走 multipart（ISSUE-0065）。"""
+        if mode == "url":
+            return ReferenceImage(url=self.media_signer.upload_url(upload_key))
+        return ReferenceImage(data=(await self.uploads.load(upload_key))[0])
+
+    async def _ref_from_generated(self, image_key: str, mode: ReferenceMode) -> ReferenceImage:
+        """出图桶参考图（编辑源图）→ ReferenceImage。
+        url 模态签 generated_url（不载字节）；bytes 模态读回字节。"""
+        if mode == "url":
+            return ReferenceImage(url=self.media_signer.generated_url(image_key))
+        return ReferenceImage(data=await self.image_store.load(image_key))
 
     def validate(
         self, user: AuthUser, req: ListingGenerateRequest | CloneRequest | EditRequest
@@ -101,8 +118,10 @@ class ListingJobLauncher:
         # 边界 fail-fast（ISSUE-0024）：入队前同步校验完所有输入，任一非法 → 4xx，不入队。
         self.validate(user, req)
         overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
-        # 本人命名空间内：load() 对非法格式→400、缺文件→404
-        images = tuple([(await self.uploads.load(uid))[0] for uid in req.upload_ids])
+        # 参考图按 provider 模态物化（ISSUE-0065）：url 模态签公网 URL、bytes 模态载字节。
+        # load() 对非法格式→400、缺文件→404（url 模态下 owner 校验已在 validate 完成）。
+        mode = self.service.reference_mode()
+        images = tuple([await self._ref_from_upload(uid, mode) for uid in req.upload_ids])
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：5 单/分 + ≤2 in-flight，超限 429
         job_id = uuid.uuid4().hex
         command = ListingGenerationCommand(
@@ -131,7 +150,8 @@ class ListingJobLauncher:
         # 边界 fail-fast（ISSUE-0024 口径）：入队前同步校验完所有输入。
         self.validate(user, req)
         ordered_ids = [*req.product_upload_ids, *req.reference_upload_ids]  # 产品前·参考后=角色契约
-        loaded = [(await self.uploads.load(uid))[0] for uid in ordered_ids]
+        mode = self.service.reference_mode()  # 参考图模态物化（ISSUE-0065）
+        loaded = [await self._ref_from_upload(uid, mode) for uid in ordered_ids]
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：与 generate 同闸（计费动作统一限）
         job_id = uuid.uuid4().hex
         command = CloneCommand(
@@ -176,10 +196,12 @@ class ListingJobLauncher:
             req.prompt, effective, self.service.modifier_registry,
             edit_registry=self.service.edit_registry, edit_mode=req.edit_mode,
         )
-        # 载图：源图读 generate 桶（ImageStore.load）；链根锚读 uploads 桶（keys 来自 DB 可信）
-        source_image = await self.image_store.load(req.source_image_key)
+        # 载图按 provider 模态物化（ISSUE-0065）：源图=generate 桶、链根锚=uploads 桶
+        # （keys 来自 DB 可信）；url 模态各签公网 URL 不载字节，bytes 模态各载字节。
+        mode = self.service.reference_mode()
+        source_image = await self._ref_from_generated(req.source_image_key, mode)
         anchors = tuple(
-            [(await self.uploads.load(k))[0] for k in source.root_product_upload_keys]
+            [await self._ref_from_upload(k, mode) for k in source.root_product_upload_keys]
         )
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：计费动作统一闸，超限 429
         job_id = uuid.uuid4().hex
