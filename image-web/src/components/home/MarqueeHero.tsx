@@ -33,6 +33,9 @@ export interface MarqueeHeroProps {
 
 const MARQUEE_MIN = 10
 
+/** 卡片轻微旋转错落（按 index 固定循环，两份 group 对应位置一致=循环无缝）。 */
+const TILTS = [-2.5, 1.5, -1, 2, -2, 0, 1, -1.5, 2.5, -0.5, 1.8, -2.2] as const
+
 export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, images }: MarqueeHeroProps) {
   // 补齐到至少 MARQUEE_MIN 张，保证轨道长于视口、循环无缝。
   const strip: string[] = []
@@ -40,12 +43,13 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
 
   return (
     <section className="relative h-svh overflow-hidden bg-white text-neutral-950">
-      {/* 文字栈：居中偏上（给底部走马灯留层），z 浮于图带之上 */}
+      {/* 文字栈（照参考交叠版式）：整体下沉——描述文字下半叠进走马灯渐隐区（mask 提供
+          融合感），CTA 按钮整个浮在图带上层居中；z-10 保证叠序。 */}
       <motion.div
         variants={containerV}
         initial="hidden"
         animate="show"
-        className="relative z-10 flex h-[62%] flex-col items-center justify-end px-4 text-center md:h-[58%]"
+        className="relative z-10 flex h-[79%] flex-col items-center justify-end px-4 text-center md:h-[76%]"
       >
         <motion.div
           variants={fadeUpV}
@@ -77,7 +81,7 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
         <motion.button
           variants={fadeUpV}
           onClick={onCta}
-          className="mt-8 rounded-full bg-red-500 px-8 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-red-500/25 transition-transform hover:scale-105 active:scale-100"
+          className="mt-10 rounded-full bg-red-500 px-8 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-red-500/25 transition-transform hover:scale-105 active:scale-100"
         >
           {ctaText}
         </motion.button>
@@ -98,7 +102,11 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
           {[0, 1].map((g) => (
             <div key={g} className="flex shrink-0 gap-4 pr-4" aria-hidden={g === 1}>
               {strip.map((src, i) => (
-                <div key={i} className="relative h-48 shrink-0 md:h-64" style={{ aspectRatio: '3 / 4' }}>
+                <div
+                  key={i}
+                  className="relative h-48 shrink-0 md:h-64"
+                  style={{ aspectRatio: '3 / 4', transform: `rotate(${TILTS[i % TILTS.length]}deg)` }}
+                >
                   <img
                     src={src}
                     alt=""
