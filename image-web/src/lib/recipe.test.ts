@@ -10,7 +10,7 @@ const img = (type: string | null, status = '成功'): ListingJobImage =>
 const detail = (over: Partial<ListingJobDetail>): ListingJobDetail =>
   ({
     job_id: 'j1', prompt: '暖色厨房桌面', modifiers: { platform: '京东', language: '中文', region: '中国' },
-    platform: '京东', ratio: '3:4', size: '1024x1536', n: 5, status: JOB_STATUS.done, total_cost: '2',
+    platform: '京东', ratio: '3:4', size: '1024x1536', n: 5, status: JOB_STATUS.done, total_cost: '2', category: 'FOOD',
     error: null, created_at: '2026-07-01T00:00:00Z', completed_at: null, images: [], input_urls: [], input_roles: [],
     ...over,
   }) as ListingJobDetail
@@ -50,6 +50,11 @@ describe('jobToRecipe', () => {
     expect(r.kind).toBe('single')
     expect(r.reusable).toBe(false)
   })
+
+  it('带品类（detail.category → recipe.category）；edit/遗留 null → undefined', () => {
+    expect(jobToRecipe(detail({ category: 'BEAUTY', images: [img('白底')] })).category).toBe('BEAUTY')
+    expect(jobToRecipe(detail({ category: null, images: [img('白底')] })).category).toBeUndefined()
+  })
 })
 
 describe('recipeToPrefill', () => {
@@ -57,6 +62,7 @@ describe('recipeToPrefill', () => {
     const prefill = recipeToPrefill(jobToRecipe(detail({ images: [img('白底'), img('场景'), img('卖点')] })))
     expect(prefill).toEqual({
       mode: 'set',
+      category: 'FOOD',
       ratio: '3:4',
       prompt: '暖色厨房桌面',
       plan: { 白底: 1, 场景: 1, 卖点: 1 },
@@ -81,6 +87,11 @@ describe('recipeToPrefill', () => {
     const prefill = recipeToPrefill(r)!
     expect(prefill.modifiers).not.toBe(r.modifiers)
     expect(prefill.plan).not.toBe(r.plan)
+  })
+
+  it('复用带品类（历史 job category 透传）；未知/null → 回退食品', () => {
+    expect(recipeToPrefill(jobToRecipe(detail({ category: 'SHOES', images: [img('白底')] })))?.category).toBe('SHOES')
+    expect(recipeToPrefill(jobToRecipe(detail({ category: null, images: [img('白底')] })))?.category).toBe('FOOD')
   })
 })
 

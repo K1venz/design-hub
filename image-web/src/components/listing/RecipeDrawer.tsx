@@ -34,6 +34,7 @@ export function RecipeDrawer({ detail }: { detail: ListingJobDetail }) {
   }
 
   const view: RecipeView = {
+    category: recipe.category,
     modeBadge:
       recipe.kind === 'clone'
         ? `复刻 · ${recipe.cloneMode}`

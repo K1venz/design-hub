@@ -1949,6 +1949,17 @@
             "type": "array",
             "title": "Input Urls"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "clone_mode": {
             "anyOf": [
               {
@@ -2115,6 +2126,17 @@
               }
             ],
             "title": "Edit Mode"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
           }
         },
         "type": "object",

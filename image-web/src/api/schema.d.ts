@@ -663,6 +663,8 @@ export interface components {
             images: components["schemas"]["ListingImageOut"][];
             /** Input Urls */
             input_urls: string[];
+            /** Category */
+            category?: string | null;
             /** Clone Mode */
             clone_mode?: string | null;
             /**
@@ -706,6 +708,8 @@ export interface components {
             image_count: number;
             /** Edit Mode */
             edit_mode?: string | null;
+            /** Category */
+            category?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {

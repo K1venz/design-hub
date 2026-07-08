@@ -24,6 +24,8 @@ export type RecipeKind = 'set' | 'single' | 'clone' | 'edit'
 export interface Recipe {
   kind: RecipeKind
   ratio: string
+  /** 商品品类（ISSUE-0060/0061）。generate/clone 落库，edit/历史遗留行为 null → undefined。 */
+  category?: string
   /** 用户自由文本（风格描述/要求）——配方核心，非内部卡 prompt。 */
   prompt: string
   platform: string | null
@@ -48,6 +50,7 @@ export function jobToRecipe(detail: ListingJobDetail): Recipe {
     prompt: detail.prompt,
     platform: detail.platform,
     modifiers: detail.modifiers,
+    category: detail.category ?? undefined,
   }
   if (detail.clone_mode) return { ...base, kind: 'clone', cloneMode: detail.clone_mode, reusable: false }
   if (detail.edit_mode) return { ...base, kind: 'edit', editMode: detail.edit_mode, reusable: false }
@@ -74,8 +77,11 @@ function deriveSetPlan(detail: ListingJobDetail): SetPlan | null {
 export function recipeToPrefill(recipe: Recipe): Partial<ListingConfig> | null {
   if (!recipe.reusable) return null
   const ratio: Ratio = RATIO_SET.has(recipe.ratio) ? (recipe.ratio as Ratio) : '1:1'
+  const category: Category =
+    recipe.category && CATEGORY_SET.has(recipe.category) ? (recipe.category as Category) : DEFAULT_CATEGORY
   return {
     mode: 'set',
+    category,
     ratio,
     prompt: recipe.prompt,
     plan: { ...(recipe.plan ?? DEFAULT_PLAN) },
