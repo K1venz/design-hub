@@ -10,6 +10,7 @@
 """
 
 import uuid
+from collections import Counter
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -29,6 +30,9 @@ from design_hub.domain.errors import BudgetExceeded, NotFoundError
 from design_hub.domain.models import AuthUser, ChatTranscript
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import EventStream
+from design_hub.ports.ledger import LedgerRepository
+from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.model_config_repository import ModelConfigRepository
 from design_hub.ports.text_llm import (
     ChatMessage,
     TextChunk,
@@ -52,6 +56,12 @@ class ChatEvent:
     data: dict[str, Any]
 
 
+# 工具化架构（A3）：写/花钱工具过费用闸（护栏①）；读工具即时执行、owner-scoped（护栏③）。
+_WRITE_TOOLS = frozenset({"generate", "clone", "edit"})
+_READ_TOOLS = frozenset({"query_my_jobs", "get_job_recipe", "get_pricing_quota"})
+_MAX_TOOL_ITERS = 5  # 读工具回喂循环上限（防 LLM 无限调工具）
+
+
 def _tool_specs() -> list[ToolSpec]:
     # 工具参数 schema 直接取自请求 DTO（单一事实源，与 launcher 校验同源）。
     # description 强调「信息齐全才调用、缺必填先追问、别把占位问句填进参数」（A3 降残余风险）。
@@ -71,6 +81,32 @@ def _tool_specs() -> list[ToolSpec]:
             "edit",
             "二次编辑已产出的图。需 source_image_key + 编辑指令；用户未明确要改哪张/怎么改先追问。",
             EditRequest.model_json_schema(),
+        ),
+        ToolSpec(
+            "query_my_jobs",
+            "查询当前用户自己的出图历史（最近若干单、可按状态筛）。用户问「我出过什么图/上次那单」时用。",
+            {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "返回条数，默认 5、上限 10"},
+                    "status": {"type": "string", "description": "可选状态筛：完成/部分完成/失败"},
+                },
+            },
+        ),
+        ToolSpec(
+            "get_job_recipe",
+            "查某一单的配方（比例/图型配比/风格描述/平台），用于「用上次配置再来一套」。"
+            "需 job_id（可先用 query_my_jobs 拿）。取到配方后要再出图仍需调 generate、走费用确认。",
+            {
+                "type": "object",
+                "properties": {"job_id": {"type": "string"}},
+                "required": ["job_id"],
+            },
+        ),
+        ToolSpec(
+            "get_pricing_quota",
+            "查价格与当前用户额度（真实数据）。用户问「多少钱/我还能出几张/额度」时用。",
+            {"type": "object", "properties": {}},
         ),
     ]
 
@@ -109,6 +145,9 @@ class ChatOrchestrator:
     registry: ProviderRegistry
     chat_repo: ChatSessionRepository
     pending: PendingStore
+    query: ListingHistoryQuery  # 读工具：出图历史/配方（owner-scoped，护栏③）
+    ledger: LedgerRepository  # 读工具：额度真数据
+    model_config: ModelConfigRepository  # 读工具：价格/启用模型实时值（波动信息走工具，#1043）
     max_session_jobs: int = 5  # 会话级出图闸（#884②）
     image_model: ModelName = ModelName.GPT_IMAGE_2
     # 四段 system prompt（persona/知识库/工具契约/守则，A3）：启动组装缓存，可注入便于测试
@@ -142,75 +181,98 @@ class ChatOrchestrator:
             *_to_llm_messages(transcript),
         ]
 
-        assistant_text = ""
-        tool_calls: tuple[ToolCall, ...] = ()
-        try:
-            async for chunk in self.text_llm.complete(messages=llm_messages, tools=self._tools):
-                if isinstance(chunk, TextChunk):
-                    assistant_text += chunk.text
-                    yield ChatEvent("assistant_delta", {"text": chunk.text})
-                else:
-                    tool_calls = chunk.tool_calls
-        except TextLLMError as exc:
-            yield ChatEvent("error", {"code": "llm_unavailable", "message": str(exc)})
-            yield ChatEvent("assistant_end", {"status": "error"})
+        # 工具化 tool-use 循环（A3）：读工具即时执行→结果回喂→再问 LLM；写工具→费用闸；纯文本→收尾。
+        for _ in range(_MAX_TOOL_ITERS):
+            assistant_text = ""
+            tool_calls: tuple[ToolCall, ...] = ()
+            try:
+                async for chunk in self.text_llm.complete(
+                    messages=llm_messages, tools=self._tools
+                ):
+                    if isinstance(chunk, TextChunk):
+                        assistant_text += chunk.text
+                        yield ChatEvent("assistant_delta", {"text": chunk.text})
+                    else:
+                        tool_calls = chunk.tool_calls
+            except TextLLMError as exc:
+                yield ChatEvent("error", {"code": "llm_unavailable", "message": str(exc)})
+                yield ChatEvent("assistant_end", {"status": "error"})
+                return
+
+            if not tool_calls:  # 纯文本（澄清/答复/顾问建议）：落 assistant 转录，收尾
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=assistant_text
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+
+            call = tool_calls[0]  # MVP：一轮一工具
+            if call.name in _READ_TOOLS:  # 读工具：owner-scoped 即时执行回喂（护栏③；不落库）
+                yield ChatEvent("step", {"phase": "querying", "detail": "正在查询"})
+                result = await self._run_read_tool(user, call)
+                llm_messages.append(
+                    ChatMessage(role="assistant", content=assistant_text, tool_calls=(call,))
+                )
+                llm_messages.append(
+                    ChatMessage(role="tool", content=result, tool_call_id=call.id)
+                )
+                continue
+
+            # 写工具（generate/clone/edit）→ 费用闸（护栏①：不给 LLM 绕闸的路）
+            yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
+            try:
+                req = self._parse_req(call.name, call.arguments)
+            except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
+                clar = (
+                    "我还没完全弄清出图要求，麻烦再补充一下"
+                    "（比如产品、想要的风格和比例），我马上安排。"
+                )
+                yield ChatEvent("assistant_delta", {"text": clar})
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=clar
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+            try:
+                # 与出图同一校验源（#884⑤/护栏②）：非法参数进费用闸前拦下转澄清；文案已是用户话术。
+                self.launcher.validate(user, req)
+            except (ValueError, NotFoundError) as exc:
+                clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
+                yield ChatEvent("assistant_delta", {"text": clar})
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=clar
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+            yield ChatEvent("tool_call", {"tool": call.name, "args": call.arguments})
+            count = self._count(call.name, req)
+            unit_cost = self.registry.get(self.image_model).unit_cost  # 与工作台同源（#884③）
+            estimate = unit_cost * count
+            pending = self.pending.new(
+                session_id, tool=call.name, req=req, count=count, estimate=estimate
+            )
+            # assistant 最终答复（收尾语+job_id）留到 confirm 后落库；tool_call/cost_confirm 不落库
+            yield ChatEvent(
+                "cost_confirm",
+                {
+                    "confirm_token": pending.confirm_token,
+                    "tool": call.name,
+                    "args": call.arguments,
+                    "count": count,
+                    "unit_cost": str(unit_cost),
+                    "estimate_cny": str(estimate),
+                },
+            )
+            yield ChatEvent("assistant_end", {"status": "awaiting_confirm"})
             return
 
-        if not tool_calls:  # 纯澄清轮：落 assistant 转录，收尾
-            await self.chat_repo.append_message(
-                session_id=session_id, role="assistant", content=assistant_text
-            )
-            yield ChatEvent("assistant_end", {"status": "complete"})
-            return
-
-        call = tool_calls[0]  # MVP：一轮一工具
-        yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
-        try:
-            req = self._parse_req(call.name, call.arguments)
-        except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
-            clar = (
-                "我还没完全弄清出图要求，麻烦再补充一下"
-                "（比如产品、想要的风格和比例），我马上安排。"
-            )
-            yield ChatEvent("assistant_delta", {"text": clar})
-            await self.chat_repo.append_message(
-                session_id=session_id, role="assistant", content=clar
-            )
-            yield ChatEvent("assistant_end", {"status": "complete"})
-            return
-        try:
-            # 与出图同一校验源（#884⑤）：非法参数（占位/缺比例/非自有图）进费用闸前拦下转澄清。
-            # validate 的报错文案已是用户话术（无内部字段名，P3-#5），可直接呈现。
-            self.launcher.validate(user, req)
-        except (ValueError, NotFoundError) as exc:
-            clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
-            yield ChatEvent("assistant_delta", {"text": clar})
-            await self.chat_repo.append_message(
-                session_id=session_id, role="assistant", content=clar
-            )
-            yield ChatEvent("assistant_end", {"status": "complete"})
-            return
-        yield ChatEvent("tool_call", {"tool": call.name, "args": call.arguments})
-
-        count = self._count(call.name, req)
-        unit_cost = self.registry.get(self.image_model).unit_cost  # 与工作台同源（#884③）
-        estimate = unit_cost * count
-        pending = self.pending.new(
-            session_id, tool=call.name, req=req, count=count, estimate=estimate
+        # 读工具回喂循环耗尽（LLM 反复调工具未收敛）→ 兜底收尾，防卡死
+        fallback = "我查了下但还没完全理清，能再具体说说你想做什么吗？"
+        yield ChatEvent("assistant_delta", {"text": fallback})
+        await self.chat_repo.append_message(
+            session_id=session_id, role="assistant", content=fallback
         )
-        # assistant 最终答复（收尾语+job_id）留到 confirm 后落库；tool_call/cost_confirm 不落库
-        yield ChatEvent(
-            "cost_confirm",
-            {
-                "confirm_token": pending.confirm_token,
-                "tool": call.name,
-                "args": call.arguments,
-                "count": count,
-                "unit_cost": str(unit_cost),
-                "estimate_cny": str(estimate),
-            },
-        )
-        yield ChatEvent("assistant_end", {"status": "awaiting_confirm"})
+        yield ChatEvent("assistant_end", {"status": "complete"})
 
     async def handle_confirm(
         self, user: AuthUser, session_id: str, confirm_token: str, action: str
@@ -308,6 +370,74 @@ class ChatOrchestrator:
         if pending.tool == "edit" and isinstance(req, EditRequest):
             return await self.launcher.launch_edit(user, req)
         raise ValueError(f"未知工具：{pending.tool}")
+
+    # ── 读工具（A3 工具化，owner-scoped 护栏③；不花钱、不过费用闸；结果回喂 LLM）──
+
+    async def _run_read_tool(self, user: AuthUser, call: ToolCall) -> str:
+        """派发读工具→文本结果（回喂 LLM）。异常兜底为文本，保持对话不中断（I/O 域）。"""
+        try:
+            if call.name == "query_my_jobs":
+                return await self._tool_query_my_jobs(user, call.arguments)
+            if call.name == "get_job_recipe":
+                return await self._tool_get_job_recipe(user, call.arguments)
+            if call.name == "get_pricing_quota":
+                return await self._tool_get_pricing_quota(user)
+        except Exception:  # 读工具失败不炸对话：喂给 LLM 让它如实告知用户（不静默假装成功）
+            return f"（{call.name} 查询暂时失败，请告知用户稍后再试，不要编造数据。）"
+        return f"（未知查询工具 {call.name}。）"
+
+    async def _tool_query_my_jobs(self, user: AuthUser, args: dict[str, Any]) -> str:
+        limit = max(1, min(int(args.get("limit") or 5), 10))
+        jobs = await self.query.list_jobs(
+            user_id=user.user_id, limit=limit, offset=0, q=None
+        )
+        status = args.get("status")
+        if status:
+            jobs = [j for j in jobs if j.status == status]
+        if not jobs:
+            return "该用户暂无出图记录（owner-scoped，只查本人）。"
+        lines = [f"该用户最近 {len(jobs)} 单（新→旧）："]
+        lines += [
+            f"- job_id={j.job_id} | {j.created_at:%Y-%m-%d %H:%M} | "
+            f"平台={j.platform or '未指定'} | {j.n}张 | 状态={j.status}"
+            for j in jobs
+        ]
+        return "\n".join(lines)
+
+    async def _tool_get_job_recipe(self, user: AuthUser, args: dict[str, Any]) -> str:
+        job_id = str(args.get("job_id") or "").strip()
+        if not job_id:
+            return "需要 job_id（可先用 query_my_jobs 查到）。"
+        detail = await self.query.get_job(job_id=job_id, user_id=user.user_id)
+        if detail is None:  # owner 隔离：非本人/不存在都返同一话术，不泄漏存在性
+            return "找不到这单，或它不属于当前用户。"
+        plan = Counter(im.image_type for im in detail.images if im.image_type)
+        plan_str = "、".join(f"{t}×{c}" for t, c in plan.items()) or f"单图 {detail.n} 张"
+        platform = (detail.modifiers or {}).get("platform", "未指定")
+        return (
+            f"这单（job_id={detail.job_id}）的配方（可复用）：\n"
+            f"- 比例：{detail.ratio}\n- 图型配比：{plan_str}\n"
+            f"- 风格描述：{detail.prompt}\n- 平台：{platform}\n"
+            "要用这套配置再出一套，就用这些参数调 generate（仍会先报预计费用等用户确认）。"
+        )
+
+    async def _tool_get_pricing_quota(self, user: AuthUser) -> str:
+        # 波动值走实时查（#1043）：价格/启用模型读 model_config 表当前值——管理员改价即变，
+        # 绝不背知识库写死数字。0057 上线后多模型/渠道自动进这份清单。
+        configs = await self.model_config.list_all()
+        enabled = [c for c in configs if c.enabled]
+        current = next((c for c in configs if c.name == self.image_model.value), None)
+        unit_cost = current.unit_cost if current else self.registry.get(self.image_model).unit_cost
+        snap = await self.ledger.snapshot(user.user_id)
+        remaining = snap.user_monthly_quota - snap.user_month_used
+        approx = int(remaining / unit_cost) if unit_cost else 0
+        models = "、".join(f"{c.name}(¥{c.unit_cost}/张)" for c in enabled) or "（暂无启用模型）"
+        return (
+            f"价格（管理员实时配置）：当前出图约 ¥{unit_cost}/张。\n"
+            f"当前启用模型：{models}。\n"
+            f"该用户额度：已用 ¥{snap.user_month_used} / 额度 ¥{snap.user_monthly_quota}，"
+            f"剩余约 ¥{remaining}（≈ {approx} 张）。\n当前内测期间，未开放公开充值。"
+        )
 
     @staticmethod
     def _parse_req(

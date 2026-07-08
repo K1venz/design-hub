@@ -137,6 +137,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         registry=registry,
         chat_repo=app.state.chat_repo,
         pending=PendingStore(),
+        query=app.state.listing_query,  # 读工具：出图历史/配方（owner-scoped，ISSUE-0059 A3）
+        ledger=ledger,  # 读工具：额度真数据
+        model_config=model_config_repo,  # 读工具：价格/启用模型实时值（波动信息走工具）
         max_session_jobs=settings.chat_session_max_jobs,
     )
     app.state.model_config_service = model_config_service

@@ -52,6 +52,7 @@ from design_hub.infrastructure.storage.local import LocalImageStore
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.ledger import LedgerRepository
+from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 from design_hub.ports.text_llm import (
     ChatMessage,
     LLMChunk,
@@ -75,6 +76,26 @@ class _FakeLedger(LedgerRepository):
     async def reserve(self, user_id: str, amount: Decimal) -> None: ...
 
     async def rollback(self, user_id: str, amount: Decimal) -> None: ...
+
+
+class _FakeModelConfig(ModelConfigRepository):
+    def __init__(self) -> None:
+        self._c = [
+            ModelConfigRecord("gpt-image-2", Decimal("0.40"), enabled=True, extra={}),
+            ModelConfigRecord("seedream-5", Decimal("0.20"), enabled=False, extra={}),
+        ]
+
+    async def list_all(self) -> list[ModelConfigRecord]:
+        return list(self._c)
+
+    async def get(self, name: str) -> ModelConfigRecord | None:
+        return next((c for c in self._c if c.name == name), None)
+
+    async def update(self, name, *, unit_cost=None, enabled=None, extra=None):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def seed_defaults(self, defaults) -> None:  # type: ignore[no-untyped-def]
+        raise NotImplementedError
 
 
 class StubTextLLM(TextLLMPort):
@@ -119,12 +140,16 @@ class Infra:
     events: InMemoryEventBus
     chat_repo: ChatSessionRepository
     pending: PendingStore
+    query: SqlAlchemyListingHistoryQuery
+    ledger: LedgerRepository
+    model_config: ModelConfigRepository
     max_session_jobs: int
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
         return ChatOrchestrator(
             text_llm=text_llm, launcher=self.launcher, event_stream=self.events,
             registry=self.registry, chat_repo=self.chat_repo, pending=self.pending,
+            query=self.query, ledger=self.ledger, model_config=self.model_config,
             max_session_jobs=self.max_session_jobs,
         )
 
@@ -143,14 +168,16 @@ async def _infra(tmp: str, *, max_session_jobs: int = 5) -> Infra:
     )
     events = InMemoryEventBus()
     uploads = UploadService(store=LocalUploadStore(tmp))
+    query = SqlAlchemyListingHistoryQuery(sf)
+    ledger = _FakeLedger()
     launcher = ListingJobLauncher(
         service=service, uploads=uploads, rate_limiter=UserRateLimiter(), events=events,
         history=SqlAlchemyListingHistory(sf), queue=InProcessTaskQueue(),
-        query=SqlAlchemyListingHistoryQuery(sf), image_store=LocalImageStore(tmp),
+        query=query, image_store=LocalImageStore(tmp),
     )
     return Infra(
         launcher, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
-        PendingStore(), max_session_jobs,
+        PendingStore(), query, ledger, _FakeModelConfig(), max_session_jobs,
     )
 
 
@@ -349,7 +376,7 @@ def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
         # 新 orchestrator + 全新 PendingStore(内存态丢失)，共享同一 DB
         inf2 = Infra(
             inf.launcher, inf.uploads, inf.registry, inf.events, inf.chat_repo,
-            PendingStore(), inf.max_session_jobs,
+            PendingStore(), inf.query, inf.ledger, inf.model_config, inf.max_session_jobs,
         )
         t = await inf2.chat_repo.get_transcript(sid, USER.user_id)
         assert t is not None
@@ -465,3 +492,65 @@ def test_pending_clear() -> None:
     action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
     p.clear("s1")
     assert p.take("s1", action.confirm_token) is None
+
+
+# ── A3 工具化：读工具（query_my_jobs/get_job_recipe/get_pricing_quota）验收⑥ ──
+
+
+def test_read_tool_loop_executes_and_feeds_back(tmp_path) -> None:
+    """读工具即时执行→结果回喂→LLM 收尾；不进费用闸（写工具才过闸）。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        tc = (ToolCall(id="q1", name="query_my_jobs", arguments={}),)
+        orch = inf.orch(StubTextLLM(("", tc), ("你最近还没出过图哦。", ())))
+        ev = await _drain(orch.handle_message(USER, None, "我最近出过什么图", []))
+        types = [t for t, _ in ev]
+        assert "cost_confirm" not in types and "tool_call" not in types  # 读工具不花钱不过闸
+        assert any(t == "step" and d.get("phase") == "querying" for t, d in ev)
+        text = "".join(d.get("text", "") for t, d in ev if t == "assistant_delta")
+        assert "还没出过图" in text  # LLM 基于工具结果收尾
+        assert ev[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
+def test_get_pricing_quota_reads_live_model_config(tmp_path) -> None:
+    """波动值走实时查（#1043）：价格取 model_config 当前值、只列启用模型、额度取 ledger。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        out = await inf.orch(StubTextLLM(("", ())))._tool_get_pricing_quota(USER)
+        assert "0.40" in out  # 实时价（非写死）
+        assert "gpt-image-2" in out and "seedream-5" not in out  # 只列 enabled
+        assert "剩余" in out  # 额度真数据
+
+    asyncio.run(_impl())
+
+
+def test_get_job_recipe_owner_isolation(tmp_path) -> None:
+    """owner-scoped 护栏③：查不到他人/不存在的单，返同一话术不泄漏存在性。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        out = await inf.orch(StubTextLLM(("", ())))._tool_get_job_recipe(
+            USER, {"job_id": "does-not-exist"}
+        )
+        assert "找不到" in out or "不属于" in out
+
+    asyncio.run(_impl())
+
+
+def test_query_my_jobs_returns_own_job_not_others(tmp_path) -> None:
+    """真数据 + owner 隔离：出一单后本人可查、他人查为空。"""
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("好的", _gen_tc(uid, n=1))))
+        msg = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
+        sid = _first(msg, "session")["session_id"]
+        tok = _first(msg, "cost_confirm")["confirm_token"]
+        await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
+        mine = await inf.orch(StubTextLLM(("", ())))._tool_query_my_jobs(USER, {})
+        assert "job_id=" in mine and "暂无出图记录" not in mine
+        theirs = await inf.orch(StubTextLLM(("", ())))._tool_query_my_jobs(OTHER, {})
+        assert "暂无出图记录" in theirs  # 他人查不到本人的单
+
+    asyncio.run(_impl())
