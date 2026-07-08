@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0052
 title: 套图白底图被用户 styling/场景 prompt 污染——「纯白无背景」压不过强场景描述
-status: 待验证        # dev 档A组装侧完成(白底剥离用户文本)、门禁绿；待本波次 QA 真图抽验(带强场景白底仍纯白)
+status: 已关闭        # 档A组装侧上线+prod真图抽验双向PASS(强场景下白底纯白+文字保真、场景图未误伤)
 severity: P2          # 高 P2：白底图=平台主图合规向核心图型，80% 命中率、影响旗舰套图质量；但非资损/非阻断（图仍出、只是背景错）
 reporter: 开发        # /showcase 子 agent 生成 5 套精选时发现（coordinator #933④ 转述）
-owner: coordinator    # dev 组装侧完成→编排本波次 QA 真图抽验；prompt 卡措辞强化=可选后续(不阻口径)
+owner: —              # 已关闭：档A剥离生效、双向PASS；prompt卡措辞强化=可选后续backlog(不阻)
 created: 2026-07-02
 updated: 2026-07-07
 related:
@@ -55,3 +55,5 @@ related:
   **关账 gate = key 恢复后 ¥2 真图抽验**（带强场景 styling 的套图，验白底纯白 + 场景/卖点不误伤），coordinator 直接在 prod 跑（省 qa 一轮）。
   当前 P0 事故（ISSUE-0056 apinebula 平台侧）致出图断 → 真图抽验**阻塞在 key 恢复**。status 维持**待验证**、owner=coordinator。
   key 恢复 → coordinator prod ¥2 抽验绿 → PM 关账 0052。**卡措辞强化**仍待 prompt 窗口（可选、不阻本口径）。
+- 2026-07-08 [coordinator+PM] **✅ prod 真图抽验双向 PASS、关账（#1094）**：出图恢复后 coordinator prod 真图抽验（强场景 styling=**海边沙滩椰树**）——
+  ① **白底图纯白如洗 + 文字全保真**（档 A 剥离用户自由文本生效、白底不吃场景）；② **场景图海滩氛围拉满**（用户文本**未误伤**、场景/卖点正常吃 styling）。**双向 PASS**（该剥的剥、该留的留），评图证据 coordinator 人工核、图存 /tmp/0052-*.png 归档 image-qa。**PM 关账**：档 A 组装侧（`8eeb6b8`）prod 真图坐实 → status→**已关闭**。**卡措辞强化**=可选后续 backlog（不阻、本口径已达成）。

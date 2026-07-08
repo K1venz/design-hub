@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0056
 title: 【P0 生产事故】apinebula 图像 key 失效（401 Invalid token）→ prod 出图中断
-status: 修复中        # coordinator 已定位+通知用户处理 apinebula 后台；待用户提供新 key/充值 → coordinator 旋转两处 env 实测恢复
+status: 已关闭        # 出图恢复实证(用户提供gpt-image-2-1k分组新令牌×2→coordinator旋转prod/qa env→prod两单5张成功¥2.0)；事故闭环
 severity: P0          # 生产阻断：prod 出图能力中断（核心功能不可用）；但幸运窗口零真实用户撞上（见时间线）
 reporter: coordinator  # 0054/0052 QA 轮 qa 出图卡「生成中」暴露、coordinator 定位（#995）
-owner: coordinator    # 运维处置中；关键路径**阻塞在用户 apinebula 后台操作**（余额/换 key）
+owner: —              # 已关闭：根因=令牌分组、解法=新分组令牌+旋转env、prod出图恢复实证
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-08
 related:
   - issue: ISSUE-0055（连带代码缺陷：provider 对 4xx 也重试→掩盖成「永远生成中」，P1 owner=dev）
   - issue: ISSUE-0047（套图失败落地=fail-closed 下游配合）
@@ -54,3 +54,5 @@ related:
 - 2026-07-07 [PM] **事故根因坐实修正**（coordinator #999 实证 + dev #998/#1000 对齐）：复现单 852f6176 实测上游 **500**（apinebula new-api 上游渠道故障、后漂移成 401）→
   **根因=apinebula 平台侧不稳、非我们代码/非 key 配置错**；我们代码正确 fail-closed 落败（0047 已生效），两单僵尸=容器重启孤儿（归 0050）。初判「4xx 被重试/永远生成中」撤回。
   连带缺陷 ISSUE-0055 收窄=持久 5xx 无总重试墙钟 + 错误文案未人话化（非「4xx 不重试」）。**用户动作不变**：apinebula 后台核**余额/渠道/key**（现 /images/edits 返 401、需用户处理）。恢复路径不变。
+- 2026-07-08 [coordinator] **401 根因文档实锤（用户给 apinebula 官方文档）**：apinebula 把 gpt-image-2 归入「**gpt-image-2-1k 令牌分组**」→ 旧令牌不在新分组=Invalid token（非余额/非代码）。**解法=用户控制台新建 gpt-image-2-1k 分组令牌**。
+- 2026-07-08 [coordinator+PM] **✅ 出图恢复实证、事故闭环关账（#1094）**：用户提供 gpt-image-2-1k 分组新令牌×2 → coordinator 旋转 prod=KeyA/qa=KeyB → **prod 真图两单共 5 张成功出图**（新 key 生效、¥2.0 恰在预算）。**PM 关账**：P0 生产事故全程闭环——根因（令牌分组）坐实 + 解法（新分组令牌+旋转 env）+ prod 出图恢复实证；**幸运窗口零真实用户撞上**。status→**已关闭**。⚠️ **遗留观察**（非本条、另 ISSUE-0063）：新 key 分组限流比旧紧（并发 3→2/5 失败、已调 LISTING_CONCURRENCY=1 串行）；升级选项=image2-vip 分组待用户拍。
