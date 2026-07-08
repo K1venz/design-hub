@@ -29,6 +29,7 @@ class ListingJobSummary:
     first_image_key: str | None
     image_count: int
     edit_mode: str | None = None  # delta|full；None=原生单（列表 ✎ 徽标，PRD §3.12.13 B③）
+    category: str | None = None  # 品类档（ISSUE-0060）；None=编辑单/旧数据
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class ListingJobDetail:
     completed_at: datetime | None
     images: tuple[ListingJobImageView, ...]
     input_keys: tuple[str, ...]
+    category: str | None = None  # 品类档（ISSUE-0060）：配方复用回填；None=编辑单/旧数据
     # 爆款复刻（PRD §3.13）：档位（None=非复刻）+ 输入图角色（与 input_keys 同序；None=旧数据）
     clone_mode: str | None = None
     input_roles: tuple[str | None, ...] = ()

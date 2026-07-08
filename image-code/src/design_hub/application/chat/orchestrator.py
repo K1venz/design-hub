@@ -414,9 +414,10 @@ class ChatOrchestrator:
         plan = Counter(im.image_type for im in detail.images if im.image_type)
         plan_str = "、".join(f"{t}×{c}" for t, c in plan.items()) or f"单图 {detail.n} 张"
         platform = (detail.modifiers or {}).get("platform", "未指定")
+        category = detail.category or "未指定"
         return (
             f"这单（job_id={detail.job_id}）的配方（可复用）：\n"
-            f"- 比例：{detail.ratio}\n- 图型配比：{plan_str}\n"
+            f"- 品类：{category}\n- 比例：{detail.ratio}\n- 图型配比：{plan_str}\n"
             f"- 风格描述：{detail.prompt}\n- 平台：{platform}\n"
             "要用这套配置再出一套，就用这些参数调 generate（仍会先报预计费用等用户确认）。"
         )

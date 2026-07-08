@@ -182,6 +182,7 @@ class ListingGenerationCommand(ListingCommand):
             size=size,
             n=self._requested(),
             upload_keys=self.upload_keys,
+            category=self.category,
         )
 
 
@@ -265,4 +266,5 @@ class CloneCommand(ListingCommand):
             upload_keys=self.upload_keys,
             input_roles=self._roles(),
             clone_mode=self.clone_mode,
+            category=self.category,
         )
