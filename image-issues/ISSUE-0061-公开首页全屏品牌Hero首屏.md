@@ -43,8 +43,8 @@ related:
 
 ## 范围外（YAGNI）
 多主题切换 / Hero 视频背景 / 参考件的触摸劫持行为（明确不搬）。
-## 待澄清（用户）
-- **副 CTA「看看实朴出的图」目标**：当前跳 `/home`（成果区）；用户提过「专门案例页」概念——**待用户明确是否要独立案例页 vs /home 成果区已足**。PM 已向用户请澄清；要独立案例页则另立需求，不阻本条部署（暂跳 /home 兜底可用）。
+## ~~待澄清（用户）~~ ✅ 已消解（用户换版 MarqueeHero）
+- ~~副 CTA「看看实朴出的图」目标~~ **消解**：用户 2026-07-08 拍板把 Hero 换成 **MarqueeHero 版**（单 CTA「开始创作」→/home、无副 CTA）→ **案例页 loose end 自然消失、无需再问用户**（frontend-b #1115）。
 
 ## 处理记录
 - 2026-07-08 [PM] 用户给参考件提需求（coordinator #1078 消化成规格派 frontend-b）→ PM 入档：落 PRD §3.14 首屏增补 + 开本条。
@@ -57,3 +57,5 @@ related:
 - 2026-07-08 [frontend-b] **跟进修复 `68e72be`**（PM #1100 smoke 提醒点中）：路由改版后 Login/Register 的 backTo **无 from 默认从 `/`（现=营销 Hero）改回 `/home`（工作首页）**（带 from 回跳/prefill/q 随行不变）+ 404/403/协议页「返回首页」链接同步 /home。Playwright 实证注册成功落 /home、门禁绿。**Hero 波带 2d8f26f + 68e72be 一起**；smoke 三条（登录落 /home / 未登录见 Hero / 深链不 404）应全绿。
 - 2026-07-08 [coordinator+PM] **✅ 上线 prod + 关账推进（#1110）**：从 main HEAD 构建（68e72be+2d8f26f 天然同包，bundle `index-JLOHJ2ij`）→ **真浏览器 smoke 三条全绿**：未登录 `/`=Hero（canvas 在、无工作台内容）✓ / 登录**落 /home**（实测 URL）✓ / 深链 /history 不 404 ✓。**PM 状态机推进：待验证 → 已修复，owner→PM**——**用户已实机确认「效果很好」（=最硬验收）+ prod smoke 三条全绿**，Hero 首屏闭环。落 PRD §3.14 转 ✅ 已上线。
   **唯一 loose end = 副 CTA 案例页待用户明确**（当前跳 /home 成果区兜底可用）：用户答「/home 够了」→ PM 终关 0061；用户要「独立案例页」→ PM 另立需求、0061 本条即可终关（案例页归新条）。PM 已向用户请澄清。
+- 2026-07-08 [frontend-b+PM] **⚠️ 用户选型换版：Hero → MarqueeHero 版（`d7c22a6`+`a49115a`+`641c85f` 三颗一波，#1115）**：用户给 **21st.dev hero-3** 参考件、frontend-b 用项目栈重实现（白底 + 文字栈逐词 reveal + 描述半叠走马灯 + CTA 浮图上 + **底部实拍图无限走马灯**·渐隐 mask·卡片旋转错落），**用户对比后拍板「这个更好看」替换 index**。要点：① 走马灯=**12 张实朴真实出图转码 512px jpeg 打包 assets**（784KB、prod 可用、**零 API 依赖**）；② **初版彩带光轨（HeroLanding/RibbonCanvas）退役删除**（git 可回溯）；③ **单 CTA「开始创作」→/home**=用户选定布局 → **副 CTA 案例页 loose end 消解**（无需再问用户）。门禁四件套全绿 + Playwright 实证（/ 渲染新版 / 24 卡加载 / CTA→/home）。
+  **本条状态**：Hero 概念已上线（初版 index-JLOHJ2ij），**最终版=MarqueeHero（d7c22a6）待纯前端波部署**（coordinator 从 main HEAD 构建）→ **上线 + smoke 绿后 PM 终关 0061**（案例页已消解、无 loose end）。owner→coordinator（部署）→PM（终关）。status 保持已修复。
