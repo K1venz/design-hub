@@ -17,7 +17,7 @@ export function NotFoundPage() {
         </p>
       </div>
       <Button asChild variant="outline">
-        <Link to="/">返回首页</Link>
+        <Link to="/home">返回首页</Link>
       </Button>
     </div>
   )

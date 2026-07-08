@@ -34,11 +34,11 @@ const STRENGTH_META = [
   { label: '强', tone: 'bg-emerald-500', bars: 3 },
 ] as const
 
-/** 登录墙回跳目标（与登录页同源）。 */
+/** 登录墙回跳目标（与登录页同源）：无 from 默认落 /home 工作首页。 */
 function backTo(location: Location): string {
   const from = (location.state as { from?: Location } | null)?.from
   if (from?.pathname) return `${from.pathname}${from.search ?? ''}`
-  return '/'
+  return '/home'
 }
 
 export function RegisterPage() {
