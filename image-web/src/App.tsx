@@ -50,6 +50,9 @@ const ClaudePreview = devLazy(() =>
 const GlassPreview = devLazy(() =>
   import('@/pages/style-preview/GlassPreview').then((m) => ({ default: m.GlassPreview })),
 )
+const Hero3Preview = devLazy(() =>
+  import('@/pages/style-preview/Hero3Preview').then((m) => ({ default: m.Hero3Preview })),
+)
 
 /**
  * 应用级用户水合：有 token 但 user 未载入时拉 /me 填 store。
@@ -174,6 +177,7 @@ function AppRoutes() {
               ['geist', GeistPreview],
               ['claude', ClaudePreview],
               ['glass', GlassPreview],
+              ['hero3', Hero3Preview],
             ] as const
           ).map(([id, Comp]) => (
             <Route
