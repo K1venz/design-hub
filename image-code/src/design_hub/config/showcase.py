@@ -71,6 +71,30 @@ _RECIPE_THROAT_PDD = Recipe(
     modifiers={"region": "中国", "language": "中文", "platform": "拼多多"},
 )
 
+# ── 4 品类真图配方（07-08 异步管线 5×3 批次评图精选，ISSUE-0060/0065）──
+# 各品类保真卡实证生效（不再万物皆花生）；统一 1:1 / 白底1+场景1+卖点1 / 淘宝天猫1688。
+_RECIPE_FASHION_TAOBAO = Recipe(
+    category="FASHION",
+    ratio="1:1",
+    plan={"白底": 1, "场景": 1, "卖点": 1},
+    styling="简约北欧风家居场景，柔和自然光，米色基调，质感高级",
+    modifiers={"region": "中国", "language": "中文", "platform": "淘宝天猫1688"},
+)
+_RECIPE_SHOES_TAOBAO = Recipe(
+    category="SHOES",
+    ratio="1:1",
+    plan={"白底": 1, "场景": 1, "卖点": 1},
+    styling="城市街头人行道，黄昏暖光，都市运动风",
+    modifiers={"region": "中国", "language": "中文", "platform": "淘宝天猫1688"},
+)
+_RECIPE_DIGITAL_TAOBAO = Recipe(
+    category="DIGITAL",
+    ratio="1:1",
+    plan={"白底": 1, "场景": 1, "卖点": 1},
+    styling="极简办公桌面，冷色调科技感，柔和棚光",
+    modifiers={"region": "中国", "language": "中文", "platform": "淘宝天猫1688"},
+)
+
 
 @dataclass(frozen=True)
 class ShowcaseEntry:
@@ -97,4 +121,9 @@ SHOWCASE_ENTRIES: tuple[ShowcaseEntry, ...] = (
     ShowcaseEntry("showcase/11.png", "卖点", "润喉糖·图上文案卖点", _RECIPE_THROAT_PDD),
     ShowcaseEntry("showcase/12.png", "场景", "花生·高山竹匾场景", _RECIPE_PEANUT_DOUYIN),
     ShowcaseEntry("showcase/13.png", "卖点", "润喉糖·蜂蜜暖调卖点", _RECIPE_THROAT_JD),
+    # 2026-07-08 品类扩展精选（异步管线批次评图，ISSUE-0060/0065）：4 品类特性生效、text-safe 3 张
+    # （美妆暂缓入选=真品牌密集小字漂移风险，coordinator #1119）。coordinator 已 TOS copy 入桶。
+    ShowcaseEntry("showcase/14.png", "场景", "连衣裙·北欧家居场景", _RECIPE_FASHION_TAOBAO),
+    ShowcaseEntry("showcase/15.png", "白底", "运动鞋·白底主图", _RECIPE_SHOES_TAOBAO),
+    ShowcaseEntry("showcase/16.png", "场景", "相机·科技感场景", _RECIPE_DIGITAL_TAOBAO),
 )
