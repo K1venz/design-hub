@@ -59,11 +59,12 @@ function ForgotPasswordDialog() {
   )
 }
 
-/** 登录墙回跳目标：ProtectedRoute 存进 state.from 的原始 location（含 query）。 */
+/** 登录墙回跳目标：ProtectedRoute 存进 state.from 的原始 location（含 query）。
+ *  无 from 默认落 /home 工作首页（`/` 已是营销 Hero 落地页，ISSUE-0061）。 */
 function backTo(location: Location): string {
   const from = (location.state as { from?: Location } | null)?.from
   if (from?.pathname) return `${from.pathname}${from.search ?? ''}`
-  return '/'
+  return '/home'
 }
 
 export function LoginPage() {

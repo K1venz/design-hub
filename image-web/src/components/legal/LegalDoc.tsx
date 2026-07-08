@@ -22,7 +22,7 @@ export function LegalDoc({
       <main className="min-h-0 flex-1 overflow-auto pb-8 pr-3">
         <article className="mx-auto w-full max-w-3xl px-4 pt-4">
           <Link
-            to="/"
+            to="/home"
             className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-wb-ink-5 transition-colors hover:text-wb-brand-deep"
           >
             <ArrowLeftIcon className="size-4" /> 返回首页
