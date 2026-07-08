@@ -17,6 +17,9 @@ related:
 - **并发 3 → 2/5 失败**；**并发 2 → 仍 3/5 失败**。
 - coordinator 已调 **`LISTING_CONCURRENCY=1`（串行）止血**——稳但慢（吞吐降）。0055 修法已让失败张人话+不全灭+按成功计费（体验兜底在）。
 
+## ⚠️ 治本升级（coordinator #1101）：转异步 = ISSUE-0065
+串行也挨限流（品类批终态全 1/3、prod 真实用户成功率 ~33%）→ coordinator 实证**异步接口 image-tasks 30s completed 零失败**=治本 → **ISSUE-0065（AsyncImageTasksProvider，P1）**。本条（0063）的串行 mitigation / image2-vip 升级 = **stopgap**，真正的解是 0065 转异步；image2-vip 仅在异步也不够时才评估。
+
 ## 处置（三层）
 1. **✅ 已止血（coordinator）**：`LISTING_CONCURRENCY=1` 串行，当前出图稳定（品类真图批串行跑 4×n3≈¥4.8）。
 2. **⏸️ 升级选项 = 待用户拍**：apinebula **image2-vip 分组**（官方文档有、档位可能更高、放开并发）——**换更高档位=成本/档位决策，需用户拍**。触发条件=串行仍抖 / 真实用户高峰体感慢。PM 已向用户点明选项。
