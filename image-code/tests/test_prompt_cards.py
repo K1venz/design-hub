@@ -24,8 +24,19 @@ def _blocks(rel: str) -> list[str]:
     return re.findall(r"```text\n(.*?)\n```", text, re.S)
 
 
-def test_food_fidelity_matches_card() -> None:
-    assert pc._FOOD_FIDELITY == _blocks("category-cards/food/通用.md")[0]
+@pytest.mark.parametrize(
+    ("folder", "const"),
+    [
+        ("food", "_FOOD_FIDELITY"),
+        ("fashion", "_FASHION_FIDELITY"),
+        ("beauty", "_BEAUTY_FIDELITY"),
+        ("shoes", "_SHOES_FIDELITY"),
+        ("digital", "_DIGITAL_FIDELITY"),
+    ],
+)
+def test_category_fidelity_matches_card(folder: str, const: str) -> None:
+    # 卡↔code 逐字闸（ISSUE-0060 扩 5 品类）：常量必等品类卡 ```text 块[0]。
+    assert getattr(pc, const) == _blocks(f"category-cards/{folder}/通用.md")[0]
 
 
 @pytest.mark.parametrize(
