@@ -6,26 +6,44 @@
 
 from fastapi import APIRouter
 
-from design_hub.interface.api.deps import AccountServiceDep, CurrentUserDep
+from design_hub.interface.api.deps import (
+    AccountServiceDep,
+    CurrentUserDep,
+    PasswordCipherDep,
+)
 from design_hub.interface.auth_schemas import (
     LoginRequest,
     LoginResponse,
     MeResponse,
+    PubKeyResponse,
     RegisterRequest,
 )
 
 router = APIRouter(tags=["auth"])
 
 
+@router.get("/auth/pubkey", response_model=PubKeyResponse)
+async def pubkey(cipher: PasswordCipherDep) -> PubKeyResponse:
+    """密码加密公钥（ISSUE-0058，公开、可缓存）：前端 WebCrypto 用它加密密码。"""
+    return PubKeyResponse(public_key=cipher.public_key_pem())
+
+
 @router.post("/auth/register", response_model=LoginResponse)
-async def register(body: RegisterRequest, svc: AccountServiceDep) -> LoginResponse:
-    token, user = await svc.register(email=body.email, password=body.password, name=body.name)
+async def register(
+    body: RegisterRequest, svc: AccountServiceDep, cipher: PasswordCipherDep
+) -> LoginResponse:
+    # 密码是 base64(RSA-OAEP) 密文 → 解密（失败 400）→ AccountService 收明文（明文长度校验在其内）
+    password = cipher.decrypt(body.password)
+    token, user = await svc.register(email=body.email, password=password, name=body.name)
     return LoginResponse(jwt=token, role=user.role, name=user.name)
 
 
 @router.post("/auth/login", response_model=LoginResponse)
-async def login(body: LoginRequest, svc: AccountServiceDep) -> LoginResponse:
-    token, user = await svc.login(email=body.email, password=body.password)
+async def login(
+    body: LoginRequest, svc: AccountServiceDep, cipher: PasswordCipherDep
+) -> LoginResponse:
+    password = cipher.decrypt(body.password)  # 解密失败 → 400 人话（旧缓存 bundle 发明文即此）
+    token, user = await svc.login(email=body.email, password=password)
     return LoginResponse(jwt=token, role=user.role, name=user.name)
 
 

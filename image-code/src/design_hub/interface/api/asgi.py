@@ -32,6 +32,7 @@ from design_hub.application.rate_limit import UserRateLimiter
 from design_hub.composition import (
     build_image_store,
     build_media_signer,
+    build_password_cipher,
     build_registry,
     build_text_llm,
     build_upload_store,
@@ -141,9 +142,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.model_config_service = model_config_service
     # 鉴权（WP-G/ISSUE-0015）：JWT 令牌服务 + 自建邮箱密码认证
     token_service = PyJwtTokenService(
-        secret=settings.jwt_secret.get_secret_value(), ttl_hours=settings.jwt_ttl_hours
+        secret=settings.jwt_secret.get_secret_value(),
+        ttl_hours=settings.jwt_ttl_hours,
+        renew_after_hours=settings.jwt_renew_after_hours,  # 滑动续期半衰期（ISSUE-0058）
     )
     app.state.token_service = token_service
+    # 密码传输公钥加密（ISSUE-0058）：私钥留服务端、GET /auth/pubkey 出公钥、登录/注册路由解密
+    app.state.password_cipher = build_password_cipher(settings)
     user_repo = SqlAlchemyUserRepository(session_factory)
     account_service = AccountService(
         users=user_repo, passwords=BcryptPasswordHasher(), tokens=token_service

@@ -1,7 +1,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Header, Request, Response
 
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
@@ -10,6 +10,7 @@ from design_hub.domain.errors import AuthenticationError, PermissionDenied
 from design_hub.domain.models import AuthUser
 from design_hub.ports.auth import TokenService
 from design_hub.ports.media_url_signer import MediaUrlSigner
+from design_hub.ports.password_cipher import PasswordCipher
 
 
 def get_media_signer(request: Request) -> MediaUrlSigner:
@@ -30,6 +31,12 @@ def get_account_service(request: Request) -> AccountService:
     return svc
 
 
+def get_password_cipher(request: Request) -> PasswordCipher:
+    cipher = request.app.state.password_cipher
+    assert isinstance(cipher, PasswordCipher)
+    return cipher
+
+
 def get_user_admin_service(request: Request) -> UserAdminService:
     svc = request.app.state.user_admin_service
     assert isinstance(svc, UserAdminService)
@@ -37,13 +44,24 @@ def get_user_admin_service(request: Request) -> UserAdminService:
 
 
 async def get_current_user(
-    request: Request, authorization: Annotated[str | None, Header()] = None
+    request: Request,
+    response: Response,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> AuthUser:
-    """解析 Bearer JWT → AuthUser；缺/坏令牌抛 AuthenticationError（边界映射 401）。"""
+    """解析 Bearer JWT → AuthUser；缺/坏令牌抛 AuthenticationError（边界映射 401）。
+
+    滑动续期（ISSUE-0058）：令牌过半衰期则把新 24h 令牌放响应头 X-Renewed-Token（前端无感换）；
+    exp 已过仍走 verify 抛 401 原路（不续过期令牌）。
+    """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise AuthenticationError("缺少 Bearer 令牌")
     token = authorization.split(" ", 1)[1].strip()
-    return get_token_service(request).verify(token)
+    svc = get_token_service(request)
+    user = svc.verify(token)  # 缺/坏/过期 → 401
+    renewed = svc.renew_if_stale(token)
+    if renewed is not None:
+        response.headers["X-Renewed-Token"] = renewed
+    return user
 
 
 async def get_current_user_sse(
@@ -63,6 +81,7 @@ async def get_current_user_sse(
 
 
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
+PasswordCipherDep = Annotated[PasswordCipher, Depends(get_password_cipher)]
 UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service)]
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]
 CurrentUserSseDep = Annotated[AuthUser, Depends(get_current_user_sse)]

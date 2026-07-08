@@ -11,19 +11,26 @@ from design_hub.ports.user_repository import UserAccount
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    # password = base64(RSA-OAEP-SHA256 密文，ISSUE-0058)；明文长度(≥8)校验在解密后 AccountService
+    password: str = Field(min_length=1)
     name: str = Field(min_length=1)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1)  # base64(RSA-OAEP-SHA256 密文，ISSUE-0058)
 
 
 class LoginResponse(BaseModel):
     jwt: str
     role: Role
     name: str
+
+
+class PubKeyResponse(BaseModel):
+    """GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。"""
+
+    public_key: str  # -----BEGIN PUBLIC KEY----- ...（SPKI，与前端 #1017 契约字段名对齐）
 
 
 class MeResponse(BaseModel):
