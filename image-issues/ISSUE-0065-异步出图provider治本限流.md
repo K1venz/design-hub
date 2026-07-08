@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0065
 title: 转异步出图（apinebula image-tasks 队列）治本同步端点限流——prod 真实用户成功率 ~33%
-status: 修复中        # coordinator 异步接口已实证(30s completed零失败)；dev 接 P1:先¥0.8前置实证→建 AsyncImageTasksProvider
+status: 待验证        # dev 建完 AsyncImageTasksProvider(335c0db·150 绿)→交 QA 验收 5 条 + coordinator 异步波部署
 severity: P1          # 真实用户当前受影响：prod 出图成功率 ~33%（同步端点过载即拒、串行 mitigation 不够）；非资损但核心功能可用性硬伤
 reporter: coordinator  # 品类批终态全 1/3 暴露、coordinator 异步接口实证（#1101）
-owner: 开发            # dev 接：先前置实证(size/input_fidelity/n 是否支持)→过则建异步 provider；ISSUE 由 PM 开
+owner: QA             # dev 修完交回；QA 验收 5 条（成功率回升/两 provider 切换/保真不回退/零回归+退款）
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -51,3 +51,9 @@ webhook 回调（先轮询）/ 异步批量并发编排 / 多中转站负载均�
   ① **size 尊重**（请求 1536x1024→返回实测 1536x1024，PNG IHDR 解析）=**非 1:1 死穴解除、PM 无需产品取舍**；② **n=2→只返 1 张**（同步一致、全链 n=1 免疫）；③ **input_fidelity=high 接受**；④ **真实产品图 TOS 预签 URL worker 拉取成功**（upload 存储=TOS 非本地代理、#1104 分支①成立、`MediaUrlSigner.upload_url` 直用）。任务 70s 完成、全程零「临时繁忙」。
   **接口契约 shape 定稿**：`POST /v1/image-tasks/edits`（JSON `{model,prompt,quality:high,size:WxH,input_fidelity:high,images:[{image_url}]}`、Bearer、服务端自动 async=true）→ 提交返 `{task_id,status:queued}` → 轮询 `GET /v1/image-tasks/{task_id}?detail=true`（枚举 queued/in_progress/completed/failed、10s 节奏、建议 5-10s 沿 retry_max_elapsed 墙钟、超时穷尽 fail-closed）→ 完成体 `detail.data[].download_url`（cdnimage.apinebula.com 公网直拉 bytes→ImageStore）、失败体 `error.message`、**失败/取消按预扣退款**。
   **端口演进提案 coordinator 预 GO**（reference bytes→现签 URL、provider_type 走 0057 注册表两存）→ dev 出一页 coordinator 快速过即动码。**PM 侧无产品取舍待拍**（size 已解）——候场等 dev 建完 → QA 验收 5 条 → 异步波部署 → 品类真图批重跑。owner=开发（实现）。
+- 2026-07-08 [开发] **✅ AsyncImageTasksProvider 建完（335c0db，150 绿 + 1 已知完全复刻 HOLD red，ruff 净，openapi 无变）**。端口演进提案先入档 `docs/0065-async-image-provider-port-design.md`（866b4ed），coordinator #1112 过 3 点（launcher 分支/MVP 不重投/并发解耦）后落码：
+  ① 端口 `reference_images: list[bytes]→list[ReferenceImage]`（domain VO data|url）+ `AbstractModelProvider.reference_mode` 声明模态；解析留 launcher（注入 MediaUrlSigner）按模态只物化——**url 模态签公网 URL 不白载字节**、bytes 模态载字节；同步 provider 读 .data、异步读 .url，各 fail-fast 装配错；三路（generate/clone/edit）+ service/commands 透传，edit 源图走 generated_url。
+  ② `AsyncImageTasksProvider`（`infrastructure/providers/apinebula_async.py`）：submit→轮询（沿 `gpt_image_async_poll_max_elapsed` 墙钟穷尽 fail-closed）→download_url 拉字节（**不带 Bearer 不泄 key 给 CDN**）→ImageStore；over-deliver 截断同 0045；failed=fail-closed 不重投（上游自动退款）。HTTP 状态分流/退避/compose 抽 `_openai_common` 单一事实源。
+  ③ 0057 接入：`composition` 按 `default_config.provider_type=apinebula_async_image` 分派、连接解析复用、与同步并存=备用渠道。settings 加 `gpt_image_async_poll_interval/max_elapsed`。
+  ④ 测：6 条 async 契约（submit shape/轮询状态机/download 落存不泄 key/failed fail-closed/墙钟穷尽/模态装配错）。
+  **⚠️ 部署激活步骤（coordinator/QA 注意）**：本条**无 DB 迁移**，代码上线后 prod **仍走同步**（seed 默认 provider_type=`openai_compat_image`）；**激活异步=管理员在 0057 配置页新增/设默认一行 provider_type=`apinebula_async_image`（base_url=apinebula /v1、model=gpt-image-2、api_key_env 指 KeyA）+ 重启**；**回退=切默认回同步行+重启**（备用渠道）。状态→待验证，owner=QA。
