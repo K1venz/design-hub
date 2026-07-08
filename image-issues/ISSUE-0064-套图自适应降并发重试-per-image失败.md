@@ -1,5 +1,5 @@
 ---
-id: ISSUE-0063
+id: ISSUE-0064
 title: 套图自适应降并发重试——per-image 429 失败时动态降并发（新 key 分组限流更紧）
 status: 挂起          # backlog：当前静态 LISTING_CONCURRENCY=1 已稳，非阻断，择机做
 severity: P3
@@ -8,6 +8,7 @@ owner: 开发
 created: 2026-07-08
 updated: 2026-07-08
 related:
+  - issue: ISSUE-0063（母条·PM 新 key 分组限流观察 / 串行 mitigation；本条=其点名的 dev 实现 backlog）
   - code: image-code/src/design_hub/application/listing/listing_service.py（并发 Semaphore）
   - code: image-code/src/design_hub/infrastructure/providers/openai_compat.py（provider 层 429 重试）
   - issue: ISSUE-0047（套图并发打满 429=静态 concurrency 缓解）
@@ -45,3 +46,6 @@ provider 层已有 429 抖动退避重试（ISSUE-0047/0055）——治**单请�
 - 2026-07-08 [开发] coordinator #1094 出图恢复实测新 key 分组限流更紧、建议记 backlog；
   开条登记设计方向。当前 LISTING_CONCURRENCY=1 已稳、非阻断 → status=挂起(backlog)，
   待吞吐成为痛点或多渠道并用时再择机实现。
+- 2026-07-08 [开发] **本条原编号 0063，与 PM 并发新开的 ISSUE-0063（限流观察/串行 mitigation）
+  撞号**（全局计数器 race）；dev 主动改本条为 0064=PM 0063 点名的「dev 实现 backlog」子条，
+  避免撞号；PM 0063 保持不动（已被 #1096 引用）。
