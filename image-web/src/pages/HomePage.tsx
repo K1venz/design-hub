@@ -14,7 +14,7 @@ import {
 import { showcaseRecipeToPrefill } from '@/lib/recipe'
 import { useAuthStore } from '@/stores/auth-store'
 
-/** 实朴新公开首页（`/`，未登录可浏览）：Hero 对话入口 + 工具区 + 成果区 + Footer。 */
+/** 实朴项目首页（`/home`，未登录可浏览）：对话入口 + 工具区 + 成果区 + Footer。 */
 export function HomePage() {
   return (
     <AppShell>

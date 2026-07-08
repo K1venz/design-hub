@@ -21,7 +21,7 @@ interface NavEntry {
 // 决策 2（spec §二.2）：左侧导航按实朴真实能力映射。首页公开，其余为保护项
 // （未登录点击 → ProtectedRoute 带回跳去登录）。管理组仅 manager 可见。
 const PRIMARY: NavEntry[] = [
-  { to: '/', label: '首页', icon: HomeIcon, end: true },
+  { to: '/home', label: '首页', icon: HomeIcon, end: true },
   { to: '/chat', label: '帮我设计', icon: WandSparklesIcon, badge: '内测' },
   { to: '/set', label: '商品套图', icon: LayersIcon },
   { to: '/clone', label: '爆款复刻', icon: FlameIcon },
@@ -66,7 +66,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
       <NavLink
-        to="/"
+        to="/home"
         onClick={onNavigate}
         className="mb-3 flex items-center gap-2 px-2 pt-1 font-semibold tracking-[-0.01em] text-wb-ink-1"
       >
