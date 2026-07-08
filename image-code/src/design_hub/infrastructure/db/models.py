@@ -31,6 +31,13 @@ class ModelConfig(Base):
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # 配置大模型（ISSUE-0057 档A 注册表制，用户亲签 schema）：每行=一个可用出图模型的连接配置。
+    provider_type: Mapped[str] = mapped_column(String(32), default="openai_compat_image")
+    base_url: Mapped[str] = mapped_column(String(255), default="")  # 中转站 endpoint
+    model: Mapped[str] = mapped_column(String(64), default="")  # 传给上游 API 的模型 id
+    # A1 密钥不入库：仅存持有真 key 的环境变量名（真 key 留 server .env、chmod600）
+    api_key_env: Mapped[str] = mapped_column(String(64), default="")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)  # 出图默认模型（恰一 true）
 
 
 class CostLedgerEntry(Base):

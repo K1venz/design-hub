@@ -16,7 +16,9 @@ from design_hub.ports.model_config_repository import ModelConfigRecord, ModelCon
 
 def _to_record(row: ModelConfig) -> ModelConfigRecord:
     return ModelConfigRecord(
-        name=row.name, unit_cost=row.unit_cost, enabled=row.enabled, extra=dict(row.extra)
+        name=row.name, unit_cost=row.unit_cost, enabled=row.enabled, extra=dict(row.extra),
+        provider_type=row.provider_type, base_url=row.base_url, model=row.model,
+        api_key_env=row.api_key_env, is_default=row.is_default,
     )
 
 
@@ -69,7 +71,9 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
                     continue
                 session.add(
                     ModelConfig(
-                        name=d.name, unit_cost=d.unit_cost, enabled=d.enabled, extra=dict(d.extra)
+                        name=d.name, unit_cost=d.unit_cost, enabled=d.enabled, extra=dict(d.extra),
+                        provider_type=d.provider_type, base_url=d.base_url, model=d.model,
+                        api_key_env=d.api_key_env, is_default=d.is_default,
                     )
                 )
                 added = True
