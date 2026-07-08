@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from design_hub.application.chat.pending_store import PendingAction, PendingStore
+from design_hub.application.chat.system_prompt import default_system_prompt
 from design_hub.application.listing.job_launcher import ListingJobLauncher
 from design_hub.application.listing.requests import (
     CloneRequest,
@@ -37,27 +38,10 @@ from design_hub.ports.text_llm import (
     ToolSpec,
 )
 
-_SYSTEM_PROMPT = """你是「实朴电商图片工作站」的设计助手，通过对话帮用户出电商商品图。
-你有三个工具（都是异步出图；出图前系统会显示预计费用并等用户确认）：
-- generate：出图。单图流填 n（1..7 张）；套图填 plan（图型→张数，
-  图型只能是 白底/场景/卖点，Σ 3..10）；n 与 plan 互斥、恰填其一。
-  需要 upload_ids（用户上传的产品图，1..3 张）。
-- clone：爆款复刻。product_upload_ids 恰 1 张 + reference_upload_ids 爆款参考 1..2 张；
-  clone_mode 为『参考风格』或『高度复刻』。
-- edit：二次编辑已产出的图。需 source_image_key + prompt + edit_mode（delta 微调 / full 重做）。
-参数约束（必须遵守）：
-- ratio 只能取 1:1 / 3:4 / 9:16 / 16:9 之一；用户没指定就默认填 "1:1"。
-- category 默认 "FOOD"（食品），除非用户明确是别的品类。
-- generate 的 n 取 1..7；套图 plan 图型只能是 白底/场景/卖点、Σ 3..10。
-规则：
-1. 信息不全（缺是否有产品图等）先用自然语言追问澄清，别乱猜。
-2. **绝不要把问题、占位符或「请问…」之类的文字填进任何工具参数**。必填字段
-   （尤其 upload_ids、ratio）不确定时，用自然语言追问，**不要调用工具**。
-3. 只输出工具参数这类结构化字段；prompt 字段填用户的自然语言意图即可，
-   不要自己编写发给图像模型的最终提示词。
-4. 每轮系统会在用户消息里以 [系统备注] upload_ids=... 告诉你本轮可用的产品图 id，
-   调用工具时把这些 id **原样**填进 upload_ids/product_upload_ids。
-"""
+# 长会话上下文裁剪（A3）：LLM 上下文超此消息数 → 只带首条(原始诉求) + 最近若干；
+# DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
+_CONTEXT_MAX_MESSAGES = 40
+_CONTEXT_HEAD = 1
 
 
 @dataclass(frozen=True)
@@ -69,13 +53,25 @@ class ChatEvent:
 
 
 def _tool_specs() -> list[ToolSpec]:
-    # 工具参数 schema 直接取自请求 DTO（单一事实源，与 launcher 校验同源）
+    # 工具参数 schema 直接取自请求 DTO（单一事实源，与 launcher 校验同源）。
+    # description 强调「信息齐全才调用、缺必填先追问、别把占位问句填进参数」（A3 降残余风险）。
     return [
         ToolSpec(
-            "generate", "出图：单图流(n)或套图(plan)", ListingGenerateRequest.model_json_schema()
+            "generate",
+            "出图（单图流 n 或套图 plan）。仅当已拿到产品图 upload_ids 且比例/张数等必填项"
+            "明确时调用；缺任一必填项先用自然语言追问、不要调用。",
+            ListingGenerateRequest.model_json_schema(),
         ),
-        ToolSpec("clone", "爆款图复刻", CloneRequest.model_json_schema()),
-        ToolSpec("edit", "二次编辑已产出的图", EditRequest.model_json_schema()),
+        ToolSpec(
+            "clone",
+            "爆款图复刻。需产品图 1 张 + 爆款参考图 1..2 张 + clone_mode；未集齐先追问、不要调用。",
+            CloneRequest.model_json_schema(),
+        ),
+        ToolSpec(
+            "edit",
+            "二次编辑已产出的图。需 source_image_key + 编辑指令；用户未明确要改哪张/怎么改先追问。",
+            EditRequest.model_json_schema(),
+        ),
     ]
 
 
@@ -85,7 +81,11 @@ def _title(message: str) -> str:
 
 
 def _to_llm_messages(transcript: ChatTranscript) -> list[ChatMessage]:
-    """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。"""
+    """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。
+
+    长会话裁剪（A3）：超 _CONTEXT_MAX_MESSAGES 条 → 首条(原始诉求) + 最近若干 + 一行省略备注，
+    控 token/成本；DB 转录本身仍全量存（get_transcript 不变）。
+    """
     out: list[ChatMessage] = []
     for m in transcript.messages:
         content = m.content
@@ -93,7 +93,12 @@ def _to_llm_messages(transcript: ChatTranscript) -> list[ChatMessage]:
             note = ",".join(m.attachment_upload_ids)
             content = f"{content}\n\n[系统备注] 本轮可用产品图 upload_ids={note}"
         out.append(ChatMessage(role=m.role, content=content))
-    return out
+    if len(out) <= _CONTEXT_MAX_MESSAGES:
+        return out
+    elided = ChatMessage(
+        role="user", content="[系统备注] 为控制长度，中间若干轮对话已省略，以下为最近对话。"
+    )
+    return [*out[:_CONTEXT_HEAD], elided, *out[_CONTEXT_HEAD - _CONTEXT_MAX_MESSAGES :]]
 
 
 @dataclass
@@ -106,6 +111,8 @@ class ChatOrchestrator:
     pending: PendingStore
     max_session_jobs: int = 5  # 会话级出图闸（#884②）
     image_model: ModelName = ModelName.GPT_IMAGE_2
+    # 四段 system prompt（persona/知识库/工具契约/守则，A3）：启动组装缓存，可注入便于测试
+    system_prompt: str = field(default_factory=default_system_prompt)
     _tools: list[ToolSpec] = field(default_factory=_tool_specs)
 
     async def handle_message(
@@ -131,7 +138,7 @@ class ChatOrchestrator:
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         assert transcript is not None  # 刚 owner-check + append，必存在
         llm_messages = [
-            ChatMessage(role="system", content=_SYSTEM_PROMPT),
+            ChatMessage(role="system", content=self.system_prompt),
             *_to_llm_messages(transcript),
         ]
 
@@ -276,7 +283,7 @@ class ChatOrchestrator:
             content=f"（系统提示）刚才的出图已{summary}，请用一句自然的话向用户收尾，不要再调用工具。",
         )
         history = _to_llm_messages(transcript) if transcript is not None else []
-        llm_messages = [ChatMessage(role="system", content=_SYSTEM_PROMPT), *history, note]
+        llm_messages = [ChatMessage(role="system", content=self.system_prompt), *history, note]
         closing = ""
         try:
             async for chunk in self.text_llm.complete(messages=llm_messages, tools=[]):
