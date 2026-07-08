@@ -34,6 +34,8 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         base_url: str,
         api_keys: list[str],
         model: str,
+        input_fidelity: str = "",
+        response_format: str = "",
         image_store: ImageStore | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 180.0,
@@ -51,6 +53,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._api_keys = api_keys
         self._key_idx = 0  # 多 key round-robin 游标
         self._model = model
+        # 出图协议增强（apinebula 文档，coordinator #1092）：空串=不发该参数（保测/CI 旧行为）。
+        # input_fidelity 仅 edits 端点发（保真）；response_format 两端点发（b64 自包含返回）。
+        self._input_fidelity = input_fidelity
+        self._response_format = response_format
         self._image_store = image_store
         self._client = client
         self._timeout = timeout
@@ -137,9 +143,13 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     async def _generate(
         self, prompt: str, size: str, n: int, quality: str | None = None
     ) -> httpx.Response:
-        payload = {"model": self._model, "prompt": prompt, "n": n, "size": size}
+        payload: dict[str, Any] = {
+            "model": self._model, "prompt": prompt, "n": n, "size": size
+        }
         if quality:
             payload["quality"] = quality
+        if self._response_format:  # 两端点发（input_fidelity 仅 edits，generations 不发）
+            payload["response_format"] = self._response_format
         return await self._request_json(f"{self._base_url}/images/generations", payload)
 
     async def _edit(
@@ -150,6 +160,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         data = {"model": self._model, "prompt": prompt, "n": str(n), "size": size}
         if quality:
             data["quality"] = quality
+        if self._response_format:  # 自包含 b64 返回，消 url 过期变数
+            data["response_format"] = self._response_format
+        if self._input_fidelity:  # 仅 edits：保留产品阴影/高光/透视/文字（保真核心）
+            data["input_fidelity"] = self._input_fidelity
         files = [
             ("image[]", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
         ]
