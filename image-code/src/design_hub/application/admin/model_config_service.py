@@ -31,13 +31,34 @@ class ModelConfigService:
         unit_cost: Decimal | None = None,
         enabled: bool | None = None,
         extra: Mapping[str, Any] | None = None,
+        provider_type: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key_env: str | None = None,
     ) -> ModelConfigRecord:
         # 非 I/O 业务校验：fail-fast（单价不得为负）
         if unit_cost is not None and unit_cost < 0:
             raise ValueError("单价不能为负")
         return await self.repo.update(
-            name, unit_cost=unit_cost, enabled=enabled, extra=extra
+            name, unit_cost=unit_cost, enabled=enabled, extra=extra,
+            provider_type=provider_type, base_url=base_url, model=model,
+            api_key_env=api_key_env,
         )
+
+    async def create(self, record: ModelConfigRecord) -> ModelConfigRecord:
+        # ISSUE-0057：新增一个可用模型配置（A1 密钥不入库、record.api_key_env 只存 env 名）。
+        if record.unit_cost < 0:
+            raise ValueError("单价不能为负")
+        if not record.name.strip():
+            raise ValueError("模型名不能为空")
+        return await self.repo.create(record)
+
+    async def delete(self, name: str) -> None:
+        await self.repo.delete(name)
+
+    async def set_default(self, name: str) -> ModelConfigRecord:
+        """设为默认出图模型（唯一性由 repo 事务保证）。备用渠道切换=改默认，治 0056 单点。"""
+        return await self.repo.set_default(name)
 
     async def seed_defaults(self, defaults: Sequence[ModelConfigRecord]) -> None:
         await self.repo.seed_defaults(defaults)

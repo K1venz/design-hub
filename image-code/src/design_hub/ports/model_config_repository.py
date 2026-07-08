@@ -51,8 +51,28 @@ class ModelConfigRepository(ABC):
         unit_cost: Decimal | None = None,
         enabled: bool | None = None,
         extra: Mapping[str, Any] | None = None,
+        provider_type: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key_env: str | None = None,
     ) -> ModelConfigRecord:
-        """部分更新（仅改传入字段）。name 不存在 → NotFoundError（边界映射 404）。"""
+        """部分更新（仅改传入字段）。name 不存在 → NotFoundError（边界映射 404）。
+        is_default 不走本方法（有唯一性语义，走 set_default）。"""
+        ...
+
+    @abstractmethod
+    async def create(self, record: ModelConfigRecord) -> ModelConfigRecord:
+        """新增一行。name 已存在 → DomainError（边界映射 409）。"""
+        ...
+
+    @abstractmethod
+    async def delete(self, name: str) -> None:
+        """删一行。name 不存在 → NotFoundError（404）。"""
+        ...
+
+    @abstractmethod
+    async def set_default(self, name: str) -> ModelConfigRecord:
+        """设为默认出图模型（事务内清其余 is_default、置本行）。name 不存在 → NotFoundError。"""
         ...
 
     @abstractmethod
