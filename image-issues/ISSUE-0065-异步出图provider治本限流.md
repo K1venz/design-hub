@@ -17,12 +17,13 @@ related:
 - **现状**：新 key 分组（gpt-image-2-1k）同步端点 `/images/edits` **限流紧**——并发失败、串行也挨限流（品类批终态**全 1/3**）；**prod 真实用户出图成功率 ~33%**=核心功能可用性硬伤。
 - **实证治本**：同一把 KeyA，**异步任务接口** `POST /v1/image-tasks/edits`（JSON、images 传 **URL**）→ queued → **30 秒 completed 拿 download_url、零失败**。结论=同步端点过载即拒、**异步排队消化**；还带**失败自动退款**。→ **转异步是治本**（非 image2-vip 升级/串行 stopgap）。
 
-## ⚠️ 前置实证（dev 先做、别盲建，≈¥0.8）
-异步 edits 是否**尊重**以下参数（文档未列全，不支持则方案要重估）：
-1. **`size`（如 `1536x1024`）**——⚠️ 若不支持=**非 1:1 比例全废**，整个方案重估（**这条最关键**）。
-2. **`input_fidelity`**（产品/文字保真核心价值，734f24b 同款）。
-3. **`n`**（我们全链恒 1，确认异步同语义）。
-> 实证不过（尤其 size）→ 停下重估、报 PM/coordinator，别硬建。
+## ⚠️ 前置实证（dev 先做、别盲建，≈¥0.8，**四问**）
+异步 edits 是否**尊重/可行**（文档未列全，不支持则方案要重估）——**必须用一张真实 product upload 的现签 URL 验**（非随手公网图，否则「假通过」）：
+1. **`size`（如 `1536x1024`）**——⚠️ 若不支持=**非 1:1 比例全废**（**size 结果 dev 第一时间 @PM，PM 预载产品取舍：异步只保 1:1 / 非 1:1 留同步 provider**）。
+2. **⚠️ 参考图 URL 可达性（dev #1104，同等致命）**——异步端点是 apinebula 服务端**回拉 images URL**，该 URL 须**公网可达+无需我方鉴权**；但我们产品图现走 `GET /uploads/{id}` **带 Bearer 鉴权代理**、**apinebula worker 拉不到**。⚠️ **我们出图全链走 /images/edits 带产品图**（保真靠 edits 端点）→ **URL 可达性影响所有出图、非仅复刻/编辑**。三结局：① prod 走 TOS 预签名（公网可达+签名有效期）→ `MediaUrlSigner.upload_url` 直用、方案成立；② nginx /img 对象公开可读→需实测；③ 鉴权代理后不公开→需给参考图开**临时公网只读通道**（presigned/临时 token URL）或改 submit 传 **base64**（**显著改端口设计**、scope 上升）。
+3. **`input_fidelity`**（产品/文字保真核心价值，734f24b 同款）。
+4. **`n`**（我们全链恒 1，确认异步同语义）。
+> 四问任一不过（尤其 size / URL 可达性）→ 停下重估、报 PM/coordinator，别硬建。端口演进提案按实证结论分支写。
 
 ## 实现（实证过后，dev）
 - 新 `provider_type = apinebula_async_image` → **0057 注册表映射**（配置页切换即用、**与同步 provider 两存**、同步保留=备用渠道）。
@@ -30,7 +31,7 @@ related:
 - 失败自动退款语义对齐现有 fail-closed 计费。
 
 ## 验收标准（QA）
-1. **前置实证**：size/input_fidelity/n 支持结论明确入档（尤其 size 尊重非 1:1）。
+1. **前置实证（四问）**：size / **参考图 URL 可达性** / input_fidelity / n 结论明确入档（用真实 product upload 现签 URL 验；尤其 size 尊重非 1:1 + apinebula worker 能拉到我方鉴权代理后的产品图）。
 2. **异步出图成功率**：真实/mock 队列场景成功率显著回升（对比同步 ~33%）、30s 级完成、无僵尸。
 3. **两 provider 并存**：0057 配置页切默认在同步/异步间切换即生效（异步治本、同步备用）。
 4. **保真不回退**：input_fidelity 生效（产品/文字保真）、size/比例正确。
@@ -43,3 +44,6 @@ webhook 回调（先轮询）/ 异步批量并发编排 / 多中转站负载均�
 - 2026-07-08 [coordinator+PM] 品类批终态全 1/3 暴露 prod 真实用户 ~33% 成功率（同步端点限流、串行不够）→ coordinator 实证异步接口 image-tasks（30s completed 零失败+自动退款）=治本 → PM 开条挂账 **P1**（真实用户核心功能可用性）。
   **dev 接**：① 先 ≈¥0.8 前置实证（size/input_fidelity/n 是否支持、尤其 **size 非 1:1 是死穴**）；② 过则建 `apinebula_async_image` provider（0057 注册表挂载、submit 现签 URL/端口演进、轮询、download_url→ImageStore、同步保留备用）。**品类真图批（ISSUE-0060 ①⑤）等异步 provider 上线后重跑**（现 4 张 1/3 残图不作数、评图要全套）。
   **部署拆两波**：Hero 波（2d8f26f+734f24b 就绪）coordinator 先上；异步 provider 波 dev 完工后走。**知识库「明确不支持」暂不动**（异步=内部实现、非用户可见功能变更，coordinator #1101）。owner=开发（前置实证→实现）。
+- 2026-07-08 [PM] **前置实证升为四问 + size 握手锁定（dev #1104/#1106）**：dev 补第 4 实证项 **参考图 URL 可达性**（同等致命）——apinebula 异步 worker 回拉 images URL 须公网可达无鉴权，但我方产品图现走 `/uploads/{id}` 带 Bearer 代理；⚠️ **我们出图全链走 /images/edits 带产品图→ URL 可达性影响所有出图**；结局③（改 base64）=显著改端口、scope 上升。四问=size / URL 可达性 / input_fidelity / n，**用真实 product upload 现签 URL 验**（防假通过）。
+  **握手锁定**：**size 实证结果 dev 第一时间 @PM** → 若异步不尊重 size，PM 拍产品取舍（异步只保 1:1 / 非 1:1 留同步 provider），dev 按 PM 口径落 provider 选择逻辑；URL 可达性结局③若中→端口 scope 变更也回报 PM/coordinator。**分工边界**：端口演进提案=dev 技术设计、coordinator/dev 技术过（非 PM 产品口径）；PM 只盯产品验收（size/成功率/切换/保真/零回归+退款）。
+  **卡在 coordinator 输入**：①异步接口契约 shape + ②KeyA 带外通路（密钥绝不进群聊）——dev 到位即当天出四问结论。PM 候场等 size/URL 结局回报拍取舍。

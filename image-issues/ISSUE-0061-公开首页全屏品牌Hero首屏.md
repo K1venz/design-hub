@@ -54,3 +54,4 @@ related:
   ② **底色=shadcn 浅色底**（非深色专屏）+ 动效参数 1:1 照原参考件（**lineWidth=10 / dampening=0.025**、touchmove passive 不劫持）——#1078 转述丢的关键参数已按原件移植；
   ③ **两段式**（第一屏胶囊+标题框撑满、滚下副标题+描述+双 CTA）。**用户已实机确认「效果很好」**。门禁四件套全绿 + Playwright 实证（标题框撑满/滚动两段/彩带成型/console 零报错/CTA→/home）。
   **可走纯前端轮部署**（随 Hero 波：+ dev input_fidelity 保真增强 + 品类真图精选入成果区 + 知识库品类行回写）。**副 CTA 案例页待用户明确**（见待澄清、不阻部署）。status 修复中→**待验证**（交付、待纯前端轮部署+PM 关账）；owner→coordinator（部署编排）。
+- 2026-07-08 [frontend-b] **跟进修复 `68e72be`**（PM #1100 smoke 提醒点中）：路由改版后 Login/Register 的 backTo **无 from 默认从 `/`（现=营销 Hero）改回 `/home`（工作首页）**（带 from 回跳/prefill/q 随行不变）+ 404/403/协议页「返回首页」链接同步 /home。Playwright 实证注册成功落 /home、门禁绿。**Hero 波带 2d8f26f + 68e72be 一起**；smoke 三条（登录落 /home / 未登录见 Hero / 深链不 404）应全绿。
