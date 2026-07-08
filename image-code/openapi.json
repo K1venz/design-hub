@@ -1071,6 +1071,64 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Model",
+        "description": "新增模型配置（ISSUE-0057）。重名 → 409；单价负/空名 → 400。",
+        "operationId": "create_model_admin_models_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelConfigCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/admin/models/{name}": {
@@ -1117,6 +1175,126 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete Model",
+        "description": "删模型配置（ISSUE-0057）。name 缺 → 404。",
+        "operationId": "delete_model_admin_models__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Model Admin Models  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/models/{name}/default": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Set Default Model",
+        "description": "设为默认出图模型（备用渠道切换=改默认，ISSUE-0057/0056 单点结构性解）。name 缺 → 404。",
+        "operationId": "set_default_model_admin_models__name__default_put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2029,6 +2207,60 @@
         ],
         "title": "MeResponse"
       },
+      "ModelConfigCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "unit_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Unit Cost"
+          },
+          "provider_type": {
+            "type": "string",
+            "title": "Provider Type",
+            "default": "openai_compat_image"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "api_key_env": {
+            "type": "string",
+            "title": "Api Key Env",
+            "default": ""
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "unit_cost"
+        ],
+        "title": "ModelConfigCreate",
+        "description": "新增模型配置（POST /admin/models）。api_key_env=持有真 key 的 env 名（ops 在 .env 配）。"
+      },
       "ModelConfigOut": {
         "properties": {
           "name": {
@@ -2048,6 +2280,26 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Extra"
+          },
+          "provider_type": {
+            "type": "string",
+            "title": "Provider Type"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "api_key_env": {
+            "type": "string",
+            "title": "Api Key Env"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
           }
         },
         "type": "object",
@@ -2055,9 +2307,15 @@
           "name",
           "unit_cost",
           "enabled",
-          "extra"
+          "extra",
+          "provider_type",
+          "base_url",
+          "model",
+          "api_key_env",
+          "is_default"
         ],
-        "title": "ModelConfigOut"
+        "title": "ModelConfigOut",
+        "description": "模型配置读出。**A1 密钥不入库：只回 api_key_env（环境变量名）、绝不回真 key**（验收⑦）。"
       },
       "ModelConfigUpdate": {
         "properties": {
@@ -2099,11 +2357,55 @@
               }
             ],
             "title": "Extra"
+          },
+          "provider_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Type"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "api_key_env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Env"
           }
         },
         "type": "object",
         "title": "ModelConfigUpdate",
-        "description": "部分更新：仅传入的字段生效（None = 不改）。"
+        "description": "部分更新：仅传入的字段生效（None = 不改）。is_default 走 PUT …/default 端点（唯一性）。"
       },
       "PubKeyResponse": {
         "properties": {

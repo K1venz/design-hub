@@ -7,9 +7,10 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from design_hub.domain.errors import NotFoundError
+from design_hub.domain.errors import DomainError, NotFoundError
 from design_hub.infrastructure.db.models import ModelConfig
 from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 
@@ -45,6 +46,10 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
         unit_cost: Decimal | None = None,
         enabled: bool | None = None,
         extra: Mapping[str, Any] | None = None,
+        provider_type: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key_env: str | None = None,
     ) -> ModelConfigRecord:
         async with self._session_factory() as session:
             row = await session.get(ModelConfig, name)
@@ -56,6 +61,49 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
                 row.enabled = enabled
             if extra is not None:
                 row.extra = dict(extra)
+            if provider_type is not None:
+                row.provider_type = provider_type
+            if base_url is not None:
+                row.base_url = base_url
+            if model is not None:
+                row.model = model
+            if api_key_env is not None:
+                row.api_key_env = api_key_env
+            await session.commit()
+            await session.refresh(row)
+            return _to_record(row)
+
+    async def create(self, record: ModelConfigRecord) -> ModelConfigRecord:
+        async with self._session_factory() as session:
+            if await session.get(ModelConfig, record.name) is not None:
+                raise DomainError(f"model config {record.name} already exists")  # 409
+            row = ModelConfig(
+                name=record.name, unit_cost=record.unit_cost, enabled=record.enabled,
+                extra=dict(record.extra), provider_type=record.provider_type,
+                base_url=record.base_url, model=record.model,
+                api_key_env=record.api_key_env, is_default=record.is_default,
+            )
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+            return _to_record(row)
+
+    async def delete(self, name: str) -> None:
+        async with self._session_factory() as session:
+            row = await session.get(ModelConfig, name)
+            if row is None:
+                raise NotFoundError(f"model config {name} not found")
+            await session.delete(row)
+            await session.commit()
+
+    async def set_default(self, name: str) -> ModelConfigRecord:
+        async with self._session_factory() as session:
+            row = await session.get(ModelConfig, name)
+            if row is None:
+                raise NotFoundError(f"model config {name} not found")
+            # 事务内保证恰一默认：先清全部、再置本行
+            await session.execute(sa_update(ModelConfig).values(is_default=False))
+            row.is_default = True
             await session.commit()
             await session.refresh(row)
             return _to_record(row)

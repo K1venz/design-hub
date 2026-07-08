@@ -91,7 +91,16 @@ class _FakeModelConfig(ModelConfigRepository):
     async def get(self, name: str) -> ModelConfigRecord | None:
         return next((c for c in self._c if c.name == name), None)
 
-    async def update(self, name, *, unit_cost=None, enabled=None, extra=None):  # type: ignore[no-untyped-def]
+    async def update(self, name, **kw):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def create(self, record):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def delete(self, name) -> None:  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def set_default(self, name):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
     async def seed_defaults(self, defaults) -> None:  # type: ignore[no-untyped-def]
