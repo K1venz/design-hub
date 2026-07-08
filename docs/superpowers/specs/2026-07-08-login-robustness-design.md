@@ -18,7 +18,14 @@
 - **前端**（frontend-b）：api client 响应中间件读 `X-Renewed-Token` → `useAuthStore.setToken`（经 rememberAwareStorage 落原存储位：localStorage/sessionStorage 跟随当前记住我模式，不升级不降级）。SSE fetch 流不经 openapi-fetch 的也要盖到（chat/job 事件流若独立 fetch，同样读头或依赖普通请求续即可——普通请求频度足够，SSE 不强求）。
 - **安全边界**：续期只延长活跃会话；被盗令牌离线 24h 后照样死；jwt_secret 轮换仍全量失效。**不做服务端撤销**（无表、YAGNI，随二期 B 双令牌再议——记录 backlog）。
 
-## 三、配套两件（同波）
+## 三、配套三件（同波）
+
+0. **密码传输公钥加密**（用户 07-08 追加拍板；dev+frontend-b）：
+   - 现状：密码明文进请求体、仅靠 TLS——但 prod 自签证书、用户点警告访问=TLS 实际削弱，纵深防御成立。存储侧 bcrypt 不动。
+   - 后端：服务器生成 RSA-2048 密钥对（私钥留服务器 .env/文件 chmod600 不入库不入 git）；`GET /auth/pubkey`（公开、可缓存）返 SPKI PEM；login/register 请求体密码字段改收 base64(RSA-OAEP-SHA256 密文) → 解密 → bcrypt 照旧；解密失败→400 明确报错。
+   - 前端：WebCrypto importKey+encrypt；**公钥拉取失败=报错不回退明文**（fail-fast，静默回退=假加密）。
+   - 部署：前后端同波原子上（push.sh+deploy.sh 本就一起）；旧缓存 bundle 发明文→400 清晰报错、刷新即愈（内测规模可接受）。
+   - 边界诚实入档：挡被动嗅探/日志泄漏/自签场景偷看；不挡全能主动 MITM（能改 JS）——根治=备案后正式域名+LE 证书；本层是纵深防御永久保留。不做前端哈希（pass-the-hash 假安全）、不做 SRP（YAGNI）。
 
 1. **多标签页登出同步**（frontend-b）：`window.addEventListener('storage')` 监听 auth 存储键被清 → 本页 clear + 跳登录（仅登出方向广播；登录方向不强求）。sessionStorage 无跨页事件——仅 localStorage 模式生效（记住我=默认勾，覆盖主流）。
 2. **登录/注册错误人话化**（frontend-b）：429（含 nginx 非 JSON body 解析失败情形）→「尝试太频繁，请稍等 1 分钟再试」；网络异常（fetch reject/超时）→「网络异常，请检查连接后重试」；401 维持「邮箱或密码错误」；409/400 维持现文案。
@@ -29,6 +36,7 @@
 
 ## 五、验收要点
 
+0. 抓包（本机 curl -v / devtools）：login/register 请求体**无明文密码**（密文 base64）；错公钥密文→400；公钥接口挂→前端明确报错不发明文；bcrypt 存储不变、老账号照常登录。
 1. 半衰期前请求：无 `X-Renewed-Token` 头、令牌不变；半衰期后请求：响应带新令牌、前端无感换、存储位不变（记住我勾/不勾各验）。
 2. 过期令牌仍 401 + 清会话跳登录（原语义零回归）。
 3. 双标签页（localStorage 模式）：A 页登出 → B 页秒内清会话跳登录。
