@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0061
 title: 公开首页前加全屏品牌 Hero 首屏（100vh + 鼠标跟随彩带光轨动效）
-status: 修复中        # 用户新需求、coordinator 消化参考件成规格派 frontend-b；纯前端轮、无后端无 DB
+status: 待验证        # Hero交付2d8f26f(用户实机确认「效果很好」·独立index/原首页移home·浅色底1:1原件)；待纯前端轮部署+PM关账
 severity: P3          # 品牌/获客门面美化；非功能阻断、非资损；纯视觉增强
 reporter: PM          # 用户 2026-07-08 给参考件提需求（coordinator #1078 消化派工），PM 入档
-owner: frontend-b     # 纯 image-web（100vh Hero 区 + canvas 动效 TS 化改造 + 双 CTA 锚点）
+owner: coordinator    # Hero交付+用户确认→随Hero波纯前端轮部署→PM关账；副CTA案例页待用户明确(不阻)
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -17,8 +17,10 @@ related:
 ## 定性（用户 2026-07-08 提需求，coordinator #1078 消化参考件成规格）
 公开首页 `/` 前加**全屏品牌 Hero 首屏**（100vh），滚动/CTA 下滑进入现有首页内容。用户给了参考件（视觉/动效照搬骨架、文字全换实朴口径）。**纯前端轮、路由不动、SideNav 不动**（避 churn）。
 
-## 放置
-`/` 首屏加 **100vh 全屏 Hero 区** → 现有对话 Hero/工具区/成果区**整体下移一屏**；滚动或 CTA 下滑进入。
+## 放置（⚠️ 用户 2026-07-08 在 frontend-b 窗口直接修订，覆盖 #1078 转述）
+- **Hero 独立成完整页面 = index（`/`）**，**原首页（对话/工具/成果区）移 `/home`**（SideNav/登录跳转已同步）。**非**「叠在现有首页上方下移一屏」（旧转述口径作废）。
+- **两段式**：第一屏=胶囊公告条+标题框**撑满整屏**；滚下去=副标题+描述+双 CTA。
+- 副 CTA「看看实朴出的图」当前跳 `/home`（成果区）；⚠️ 用户提过「专门案例页」概念=**待用户明确**（见范围外/待澄清）。
 
 ## 版式解剖（照参考件、文案换实朴）
 1. **顶部胶囊公告条**：「✨ 全新上线：帮我设计 AI 助手 · 去体验 →」（点击滚到对话输入区）。
@@ -29,7 +31,8 @@ related:
 
 ## 灵魂动效（参考件 canvas.tsx → TS 化改造，非照抄）
 鼠标跟随彩带光轨——80 条弹簧物理丝带（spring/friction/tension/dampening 照参考）、色相 sin 流转（offset 285±85=青→蓝→紫→粉、贴品牌紫谱系）、`globalCompositeOperation=lighter`、strokeStyle hsla 低透明度。
-**改造纪律（frontend-b）**：① 参考件是全局变量+ts-ignore 老 JS→重写干净 TS React 组件（useEffect 挂载+卸载**全清监听器**、勿泄漏）；② **移动端绝不劫持触摸滚动**（参考件 touchmove preventDefault 会锁死滚动→移动端禁用轨迹或仅 pointermove）；③ `prefers-reduced-motion`→静态渐变兜底；④ lighter 混合在浅色玻璃底会发白→Hero 首屏底色 frontend-b 定（可深色专屏或调混合模式）、保 Style 4 协调；⑤ **零新依赖**（motion/lucide/ui-button 现成）。
+**改造纪律（frontend-b）**：① 参考件是全局变量+ts-ignore 老 JS→重写干净 TS React 组件（useEffect 挂载+卸载**全清监听器**、勿泄漏）；② **移动端绝不劫持触摸滚动**（touchmove **改 passive** 不劫持=纪律保留）；③ `prefers-reduced-motion`→静态渐变兜底；④ **底色=shadcn 浅色底**（⚠️ 非深色专屏——用户修订、1:1 照原参考件）；⑤ **零新依赖**。
+**⚠️ 用户修订关键参数（1:1 照原参考件 Downloads/生图平台Hero页，#1078 转述丢参）**：底色 **shadcn 浅色底**（非深色）、**lineWidth=10**（非细线）、**dampening=0.025**（非 0.25）。
 
 ## 验收标准（QA/自证）
 1. 门禁四件套（lint/tsc/vitest/build）。
@@ -40,7 +43,14 @@ related:
 
 ## 范围外（YAGNI）
 多主题切换 / Hero 视频背景 / 参考件的触摸劫持行为（明确不搬）。
+## 待澄清（用户）
+- **副 CTA「看看实朴出的图」目标**：当前跳 `/home`（成果区）；用户提过「专门案例页」概念——**待用户明确是否要独立案例页 vs /home 成果区已足**。PM 已向用户请澄清；要独立案例页则另立需求，不阻本条部署（暂跳 /home 兜底可用）。
 
 ## 处理记录
 - 2026-07-08 [PM] 用户给参考件提需求（coordinator #1078 消化成规格派 frontend-b）→ PM 入档：落 PRD §3.14 首屏增补 + 开本条。
-  **纯前端轮、无后端无 DB 无签字**；路由/SideNav 不动（避 churn）；现有首页内容整体下移一屏。owner=frontend-b（100vh Hero + canvas TS 化 + 双 CTA 锚点），改造纪律=监听器卸载全清/移动端不劫持滚动/reduced-motion 兜底/零新依赖。验收=门禁+三档 Playwright（100vh 不溢出/锚点/移动端可滚/canvas console 零报错）+ 登录墙老规矩 + 首页下移零回归。完工 frontend-b commit+@coordinator → 纯前端轮部署 → PM 关账。真实用户 bug 随时打断。status=修复中、owner=frontend-b。
+  **纯前端轮、无后端无 DB 无签字**；改造纪律=监听器卸载全清/移动端不劫持滚动/reduced-motion 兜底/零新依赖。owner=frontend-b。
+- 2026-07-08 [frontend-b+PM] **⚠️ 用户直接修订规格（在 frontend-b 窗口亲拍、覆盖 #1078 转述）+ Hero 交付 `2d8f26f`**：
+  ① **Hero 独立成 index（`/`）、原首页移 `/home`**（SideNav/登录跳转已同步）——非「叠首页下移一屏」（旧口径作废、PM 已更放置段+PRD §3.14）；
+  ② **底色=shadcn 浅色底**（非深色专屏）+ 动效参数 1:1 照原参考件（**lineWidth=10 / dampening=0.025**、touchmove passive 不劫持）——#1078 转述丢的关键参数已按原件移植；
+  ③ **两段式**（第一屏胶囊+标题框撑满、滚下副标题+描述+双 CTA）。**用户已实机确认「效果很好」**。门禁四件套全绿 + Playwright 实证（标题框撑满/滚动两段/彩带成型/console 零报错/CTA→/home）。
+  **可走纯前端轮部署**（随 Hero 波：+ dev input_fidelity 保真增强 + 品类真图精选入成果区 + 知识库品类行回写）。**副 CTA 案例页待用户明确**（见待澄清、不阻部署）。status 修复中→**待验证**（交付、待纯前端轮部署+PM 关账）；owner→coordinator（部署编排）。
