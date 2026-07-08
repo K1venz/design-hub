@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # 总重试墙钟预算（秒，ISSUE-0055 (i)）：封顶整个重试窗口，持久 5xx 超此即穷尽落「失败」，
     # 不让用户干等 max_retries×退避（实测上游持续 500 曾拖 ~8 分钟）。只 gate 重试、不砍成功请求。
     gpt_image_retry_max_elapsed: float = 90.0
+    # 异步任务出图 provider（ISSUE-0065，provider_type=apinebula_async_image）：轮询节奏 + 总墙钟。
+    # 异步排队可能比同步 90s 长，故独立更宽默认；超墙钟=穷尽 fail-closed（同 0055 (i) 语义）。
+    gpt_image_async_poll_interval: float = 6.0
+    gpt_image_async_poll_max_elapsed: float = 300.0
     # 本地出图落点（图生图 b64 解码后写入；gitignored）
     image_output_dir: str = "./generated"
     # 出图 url 公网前缀（ISSUE-0029）：非空→绝对 https://host/img/<name>；空→相对 /img/<name>

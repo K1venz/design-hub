@@ -18,8 +18,8 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.listing.sizing import ratio_to_size
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName
-from design_hub.domain.models import GeneratedImage, ListingResult
-from design_hub.ports.model_provider import ProviderError
+from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
+from design_hub.ports.model_provider import ProviderError, ReferenceMode
 
 _MAX_IMAGES = 3
 _MAX_N = 7  # 单图流张数上限（现行，不动）
@@ -123,12 +123,16 @@ class ListingGenerationService:
         if self.concurrency < 1:
             raise ValueError(f"concurrency 需 ≥1，实际 {self.concurrency}")
 
+    def reference_mode(self) -> ReferenceMode:
+        """当前出图 provider 的参考图模态（ISSUE-0065）：launcher 据此只物化 bytes 或 URL。"""
+        return self.registry.get(ModelName.GPT_IMAGE_2).reference_mode
+
     async def generate(
         self,
         *,
         prompt: str,
         modifiers: dict[str, str],
-        images: tuple[bytes, ...],
+        images: tuple[ReferenceImage, ...],
         ratio: str,
         user_id: str,
         category: str,
@@ -197,8 +201,8 @@ class ListingGenerationService:
         *,
         prompt: str,
         modifiers: dict[str, str],
-        product_image: bytes,
-        reference_images: tuple[bytes, ...],
+        product_image: ReferenceImage,
+        reference_images: tuple[ReferenceImage, ...],
         ratio: str,
         user_id: str,
         category: str,
@@ -246,8 +250,8 @@ class ListingGenerationService:
         *,
         prompt: str,
         modifiers: dict[str, str],
-        source_image: bytes,
-        anchor_images: tuple[bytes, ...],
+        source_image: ReferenceImage,
+        anchor_images: tuple[ReferenceImage, ...],
         ratio: str,
         user_id: str,
         edit_mode: str,

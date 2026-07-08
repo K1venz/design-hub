@@ -7,6 +7,15 @@ from design_hub.domain.enums import ModelName, Role, TaskEventType
 
 
 @dataclass(frozen=True)
+class ReferenceImage:
+    """出图参考图句柄（ISSUE-0065）：同步 provider 读 data（multipart 字节），异步 provider
+    读 url（现签公网 URL，worker 回拉）。调用方按 provider.reference_mode 只物化所需字段。"""
+
+    data: bytes | None = None
+    url: str | None = None
+
+
+@dataclass(frozen=True)
 class GeneratedImage:
     url: str
     seed: int

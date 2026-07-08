@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import random
 import time
 from decimal import Decimal
 from typing import Any
@@ -8,13 +7,18 @@ from typing import Any
 import httpx
 
 from design_hub.domain.enums import ModelName
-from design_hub.domain.errors import DomainError
-from design_hub.domain.models import GeneratedImage
+from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.infrastructure.providers._openai_common import (
+    compose_prompt,
+    raise_for_status,
+    retry_sleep,
+)
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderError,
     ProviderTimeout,
+    ReferenceMode,
 )
 
 
@@ -25,6 +29,8 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     有参考图 → /images/edits（图生图，主业务）；无 → /images/generations（文生图）。
     返回 b64_json 时经 ImageStore 落点换 url（DIP）。httpx.AsyncClient 可注入便于测试。
     """
+
+    reference_mode: ReferenceMode = "bytes"  # 同步走 multipart 字节（ISSUE-0065）
 
     def __init__(
         self,
@@ -81,24 +87,26 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         *,
         prompt: str,
         negative_prompt: str,
-        reference_images: list[bytes],
+        reference_images: list[ReferenceImage],
         size: tuple[int, int],
         n: int,
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
-        composed = self._compose(prompt, negative_prompt)
+        composed = compose_prompt(prompt, negative_prompt)
+        # 模态解引用（ISSUE-0065）：同步走字节；launcher 按 reference_mode 已物化 data，缺=装配错。
+        ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
         attempt = 0
         overall_start = time.perf_counter()
         while True:
             start = time.perf_counter()
             try:
-                if reference_images:
-                    response = await self._edit(composed, reference_images, size_str, n, quality)
+                if ref_bytes:
+                    response = await self._edit(composed, ref_bytes, size_str, n, quality)
                 else:
                     response = await self._generate(composed, size_str, n, quality)
-                self._raise_for_status(response)  # 4xx→DomainError(不重试)；5xx/429→ProviderTimeout
+                raise_for_status(self.name, response)  # 4xx→DomainError；5xx/429→ProviderTimeout
             except httpx.TimeoutException as exc:
                 error: ProviderError = ProviderTimeout(f"{self.name} timeout: {exc}")
             except httpx.HTTPError as exc:  # 连接/传输层错误
@@ -121,24 +129,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             await asyncio.sleep(sleep)
 
     def _retry_sleep(self, attempt: int) -> float:
-        # 指数退避 + equal-jitter 抖动（ISSUE-0047）：套图多路并发同时撞 429 时，若无抖动
-        # 会在同一时刻齐刷刷重发、再次打满同一限流窗口；抖动把重发时刻去相关、错峰散开。
-        # 退避随 attempt 指数增长给上游限流窗口恢复时间，_retry_max_sleep 封顶防失控。
-        # equal jitter：下界=backoff/2 保底退避量、上界=backoff 加随机扰动。
-        backoff = min(self._retry_max_sleep, self._retry_backoff * 2.0 ** (attempt - 1))
-        return backoff / 2 + random.uniform(0, backoff / 2)
-
-    def _raise_for_status(self, response: httpx.Response) -> None:
-        # 按 status_code 分流（不对错误体调 .json()，诗云 502 是 nginx HTML）
-        code = response.status_code
-        if 200 <= code < 300:
-            return
-        snippet = response.text[:200]
-        if code == 429 or code >= 500:
-            # 限流/服务端故障 → 可切同模型备用中转
-            raise ProviderTimeout(f"{self.name} {code}: {snippet}")
-        # 其余 4xx（400/401/403/422…）坏请求/鉴权/配置 → 上抛不切备（换网关无意义）
-        raise DomainError(f"{self.name} {code} (不切备): {snippet}")
+        # 退避+抖动（_openai_common 单一事实源）：并发撞 429 时错峰去相关，max_sleep 封顶。
+        return retry_sleep(
+            attempt, backoff=self._retry_backoff, max_sleep=self._retry_max_sleep
+        )
 
     async def _generate(
         self, prompt: str, size: str, n: int, quality: str | None = None
@@ -242,8 +236,9 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             return await self._image_store.save(base64.b64decode(b64))
         raise ProviderError(f"{self.name} item has neither url nor b64_json")
 
-    def _compose(self, prompt: str, negative_prompt: str) -> str:
-        # gpt-image 协议无 negative 字段：把负面约束并入正向文本，避免信息丢失
-        if not negative_prompt:
-            return prompt
-        return f"{prompt}\n（请避免：{negative_prompt}）"
+    @staticmethod
+    def _require_bytes(ref: ReferenceImage) -> bytes:
+        # 装配契约：bytes 模态 provider 收到的 ReferenceImage 必带 data；缺=launcher/模态装配错。
+        if ref.data is None:
+            raise ProviderError("同步 provider 收到无字节的参考图（reference_mode 装配错）")
+        return ref.data
