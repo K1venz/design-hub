@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0061
 title: 公开首页前加全屏品牌 Hero 首屏（100vh + 鼠标跟随彩带光轨动效）
-status: 已修复        # Hero+backTo已上prod(bundle index-JLOHJ2ij)+真浏览器smoke三条全绿+用户实机确认「效果很好」；仅副CTA案例页待用户明确后终关
+status: 已关闭        # 终版MarqueeHero已上prod(index-CzW3bUQA)+用户拍板「更好看」+案例页loose end随单CTA消解；无悬念
 severity: P3          # 品牌/获客门面美化；非功能阻断、非资损；纯视觉增强
 reporter: PM          # 用户 2026-07-08 给参考件提需求（coordinator #1078 消化派工），PM 入档
-owner: PM             # 已上线+smoke绿+用户确认；仅副CTA案例页待用户明确(keep /home 或另立案例页)后 PM 终关
+owner: —              # 已关闭：MarqueeHero终版上线prod、用户确认、案例页消解、无loose end
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -59,3 +59,4 @@ related:
   **唯一 loose end = 副 CTA 案例页待用户明确**（当前跳 /home 成果区兜底可用）：用户答「/home 够了」→ PM 终关 0061；用户要「独立案例页」→ PM 另立需求、0061 本条即可终关（案例页归新条）。PM 已向用户请澄清。
 - 2026-07-08 [frontend-b+PM] **⚠️ 用户选型换版：Hero → MarqueeHero 版（`d7c22a6`+`a49115a`+`641c85f` 三颗一波，#1115）**：用户给 **21st.dev hero-3** 参考件、frontend-b 用项目栈重实现（白底 + 文字栈逐词 reveal + 描述半叠走马灯 + CTA 浮图上 + **底部实拍图无限走马灯**·渐隐 mask·卡片旋转错落），**用户对比后拍板「这个更好看」替换 index**。要点：① 走马灯=**12 张实朴真实出图转码 512px jpeg 打包 assets**（784KB、prod 可用、**零 API 依赖**）；② **初版彩带光轨（HeroLanding/RibbonCanvas）退役删除**（git 可回溯）；③ **单 CTA「开始创作」→/home**=用户选定布局 → **副 CTA 案例页 loose end 消解**（无需再问用户）。门禁四件套全绿 + Playwright 实证（/ 渲染新版 / 24 卡加载 / CTA→/home）。
   **本条状态**：Hero 概念已上线（初版 index-JLOHJ2ij），**最终版=MarqueeHero（d7c22a6）待纯前端波部署**（coordinator 从 main HEAD 构建）→ **上线 + smoke 绿后 PM 终关 0061**（案例页已消解、无 loose end）。owner→coordinator（部署）→PM（终关）。status 保持已修复。
+- 2026-07-08 [coordinator+PM] **✅ 终版 MarqueeHero 上线 prod → PM 终关（已修复→已关闭，#1117）**：MarqueeHero 波已上 prod（`d7c22a6` 从 main HEAD 纯前端波、bundle `index-CzW3bUQA`）。**PM 终关**：用户选型拍板「更好看」（=最硬验收）+ 终版上线 prod + **案例页 loose end 随单 CTA 已消解、无悬念**。ISSUE-0061 **已关闭**。（PRD §3.14 Hero=MarqueeHero 定版已上线。走马灯 12 张实拍图打包 assets 零 API 依赖、初版彩带光轨退役。）
