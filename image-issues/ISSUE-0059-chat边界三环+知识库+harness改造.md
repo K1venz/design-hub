@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0059
 title: chat 改造 A 线——边界三环（大胆）+ 知识库（随功能同步）+ harness 工具化架构（⚠️升级·平台工具注册表）
-status: 待验证        # A线后端全交付(harness 8f307c7+工具增量a71e183、知识库文件落地~1446token、三护栏全落、133绿)；待QA A①-⑥
+status: 已修复        # QA API11/11+UI4/4全绿(40b74fb)+A/B波上线prod+实弹全绿；用户prod可体验，PM告知即终关
 severity: P2          # 用户直接提需求（chat 聊得大胆+知识库+harness 优化）；体验/获客；非资损非阻断
 reporter: PM          # 用户 2026-07-08 提需求（coordinator #1031 转达），spec 定稿 97c4978，PM 开条
-owner: coordinator    # A线交付完成→coordinator 拉两线合并QA(A①-⑥+B②③④)→同波部署；QA绿dev接0057。真出图/真图部分等key
+owner: PM             # QA全绿+prod实弹+已上线；chat内测灰度行为(QA真豆包对话验尽)，PM 告知用户后终关
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -73,3 +73,6 @@ related:
 - 2026-07-08 [PM] **状态机推进：修复中 → 待验证，owner→coordinator**。A 线后端全交付（harness+工具增量+知识库文件落地 ~1446 token 在预算内 + 三护栏铁律全落实 + 133 绿）→ 待 QA。
   **PM 核对**：① 知识库删价格数字=波动性原则落地（价格走 get_pricing_quota 实时）✓；② 三护栏（写过费用闸/走既有 port 层/读 owner-scoped）dev 逐条落=能力增强非绕闸 ✓；③ 品类行仍「正在扩展中」=B 线上线时我再回写（DoD gate 未误触前置）✓；④ 长会话裁剪 DB 转录全量不动=0051 契约零改 ✓。
   验收清单（A①-⑥）已备（#1048 报 coordinator）。QA 绿 → PM 关账 0059；dev 直接接 0057。真出图相关（若 A 验收含真 generate）等 key，纯读工具/知识/顾问环零成本可先验。
+- 2026-07-08 [PM] **状态机推进：待验证 → 已修复，owner→PM**。QA 终版 **API 11/11 + UI 4/4 全绿**（报告 40b74fb）+ **A/B 波上线 prod**（快照 3225b6b、回滚 rollback-20260708-120258、bundle index-ru8hQhu4）+ **prod 实弹全绿**（chat 问价→get_pricing_quota 答 model_config 实时四模型单价 / 非法品类 422 / /me·sessions·jobs·showcase 零回归）→ A 线修复闭环坐实。落 PRD §3.14.2 转 ✅ 已上线。
+  **PM 钉死的护栏① UI 终点=绿 🎯**（frontend-b #1064）：上传产品图→「用上次配置再来一套」→**费用确认卡出现·输入框禁用·点取消→零新单（API 核验 job 数恒 1）**——写/花钱工具过费用闸、工具化不给 LLM 绕闸路，线上闭环。三环+三护栏全部 prod 实证。
+  **关账口径**：本条=chat 内测灰度**行为增强**（三环边界/工具化/知识库/波动性原则），已由 QA 真豆包对话验尽（11/11+4/4）+ prod 实弹坐实 → **不强绑界面复核批**（不像 0048/0051/0053 需可点界面走查）；**用户现在 prod 可体验**（chat 变真助手：问功能/问历史/问价格/复用配置）→ **PM 告知用户「帮我设计已升级」后即终关（已关闭）**。列入「已修复·prod 可体验·待告知终关」集（同 0058）。真出图相关（chat 内触发真 generate 的端到端）随 key 恢复自然覆盖，不阻本条关账（读工具/知识/顾问/费用闸已全绿）。
