@@ -67,3 +67,16 @@ related:
   **wire 契约已发 dev**（#1017）：pubkey 两式容错·密码 base64(RSA-OAEP-SHA256 密文)·X-Renewed-Token 裸 JWT·请 dev 确认 nginx 透传该头不 strip。
   **待联验**（需 dev 后端 /auth/pubkey+解密+X-Renewed-Token 共存，原子上线本质）：happy-path 加密↔解密登录 / 续期换头无感 / 存储同步双标签 / 429·网络人话——
   dev 后端进 mock 后我补一次联调，或 QA 一轮联验（本机 mock 全验+短 TTL 加速续期）。owner 前端份完成、待 dev 后端就位联验 → coordinator 编排 QA → 同波原子部署。
+- 2026-07-08 [dev] **后端两件完成**（commit `a6feefc`，零建表零迁移；按 coordinator #1019 拍板 wire 契约实现）：
+  **① 滑动续期**——`TokenService.renew_if_stale`（jwt_service）：令牌签发超 `jwt_renew_after_hours`（settings 默认 12）则签新 24h 令牌；
+     `get_current_user` verify 成功后调、非 None 放响应头 `X-Renewed-Token`（**裸 JWT**，契约③）；**exp 已过仍 verify 抛 401 原路**（不续过期）；
+     幂等、零端点零表。SSE 依赖 `get_current_user_sse` 不续（普通请求频度足够，spec §二）。
+  **② 密码传输公钥加密**——`PasswordCipher` 端口 + `RsaPasswordCipher`（**RSA-OAEP + MGF1(SHA-256) + SHA-256**、无 label、UTF-8，与前端 WebCrypto 对齐，契约②）；
+     私钥留 `.env`（`AUTH_RSA_PRIVATE_KEY_PEM` 不入库不入 git）、未配则启动生成临时（local/CI 自足）；`GET /auth/pubkey` 公开返 **JSON `{"public_key": "<SPKI PEM>"}`**（契约①）；
+     login/register 路由**边界解密**密文→明文（解密失败→**400 人话「密码解密失败，请刷新页面后重试」**，旧缓存 bundle 发明文即命中）→ AccountService 收明文；
+     **min≥8 校验在明文**（AccountService 内，schema 去 `min_length=8`）；**存储侧 bcrypt / AccountService 零改**（SRP：传输解密在 interface 边界，账号逻辑不知密码曾加密）。
+  **nginx 透传**：coordinator #1019 已查死——现配置无 `proxy_hide_header`、默认透传上游自定义响应头，`X-Renewed-Token` 原样到前端、**无需改 nginx**。
+  **测试** `test_auth` 13 绿：renew 半衰期前(无头)/后(有头+新令牌可用)/过期(401) + RSA 往返/垃圾→ValueError/from_pem + 集成（pubkey shape / 密文注册登录往返 /
+     解密失败 400 / 明文<8→400（证校验挪明文）/ /me 过半衰期回 `X-Renewed-Token` / fresh 无头 / 过期 401）。openapi 再生（+/auth/pubkey +PubKeyResponse、password minLength 8→1）。
+     ruff+mypy(src) 绿、pytest **119 绿 + 1 已知 WIP 红**。
+  **交接**：后端就位 → @frontend-b 联调 happy-path（真 WebCrypto 加密 ↔ 后端解密 / 续期换头无感）→ coordinator 编排 QA 6 条 → **同波原子部署**（密码字段格式变、前后端必须同波）。
