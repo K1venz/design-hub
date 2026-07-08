@@ -65,6 +65,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             first_image_key=(successes[0].image_key if successes else None),
             image_count=len(successes),
             edit_mode=r.edit_mode,
+            category=r.category,
         )
 
     async def get_job(self, *, job_id: str, user_id: str) -> ListingJobDetail | None:
@@ -107,6 +108,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             error=row.error,
             created_at=row.created_at,
             completed_at=row.completed_at,
+            category=row.category,
             images=tuple(
                 ListingJobImageView(
                     image_key=im.image_key, seed=im.seed, cost=im.cost,

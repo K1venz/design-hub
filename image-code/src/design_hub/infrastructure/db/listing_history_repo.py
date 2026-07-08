@@ -33,6 +33,7 @@ class SqlAlchemyListingHistory(ListingHistory):
                 prompt=job.prompt,
                 modifiers=dict(job.modifiers),
                 platform=job.modifiers.get("platform"),
+                category=job.category,
                 ratio=job.ratio,
                 size=job.size,
                 n=job.n,

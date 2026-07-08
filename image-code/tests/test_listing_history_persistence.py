@@ -123,6 +123,23 @@ def test_two_phase_lifecycle_in_progress_queryable_and_partial_failure() -> None
     asyncio.run(_impl())
 
 
+def test_category_persists_on_generate_and_is_null_on_edit() -> None:
+    """品类档 DB 往返（ISSUE-0060）：generate/clone 落品类进 detail+summary；edit 单=NULL。"""
+    async def _impl() -> None:
+        hist, query = await _fresh_repos()
+        await hist.start(_start(category="FASHION"))
+        detail = await query.get_job(job_id="j1", user_id="u1")
+        assert detail is not None and detail.category == "FASHION"
+        summary = (await query.list_jobs(user_id="u1", limit=10, offset=0))[0]
+        assert summary.category == "FASHION"
+        # 编辑单不重述品类：ListingJobStart 默认 category=None → 落 NULL
+        await hist.start(_start(job_id="e1", edit_mode="delta", parent_job_id="j1"))
+        edit_detail = await query.get_job(job_id="e1", user_id="u1")
+        assert edit_detail is not None and edit_detail.category is None
+
+    asyncio.run(_impl())
+
+
 def test_add_images_empty_batch_is_noop() -> None:
     async def _impl() -> None:
         hist, query = await _fresh_repos()
@@ -293,6 +310,7 @@ def test_command_two_phase_partial_persists_failure_and_orders_before_completed(
     assert len(history.starts) == 1
     assert history.starts[0].n == 2
     assert history.starts[0].upload_keys == ("u1/a.png",)
+    assert history.starts[0].category == "FOOD"  # 品类进快照（ISSUE-0060）
     # 阶段 2：增量落图含失败张（成功白底 + 失败卖点）
     assert len(history.batches) == 1
     persisted = {im.image_type: im for im in history.batches[0][1]}

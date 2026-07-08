@@ -77,6 +77,9 @@ class ListingJobRow(Base):
     prompt: Mapped[str] = mapped_column(Text)  # 用户自由文本（卖点&要求）
     modifiers: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     platform: Mapped[str | None] = mapped_column(String(32), index=True, default=None)  # 冗余,筛选
+    # 品类保真档（ISSUE-0060 五品类，用户亲签 schema）：generate/clone 落各自品类，供历史
+    # 配方复用 + chat get_job_recipe 回显；edit/legacy 行 = NULL（编辑继承链根语境、不重述品类）
+    category: Mapped[str | None] = mapped_column(String(16), default=None)
     ratio: Mapped[str] = mapped_column(String(16))
     size: Mapped[str] = mapped_column(String(16))  # 形如 1024x1536
     n: Mapped[int] = mapped_column(Integer)

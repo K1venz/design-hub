@@ -64,6 +64,8 @@ class ListingJobStart:
     parent_job_id: str | None = None
     source_image_key: str | None = None
     edit_mode: str | None = None  # delta|full
+    # 品类保真档（ISSUE-0060）：generate/clone 各自品类；edit=None（继承链根语境，不重述品类）
+    category: str | None = None
 
 
 @dataclass(frozen=True)
