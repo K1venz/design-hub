@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { toast } from 'sonner'
-import { PencilIcon } from 'lucide-react'
+import { PlusIcon } from 'lucide-react'
 
 import { useModels, useUpdateModel, type ModelConfig } from '@/api/admin'
-import { EditPriceDialog } from '@/components/admin/EditPriceDialog'
+import { ModelConfigDialog } from '@/components/admin/ModelConfigDialog'
+import { ModelRowActions } from '@/components/admin/ModelRowActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -17,18 +18,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
-import { CONN_META, connStatus } from '@/lib/model-status'
 
 export function AdminModelsPage() {
   const models = useModels()
   const update = useUpdateModel()
 
-  // 已接通 → 备选 → 未接通 排序
+  // 默认渠道置顶 → 启用 → 停用，同组按名排。
   const sorted = useMemo(() => {
-    return [...(models.data ?? [])].sort(
-      (a, b) => CONN_META[connStatus(a.name)].order - CONN_META[connStatus(b.name)].order,
-    )
+    return [...(models.data ?? [])].sort((a, b) => {
+      if (a.is_default !== b.is_default) return a.is_default ? -1 : 1
+      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
   }, [models.data])
 
   async function toggle(m: ModelConfig, enabled: boolean) {
@@ -42,11 +43,23 @@ export function AdminModelsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">模型配置</h2>
-        <p className="text-sm text-muted-foreground">
-          启停模型、调整单价（即时注入 Provider）。未接通的 Provider 已置灰，暂不可配置。仅管理者可见。
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">模型配置</h2>
+          <p className="text-sm text-muted-foreground">
+            配置出图渠道：新增备用中转站、设为默认渠道（断供时切换即恢复）、调价与启停。
+            真实密钥仅存服务端环境变量，此处只填「密钥变量」。仅管理者可见。
+          </p>
+        </div>
+        <ModelConfigDialog
+          mode="create"
+          trigger={
+            <Button size="sm">
+              <PlusIcon className="size-3.5" />
+              新增模型
+            </Button>
+          }
+        />
       </div>
 
       <Card className="overflow-hidden p-0">
@@ -57,28 +70,48 @@ export function AdminModelsPage() {
             ))}
           </div>
         ) : sorted.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>模型</TableHead>
-                <TableHead>接通状态</TableHead>
-                <TableHead>单价（¥ / 张）</TableHead>
-                <TableHead>启用</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sorted.map((m) => {
-                const status = connStatus(m.name)
-                const meta = CONN_META[status]
-                const off = status === 'unconnected'
-                return (
-                  <TableRow key={m.name} className={cn(off && 'opacity-55')}>
-                    <TableCell className="font-mono font-medium">{m.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={cn('font-medium', meta.tone)}>
-                        {meta.label}
-                      </Badge>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>模型</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>连接</TableHead>
+                  <TableHead>密钥变量</TableHead>
+                  <TableHead>单价（¥ / 张）</TableHead>
+                  <TableHead>启用</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sorted.map((m) => (
+                  <TableRow key={m.name}>
+                    <TableCell className="font-mono font-medium">
+                      <div className="flex items-center gap-2">
+                        {m.name}
+                        {m.is_default && (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-200 bg-emerald-50 font-medium text-emerald-700"
+                          >
+                            默认渠道
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{m.provider_type}</TableCell>
+                    <TableCell className="max-w-[220px] text-sm">
+                      {m.base_url || m.model ? (
+                        <div className="truncate font-mono text-xs text-muted-foreground">
+                          <span className="text-foreground">{m.model || '—'}</span>
+                          {m.base_url && <span> · {m.base_url}</span>}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">回落 .env</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {m.api_key_env || '—'}
                     </TableCell>
                     <TableCell className="tabular font-mono text-sm">
                       ¥{Number(m.unit_cost).toFixed(2)}
@@ -86,32 +119,22 @@ export function AdminModelsPage() {
                     <TableCell>
                       <Switch
                         checked={m.enabled}
-                        disabled={off || update.isPending}
+                        disabled={update.isPending}
                         onCheckedChange={(v) => void toggle(m, v)}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      {off ? (
-                        <span className="text-muted-foreground text-xs">暂不可配置</span>
-                      ) : (
-                        <EditPriceDialog
-                          model={m}
-                          trigger={
-                            <Button variant="ghost" size="sm">
-                              <PencilIcon className="size-3.5" />
-                              改价
-                            </Button>
-                          }
-                        />
-                      )}
+                      <ModelRowActions model={m} />
                     </TableCell>
                   </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
-          <div className="py-16 text-center text-sm text-muted-foreground">暂无模型配置。</div>
+          <div className="py-16 text-center text-sm text-muted-foreground">
+            暂无模型配置。点「新增模型」添加出图渠道。
+          </div>
         )}
       </Card>
     </div>

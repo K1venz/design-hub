@@ -349,7 +349,11 @@ export interface paths {
         /** List Models */
         get: operations["list_models_admin_models_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Model
+         * @description 新增模型配置（ISSUE-0057）。重名 → 409；单价负/空名 → 400。
+         */
+        post: operations["create_model_admin_models_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -366,6 +370,30 @@ export interface paths {
         get?: never;
         /** Update Model */
         put: operations["update_model_admin_models__name__put"];
+        post?: never;
+        /**
+         * Delete Model
+         * @description 删模型配置（ISSUE-0057）。name 缺 → 404。
+         */
+        delete: operations["delete_model_admin_models__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/models/{name}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Default Model
+         * @description 设为默认出图模型（备用渠道切换=改默认，ISSUE-0057/0056 单点结构性解）。name 缺 → 404。
+         */
+        put: operations["set_default_model_admin_models__name__default_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -707,7 +735,45 @@ export interface components {
             /** Dept */
             dept: string | null;
         };
-        /** ModelConfigOut */
+        /**
+         * ModelConfigCreate
+         * @description 新增模型配置（POST /admin/models）。api_key_env=持有真 key 的 env 名（ops 在 .env 配）。
+         */
+        ModelConfigCreate: {
+            /** Name */
+            name: string;
+            /** Unit Cost */
+            unit_cost: number | string;
+            /**
+             * Provider Type
+             * @default openai_compat_image
+             */
+            provider_type: string;
+            /**
+             * Base Url
+             * @default
+             */
+            base_url: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Api Key Env
+             * @default
+             */
+            api_key_env: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+        };
+        /**
+         * ModelConfigOut
+         * @description 模型配置读出。**A1 密钥不入库：只回 api_key_env（环境变量名）、绝不回真 key**（验收⑦）。
+         */
         ModelConfigOut: {
             /** Name */
             name: string;
@@ -719,10 +785,20 @@ export interface components {
             extra: {
                 [key: string]: unknown;
             };
+            /** Provider Type */
+            provider_type: string;
+            /** Base Url */
+            base_url: string;
+            /** Model */
+            model: string;
+            /** Api Key Env */
+            api_key_env: string;
+            /** Is Default */
+            is_default: boolean;
         };
         /**
          * ModelConfigUpdate
-         * @description 部分更新：仅传入的字段生效（None = 不改）。
+         * @description 部分更新：仅传入的字段生效（None = 不改）。is_default 走 PUT …/default 端点（唯一性）。
          */
         ModelConfigUpdate: {
             /** Unit Cost */
@@ -733,6 +809,14 @@ export interface components {
             extra?: {
                 [key: string]: unknown;
             } | null;
+            /** Provider Type */
+            provider_type?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Api Key Env */
+            api_key_env?: string | null;
         };
         /**
          * PubKeyResponse
@@ -1470,6 +1554,41 @@ export interface operations {
             };
         };
     };
+    create_model_admin_models_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelConfigCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_model_admin_models__name__put: {
         parameters: {
             query?: never;
@@ -1486,6 +1605,74 @@ export interface operations {
                 "application/json": components["schemas"]["ModelConfigUpdate"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_model_admin_models__name__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_default_model_admin_models__name__default_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
