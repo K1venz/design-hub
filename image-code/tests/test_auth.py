@@ -87,6 +87,20 @@ def test_rsa_from_pem_loads_and_decrypts() -> None:
     assert c.decrypt(c.encrypt("secret123")) == "secret123"
 
 
+def test_rsa_from_pem_tolerates_escaped_newlines() -> None:
+    # docker env-file 单行 PEM（\n 字面转义）也能 load（coordinator #1024 部署前置必修）
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    single_line = pem.replace("\n", "\\n")  # 真实换行 → `\n` 字面（模拟 env 单行携带）
+    assert "\n" not in single_line.replace("\\n", "")  # 确认已无真实换行
+    c = RsaPasswordCipher.from_pem(single_line)
+    assert c.decrypt(c.encrypt("secret123")) == "secret123"
+
+
 # ── 集成：/auth 路由（假 repo + 真 cipher/token via TestClient）─────────────
 
 
