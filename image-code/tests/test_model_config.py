@@ -93,3 +93,26 @@ def test_out_schema_exposes_env_name_never_real_key() -> None:
     out = ModelConfigOut.of(r).model_dump()
     assert out["api_key_env"] == "GPT_IMAGE_API_KEY"
     assert not any("key" in k and k != "api_key_env" for k in out)
+
+
+def test_resolve_image_connection_prefers_default_else_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ISSUE-0057 de-hardcode：默认模型连接驱动出图(备用渠道切换)、连接空/无默认回落 .env。
+    from design_hub.composition import _resolve_image_connection
+    from design_hub.config.settings import Settings
+    s = Settings(
+        gpt_image_base_url="https://envfallback", gpt_image_model="env-model",
+        gpt_image_api_key="envkey",
+    )
+    monkeypatch.setenv("MY_BACKUP_KEY", "dk1,dk2")
+    dc = _rec("backup", base_url="https://backup", model="backup-model",
+              api_key_env="MY_BACKUP_KEY", unit_cost=Decimal("0.55"), is_default=True)
+    base, model, keys, cost = _resolve_image_connection(s, None, dc)
+    assert base == "https://backup" and model == "backup-model"
+    assert keys == ["dk1", "dk2"] and cost == Decimal("0.55")
+    # 无默认 → 回落 .env
+    b2, m2, k2, _ = _resolve_image_connection(s, None, None)
+    assert b2 == "https://envfallback" and m2 == "env-model" and k2 == ["envkey"]
+    # 有默认但 env key 未设 → 回落 .env（不拿空 key 起 provider）
+    monkeypatch.delenv("MY_BACKUP_KEY", raising=False)
+    b3, _, _, _ = _resolve_image_connection(s, None, dc)
+    assert b3 == "https://envfallback"

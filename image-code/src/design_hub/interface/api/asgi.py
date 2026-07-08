@@ -76,10 +76,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     model_config_service = ModelConfigService(repo=model_config_repo)
     await model_config_service.seed_defaults(default_model_configs())
     unit_costs = await model_config_service.unit_cost_map()
-    # GPT_IMAGE_2 走真实中转 Provider（需 .env 配 GPT_IMAGE_*），其余模型暂 Mock。
-    # REAL_GPT_IMAGE=false（本地/联调）→ 全 Mock 图像，零 API 成本、不触真中转站。
+    # 配置大模型（ISSUE-0057）：默认出图模型的连接驱动真实 provider（管理员切默认=备用渠道切换、
+    # 治 0056 单点；启动快照口径同 0042，切换后重启生效）。无默认/连接空 → 回落 .env GPT_IMAGE_*。
+    _configs = await model_config_service.list()
+    _default_config = next((c for c in _configs if c.is_default and c.enabled), None)
+    # GPT_IMAGE_2 走真实中转 Provider；REAL_GPT_IMAGE=false（本地/联调）→ 全 Mock、零 API 成本。
     registry = build_registry(
-        settings, real_gpt_image=settings.real_gpt_image, unit_costs=unit_costs
+        settings, real_gpt_image=settings.real_gpt_image, unit_costs=unit_costs,
+        default_config=_default_config,
     )
     guard = CostGuard(ledger=ledger, policy=BudgetPolicy())
     # 单进程异步（去 Redis/arq）：同一 InMemoryEventBus 既给 runner 发布、又给 /events 订阅
