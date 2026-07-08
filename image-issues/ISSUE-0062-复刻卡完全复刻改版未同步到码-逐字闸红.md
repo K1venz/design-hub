@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0062
-title: 复刻卡「完全复刻」改版未同步到代码——卡↔码逐字闸红、阻迁移轮绿门
-status: 已确认        # 待复现 | 已确认 | 修复中 | 待验证 | 已修复 | 已关闭 | 无法复现 | 挂起
-severity: P1          # 阻 migration 轮全绿门（prod 功能不受影响，见下）
+title: 复刻卡「完全复刻」改版=用户 HOLD 哨兵（逐字闸红=既有已知 WIP 标记，非新 bug）
+status: 挂起          # C=维持 HOLD（用户 2026-06-22 点名挂起等自测，红测=改版收尾前哨兵，基线一直记+1 known WIP red）
+severity: P3          # 已知 WIP 哨兵·prod 无影响·迁移轮 gates around 照跑；非线上 bug、非绿门真阻断
 reporter: 开发
-owner: coordinator    # 需定夺：实现改版(自成 issue+签字) vs 撤/缓卡以对齐
+owner: 用户            # 用户挂起的决策——等他自测「完全复刻」改版后拍（A 实现 / 撤 HOLD）；A/B 现都不动
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -43,14 +43,16 @@ related:
 4. QA 视觉复验（字样复刻、竞品文字泄漏命门）。
 即：这是一个独立特性（≈ ISSUE 级），非 category 那种一列小改，需 coordinator/PM 排期 + 用户签字。
 
-## 待定夺（coordinator）
-- **A**：实现「完全复刻」改版——另开 issue，dev(码)+prompt(卡已就位)+frontend(标签)+QA，
-  含 clone_mode 重命名的存量数据策略（用户签字）。迁移轮/绿门在此完成后恢复。
-- **B**：暂缓改版、撤回/回滚卡到「高度复刻」以对齐现码，逐字闸即绿；改版排入 backlog。
-- 在 A/B 落定前，迁移轮全绿门被此红卡阻（category 的 d1a2b3c4e5f6 + 0057 的
-  c9e4a1b73d52 本身 up/down 干净、与本红无关，但同一 pytest 门会被拖红）。
+## ✅ 处置 = C 维持 HOLD（coordinator #1086 澄清 · 非新 bug）
+**本条不是新发现的卡↔码 drift，而是「完全复刻改版」的既有 HOLD 哨兵**：**用户 2026-06-22（卡改 d0b9d66 后）点名 HOLD、等他自测**——码故意未同步、`test_clone_blocks_match_card` 红=改版收尾前的**哨兵**，团队所有 QA 基线一直记「**+1 known WIP red**」。故：
+- **A（实现改版·含 clone_mode 重命名存量行→用户签字）/ B（回滚卡对齐现码）都不动**——**那是用户挂起的决策**，等他自测「完全复刻」后拍（要么收尾实现=撤 HOLD，要么弃改版）。
+- **迁移轮不受影响照跑**：category `d1a2b3c4e5f6` + 0057 `c9e4a1b73d52` 本身 up/down 干净、与本红无关；qa 先行**gates around 这条已知 WIP red**（基线容忍口径照旧）、非真阻断。
+- **prod 无影响**：线上复刻走「高度复刻」运行正常。
+- （历史框的 A/B 定夺为 dev 开条时缺 HOLD 上下文所写，已由 C 取代——见下处理记录。）
 
 ## 处理记录
 - 2026-07-08 [开发] 实现 listing_job.category 时全量 pytest 发现本红；核实非 category 引入
   （工作树未碰 prompt_composer/test_prompt_cards），确认卡 d0b9d66 改版未同步到码。
-  状态=已确认，owner=coordinator 定夺 A/B。
+  状态=已确认，owner=coordinator 定夺 A/B。（**注：dev 此时缺 HOLD 上下文=compaction 后未带上，误当 P1 blocker 上报；见下 C 澄清。**）
+- 2026-07-08 [coordinator+PM] **C 维持 HOLD·合并既有上下文（coordinator #1086 澄清、dev-1 #1087 认、PM 并入）**：本红=**「完全复刻改版」用户 HOLD 哨兵**（用户 2026-06-22 卡改 d0b9d66 后点名挂起等自测），非新 bug；基线一直记「+1 known WIP red」、迁移轮 gates around 照跑、prod 无影响。
+  **处置=C：A/B 都不动**（用户挂起的决策、等他自测拍）。frontmatter 改 **挂起 / severity P3 / owner=用户**。**本条即「+1 known WIP red」的权威登记**——防后人再「发现」一次当新 bug 报（memory `project_clone_full_replicate_hold` 同步）。PRD §3.13 🔄块「实现 in-flight」→「HOLD 待用户自测」纠正。**用户自测完拍改版方向时**，PM 再据其决策开实现 issue（A：clone_mode 重命名存量行需用户签字）或正式弃改版。owner=用户（HOLD 决策）。
