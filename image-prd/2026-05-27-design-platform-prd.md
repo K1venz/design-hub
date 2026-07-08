@@ -853,7 +853,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 **⑧ 分工与排队**：PM 本节（PRD+ISSUE-0057 立需求+反转 0017 记录）✅ → **用户**（① 签 DB schema ✅ 2026-07-07 已亲签；② 拍密钥存储 ✅ A1）→ **dev**（通用 provider 泛化 + model_config 扩 + 消费 enabled + 出图链去硬编码 + 请求 model 字段 + admin CRUD + alembic 迁移，**已签、待 slot**）+ **frontend-b**（admin 配置页 + 用户模型选择器）→ **QA**（验收 7 条）→ 迁移轮部署（mysqldump 备份可回滚，coordinator 编排）。**排队位=当前 P0(key 恢复)→0052/0055/0056 收口→0050 时区批 之后**（非阻断不抢档，coordinator #1009；DB 签字闸已过、待 PM 定稿+coordinator 派 slot 即可开工）。**仍内测灰度**（7.B/7.A 前置不变）。
 
-#### 3.17 登录健壮性四件套（需求 · 2026-07-08，ISSUE-0058）🔨 spec 定稿派单、开工中（**零建表零签字**）
+#### 3.17 登录健壮性四件套（需求 · 2026-07-08，ISSUE-0058）✅ 已上线 prod（2026-07-08 半天闭环，零建表零签字）
 > **背景**：用户 2026-07-08「先优化登录的健壮性」+ 追加拍板「密码传输公钥加密」。spec 定稿 `docs/superpowers/specs/2026-07-08-login-robustness-design.md`（coordinator 派单 `e75ddb1`）。与 key 事故无依赖、纯登录链路、插空档做。**零建表零签字**（RSA 私钥走 .env/文件不入库）→ 无 DB 铁律门。
 
 **① 现状缺口（读码实锤）**：a. **24h 必踢**（JWT HS256 固定 `jwt_ttl_hours=24`、无续期，活跃用户每天中途被踢、「记住我」语义半空）；b. **多标签页不同步**（登出仅清本页、无 storage 广播，别页续旧会话至撞 401）；c. **限流/网络错非人话**（nginx 429 非 JSON body、断网 fetch 异常→前端显原始错）；d. **密码明文进请求体仅靠 TLS**（prod 自签证书、用户点警告访问=TLS 实际削弱）。
@@ -873,6 +873,14 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 **⑥ 范围外（YAGNI，backlog）**：方案 B 双令牌（30 天离线+服务端撤销+建表签字）/ 账号锁定·验证码（nginx 限流已挡暴力破解）/ 邮箱验证 / 登录设备管理。
 
 **⑦ 分工**：PM 本节（PRD+ISSUE-0058 挂账）→ **dev**（后端滑动续期 + 密码解密，jwt_service issue-age + CurrentUserDep 注入头 + `/auth/pubkey` + pytest）+ **frontend-b**（client 读头换令牌 + WebCrypto 加密 + storage 登出广播 + 错误人话 + vitest）**同波原子** → **QA**（验收 6 条，本机 mock 全验零成本、短 TTL 加速续期验证）→ 零迁移轮部署（coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
+
+**✅ 上线记录（2026-07-08 半天闭环：需求→spec→前后端 wire 契约对齐→联调→QA→prod 原子部署）**：
+- **后端**（dev `a6feefc`+`836b3a6`，零建表零迁移）：`TokenService.renew_if_stale`（超 12h 签新 24h 放 `X-Renewed-Token` 裸 JWT、exp 过期仍 401）+ `PasswordCipher`/`RsaPasswordCipher`（RSA-OAEP+MGF1(SHA-256)+SHA-256、私钥 `.env` 不入库、`GET /auth/pubkey` 返 JSON SPKI PEM、路由边界解密、min≥8 挪明文、**bcrypt/AccountService 零改**）；`836b3a6` 容忍 env 单行 PEM `\n` 转义；test_auth 14 绿、119 全绿。
+- **前端**（frontend-b `98cb316`+`9330f23`+`3b080f0`）：client 中间件读 `X-Renewed-Token`→setToken（落原存储位不升降级）+ `api/crypto.ts`（WebCrypto RSA-OAEP-SHA256、**公钥拉取失败报错不回退明文=假加密纪律**）+ MultiTabLogoutWatcher（storage 登出同步）+ 429/断网人话；vitest 58 绿；Playwright 实证零明文外发。
+- **QA 6 绿 0 红**（报告 `c52dd54`）：含篡改密文→400 人话 / 双存储位续期 / 双标签同步。
+- **同波原子部署**（coordinator，密码字段格式变必须同波）：`c52dd54` 波、回滚镜像 `rollback-20260708-101753`、bundle `index-BCfLEuJu`；**prod 实弹三连绿**：真公钥加密登录 200 / 明文登录被拒 400（密码不再明文过线）/ 新鲜令牌无续期头。
+- **遗留 backlog（极小）**：冷断网文案统一（个别冷路径未完全统一，记登录打磨 backlog、下次前端小波次顺带、非缺陷）。
+- **仍内测灰度**（7.B/7.A 前置不变）；诚实边界=不挡全能 MITM、根治=§7.A 备案正式域名+LE。
 
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
