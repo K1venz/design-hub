@@ -5,6 +5,7 @@ DIP 的落点——把抽象端口绑定到具体适配器都集中在此，其�
 （registry / 图床签名 / 上传落点 / 真实 gpt provider）。
 """
 
+import os
 from collections.abc import Mapping
 from decimal import Decimal
 
@@ -60,26 +61,54 @@ def build_mock_registry(
     return registry
 
 
-def build_gpt_image_provider(
-    settings: Settings, unit_costs: Mapping[ModelName, Decimal] | None = None
-) -> OpenAICompatImageProvider:
-    """真实 gpt-image-2 中转 Provider（apinebula/诗云）。需 .env 提供 GPT_IMAGE_*。
-
-    单价优先取 model_config 表（unit_costs），缺失则回落 ¥占位估算（与 seed 一致）。
-    b64 出图经 LocalImageStore 落本地目录（A 方案）；将来换 OSS 只改 image_store。
+def _resolve_image_connection(
+    settings: Settings,
+    unit_costs: Mapping[ModelName, Decimal] | None,
+    default_config: ModelConfigRecord | None,
+) -> tuple[str, str, list[str], Decimal]:
+    """出图 provider 连接解析（ISSUE-0057）：优先管理员配的默认模型连接（备用渠道切换、治 0056
+    单点），需 base_url+model+非空 key（A1 真 key 从 api_key_env 指向的环境变量取）；否则回落 .env。
+    单模型口径 MVP：默认模型的连接驱动 GPT_IMAGE_2 出图槽（切默认+重启即换渠道，同 0042 快照口径）。
     """
+    if default_config is not None and default_config.base_url and default_config.model:
+        keys = [
+            k.strip()
+            for k in os.environ.get(default_config.api_key_env, "").split(",")
+            if k.strip()
+        ]
+        if keys:
+            return (
+                default_config.base_url, default_config.model, keys, default_config.unit_cost
+            )
     if not settings.gpt_image_base_url or not settings.gpt_image_model:
-        raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env）")
+        raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env 或 model_config）")
+    keys = [
+        k.strip() for k in settings.gpt_image_api_key.get_secret_value().split(",") if k.strip()
+    ]
     unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.40"))
+    return settings.gpt_image_base_url, settings.gpt_image_model, keys, unit_cost
+
+
+def build_gpt_image_provider(
+    settings: Settings,
+    unit_costs: Mapping[ModelName, Decimal] | None = None,
+    *,
+    default_config: ModelConfigRecord | None = None,
+) -> OpenAICompatImageProvider:
+    """真实出图 Provider。连接优先取管理员配的默认模型（ISSUE-0057），否则回落 .env GPT_IMAGE_*。
+
+    单价优先取 model_config 表；b64 出图经 image_store 落点；换 OSS 只改 image_store。
+    """
+    base_url, model, api_keys, unit_cost = _resolve_image_connection(
+        settings, unit_costs, default_config
+    )
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=unit_cost,
-        base_url=settings.gpt_image_base_url,
-        # 多 key：GPT_IMAGE_API_KEY 逗号分隔；provider 按请求 round-robin 分发（缓解单 key 限流）
-        api_keys=[
-            k.strip() for k in settings.gpt_image_api_key.get_secret_value().split(",") if k.strip()
-        ],
-        model=settings.gpt_image_model,
+        base_url=base_url,
+        # 多 key 逗号分隔；provider 按请求 round-robin 分发（缓解单 key 限流）
+        api_keys=api_keys,
+        model=model,
         image_store=build_image_store(settings),
         trust_env=False,  # 境内中转站直连，绕开本机梯子代理
         timeout=300.0,  # 图生图 edit 实测 ~187s（ISSUE-0007），180s 太紧；放宽到 300s 留余量
@@ -169,13 +198,16 @@ def build_registry(
     *,
     real_gpt_image: bool = False,
     unit_costs: Mapping[ModelName, Decimal] | None = None,
+    default_config: ModelConfigRecord | None = None,
 ) -> ProviderRegistry:
     """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖 GPT_IMAGE_2。
 
-    unit_costs（model_config 真实单价）注入 Provider，替换写死的 Mock 价；缺失回落兜底。
-    仅 gpt-image 有真实 key，其余模型暂仍 Mock；按 LSP 替换。
+    unit_costs（model_config 真实单价）注入 Provider；default_config（ISSUE-0057 管理员配的
+    默认出图模型）驱动真实 provider 的连接（备用渠道切换），缺省回落 .env。按 LSP 覆盖 Mock。
     """
     registry = build_mock_registry(unit_costs)
     if real_gpt_image:
-        registry.register(build_gpt_image_provider(settings, unit_costs))  # 按 name 覆盖 Mock
+        registry.register(
+            build_gpt_image_provider(settings, unit_costs, default_config=default_config)
+        )
     return registry
