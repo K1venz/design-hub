@@ -806,6 +806,15 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **迁移轮部署纪律**（coordinator）：回滚镜像 `rollback-20260706-164436` + `mysqldump db-backup-20260706-164518.sql` + alembic `a1f7c3d9e5b2→b3f8c1a24d90`；prod smoke 全绿（迁移落库确认 version=b3f8c1a24d90/两表在、GET /chat/sessions 带 token 200·无 token 401·不存在 404 anti-enum、/me·/listing/jobs·showcase 零回归、前端 bundle 换新 `index-BzNAczR6.js`）。
 - **仍内测灰度**（7.B/7.A 前置不变）；**待用户 prod 复核后 PM 终关 ISSUE-0051**。
 
+#### 3.14.2 「帮我设计」边界三环 + 知识库 + harness 重构（需求 · 2026-07-08，ISSUE-0059）🔨 spec 定稿、PM 知识库内容已起草、dev harness 开工
+> **背景**：用户 2026-07-08「chat 聊得**大胆**一些、知识库=平台所有功能且随功能更新同步、harness 优化」。spec 定稿 `docs/superpowers/specs/2026-07-08-chat-knowledge-categories-design.md`（A 线，coordinator `97c4978`）。**方案 C 零框架零依赖不变**。
+
+- **① 边界三环（「大胆」的精确含义）**：**核心环（不变）**出图参数→费用确认→出图，卡链/费用闸/频控铁律全不动；**知识环（新增）**答平台任何功能怎么用/多少钱/在哪点（依据知识库、没有的明说「暂不支持」不编造）；**顾问环（新增=大胆）**电商出图/营销视觉通用建议 + 自然聊用户产品生意；**安全地板不松**（违法违规/涉政涉黄/无关敏感仍拒，7.B 公众全量硬前置不变、现内测+登录墙）。
+- **② 知识库机制（随功能同步·关键）**：单一事实源 `image-code config/chat_knowledge.md`（功能地图：每功能干什么/入口/价格/限制、**≤1500 token 预算**、每消息注入、启动加载缓存）；orchestrator 组 system prompt 时读入。**✅ 首版内容 PM 已起草** `image-prd/chat-knowledge-base-v1-draft.md` → 交 dev 落文件（PM 不写 image-code）。**⚠️ 同步流程入 DoD（PM 长期承诺）**：功能上线记录必勾「chat 知识库同步」+ QA 模板加「chat 能答新功能」。
+- **③ harness 重构（dev，零框架不变）**：system prompt 四段（persona→知识库→工具契约→守则）+ 工具 description 打磨 + 长会话上下文裁剪（>20 轮带最近 20+首轮、**DB 转录全量不动=0051 不改**）。
+- **④ 验收（QA A①-⑤，零成本）**：知识环答对/库外不编造 · 顾问环给建议不拒 · 核心环零回归（三路径+费用闸+0051）· 安全地板仍拒 · 长会话 30+ 轮裁剪连贯。
+- **分工**：PM（PRD+ISSUE-0059+知识库内容 ✅+DoD）→ dev（知识注入+四段 prompt+上下文裁剪+落知识库文件）→ QA。**内测灰度不变**。
+
 #### 3.15 效果图「配方展示 + 一键复用」（需求 · 2026-07-07，ISSUE-0053）✅ 已上线 prod（2026-07-07 单日闭环，待用户复核关账）
 > **背景**：用户需求「效果图展示里做提示词复用——展示图片同时展示生成配置与提示词、可一键复用出同款」。spec 定稿入库 `docs/superpowers/specs/2026-07-07-recipe-reuse-design.md`（coordinator 派单 `ec9e80a`）。
 
@@ -881,6 +890,15 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **同波原子部署**（coordinator，密码字段格式变必须同波）：`c52dd54` 波、回滚镜像 `rollback-20260708-101753`、bundle `index-BCfLEuJu`；**prod 实弹三连绿**：真公钥加密登录 200 / 明文登录被拒 400（密码不再明文过线）/ 新鲜令牌无续期头。
 - **遗留 backlog（极小）**：冷断网文案统一（个别冷路径未完全统一，记登录打磨 backlog、下次前端小波次顺带、非缺陷）。
 - **仍内测灰度**（7.B/7.A 前置不变）；诚实边界=不挡全能 MITM、根治=§7.A 备案正式域名+LE。
+
+#### 3.18 商品品类扩展（需求 · 2026-07-08，ISSUE-0060）🔨 spec 定稿、卡草案+代码开工（真图验收等 key）
+> **背景**：用户 2026-07-08「增加品类：衣服/美妆/鞋/数码等」。spec 定稿（B 线，coordinator `97c4978`）。**注册表制**：加品类=加卡+注册、不动架构；治「万物皆花生」（现只 FOOD 保真块、非食品被食品语汇污染）。
+
+- **① 品类清单**：`FOOD 食品`（现有）+ **`FASHION 服装`/`BEAUTY 美妆`/`SHOES 鞋类`/`DIGITAL 数码`**（首批 4 新增，后续按需增）。
+- **② 卡体系（prompt 权威）**：每品类一张品类卡（特性块=材质/质感/常见卖点/场景语汇/禁忌，如美妆肤感质地·数码金属质感参数化卖点·服装面料垂感模特/平铺·鞋侧 45° 主角度）；**通用产品保真块不动**（品类卡=叠加层）；**卡↔code 逐字核对 pytest 闸照旧**。卡草案 coordinator 派子 agent 出稿、prompt 权威补复核。
+- **③ 代码 + UI（零建表）**：dev（`CategoryCardRegistry` 注册 4 品类·常量与卡逐字同步·卡闸覆盖 **9→13 块**·`category` 校验放开 **5 值**·chat 工具 schema 同步·openapi 再生）+ frontend-b（`/set` 品类选择器下拉默认食品·codegen·**0053 `recipe.category` 已有字段天然兼容**）。
+- **④ 验收（QA，⚠️ 真图依赖 key）**：5 品类各真出 1 套（n=3）看特性生效（不再「万物皆花生」·≈¥6 key 恢复后跑）· 卡闸 pytest 逐字绿 · 前端选择器/chat 品类/配方带品类 · FOOD 全链零回归。代码/卡先落地、真图排 key 后。
+- **分工**：子 agent 卡草案（prompt 补复核）→ dev（注册表+卡闸+openapi）→ frontend-b（选择器）→ QA（②③④先行、①真图等 key）。与 A 线并行、写域不相交。**内测灰度不变**。
 
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
