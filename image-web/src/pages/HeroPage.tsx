@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
+import { IndexNavbar } from '@/components/home/IndexNavbar'
 import { MarqueeHero } from '@/components/home/MarqueeHero'
 import img01 from '@/assets/hero/0d92feb99fbab119.jpg'
 import img02 from '@/assets/hero/1eefddf7817977db.jpg'
@@ -24,13 +25,16 @@ const IMAGES = [img01, img02, img03, img04, img05, img06, img07, img08, img09, i
 export function HeroPage() {
   const navigate = useNavigate()
   return (
-    <MarqueeHero
-      tagline="已服务内测商家，出图超 1000 张"
-      titleLines={['一整套电商图', '一句话的事']}
-      description="上传产品图，白底、场景、卖点一次出齐，还能复刻爆款、文字保真。实朴帮你把商品图做到能开卖。"
-      ctaText="开始创作"
-      onCta={() => navigate('/home')}
-      images={IMAGES}
-    />
+    <div className="relative">
+      <IndexNavbar />
+      <MarqueeHero
+        tagline="已服务内测商家，出图超 1000 张"
+        titleLines={['一整套电商图', '一句话的事']}
+        description="上传产品图，白底、场景、卖点一次出齐，还能复刻爆款、文字保真。实朴帮你把商品图做到能开卖。"
+        ctaText="开始创作"
+        onCta={() => navigate('/home')}
+        images={IMAGES}
+      />
+    </div>
   )
 }
