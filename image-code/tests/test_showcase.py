@@ -108,7 +108,8 @@ def test_recipe_reuse_invariants() -> None:
     # 配方卫兵（做同款可复用性 + 无内部 prompt 泄漏）：改配方时 fail-fast。
     for e in SHOWCASE_ENTRIES:
         r = e.recipe
-        assert r.category == "FOOD"
+        # 品类 ∈ 五品类枚举（ISSUE-0060 扩展后 showcase 含 FASHION/SHOES/DIGITAL 精选）
+        assert r.category in {"FOOD", "FASHION", "BEAUTY", "SHOES", "DIGITAL"}
         assert r.ratio in {"1:1", "9:16", "16:9", "3:4", "4:3"}
         # 图型配比：键为图型枚举、张数为正、Σ 在套图区间 3..10（PRD §3.12.14）
         assert set(r.plan).issubset({"白底", "场景", "卖点"})
