@@ -75,3 +75,13 @@ related:
   status 待确认→**已确认**（需求定稿 + schema 签 + A1 拍，前置全清）；owner→coordinator（排 slot：0050 批后派 dev+frontend-b 开工）。DB 签字闸已过、**开工无 PM/用户阻塞**，纯排期。
 - 2026-07-08 [PM] **⚠️ 排期提级（用户点名，coordinator #1044）**：0057 **提级到 0050 之前**——用户今天两次点名（波动配置查询工具 get_pricing_quota 读 model_config + 直接问「0057 去哪了」）= 明确需求信号；且其**「备用渠道切换」是 ISSUE-0056 类断供的结构性解**（提级有战略理由）。
   **新队列**：**A/B 线收口（今天）→ 0057 开工 → 0050 时区批 →（key 恢复插入即跑收口三连 0052/0055/0056）**。@dev A 线工具增量交付后**直接接 0057**（schema 已签/A1 已拍/PRD §3.16 封存、slot 到即上）；@frontend-b 0057 配置页 UI（admin 域新页）等 dev 后端契约出来接棒。前置仍全清、无 PM/用户阻塞、纯排期开工。owner=coordinator（派工）。
+- 2026-07-08 [dev] **后端 MVP 三片全落**（提级后开工，备用渠道切换功能闭环=治 0056 单点结构性解）：
+  ① DDL 底座 `1ca3830`：model_config +provider_type/base_url/model/api_key_env/is_default 五列（用户亲签 schema）+ 迁移
+     `c9e4a1b73d52`（down=b3f8c1a24d90，sqlite up/down 实测干净；**迁移执行走 qa 先行+mysqldump 纪律、coordinator 从非 3225b6b 另编排**）。
+  ② admin CRUD `a268a0a`：POST/GET/PUT/DELETE /admin/models + PUT …/default（事务保恰一默认=渠道切换）；**ModelConfigOut 只回 api_key_env
+     env 名、绝无真 key 字段（验收⑦守死，单测断言）**；openapi 再生=frontend-b 配置页契约就位。
+  ③ 出图去硬编码连接 `c24e565`：`_resolve_image_connection`——真实 provider 连接优先取默认 model_config（is_default+enabled、
+     A1 真 key 从 api_key_env 环境变量取），无配/连接空/env key 未设 → 回落 .env GPT_IMAGE_*（**零回归**）。启动快照口径同 0042（切默认+重启生效）。
+  测试：test_model_config CRUD 6 + 连接解析 3 + Out 无真 key；REAL_GPT_IMAGE=false 不走真 provider=零成本。ruff+mypy 绿、pytest 140 绿+1 已知红。
+  **口径**：单模型槽+默认连接驱动 MVP（交付备用渠道切换核心价值）；**per-request 任意模型选择（请求 model 字段+string-keyed registry）列 P2 后续、本波不做**。
+  待 coordinator 验收 + 迁移轮部署（qa 先行）；frontend-b 配置页 UI 随 openapi。owner→coordinator（部署编排）。
