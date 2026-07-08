@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0057
 title: 「配置大模型」页面——管理员全局配 model_config + 通用中转 provider + 用户选模型（档 A）
-status: 已确认        # 需求定稿(PRD §3.16+反转0017)+用户已签schema+拍A1,前置全清、无PM/用户阻塞；待coordinator排slot(0050批后)派dev+frontend-b开工
+status: 已修复        # MVP全上线prod(迁移c9e4a1b73d52+备份+prod实操CRUD冒烟绿含无key泄漏,bundle index-B9sXBo3s)；备用渠道切换live=治0056结构性解，待用户admin复核终关
 severity: P2          # 新特性（获客/灵活性 + 备用渠道切换=治 ISSUE-0056 单点的结构性解）；非阻断、非资损
 reporter: 开发        # 用户 2026-07-07 经 dev 窗口提需求（盘点占位符时衍生），dev 出技术设计并路由 PM 立需求
-owner: coordinator    # 前置全清(需求定稿+schema签+A1)；⚠️提级到0050前(用户点名#1044)=A/B线收口后即开工，纯排期无阻塞
+owner: PM             # MVP上线+验收全绿(coordinator代执行prod实操)；admin配置页待用户复核(顺带可加备用渠道恢复出图)后终关
 created: 2026-07-07
 related:
   - issue: ISSUE-0017（曾移除 qwen-image 出图模型——本条反转「其他模型不做」的范围决定，需 PM 记录）
@@ -89,3 +89,7 @@ related:
 - 2026-07-08 [PM] **MVP/P2 范围分期入档（coordinator #1061 请 PM 入档、PM+coordinator 认）**：本波 MVP=**单模型槽+默认连接驱动**（admin 全局配 + 默认模型驱动出图 + **备用渠道切换治 0056 单点核心价值**）已交付；**per-request 用户任意选模型（请求 model 字段 + string-keyed registry + 用户选择器）明确列 P2 后续、本波不做**。
   **PM 判断=合理分期（YAGNI）**：当前仅 gpt-image-2 一个真实模型，「用户 per-request 选模型」在多模型真 live 前 moot；核心价值（管理员切备用渠道即恢复出图）已达 → 接受分期、非缩水。相应调整：PRD §3.16 验收②（用户选模型）/③（非法 model 400）/⑤ 用户选择器 **归 P2 不验本波**；MVP 验收=admin 配置生效 / 设默认渠道切换 / 默认回退 / 密钥不泄漏⑦ / 零回归 / 迁移。
   **部署编排（coordinator #1061）**：A/B 波先行（等 frontend-b UI 段）→ **0057 波跟上**（frontend-b 配置页完工后，迁移轮纪律：qa 先行跑 `c9e4a1b73d52` + mysqldump + 部署 + coordinator prod 配置页实操一轮 CRUD 验收）。0057 MVP 关账口径=admin CRUD/设默认渠道切换/密钥不泄漏/零回归 prod 验收绿 + 迁移零丢失。owner=coordinator（部署编排）。
+- 2026-07-08 [frontend-b] **配置页 UI 交付**（`a595af1`，MVP admin 配置页）：/admin/models 重构为模型渠道配置管理（useCreateModel/useSetDefaultModel/useDeleteModel + ModelConfigDialog + ModelRowActions + 默认置顶）；**验收⑦主动设防**——前端只收/展示 `api_key_env` 环境变量名、无真 key 字段，且 UPPER_SNAKE 格式闸**主动挡真密钥误填**（实测拒 `sk-…`）；门禁绿 + Playwright CRUD 全链实证。MVP 口径=只 admin 配置页、per-request 选模型 P2 不做。
+- 2026-07-08 [coordinator+PM] **0057 MVP 全链上线 prod（#1080，用户「去推进一下」授权）**：qa 先行迁移+CRUD 冒烟绿 → prod 迁移 `c9e4a1b73d52` + 备份 `db-backup-20260708-134330` → **prod 实操 CRUD 冒烟绿（含无真 key 泄漏核=验收⑦线上坐实）** → bundle `index-B9sXBo3s` → **git push main+dev 双分支远程同步完成**（用户授权、coordinator 推送前泄漏扫描 0 命中）。
+  **PM 状态机推进：已确认 → 已修复，owner→PM**。MVP 验收全绿（admin CRUD / 设默认=渠道切换 / ⑦密钥不泄漏 / 零回归 / 迁移零丢失）+ coordinator 代执行 prod 配置页实操（增删测试渠道+核无 key 字段）。
+  **关账口径**：admin 域功能，用户=管理员本人 → **留用户 admin 复核批终关**（用户开配置页试增删/设默认）；**⚠️ 高价值提醒入档**：备用渠道切换现 **live**，而 apinebula 正 401 down（ISSUE-0056）→ **用户若有另一可用中转站/key，现在即可在配置页加备用渠道+设默认+重启恢复出图，不必死等 apinebula**（0057=0056 结构性解已可用）。PM 已向用户点明。**per-request 选模型仍 P2**。落 PRD §3.16 转 ✅ 已上线。
