@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0065
 title: 转异步出图（apinebula image-tasks 队列）治本同步端点限流——prod 真实用户成功率 ~33%
-status: 待验证        # dev 建完 AsyncImageTasksProvider(335c0db·150 绿)→交 QA 验收 5 条 + coordinator 异步波部署
+status: 已关闭        # 异步治本坐实:prod成功率33%→87%(13/15)+FOOD3/3零回归+两provider切换实操+保真绿;QA证据落image-qa
 severity: P1          # 真实用户当前受影响：prod 出图成功率 ~33%（同步端点过载即拒、串行 mitigation 不够）；非资损但核心功能可用性硬伤
 reporter: coordinator  # 品类批终态全 1/3 暴露、coordinator 异步接口实证（#1101）
-owner: QA             # dev 修完交回；QA 验收 5 条（成功率回升/两 provider 切换/保真不回退/零回归+退款）
+owner: —              # 已关闭：异步 provider 治本、成功率 33%→87%、余2张fail-closed正确(0064 backlog再抬)
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -58,3 +58,4 @@ webhook 回调（先轮询）/ 异步批量并发编排 / 多中转站负载均�
   ④ 测：6 条 async 契约（submit shape/轮询状态机/download 落存不泄 key/failed fail-closed/墙钟穷尽/模态装配错）。
   **⚠️ 部署激活步骤（coordinator/QA 注意）**：本条**无 DB 迁移**，代码上线后 prod **仍走同步**（seed 默认 provider_type=`openai_compat_image`）；**激活异步=管理员在 0057 配置页新增/设默认一行 provider_type=`apinebula_async_image`（base_url=apinebula /v1、model=gpt-image-2、api_key_env 指 KeyA）+ 重启**；**回退=切默认回同步行+重启**（备用渠道）。状态→待验证，owner=QA。
 - 2026-07-08 [coordinator] **✅ 异步波部署+激活（#1117）**：335c0db 上线 → coordinator 经 0057 配置页 API 加 `gpt-image-2-async` 行+设默认+重启（**恰一默认核过=验收⑤两 provider 切换流程本身已实操**）。**QA 实弹正跑品类批全套 5 品类×3（含 FOOD 零回归）走异步管线**——一批同时回答本条**验收②成功率/④保真** + **ISSUE-0060 品类卡三问（真图①⑤）**。结果出来 coordinator 评图+通报 → PM 关账 0065 + 收尾 0060。owner=QA（实弹验收中）。
+- 2026-07-08 [coordinator+PM] **✅ 异步治本坐实、PM 关账（#1119 品类批评图）**：**验收②成功率 33%→87%（13/15）**——异步治本坐实（余 2 张「临时繁忙」由 fail-closed 正确落败=0055 兜底在、可再抬走 ISSUE-0064 backlog）；**④保真绿**（品牌大字保真、密集小字限界另记 0060）；**⑤两 provider 切换**=coordinator 0057 配置页实操过；**FOOD 3/3 零回归**。QA 证据落 image-qa 报告。**status→已关闭**。治本方案（同步端点过载即拒→异步队列消化+失败退款）线上验证完整。
