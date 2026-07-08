@@ -28,7 +28,7 @@ import { PrivacyPage } from '@/pages/legal/PrivacyPage'
 import { WorkbenchPage } from '@/pages/WorkbenchPage'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { RoleRoute } from '@/routes/RoleRoute'
-import { ROLE_MANAGER, useAuthStore } from '@/stores/auth-store'
+import { AUTH_STORAGE_KEY, ROLE_MANAGER, useAuthStore } from '@/stores/auth-store'
 
 // UI 风格预览（throwaway 选型用，第二轮 Western AI-product）：仅 DEV 注册路由。
 // import() 必须在 DEV 分支内（静态可消除），否则 chunk 仍会被产出进 prod dist。
@@ -84,6 +84,34 @@ function UnauthorizedWatcher() {
     }
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [navigate])
+  return null
+}
+
+/**
+ * 多标签页登出同步（ISSUE-0058 §三.1）：监听 storage 事件——另一标签清 auth 键（登出）→
+ * 本页也清会话并跳登录。仅 localStorage 模式生效（sessionStorage 无跨页事件；记住我=默认勾覆盖主流）。
+ * 只广播登出方向：新值无 token 且本页仍有 token → 登出；登录/续期方向（有 token）不动。
+ */
+function MultiTabLogoutWatcher() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== AUTH_STORAGE_KEY) return
+      let nextToken: unknown
+      try {
+        nextToken = e.newValue ? (JSON.parse(e.newValue) as { state?: { token?: unknown } })?.state?.token : null
+      } catch {
+        nextToken = null
+      }
+      if (!nextToken && useAuthStore.getState().token) {
+        useAuthStore.getState().clear()
+        queryClient.clear()
+        if (!PUBLIC_PATHS.has(window.location.pathname)) navigate('/login', { replace: true })
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [navigate])
   return null
 }
@@ -171,6 +199,7 @@ export default function App() {
         <BrowserRouter>
           <AuthHydrator />
           <UnauthorizedWatcher />
+          <MultiTabLogoutWatcher />
           <AppRoutes />
         </BrowserRouter>
         <Toaster position="top-center" />

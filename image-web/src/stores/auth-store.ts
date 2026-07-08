@@ -10,6 +10,9 @@ export type AuthUser = components['schemas']['MeResponse']
 export const ROLE_DESIGNER: Role = '设计师'
 export const ROLE_MANAGER: Role = '管理者'
 
+/** 鉴权会话持久化键（persist name）。多标签登出同步监听 storage 事件复用此键。 */
+export const AUTH_STORAGE_KEY = 'design-hub-auth'
+
 /**
  * 角色**显示名**映射（DB 枚举值保持不变，仅前端展示）。
  * 世界 A 移除后实朴为纯 toC，普通用户不再叫「设计师」→ 展示为「用户」。
@@ -49,7 +52,7 @@ export const useAuthStore = create<AuthState>()(
       clear: () => set({ token: null, user: null }),
     }),
     {
-      name: 'design-hub-auth',
+      name: AUTH_STORAGE_KEY,
       storage: createJSONStorage(() => rememberAwareStorage),
       partialize: (s) => ({ token: s.token }),
     },
