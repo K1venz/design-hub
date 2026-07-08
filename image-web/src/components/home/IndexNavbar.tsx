@@ -57,20 +57,20 @@ export function IndexNavbar() {
 
   return (
     <header className="absolute inset-x-0 top-0 z-20">
-      <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:h-20 md:px-8">
-        {/* 左：logo + 品牌名 */}
-        <Link to="/" className="flex items-center gap-2 font-bold text-neutral-950">
-          <span className="grid size-8 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-[13px] font-bold text-white">
-            朴
-          </span>
-          实朴
-        </Link>
-
-        {/* 中：桌面菜单 */}
-        <div className="hidden items-center gap-1 md:flex">
-          <NavFlat to="/home" label="首页" />
-          <NavDropdown group={PRODUCT_MENU} />
-          <NavDropdown group={HELP_MENU} />
+      <nav className="flex h-16 items-center justify-between px-4 md:h-20 md:px-6">
+        {/* 左：logo + 品牌名 + 紧随的桌面菜单（navbar1 同侧排法） */}
+        <div className="flex items-center gap-8">
+          <Link to="/" className="flex items-center gap-2 font-bold text-neutral-950">
+            <span className="grid size-8 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-[13px] font-bold text-white">
+              朴
+            </span>
+            实朴
+          </Link>
+          <div className="hidden items-center gap-1 md:flex">
+            <NavFlat to="/home" label="首页" />
+            <NavDropdown group={PRODUCT_MENU} />
+            <NavDropdown group={HELP_MENU} />
+          </div>
         </div>
 
         {/* 右：桌面登录区（已登录 → 进入工作台） */}
