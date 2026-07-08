@@ -80,3 +80,15 @@ related:
      解密失败 400 / 明文<8→400（证校验挪明文）/ /me 过半衰期回 `X-Renewed-Token` / fresh 无头 / 过期 401）。openapi 再生（+/auth/pubkey +PubKeyResponse、password minLength 8→1）。
      ruff+mypy(src) 绿、pytest **119 绿 + 1 已知 WIP 红**。
   **交接**：后端就位 → @frontend-b 联调 happy-path（真 WebCrypto 加密 ↔ 后端解密 / 续期换头无感）→ coordinator 编排 QA 6 条 → **同波原子部署**（密码字段格式变、前后端必须同波）。
+- 2026-07-08 [frontend-b] **前后端 happy-path 联调全绿**（commit `9330f23` pubkey 解析加固 + `3b080f0` codegen 同步；起 dev a6feefc 后端 mock 实测）：
+  ① **pubkey 加固**（`9330f23`）：按 coordinator #1019 拍板 pubkey=JSON 式，crypto.ts 改「文本 trim 后以 { 开头即 JSON.parse 取 public_key、否则裸 PEM」不依赖 Content-Type（防原子上线头抖动）；malformed 仍 fail-fast。
+  ② **codegen 同步**（`3b080f0`）：拉入 dev openapi 的 /auth/pubkey+PubKeyResponse（前端 crypto 走 raw fetch 不依赖该端点类型，纯 schema 对齐）。
+  **Playwright + dev 后端 mock（JWT_RENEW_AFTER_HOURS=0 强制续期）联调实证**：
+  · **加密↔解密 roundtrip**：`/auth/pubkey` 返 JSON `{"public_key":"-----BEGIN PUBLIC KEY-----…"}`→WebCrypto 加密→后端 RsaPasswordCipher 解密→bcrypt。
+    **老账号照常登录**（remember@example.com=旧明文 bcrypt 哈希，密文登录 200 ✓=验收#0 老账号）+ **新用户加密注册**（robust58@example.com 注册→登录态 ✓）。
+  · **抓包无明文**（验收#0）：login POST body `password`=base64 RSA-2048 密文（344 字符 `KnaK2BeO…==`）、**非明文**；email 明文 ✓。
+  · **滑动续期换头**（验收#1）：`/me` 响应带 `x-renewed-token`（裸 JWT iat=新）→ client 中间件 setToken → localStorage token 换成续期后的（iat/尾匹配）、**落 localStorage 原位不升降级**（记住我模式，inSession=false）✓。
+  · **双标签登出同步**（验收#3，localStorage 模式）：Tab A(/)退出登录写 null-token → **Tab B(/history)storage 事件秒内清会话+跳 /login** ✓。
+  · **fail-fast 无明文**（验收#0 泄漏面，早前无 pubkey 时验）：公钥端点不可用→登录报「安全通道初始化失败」+ 零 POST /auth/login ✓。
+  **本地未覆盖**：429（nginx 限流 mock 产不出）+ 断网人话——代码路径直白（429→固定文案、fetch reject→固定文案）、交 QA server-side 一轮（真 nginx 429）。
+  **联调结论**：happy-path + 安全关键路径全绿、跨语言 RSA-OAEP-SHA256 interop 干净、契约逐项对齐。前后端就绪 → @coordinator 编排 QA 6 条 → 同波原子部署。owner 前端份联调完成、球交 coordinator。
