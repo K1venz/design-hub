@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0058
 title: 登录健壮性四件套——滑动续期 + 密码传输公钥加密 + 多标签登出同步 + 错误人话化
-status: 修复中        # spec 定稿派单、dev(后端2)+frontend-b(前端3)并行开工中；零建表零签字、与 key 事故无依赖插空档
+status: 已修复        # QA 6绿0红(c52dd54)+原子上线 prod+实弹三连绿(真加密登录200/明文拒400/新鲜令牌无续期头)；PM 已推进，遗留冷断网文案 backlog 小条
 severity: P2          # 用户直接提需求；登录体验/纵深安全硬伤修复（24h必踢/明文密码/多标签不同步/错误非人话）；非资损非阻断
 reporter: PM          # 用户 2026-07-08 提需求（coordinator #1015 转达），spec 定稿 e75ddb1，PM 挂账
-owner: 开发+frontend-b # 并行同波原子：dev(滑动续期+密码解密)、frontend-b(读头换令牌+WebCrypto加密+storage登出+错误人话)
+owner: PM             # 已上线 prod、QA+实弹验证；不可见基建硬化(无需用户主动复核)，PM 告知用户后终关
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -92,3 +92,10 @@ related:
   · **fail-fast 无明文**（验收#0 泄漏面，早前无 pubkey 时验）：公钥端点不可用→登录报「安全通道初始化失败」+ 零 POST /auth/login ✓。
   **本地未覆盖**：429（nginx 限流 mock 产不出）+ 断网人话——代码路径直白（429→固定文案、fetch reject→固定文案）、交 QA server-side 一轮（真 nginx 429）。
   **联调结论**：happy-path + 安全关键路径全绿、跨语言 RSA-OAEP-SHA256 interop 干净、契约逐项对齐。前后端就绪 → @coordinator 编排 QA 6 条 → 同波原子部署。owner 前端份联调完成、球交 coordinator。
+- 2026-07-08 [dev] **部署前置修**（commit `836b3a6`，coordinator #1024 发现）：docker env-file 装不下多行 PEM → prod/qa 的 `AUTH_RSA_PRIVATE_KEY_PEM` 按业界标准写成
+  **单行 + `\n` 字面转义** → `from_pem` 加 `pem.replace("\\n","\n")` 还原再 load（幂等：真实多行 PEM 无「反斜杠+n」序列、对其 no-op；不影响本地临时 key）+ 单测（\n 转义单行 PEM 能 load+解密），test_auth **14 绿**。coordinator #1026 用同款 openssl→awk 单行转义管道实测 from_pem 载入✅+OAEP 往返✅、两端咬合。
+- 2026-07-08 [coordinator] **原子上线 prod**（#1027，用户预授权绿即上）：QA **6 绿 0 红**（含篡改密文→400 人话 / 双存储位续期 / 双标签同步，报告 `c52dd54`）→ 同波原子部署（`c52dd54` 波、回滚镜像 `rollback-20260708-101753`、bundle `index-BCfLEuJu`；后端 a6feefc+836b3a6 / 前端 98cb316+9330f23+3b080f0 同波）→ **prod 实弹 smoke 三连绿**：真公钥加密登录 200 拿 jwt ✓ / 明文登录被拒 400「密码解密失败」✓（密码从此不明文过线）/ 新鲜令牌无续期头（语义正确）✓；服务器私钥 env 装载实证成功。
+- 2026-07-08 [PM] **状态机推进：修复中 → 已修复，owner→PM**。QA 6 绿 0 红 + prod 实弹三连绿 → 四件套修复闭环坐实（滑动续期换头 / 密码 RSA-OAEP 加密不明文过线 / 双标签登出 / 错误人话）。落 PRD §3.17 转 ✅ 已上线 prod + 上线记录。
+  **关账口径**：本条=**不可见基建硬化**（滑动续期/密码加密/多标签/文案），已由 QA 抓包+prod 实弹坐实、**用户无需主动逐项复核**（不像 0048/0051/0053 有可点界面）→ PM 告知用户「登录健壮性已上线」后即终关（不强绑用户复核批次的界面走查）。
+  **遗留 backlog 小条（QA 注 1，极小·不阻关账）**：**冷断网文案统一**——断网人话在个别冷路径未完全统一（429/主路径断网已人话）；记入登录打磨 backlog，下次前端小波次顺带收，非缺陷。
+  单日闭环全程纪律在线：假加密纪律（公钥挂→报错不发明文、Playwright 实证零明文外发 + prod 明文拒 400）/ bcrypt 存储零改（老账号密文登录 200）/ 跨语言 RSA interop 逐项对齐 / 零建表零签字 / 前后端同波原子 / 诚实边界（不挡全能 MITM·根治=§7.A 备案正式域名+LE）。
