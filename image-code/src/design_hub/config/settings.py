@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     gpt_image_base_url: str = ""
     gpt_image_api_key: SecretStr = SecretStr("")
     gpt_image_model: str = ""
+    # 出图协议增强（apinebula 官方文档，coordinator #1092）：空串=不发该参数。
+    # input_fidelity=high 仅 /images/edits——保留产品真实阴影/高光/透视与文字（保真核心价值）。
+    gpt_image_input_fidelity: str = "high"
+    # response_format=b64_json 两端点——自包含返回，消掉 url 变体二次拉取+过期变数
+    # （_resolve_url 双格式兼容 url/b64 保留不动）。
+    gpt_image_response_format: str = "b64_json"
     # 文本 LLM（方案 C「帮我设计」Agent）：配 TEXT_LLM_* 三项即启真实适配器，否则用 Mock。
     # ⚠️ 现有 GPT_IMAGE key 仅图像权限（探明实测文本 403）；文本需用户另开 key/access。
     text_llm_base_url: str = ""

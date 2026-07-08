@@ -2,7 +2,9 @@
 
 import asyncio
 from decimal import Decimal
+from typing import Any
 
+import httpx
 import pytest
 
 from design_hub.domain.enums import ModelName
@@ -18,6 +20,66 @@ def _provider() -> OpenAICompatImageProvider:
         api_keys=["k"],
         model="gpt-image-2",
     )
+
+
+class _CapturingClient:
+    """假 httpx client：记录最后一次 POST 的 json/data 载荷，恒返 200（断言请求参数用）。"""
+
+    def __init__(self) -> None:
+        self.json_payload: dict[str, Any] | None = None
+        self.data_payload: dict[str, Any] | None = None
+
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.json_payload = kwargs.get("json")
+        self.data_payload = kwargs.get("data")
+        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+
+
+def _provider_with(client: _CapturingClient, **kw: Any) -> OpenAICompatImageProvider:
+    return OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
+        base_url="https://example.invalid", api_keys=["k"], model="gpt-image-2",
+        client=client, **kw,  # type: ignore[arg-type]
+    )
+
+
+async def _run(provider: OpenAICompatImageProvider, *, refs: list[bytes]) -> None:
+    await provider.generate(
+        prompt="p", negative_prompt="", reference_images=refs, size=(1024, 1024), n=1
+    )
+
+
+# ── 出图协议增强（apinebula 文档，coordinator #1092）：input_fidelity + response_format ──
+
+
+def test_edits_sends_input_fidelity_and_response_format() -> None:
+    # edits 端点（有参考图）：两参数都发——input_fidelity 保真 + b64 自包含返回
+    client = _CapturingClient()
+    provider = _provider_with(client, input_fidelity="high", response_format="b64_json")
+    asyncio.run(_run(provider, refs=[b"img"]))
+    assert client.data_payload is not None
+    assert client.data_payload["input_fidelity"] == "high"
+    assert client.data_payload["response_format"] == "b64_json"
+
+
+def test_generations_sends_response_format_but_not_input_fidelity() -> None:
+    # generations 端点（无参考图）：只发 response_format；input_fidelity 该端点无此参数、不发
+    client = _CapturingClient()
+    provider = _provider_with(client, input_fidelity="high", response_format="b64_json")
+    asyncio.run(_run(provider, refs=[]))
+    assert client.json_payload is not None
+    assert client.json_payload["response_format"] == "b64_json"
+    assert "input_fidelity" not in client.json_payload
+
+
+def test_empty_config_sends_neither_param() -> None:
+    # 空串=不发（保 CI/旧测行为，也是坏参可经 env 关的逃生阀）
+    client = _CapturingClient()
+    provider = _provider_with(client)  # 默认空
+    asyncio.run(_run(provider, refs=[b"img"]))
+    assert client.data_payload is not None
+    assert "input_fidelity" not in client.data_payload
+    assert "response_format" not in client.data_payload
 
 
 def test_parse_over_deliver_truncates_and_bills_n() -> None:

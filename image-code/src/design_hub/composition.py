@@ -109,6 +109,9 @@ def build_gpt_image_provider(
         # 多 key 逗号分隔；provider 按请求 round-robin 分发（缓解单 key 限流）
         api_keys=api_keys,
         model=model,
+        # 出图协议增强（apinebula 文档，coordinator #1092）：edits 保真 + b64 自包含返回
+        input_fidelity=settings.gpt_image_input_fidelity,
+        response_format=settings.gpt_image_response_format,
         image_store=build_image_store(settings),
         trust_env=False,  # 境内中转站直连，绕开本机梯子代理
         timeout=300.0,  # 图生图 edit 实测 ~187s（ISSUE-0007），180s 太紧；放宽到 300s 留余量
