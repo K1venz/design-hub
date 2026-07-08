@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/auth/pubkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pubkey
+         * @description 密码加密公钥（ISSUE-0058，公开、可缓存）：前端 WebCrypto 用它加密密码。
+         */
+        get: operations["pubkey_auth_pubkey_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;
@@ -713,6 +733,14 @@ export interface components {
             } | null;
         };
         /**
+         * PubKeyResponse
+         * @description GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。
+         */
+        PubKeyResponse: {
+            /** Public Key */
+            public_key: string;
+        };
+        /**
          * RecipeOut
          * @description 做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。
          *
@@ -819,6 +847,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    pubkey_auth_pubkey_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PubKeyResponse"];
+                };
+            };
+        };
+    };
     register_auth_register_post: {
         parameters: {
             query?: never;
