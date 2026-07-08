@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react'
 
-import { IMAGE_TYPE_FIELDS, planTotal, type SetPlan } from '@/lib/listing'
+import { categoryLabel, IMAGE_TYPE_FIELDS, planTotal, type SetPlan } from '@/lib/listing'
 
 /** modifiers key → 展示名（未知 key 原样）。 */
 const MODIFIER_LABELS: Record<string, string> = { platform: '平台', language: '语言', region: '地区' }
-/** category 枚举 → 展示名（未知原样）。 */
-const CATEGORY_LABELS: Record<string, string> = { FOOD: '食品' }
 
 /** 配方展示视图模型——归一 job 侧 Recipe 与 showcase 侧 RecipeOut 两种来源，供 RecipeFields 渲染。 */
 export interface RecipeView {
@@ -30,7 +28,7 @@ export interface RecipeView {
 export function RecipeFields({ view }: { view: RecipeView }) {
   return (
     <dl className="space-y-3 text-[13px]">
-      {view.category && <Row label="品类">{CATEGORY_LABELS[view.category] ?? view.category}</Row>}
+      {view.category && <Row label="品类">{categoryLabel(view.category)}</Row>}
 
       {view.modeBadge && (
         <Row label="模式">

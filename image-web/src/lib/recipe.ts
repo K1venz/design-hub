@@ -5,9 +5,12 @@
 
 import type { components } from '@/api/schema'
 import {
+  CATEGORIES,
+  DEFAULT_CATEGORY,
   DEFAULT_PLAN,
   IMAGE_TYPE_FIELDS,
   RATIOS,
+  type Category,
   type ImageTypeKey,
   type ListingConfig,
   type ListingJobDetail,
@@ -80,13 +83,16 @@ export function recipeToPrefill(recipe: Recipe): Partial<ListingConfig> | null {
   }
 }
 
-/** showcase 配方（后端 RecipeOut，已是套图可复用子集）→ /set 预填（落点 B「做同款」）。 */
+const CATEGORY_SET: ReadonlySet<string> = new Set(CATEGORIES)
+
+/** showcase 配方（后端 RecipeOut，已是套图可复用子集）→ /set 预填（落点 B「做同款」，带品类）。 */
 export function showcaseRecipeToPrefill(recipe: components['schemas']['RecipeOut']): Partial<ListingConfig> {
   const ratio: Ratio = RATIO_SET.has(recipe.ratio) ? (recipe.ratio as Ratio) : '1:1'
+  const category: Category = CATEGORY_SET.has(recipe.category) ? (recipe.category as Category) : DEFAULT_CATEGORY
   const plan: SetPlan = {
     白底: recipe.plan['白底'] ?? 0,
     场景: recipe.plan['场景'] ?? 0,
     卖点: recipe.plan['卖点'] ?? 0,
   }
-  return { mode: 'set', ratio, prompt: recipe.styling, plan, modifiers: { ...recipe.modifiers } }
+  return { mode: 'set', category, ratio, prompt: recipe.styling, plan, modifiers: { ...recipe.modifiers } }
 }

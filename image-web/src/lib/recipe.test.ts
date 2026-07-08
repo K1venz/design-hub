@@ -90,13 +90,18 @@ describe('showcaseRecipeToPrefill（落点 B「做同款」）', () => {
     modifiers: { platform: '抖音电商', language: '中文', region: '中国' }, ...over,
   })
 
-  it('RecipeOut → set 预填（styling→prompt、plan 三型齐、modifiers 副本）', () => {
+  it('RecipeOut → set 预填（styling→prompt、plan 三型齐、带品类、modifiers 副本）', () => {
     const prefill = showcaseRecipeToPrefill(recipe())
     expect(prefill).toEqual({
-      mode: 'set', ratio: '9:16', prompt: '窗边暖光野餐',
+      mode: 'set', category: 'FOOD', ratio: '9:16', prompt: '窗边暖光野餐',
       plan: { 白底: 1, 场景: 2, 卖点: 2 },
       modifiers: { platform: '抖音电商', language: '中文', region: '中国' },
     })
+  })
+
+  it('品类透传（做同款带品类）；未知品类回退食品', () => {
+    expect(showcaseRecipeToPrefill(recipe({ category: 'BEAUTY' })).category).toBe('BEAUTY')
+    expect(showcaseRecipeToPrefill(recipe({ category: 'XXX' })).category).toBe('FOOD')
   })
 
   it('plan 缺某图型 → 补 0；非法 ratio → 回退 1:1', () => {

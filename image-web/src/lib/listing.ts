@@ -94,8 +94,27 @@ export const MODIFIER_FIELDS: ModifierField[] = [
   { key: 'language', label: '语言', options: LANGUAGES },
 ]
 
+// ── 商品品类（ISSUE B 线：注册表制，首批 5 值；卡体系品类特性块 dev 侧 CategoryCardRegistry 驱动）──
+// 展示名=中文标签、请求带枚举值。加品类=扩此表 + dev 注册卡（卡↔code 逐字闸）。
+export const CATEGORIES = ['FOOD', 'FASHION', 'BEAUTY', 'SHOES', 'DIGITAL'] as const
+export type Category = (typeof CATEGORIES)[number]
+export const CATEGORY_LABELS: Record<Category, string> = {
+  FOOD: '食品',
+  FASHION: '服装',
+  BEAUTY: '美妆',
+  SHOES: '鞋类',
+  DIGITAL: '数码',
+}
+export const DEFAULT_CATEGORY: Category = 'FOOD'
+/** category 枚举 → 展示名（未知值原样，兼容后端未来新增品类）。 */
+export function categoryLabel(category: string): string {
+  return CATEGORY_LABELS[category as Category] ?? category
+}
+
 export interface ListingConfig {
   mode: WorkbenchMode
+  /** 商品品类（驱动品类特性卡；默认食品）。 */
+  category: Category
   modifiers: Record<string, string>
   ratio: Ratio
   /** 单图模式张数（固定 1）。 */
@@ -109,6 +128,7 @@ export interface ListingConfig {
 
 export const DEFAULT_LISTING_CONFIG: ListingConfig = {
   mode: 'set',
+  category: DEFAULT_CATEGORY,
   modifiers: { platform: '淘宝天猫1688', region: FIXED_REGION, language: '中文' },
   ratio: '1:1',
   n: FIXED_N,
@@ -129,17 +149,15 @@ export interface ListingGenerateInput {
   prompt: string
   ratio: string
   n: number
+  category: Category
   modifiers: Record<string, string>
 }
 
 /** JSON body for POST /listing/generate — the backend contract (two-step: upload first, reference by id). */
 export type ListingGenerateBody = Schemas['ListingGenerateRequest']
 
-/**
- * MVP 单品类：listing 当前只做花生 / FOOD，category 硬编码 FOOD（后端 default 也是 FOOD，
- * 驱动花生保真卡）。将来扩多品类 = 加品类选择 UI 并把它提到 ListingGenerateInput。
- */
-export const LISTING_CATEGORY = 'FOOD'
+/** 复刻/编辑默认品类（未提供品类选择时兜底；套图/单图走用户选择的 category）。 */
+export const LISTING_CATEGORY: Category = DEFAULT_CATEGORY
 
 export function buildListingBody(input: ListingGenerateInput): ListingGenerateBody {
   return {
@@ -148,7 +166,7 @@ export function buildListingBody(input: ListingGenerateInput): ListingGenerateBo
     ratio: input.ratio,
     n: input.n,
     modifiers: input.modifiers,
-    category: LISTING_CATEGORY,
+    category: input.category,
   }
 }
 
@@ -159,6 +177,7 @@ export interface ListingSetGenerateInput {
   ratio: string
   plan: SetPlan
   overlayTexts: string[]
+  category: Category
   modifiers: Record<string, string>
 }
 
@@ -169,7 +188,7 @@ export function buildSetListingBody(input: ListingSetGenerateInput): ListingGene
     ratio: input.ratio,
     plan: { ...input.plan },
     modifiers: input.modifiers,
-    category: LISTING_CATEGORY,
+    category: input.category,
   }
   if (input.plan.卖点 > 0 && input.overlayTexts.length > 0) {
     body.overlay_texts = input.overlayTexts

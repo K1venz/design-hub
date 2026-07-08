@@ -5,10 +5,7 @@ import { SparklesIcon, XIcon } from 'lucide-react'
 
 import type { ShowcaseItem } from '@/api/showcase'
 import { Button } from '@/components/ui/button'
-import { IMAGE_TYPE_FIELDS, planTotal, type SetPlan } from '@/lib/listing'
-
-/** category 枚举 → 展示名（未知原样）。 */
-const CATEGORY_LABELS: Record<string, string> = { FOOD: '食品' }
+import { categoryLabel, IMAGE_TYPE_FIELDS, planTotal, type SetPlan } from '@/lib/listing'
 
 // 参考件动画（GPU 纪律：仅 transform/opacity）。容器 fade+scale + 逐行 staggerChildren spring。
 const containerV: Variants = {
@@ -43,7 +40,7 @@ export function ShowcaseDetailDialog({ item, onMakeSame }: { item: ShowcaseItem;
 
   // 行列表（末行「风格描述」单独强调，见下），与 /set 生成界面配置项一一对应。
   const rows: { label: string; value: string }[] = [
-    { label: '品类', value: CATEGORY_LABELS[r.category] ?? r.category },
+    { label: '品类', value: categoryLabel(r.category) },
     { label: '图型配比', value: planText },
     { label: '比例', value: r.ratio },
     { label: '平台', value: r.modifiers.platform ?? '—' },
