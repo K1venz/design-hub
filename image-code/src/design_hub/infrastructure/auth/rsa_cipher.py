@@ -51,7 +51,9 @@ class RsaPasswordCipher(PasswordCipher):
 
     @classmethod
     def from_pem(cls, pem: str) -> "RsaPasswordCipher":
-        key = load_pem_private_key(pem.encode(), password=None)
+        # docker env-file 装不下多行 PEM → 业界标准=单行 + `\n` 字面转义；还原为真实换行再 load。
+        # 幂等：真实多行 PEM 的 base64 体无「反斜杠+n」序列，replace 对其为 no-op。
+        key = load_pem_private_key(pem.replace("\\n", "\n").encode(), password=None)
         if not isinstance(key, rsa.RSAPrivateKey):
             raise ValueError("AUTH_RSA_PRIVATE_KEY_PEM 不是 RSA 私钥")
         return cls(key)
