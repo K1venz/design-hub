@@ -22,13 +22,15 @@ export function bufferToBase64(buf: ArrayBuffer): string {
 }
 
 async function importPublicKey(): Promise<CryptoKey> {
-  // 公钥端点公开（无鉴权），走原生 fetch（不经鉴权 client）；容错 text/plain PEM 或 JSON{public_key}。
+  // 公钥端点公开（无鉴权），走原生 fetch（不经鉴权 client）。容错 JSON{public_key}（coordinator #1019
+  // 拍板式）或 text/plain 裸 PEM——看内容像 JSON 就解析，不依赖 Content-Type（防原子上线头抖动）。
   const res = await fetch('/api/auth/pubkey', { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new Error(`pubkey ${res.status}`)
-  const contentType = res.headers.get('content-type') ?? ''
-  const pem = contentType.includes('application/json')
-    ? ((await res.json()) as { public_key?: string }).public_key ?? ''
-    : await res.text()
+  const raw = (await res.text()).trim()
+  let pem = raw
+  if (raw.startsWith('{')) {
+    pem = (JSON.parse(raw) as { public_key?: string }).public_key ?? ''
+  }
   if (!pem.includes('BEGIN')) throw new Error('pubkey malformed')
   return crypto.subtle.importKey('spki', pemToDer(pem), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt'])
 }
