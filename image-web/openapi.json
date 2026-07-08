@@ -5,6 +5,28 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/auth/pubkey": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Pubkey",
+        "description": "密码加密公钥（ISSUE-0058，公开、可缓存）：前端 WebCrypto 用它加密密码。",
+        "operationId": "pubkey_auth_pubkey_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PubKeyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/register": {
       "post": {
         "tags": [
@@ -2069,6 +2091,20 @@
         "title": "ModelConfigUpdate",
         "description": "部分更新：仅传入的字段生效（None = 不改）。"
       },
+      "PubKeyResponse": {
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "title": "Public Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "public_key"
+        ],
+        "title": "PubKeyResponse",
+        "description": "GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。"
+      },
       "RecipeOut": {
         "properties": {
           "category": {
@@ -2118,7 +2154,7 @@
           },
           "password": {
             "type": "string",
-            "minLength": 8,
+            "minLength": 1,
             "title": "Password"
           },
           "name": {
