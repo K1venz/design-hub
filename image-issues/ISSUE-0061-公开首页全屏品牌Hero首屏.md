@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0061
 title: 公开首页前加全屏品牌 Hero 首屏（100vh + 鼠标跟随彩带光轨动效）
-status: 待验证        # Hero交付2d8f26f(用户实机确认「效果很好」·独立index/原首页移home·浅色底1:1原件)；待纯前端轮部署+PM关账
+status: 已修复        # Hero+backTo已上prod(bundle index-JLOHJ2ij)+真浏览器smoke三条全绿+用户实机确认「效果很好」；仅副CTA案例页待用户明确后终关
 severity: P3          # 品牌/获客门面美化；非功能阻断、非资损；纯视觉增强
 reporter: PM          # 用户 2026-07-08 给参考件提需求（coordinator #1078 消化派工），PM 入档
-owner: coordinator    # Hero交付+用户确认→随Hero波纯前端轮部署→PM关账；副CTA案例页待用户明确(不阻)
+owner: PM             # 已上线+smoke绿+用户确认；仅副CTA案例页待用户明确(keep /home 或另立案例页)后 PM 终关
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -55,3 +55,5 @@ related:
   ③ **两段式**（第一屏胶囊+标题框撑满、滚下副标题+描述+双 CTA）。**用户已实机确认「效果很好」**。门禁四件套全绿 + Playwright 实证（标题框撑满/滚动两段/彩带成型/console 零报错/CTA→/home）。
   **可走纯前端轮部署**（随 Hero 波：+ dev input_fidelity 保真增强 + 品类真图精选入成果区 + 知识库品类行回写）。**副 CTA 案例页待用户明确**（见待澄清、不阻部署）。status 修复中→**待验证**（交付、待纯前端轮部署+PM 关账）；owner→coordinator（部署编排）。
 - 2026-07-08 [frontend-b] **跟进修复 `68e72be`**（PM #1100 smoke 提醒点中）：路由改版后 Login/Register 的 backTo **无 from 默认从 `/`（现=营销 Hero）改回 `/home`（工作首页）**（带 from 回跳/prefill/q 随行不变）+ 404/403/协议页「返回首页」链接同步 /home。Playwright 实证注册成功落 /home、门禁绿。**Hero 波带 2d8f26f + 68e72be 一起**；smoke 三条（登录落 /home / 未登录见 Hero / 深链不 404）应全绿。
+- 2026-07-08 [coordinator+PM] **✅ 上线 prod + 关账推进（#1110）**：从 main HEAD 构建（68e72be+2d8f26f 天然同包，bundle `index-JLOHJ2ij`）→ **真浏览器 smoke 三条全绿**：未登录 `/`=Hero（canvas 在、无工作台内容）✓ / 登录**落 /home**（实测 URL）✓ / 深链 /history 不 404 ✓。**PM 状态机推进：待验证 → 已修复，owner→PM**——**用户已实机确认「效果很好」（=最硬验收）+ prod smoke 三条全绿**，Hero 首屏闭环。落 PRD §3.14 转 ✅ 已上线。
+  **唯一 loose end = 副 CTA 案例页待用户明确**（当前跳 /home 成果区兜底可用）：用户答「/home 够了」→ PM 终关 0061；用户要「独立案例页」→ PM 另立需求、0061 本条即可终关（案例页归新条）。PM 已向用户请澄清。
