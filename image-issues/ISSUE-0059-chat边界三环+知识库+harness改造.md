@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0059
 title: chat 改造 A 线——边界三环（大胆）+ 知识库（随功能同步）+ harness 工具化架构（⚠️升级·平台工具注册表）
-status: 修复中        # PM 知识库内容+DoD 已定；dev harness 份已交(8f307c7)、现做工具化增量(#1039升级:工具注册表+3读工具)
+status: 待验证        # A线后端全交付(harness 8f307c7+工具增量a71e183、知识库文件落地~1446token、三护栏全落、133绿)；待QA A①-⑥
 severity: P2          # 用户直接提需求（chat 聊得大胆+知识库+harness 优化）；体验/获客；非资损非阻断
 reporter: PM          # 用户 2026-07-08 提需求（coordinator #1031 转达），spec 定稿 97c4978，PM 开条
-owner: PM+开发        # PM 起草知识库内容(✅ draft)+DoD 流程；dev 落 harness(知识注入+四段prompt+上下文裁剪)+落知识库文件
+owner: coordinator    # A线交付完成→coordinator 拉两线合并QA(A①-⑥+B②③④)→同波部署；QA绿dev接0057。真出图/真图部分等key
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -70,3 +70,6 @@ related:
   get_pricing_quota(**价格/启用模型读 model_config 实时值**#1043、额度读 ledger)。走既有 ListingHistoryQuery/ledger/model_config
   端口(护栏②)。守则「价格走工具不背知识库」+ 知识库删价格数字。测试 test_chat +4 读工具用例。ruff+mypy 绿、pytest 133 绿+1 已知红。
   待 coordinator 拉 QA A①-⑥。
+- 2026-07-08 [PM] **状态机推进：修复中 → 待验证，owner→coordinator**。A 线后端全交付（harness+工具增量+知识库文件落地 ~1446 token 在预算内 + 三护栏铁律全落实 + 133 绿）→ 待 QA。
+  **PM 核对**：① 知识库删价格数字=波动性原则落地（价格走 get_pricing_quota 实时）✓；② 三护栏（写过费用闸/走既有 port 层/读 owner-scoped）dev 逐条落=能力增强非绕闸 ✓；③ 品类行仍「正在扩展中」=B 线上线时我再回写（DoD gate 未误触前置）✓；④ 长会话裁剪 DB 转录全量不动=0051 契约零改 ✓。
+  验收清单（A①-⑥）已备（#1048 报 coordinator）。QA 绿 → PM 关账 0059；dev 直接接 0057。真出图相关（若 A 验收含真 generate）等 key，纯读工具/知识/顾问环零成本可先验。
