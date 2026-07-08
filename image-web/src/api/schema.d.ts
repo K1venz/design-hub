@@ -517,8 +517,9 @@ export interface components {
             /**
              * Category
              * @default FOOD
+             * @enum {string}
              */
-            category: string;
+            category: "FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL";
         };
         /**
          * EditRequest
@@ -580,8 +581,9 @@ export interface components {
             /**
              * Category
              * @default FOOD
+             * @enum {string}
              */
-            category: string;
+            category: "FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL";
         };
         /** ListingImageOut */
         ListingImageOut: {

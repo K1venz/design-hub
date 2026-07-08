@@ -1472,6 +1472,13 @@
           },
           "category": {
             "type": "string",
+            "enum": [
+              "FOOD",
+              "FASHION",
+              "BEAUTY",
+              "SHOES",
+              "DIGITAL"
+            ],
             "title": "Category",
             "default": "FOOD"
           }
@@ -1608,6 +1615,13 @@
           },
           "category": {
             "type": "string",
+            "enum": [
+              "FOOD",
+              "FASHION",
+              "BEAUTY",
+              "SHOES",
+              "DIGITAL"
+            ],
             "title": "Category",
             "default": "FOOD"
           }
