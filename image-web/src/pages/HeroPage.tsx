@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
+import { IndexFooter } from '@/components/home/IndexFooter'
 import { IndexNavbar } from '@/components/home/IndexNavbar'
 import { MarqueeHero } from '@/components/home/MarqueeHero'
 import img01 from '@/assets/hero/0d92feb99fbab119.jpg'
@@ -35,6 +36,7 @@ export function HeroPage() {
         onCta={() => navigate('/home')}
         images={IMAGES}
       />
+      <IndexFooter />
     </div>
   )
 }

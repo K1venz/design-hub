@@ -16,6 +16,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
+import logoUrl from '@/assets/hero/shipu-logo.png'
 
 // Index 页顶部导航（navbar1 参考版式）：左 logo / 中菜单（hover 下拉=图标+标题+描述卡）/
 // 右登录注册（已登录 → 进入工作台）。移动端汉堡 + 全屏面板。零新依赖（motion/lucide 现成）。
@@ -61,9 +62,7 @@ export function IndexNavbar() {
         {/* 左：logo + 品牌名 + 紧随的桌面菜单（navbar1 同侧排法） */}
         <div className="flex items-center gap-8">
           <Link to="/" className="flex items-center gap-2 font-bold text-neutral-950">
-            <span className="grid size-8 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-[13px] font-bold text-white">
-              朴
-            </span>
+            <img src={logoUrl} alt="实朴 logo" className="size-8 object-contain" />
             实朴
           </Link>
           <div className="hidden items-center gap-1 md:flex">

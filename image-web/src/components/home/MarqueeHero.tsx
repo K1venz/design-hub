@@ -41,6 +41,10 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
   const strip: string[] = []
   while (strip.length < MARQUEE_MIN && images.length > 0) strip.push(...images)
 
+  // 标题拆分单元（英文行按词、中文行按字符）+ 各行全局起始序号（wave delay 跨行连续）。
+  const lineUnits = titleLines.map((line) => (line.includes(' ') ? line.split(' ') : line.split('')))
+  const lineOffsets = lineUnits.map((_, i) => lineUnits.slice(0, i).reduce((sum, u) => sum + u.length, 0))
+
   return (
     <section className="relative h-svh overflow-hidden bg-white text-neutral-950">
       {/* 文字栈（照参考交叠版式）：整体下沉——描述文字下半叠进走马灯渐隐区（mask 提供
@@ -58,13 +62,29 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
           {tagline}
         </motion.div>
 
-        <h1 className="text-5xl font-extrabold leading-[1.08] tracking-tight md:text-7xl lg:text-8xl">
-          {titleLines.map((line, li) => (
+        {/* 艺术字标题：方正风雅体（机器未装则回退项目 display 衬线）+ 逐字符入场 reveal
+            + 持续 wave 波浪（delay 跨行连续递增，波从头流到尾）。 */}
+        <h1
+          className="text-4xl font-bold leading-[1.12] tracking-tight md:text-6xl lg:text-7xl"
+          style={{ fontFamily: "'FZFengYaSong', '方正风雅宋', 'FZFengYaTi', '方正风雅体', var(--font-display)" }}
+        >
+          {lineUnits.map((units, li) => (
             <span key={li} className="block">
-              {(line.includes(' ') ? line.split(' ') : [line]).map((word, wi) => (
-                <motion.span key={wi} variants={wordV} className="inline-block whitespace-pre">
-                  {word}
-                  {wi < line.split(' ').length - 1 ? ' ' : ''}
+              {units.map((unit, ui) => (
+                <motion.span key={ui} variants={wordV} className="inline-block whitespace-pre">
+                  <motion.span
+                    className="inline-block"
+                    animate={{ y: [0, -8, 0] }}
+                    transition={{
+                      duration: 2.4,
+                      ease: 'easeInOut',
+                      repeat: Infinity,
+                      delay: (lineOffsets[li] + ui) * 0.12,
+                    }}
+                  >
+                    {unit}
+                  </motion.span>
+                  {titleLines[li].includes(' ') && ui < units.length - 1 ? ' ' : ''}
                 </motion.span>
               ))}
             </span>
