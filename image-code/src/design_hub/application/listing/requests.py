@@ -6,9 +6,13 @@ orchestrator 可直接用它把 LLM tool args 解析出来（extra=forbid 等约
 不违反依赖内指（interface→application→domain）。
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+# 商品品类（ISSUE-0060 注册表制）：值=CategoryCardRegistry 的 key（英文码，前端标签中文映射）。
+# 加品类=这里加一个 + prompt_composer 加卡常量；enum 进 openapi 供前端 codegen。
+Category = Literal["FOOD", "FASHION", "BEAUTY", "SHOES", "DIGITAL"]
 
 
 class ListingGenerateRequest(BaseModel):
@@ -28,8 +32,9 @@ class ListingGenerateRequest(BaseModel):
     # 卖点图可选图上文案（≤2 条、每条 ≤12 字；仅 plan 含卖点时合法；verbatim 锁定压图）
     overlay_texts: list[str] | None = None
     modifiers: dict[str, str] = Field(default_factory=dict)
-    # 品类（PRD §3.12.11）：optional、默认 FOOD；选对应品类保真卡。未知品类 launcher fail-fast 400。
-    category: str = "FOOD"
+    # 品类（PRD §3.12.11 / ISSUE-0060）：默认 FOOD；5 值枚举进 openapi 供前端 codegen；
+    # 选对应品类保真卡。非枚举值 → DTO 层拒（HTTP 422 / chat 澄清），launcher 卡链再兜底。
+    category: Category = "FOOD"
 
 
 class CloneRequest(BaseModel):
@@ -46,7 +51,7 @@ class CloneRequest(BaseModel):
     ratio: str
     prompt: str = ""  # 统一复刻要求，选填（空=合法，模板+产品图已承载语义）
     modifiers: dict[str, str] = Field(default_factory=dict)
-    category: str = "FOOD"
+    category: Category = "FOOD"
 
 
 class EditRequest(BaseModel):
