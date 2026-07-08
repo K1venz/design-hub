@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # WP-G 鉴权：JWT HS256 密钥（生产经 .env 覆盖，默认占位仅供本地/CI）+ 有效期
     jwt_secret: SecretStr = SecretStr("dev-insecure-secret-change-me-min-32-bytes")
     jwt_ttl_hours: int = 24
+    # 滑动续期半衰期（小时，ISSUE-0058）：令牌签发超此→鉴权时签新 24h 令牌放 X-Renewed-Token 头
+    jwt_renew_after_hours: int = 12
+    # 密码传输 RSA 私钥 PEM（ISSUE-0058，.env/文件不入库不入 git）
+    # 空=启动生成临时密钥对（local/CI 自足；prod/qa 各自配持久私钥）
+    auth_rsa_private_key_pem: SecretStr = SecretStr("")
     # ISSUE-0015 自建认证：启动 seed 管理员（邮箱/密码走 .env，空=不 seed；建议首登后改密）
     seed_admin_email: str = ""
     seed_admin_password: SecretStr = SecretStr("")
