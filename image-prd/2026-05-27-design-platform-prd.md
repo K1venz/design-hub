@@ -853,6 +853,27 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 **⑧ 分工与排队**：PM 本节（PRD+ISSUE-0057 立需求+反转 0017 记录）✅ → **用户**（① 签 DB schema ✅ 2026-07-07 已亲签；② 拍密钥存储 ✅ A1）→ **dev**（通用 provider 泛化 + model_config 扩 + 消费 enabled + 出图链去硬编码 + 请求 model 字段 + admin CRUD + alembic 迁移，**已签、待 slot**）+ **frontend-b**（admin 配置页 + 用户模型选择器）→ **QA**（验收 7 条）→ 迁移轮部署（mysqldump 备份可回滚，coordinator 编排）。**排队位=当前 P0(key 恢复)→0052/0055/0056 收口→0050 时区批 之后**（非阻断不抢档，coordinator #1009；DB 签字闸已过、待 PM 定稿+coordinator 派 slot 即可开工）。**仍内测灰度**（7.B/7.A 前置不变）。
 
+#### 3.17 登录健壮性四件套（需求 · 2026-07-08，ISSUE-0058）🔨 spec 定稿派单、开工中（**零建表零签字**）
+> **背景**：用户 2026-07-08「先优化登录的健壮性」+ 追加拍板「密码传输公钥加密」。spec 定稿 `docs/superpowers/specs/2026-07-08-login-robustness-design.md`（coordinator 派单 `e75ddb1`）。与 key 事故无依赖、纯登录链路、插空档做。**零建表零签字**（RSA 私钥走 .env/文件不入库）→ 无 DB 铁律门。
+
+**① 现状缺口（读码实锤）**：a. **24h 必踢**（JWT HS256 固定 `jwt_ttl_hours=24`、无续期，活跃用户每天中途被踢、「记住我」语义半空）；b. **多标签页不同步**（登出仅清本页、无 storage 广播，别页续旧会话至撞 401）；c. **限流/网络错非人话**（nginx 429 非 JSON body、断网 fetch 异常→前端显原始错）；d. **密码明文进请求体仅靠 TLS**（prod 自签证书、用户点警告访问=TLS 实际削弱）。
+
+**② 四件套**：
+- **①滑动续期（方案 A，dev）**：活跃即永续、不活跃 24h 过期（安全兜底不变）。`CurrentUserDep` 解析 JWT 后判令牌年龄——**签发超 `jwt_renew_after_hours`（settings 默认 12）** 则签新 24h 令牌放响应头 `X-Renewed-Token`；**零端点零表零迁移**、幂等、exp 过期仍 401 走原路（SSE 长连不续、下个普通请求会续）。前端 client 响应中间件读头→`setToken`（经 rememberAwareStorage 落原存储位、不升降级）。
+- **②密码传输公钥加密（dev+frontend-b）**：服务器生成 **RSA-2048** 密钥对（私钥 `.env`/文件 chmod600、**不入库不入 git**、qa/prod 各自生成）；`GET /auth/pubkey`（公开可缓存）返 SPKI PEM；login/register 密码字段改收 `base64(RSA-OAEP-SHA256 密文)`→解密→**bcrypt 照旧**；解密失败→400 人话。前端 WebCrypto importKey+encrypt，**公钥拉取失败=报错不回退明文（假加密纪律·fail-fast）**。⚠️ **bcrypt/最短 8 位校验语义不动**（min_length 校验挪到解密后明文上）。
+- **③多标签页登出同步（frontend-b）**：`storage` 事件监听 auth 键被清→本页 clear+跳登录（仅登出方向广播；sessionStorage 无跨页事件→仅 localStorage 模式生效=记住我默认勾覆盖主流）。
+- **④登录/注册错误人话化（frontend-b）**：429→「尝试太频繁，请稍等 1 分钟再试」；网络异常→「网络异常，请检查连接后重试」；401 维持「邮箱或密码错误」；409/400 维持现文案。
+
+**③ 安全边界（诚实入档）**：密码加密层挡**被动嗅探/日志泄漏/自签场景偷看**；**不挡全能主动 MITM**（能改 JS）——**根治 = 备案后正式域名 + LE 证书**（联动 §7.A，本层是纵深防御永久保留）。不做前端哈希（pass-the-hash 假安全）、不做 SRP（YAGNI）。**不做服务端撤销**（无表 YAGNI，随二期方案 B 双令牌再议·记 backlog）。
+
+**④ 部署纪律**：前后端**必须同波原子上**（密码字段格式变了）；旧缓存 bundle 发明文→400 清晰报错、刷新即愈（内测规模可接受）。零迁移轮（用户预授权绿即上）。
+
+**⑤ 验收标准（QA，spec §五 6 条）**：0. 抓包 login/register 请求体**无明文密码**（密文 base64）+ 错密文 400 + 公钥接口挂→前端报错不发明文 + bcrypt 存储不变老账号照常登录；1. 半衰期前无续期头/令牌不变，半衰期后带新令牌无感换、存储位不变（记住我勾/不勾各验）；2. 过期令牌仍 401+清会话跳登录；3. 双标签页（localStorage）A 登出→B 秒内清跳登录；4. 429/断网显人话；5. 全站零回归（登录/注册/受保护页/chat/工作台）。
+
+**⑥ 范围外（YAGNI，backlog）**：方案 B 双令牌（30 天离线+服务端撤销+建表签字）/ 账号锁定·验证码（nginx 限流已挡暴力破解）/ 邮箱验证 / 登录设备管理。
+
+**⑦ 分工**：PM 本节（PRD+ISSUE-0058 挂账）→ **dev**（后端滑动续期 + 密码解密，jwt_service issue-age + CurrentUserDep 注入头 + `/auth/pubkey` + pytest）+ **frontend-b**（client 读头换令牌 + WebCrypto 加密 + storage 登出广播 + 错误人话 + vitest）**同波原子** → **QA**（验收 6 条，本机 mock 全验零成本、短 TTL 加速续期验证）→ 零迁移轮部署（coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
+
 ## 4. 周边模块 ❌ 全章已废止（2026-06-12 世界 A 移除，ISSUE-0046；toC 自助无接单交付）
 
 ### 4.1 项目工作台（一单一档）
