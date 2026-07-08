@@ -55,3 +55,15 @@ related:
   **前后端必须同波原子上**（密码字段格式变）。验收 6 条（含抓包无明文密码 + 假加密纪律 + 零回归）。
   **诚实边界入档**：本层挡被动嗅探/自签场景、不挡全能主动 MITM，根治=§7.A 备案后正式域名+LE 证书。QA 本机 mock 全验零成本、短 TTL 加速续期验证 → 零迁移轮部署（coordinator 编排）。**仍内测灰度**（7.B/7.A 前置不变）。
   status=修复中、owner=开发+frontend-b（并行开工）。**排队**：插当前空档（与 key 事故无依赖），真实用户 bug 随时打断。
+- 2026-07-08 [frontend-b] **前端三件完成**（commit `98cb316`，纯 image-web 6 文件）+ **发 dev wire 契约对齐**（#1017）：
+  ① 滑动续期换头——`api/client.ts` 响应中间件读 `X-Renewed-Token`（裸 JWT）→ `setToken`，经 rememberAwareStorage 落原存储位
+     （记住我模式不升级不降级）。② 密码公钥加密——新 `api/crypto.ts`：`GET /auth/pubkey`（容错 text/plain PEM 或 JSON{public_key}）
+     → WebCrypto importKey(SPKI)+encrypt(RSA-OAEP-SHA256)→base64 密文；login/register 密码字段改传密文（email/name 明文）；
+     **假加密纪律**=公钥拉取失败抛「安全通道初始化失败」绝不回退明文；公钥进程内缓存、失败清缓存可重试；register 仍先校验明文≥8 再加密。
+     ③ 多标签登出 + 错误人话——`MultiTabLogoutWatcher`(App.tsx) 监听 storage 事件（另一标签清 auth 键→本页 clear+跳登录、仅 localStorage 模式、
+     只广播登出方向）、auth-store 导出 `AUTH_STORAGE_KEY`；login/register 错误人话化（429→「尝试太频繁，请稍等 1 分钟」、断网→「网络异常，请检查连接后重试」、401/409/400 维持后端文案）。
+  **门禁四件套全绿**（lint/tsc/vitest **58** 含 +4 crypto 纯函数测试/build）。**本地 mock + Playwright 实证验收#0 安全关键路径**：
+     公钥端点不可用(400)→登录报「安全通道初始化失败」+ **网络仅 GET /auth/pubkey、零 POST /auth/login=零明文密码外发**（假加密纪律守住）。
+  **wire 契约已发 dev**（#1017）：pubkey 两式容错·密码 base64(RSA-OAEP-SHA256 密文)·X-Renewed-Token 裸 JWT·请 dev 确认 nginx 透传该头不 strip。
+  **待联验**（需 dev 后端 /auth/pubkey+解密+X-Renewed-Token 共存，原子上线本质）：happy-path 加密↔解密登录 / 续期换头无感 / 存储同步双标签 / 429·网络人话——
+  dev 后端进 mock 后我补一次联调，或 QA 一轮联验（本机 mock 全验+短 TTL 加速续期）。owner 前端份完成、待 dev 后端就位联验 → coordinator 编排 QA → 同波原子部署。
