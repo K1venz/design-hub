@@ -8,10 +8,12 @@ interface ConfigSelectProps {
   options: readonly string[]
   onChange: (value: string) => void
   className?: string
+  /** 可选：值 → 展示名映射（如品类 FOOD→食品）；缺省显示值本身。 */
+  optionLabels?: Record<string, string>
 }
 
 /** designkit-style inline labeled dropdown: label left, current value right, opens the Radix rich select. */
-export function ConfigSelect({ label, value, options, onChange, className }: ConfigSelectProps) {
+export function ConfigSelect({ label, value, options, onChange, className, optionLabels }: ConfigSelectProps) {
   return (
     <label
       className={cn(
@@ -27,7 +29,7 @@ export function ConfigSelect({ label, value, options, onChange, className }: Con
         <SelectContent>
           {options.map((o) => (
             <SelectItem key={o} value={o}>
-              {o}
+              {optionLabels?.[o] ?? o}
             </SelectItem>
           ))}
         </SelectContent>

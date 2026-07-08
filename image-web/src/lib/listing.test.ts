@@ -62,10 +62,11 @@ describe('buildListingBody', () => {
     prompt: '早餐桌场景',
     ratio: '3:4',
     n: 6,
+    category: 'FOOD',
     modifiers: { platform: '亚马逊', region: '美国', language: '英文' },
   }
 
-  it('maps uploadIds → upload_ids, passes fields through, tags MVP category FOOD', () => {
+  it('maps uploadIds → upload_ids, passes fields through, tags category', () => {
     expect(buildListingBody(input)).toEqual({
       upload_ids: ['u1', 'u2'],
       prompt: '早餐桌场景',
@@ -75,6 +76,10 @@ describe('buildListingBody', () => {
       category: 'FOOD',
     })
   })
+
+  it('用户选的品类透传进请求（非 FOOD）', () => {
+    expect(buildListingBody({ ...input, category: 'FASHION' }).category).toBe('FASHION')
+  })
 })
 
 describe('套图 plan / buildSetListingBody', () => {
@@ -82,6 +87,7 @@ describe('套图 plan / buildSetListingBody', () => {
     uploadIds: ['u1'],
     prompt: '花生礼盒',
     ratio: '1:1',
+    category: 'FOOD' as const,
     modifiers: { platform: '淘宝天猫1688', region: '中国', language: '中文' },
   }
 

@@ -7,9 +7,9 @@ import { ImageUploader } from '@/components/listing/ImageUploader'
 import { TagInput } from '@/components/TagInput'
 import { cn } from '@/lib/utils'
 import {
-  IMAGE_TYPE_FIELDS, MODIFIER_FIELDS, OVERLAY_MAX_COUNT, OVERLAY_MAX_LEN,
+  CATEGORIES, CATEGORY_LABELS, IMAGE_TYPE_FIELDS, MODIFIER_FIELDS, OVERLAY_MAX_COUNT, OVERLAY_MAX_LEN,
   PLAN_TOTAL_MAX, PLAN_TOTAL_MIN, RATIOS, estimateCost, planTotal,
-  type ImageTypeKey, type ListingConfig, type UploadedImage,
+  type Category, type ImageTypeKey, type ListingConfig, type UploadedImage,
 } from '@/lib/listing'
 
 interface ListingConfigPanelProps {
@@ -44,6 +44,14 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
 
         <h4 className="mb-2.5 mt-5 text-[13px] font-bold">生成设置</h4>
         <div className="grid grid-cols-2 gap-2.5">
+          <ConfigSelect
+            label="商品品类"
+            value={config.category}
+            options={CATEGORIES}
+            optionLabels={CATEGORY_LABELS}
+            onChange={(v) => onConfigChange({ ...config, category: v as Category })}
+            className="col-span-2"
+          />
           {MODIFIER_FIELDS.map((f) => (
             <ConfigSelect
               key={f.key}

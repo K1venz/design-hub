@@ -154,6 +154,7 @@ export function WorkbenchPage() {
             ratio: config.ratio,
             plan: config.plan,
             overlayTexts: config.overlayTexts,
+            category: config.category,
             modifiers: config.modifiers,
           })
         : await generate.mutateAsync({
@@ -161,6 +162,7 @@ export function WorkbenchPage() {
             prompt: config.prompt,
             ratio: config.ratio,
             n: config.n,
+            category: config.category,
             modifiers: config.modifiers,
           })
       setActiveJobId(job_id)
