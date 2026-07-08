@@ -854,11 +854,13 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
   - **✅ 密钥存储 = A1（用户 2026-07-07 拍板）`api_key_env`**：DB 只存**环境变量名**、真密钥留 server `.env`（不入库、不进群聊、沿用现有 ops 供密）——密钥零入库、零加密负担。新模型 key 需 ops 在 .env 配一次。（未选 A2 加密入库=避泄漏/审计面。）
   - **签字语义**：用户亲签覆盖**当前提案形态**；若本需求引出**新增字段**（如自动 failover 的 fallback 顺序列）→ 该 delta 另签。本 PRD 立需求**未引入新字段**（手动渠道切换用已签 `is_default`/`enabled`）→ 无需增量签字。
 
-**⑤ UX（frontend-b）**：admin 模型配置页（增删模型 + 改 base_url/model/cost/enabled/default + 切默认/备用）+ 用户出图侧模型选择器（仅列已启用、默认预选）。
+**⚠️ MVP 范围收窄（dev #1060 交付，PM+coordinator #1061 认）**：本波 = **单模型槽 + 默认连接驱动 MVP**——admin 全局配 model_config（增删改/启禁/**设默认=备用渠道切换**）+ 出图链取「默认启用模型」连接（无配回落 .env=零回归）。**交付核心价值=备用渠道切换治 ISSUE-0056 单点**。**per-request 用户任意选模型（请求 `model` 字段 + string-keyed registry + 用户出图侧选择器）= P2 后续、本波不做**——理由：当前仅 gpt-image-2 一个真实模型，「用户选模型」在多模型真 live 前本就 moot（YAGNI），核心价值已达。
 
-**⑥ 验收标准（QA）**：1. admin 配置模型（增/改/启禁/默认）即时生效。2. 用户出图可选已启用模型、禁用/未配不可选。3. 请求非法 model → fail-fast 400（不静默回退）。4. **备用渠道切换**：主渠道模拟故障→管理员切备用→出图恢复。5. 默认模型回退正确（未选=default-enabled）。6. 零回归：现有 gpt-image-2 出图/计费/积分/历史全链不变；迁移零数据丢失。7. **密钥不泄漏**：admin 响应/前端不回吐真实 key（A1=只回 env 名；A2=不回明文）。
+**⑤ UX（frontend-b）**：**MVP = admin 模型配置页**（增删模型 + 改 base_url/model/cost/enabled/default + 切默认/备用；密钥只填/回 env 名=验收⑦）。~~用户出图侧模型选择器~~ **= P2**（多模型真 live 前 moot）。
 
-**⑦ 范围外（YAGNI，二期）**：档 B/C（用户自带 key、per-user 配置）/ 上游自动故障切换编排（手动配备用先行）/ 非图像模型（文本 LLM 走独立 TEXT_LLM_* 配置、不并入本表）。
+**⑥ 验收标准（QA）**：**MVP 本波**：1. admin 配置模型（增/改/启禁/默认）即时生效。4. **备用渠道切换**：主渠道模拟故障→管理员切默认→重启生效→出图恢复（同 0042 快照口径）。5. 默认模型回退正确（无配/空→回落 .env）。6. 零回归：现有 gpt-image-2 出图/计费/积分/历史全链不变；迁移零数据丢失。7. **密钥不泄漏**：admin 响应/前端不回吐真实 key（A1=只回 env 名）。**P2（本波不验）**：2. 用户出图可选已启用模型/禁用不可选；3. 请求非法 model→fail-fast 400。
+
+**⑦ 范围外（YAGNI，二期）**：**per-request 用户任意选模型（请求 model 字段 + string-keyed registry + 用户选择器）=P2**（多模型真 live 时上、dev 可另起）/ 档 B/C（用户自带 key、per-user 配置）/ 上游自动故障切换编排（手动配备用先行）/ 非图像模型（文本 LLM 走独立 TEXT_LLM_* 配置、不并入本表）。
 
 **⑧ 分工与排队**：PM 本节（PRD+ISSUE-0057 立需求+反转 0017 记录）✅ → **用户**（① 签 DB schema ✅ 2026-07-07 已亲签；② 拍密钥存储 ✅ A1）→ **dev**（通用 provider 泛化 + model_config 扩 + 消费 enabled + 出图链去硬编码 + 请求 model 字段 + admin CRUD + alembic 迁移，**已签、待 slot**）+ **frontend-b**（admin 配置页 + 用户模型选择器）→ **QA**（验收 7 条）→ 迁移轮部署（mysqldump 备份可回滚，coordinator 编排）。**排队位=当前 P0(key 恢复)→0052/0055/0056 收口→0050 时区批 之后**（非阻断不抢档，coordinator #1009；DB 签字闸已过、待 PM 定稿+coordinator 派 slot 即可开工）。**仍内测灰度**（7.B/7.A 前置不变）。
 

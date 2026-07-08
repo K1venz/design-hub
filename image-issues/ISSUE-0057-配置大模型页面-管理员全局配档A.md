@@ -52,6 +52,7 @@ related:
 - **QA**：验收（配置生效/禁用不可选/默认回退/备用渠道切换/零回归）。
 
 ## 范围外（YAGNI，二期）
+- **per-request 用户任意选模型（请求 `model` 字段 + string-keyed registry + 用户出图侧选择器）= P2**（本波 MVP=单模型槽+默认连接驱动，多模型真 live 前用户选模型 moot；dev #1060 列 P2、PM+coordinator #1061 认，需要时 dev 另起）。
 - 档 B/C（用户自带 key、per-user 配置）——本条只做档 A。
 - 上游自动故障切换编排（先支持手动配备用渠道，自动 failover 二期）。
 - 非图像模型（文本 LLM 走独立 TEXT_LLM_* 配置，不并入本表）。
@@ -85,3 +86,6 @@ related:
   测试：test_model_config CRUD 6 + 连接解析 3 + Out 无真 key；REAL_GPT_IMAGE=false 不走真 provider=零成本。ruff+mypy 绿、pytest 140 绿+1 已知红。
   **口径**：单模型槽+默认连接驱动 MVP（交付备用渠道切换核心价值）；**per-request 任意模型选择（请求 model 字段+string-keyed registry）列 P2 后续、本波不做**。
   待 coordinator 验收 + 迁移轮部署（qa 先行）；frontend-b 配置页 UI 随 openapi。owner→coordinator（部署编排）。
+- 2026-07-08 [PM] **MVP/P2 范围分期入档（coordinator #1061 请 PM 入档、PM+coordinator 认）**：本波 MVP=**单模型槽+默认连接驱动**（admin 全局配 + 默认模型驱动出图 + **备用渠道切换治 0056 单点核心价值**）已交付；**per-request 用户任意选模型（请求 model 字段 + string-keyed registry + 用户选择器）明确列 P2 后续、本波不做**。
+  **PM 判断=合理分期（YAGNI）**：当前仅 gpt-image-2 一个真实模型，「用户 per-request 选模型」在多模型真 live 前 moot；核心价值（管理员切备用渠道即恢复出图）已达 → 接受分期、非缩水。相应调整：PRD §3.16 验收②（用户选模型）/③（非法 model 400）/⑤ 用户选择器 **归 P2 不验本波**；MVP 验收=admin 配置生效 / 设默认渠道切换 / 默认回退 / 密钥不泄漏⑦ / 零回归 / 迁移。
+  **部署编排（coordinator #1061）**：A/B 波先行（等 frontend-b UI 段）→ **0057 波跟上**（frontend-b 配置页完工后，迁移轮纪律：qa 先行跑 `c9e4a1b73d52` + mysqldump + 部署 + coordinator prod 配置页实操一轮 CRUD 验收）。0057 MVP 关账口径=admin CRUD/设默认渠道切换/密钥不泄漏/零回归 prod 验收绿 + 迁移零丢失。owner=coordinator（部署编排）。
