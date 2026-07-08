@@ -21,6 +21,11 @@ const authMiddleware: Middleware = {
     return request
   },
   onResponse({ request, response }) {
+    // 滑动续期（ISSUE-0058）：受保护响应带 X-Renewed-Token（后端在令牌过半衰期时续签）→
+    // 无感换令牌，经 rememberAwareStorage 落原存储位（记住我模式不升级不降级）。
+    const renewed = response.headers.get('X-Renewed-Token')
+    if (renewed) useAuthStore.getState().setToken(renewed)
+
     // 受保护端点返回 401 => 令牌失效：清会话并广播，由顶层跳登录。
     // 登录端点(/auth/*)的 401 是「授权 code 无效」，交给登录表单处理，不清会话。
     if (response.status === 401 && !isPublic(request.url)) {

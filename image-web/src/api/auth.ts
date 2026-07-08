@@ -1,8 +1,13 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
+import { encryptPassword } from '@/api/crypto'
 import { errorMessage } from '@/api/errors'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
+
+/** 登录/注册错误人话化（ISSUE-0058 §三.2）：429（nginx 限流·可能非 JSON body）+ 断网/超时。 */
+const RATE_LIMIT_ERROR = '尝试太频繁，请稍等 1 分钟再试'
+const NETWORK_ERROR = '网络异常，请检查连接后重试'
 
 export interface RegisterVars {
   email: string
@@ -15,12 +20,18 @@ export interface LoginVars {
   password: string
 }
 
-/** POST /auth/register —— 自助注册（默认设计师）并写入会话. */
+/** POST /auth/register —— 自助注册（默认设计师）并写入会话. 密码公钥加密后传输（§三.0）。 */
 export function useRegister() {
   const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
     mutationFn: async (vars: RegisterVars) => {
-      const { data, error } = await api.POST('/auth/register', { body: vars })
+      const password = await encryptPassword(vars.password)
+      const { data, error, response } = await api
+        .POST('/auth/register', { body: { email: vars.email, name: vars.name, password } })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
       if (error || !data) throw new Error(errorMessage(error, '注册失败'))
       return data
     },
@@ -28,12 +39,18 @@ export function useRegister() {
   })
 }
 
-/** POST /auth/login —— 邮箱密码登录并写入会话. */
+/** POST /auth/login —— 邮箱密码登录并写入会话. 密码公钥加密后传输（§三.0）。 */
 export function useLogin() {
   const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
     mutationFn: async (vars: LoginVars) => {
-      const { data, error } = await api.POST('/auth/login', { body: vars })
+      const password = await encryptPassword(vars.password)
+      const { data, error, response } = await api
+        .POST('/auth/login', { body: { email: vars.email, password } })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
       if (error || !data) throw new Error(errorMessage(error, '登录失败'))
       return data
     },
