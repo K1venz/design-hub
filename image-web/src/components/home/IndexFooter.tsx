@@ -50,7 +50,17 @@ export function IndexFooter() {
         <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between">
           <div className="text-[13.5px] leading-relaxed text-neutral-500">
             <p>© 2026 实朴</p>
-            <p className="mt-1">ICP 备案号：备案申请中</p>
+            {/* ICP 备案号：法定挂载——链接工信部备案系统、显著可读（备案管理办法要求） */}
+            <p className="mt-1">
+              <a
+                href="https://beian.miit.gov.cn"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-neutral-700 underline-offset-4 transition-colors hover:text-neutral-950 hover:underline"
+              >
+                浙ICP备2026024031号-1
+              </a>
+            </p>
           </div>
           <div className="flex flex-col gap-3 md:items-end">
             <nav className="flex flex-wrap gap-x-6 gap-y-2 text-[14px] font-medium">

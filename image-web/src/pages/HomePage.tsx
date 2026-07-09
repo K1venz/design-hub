@@ -319,10 +319,18 @@ function HomeFooter() {
           </div>
         </div>
       </div>
-      <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-wb-faint-1">
+      {/* ICP 备案号：法定挂载——链接工信部备案系统、显著可读（备案管理办法要求，勿用 faint 淡色） */}
+      <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-wb-ink-5">
         <span>© 2026 实朴</span>
         <span className="text-wb-line-3">·</span>
-        <span>ICP 备案号：备案申请中</span>
+        <a
+          href="https://beian.miit.gov.cn"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-wb-ink-4 underline-offset-4 transition-colors hover:text-wb-ink-2 hover:underline"
+        >
+          浙ICP备2026024031号-1
+        </a>
       </div>
     </footer>
   )
