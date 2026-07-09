@@ -4,6 +4,7 @@ import { motion } from 'motion/react'
 import { ArrowRightIcon, ImagePlusIcon, SendIcon } from 'lucide-react'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import { ShowcaseDetailDialog } from '@/components/listing/ShowcaseDetailDialog'
 import { useShowcase, type ShowcaseItem } from '@/api/showcase'
 import { cn } from '@/lib/utils'
@@ -23,7 +24,7 @@ export function HomePage() {
           <Hero />
           <ToolSection />
           <ShowcaseSection />
-          <HomeFooter />
+          <SiteFooter className="mt-16" />
         </div>
       </main>
     </AppShell>
@@ -286,53 +287,6 @@ function ShowcaseSkeleton() {
         <div className="mt-1 h-7 w-full animate-pulse rounded-lg bg-wb-surface-4" />
       </div>
     </div>
-  )
-}
-
-// ── ⑤ Footer ────────────────────────────────────────────
-function HomeFooter() {
-  return (
-    <footer className="mt-16 border-t border-wb-line-1 pt-6 text-[12.5px] text-wb-ink-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2 font-semibold text-wb-ink-2">
-            <span className="grid size-6 place-items-center rounded-lg bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-[11px] font-bold text-white">
-              朴
-            </span>
-            实朴 · 电商图片工作站
-          </div>
-          <p className="mt-2 max-w-xs leading-relaxed text-wb-faint-1">
-            上传产品图，整套电商图一键出。内测期间免费使用。
-          </p>
-        </div>
-        <div className="flex gap-12">
-          <div className="flex flex-col gap-2">
-            <span className="font-medium text-wb-ink-3">产品</span>
-            <Link to="/set" className="hover:text-wb-brand-deep">商品套图</Link>
-            <Link to="/clone" className="hover:text-wb-brand-deep">爆款复刻</Link>
-            <Link to="/history" className="hover:text-wb-brand-deep">出图历史</Link>
-          </div>
-          <div className="flex flex-col gap-2">
-            <span className="font-medium text-wb-ink-3">条款</span>
-            <Link to="/terms" className="hover:text-wb-brand-deep">用户协议</Link>
-            <Link to="/privacy" className="hover:text-wb-brand-deep">隐私政策</Link>
-          </div>
-        </div>
-      </div>
-      {/* ICP 备案号：法定挂载——链接工信部备案系统、显著可读（备案管理办法要求，勿用 faint 淡色） */}
-      <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-wb-ink-5">
-        <span>© 2026 实朴</span>
-        <span className="text-wb-line-3">·</span>
-        <a
-          href="https://beian.miit.gov.cn"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-wb-ink-4 underline-offset-4 transition-colors hover:text-wb-ink-2 hover:underline"
-        >
-          浙ICP备2026024031号-1
-        </a>
-      </div>
-    </footer>
   )
 }
 

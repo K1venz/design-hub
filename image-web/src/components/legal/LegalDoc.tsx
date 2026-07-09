@@ -2,6 +2,7 @@ import { ArrowLeftIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 
 export interface LegalSection {
   h: string
@@ -53,6 +54,8 @@ export function LegalDoc({
               本页为实朴内测期条款占位文本，正式对外发布前将由法务定稿更新。如有疑问请通过产品内反馈入口联系我们。
             </p>
           </div>
+
+          <SiteFooter className="mt-12" />
         </article>
       </main>
     </AppShell>

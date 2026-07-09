@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom'
 import { MailIcon, MessageCircleIcon } from 'lucide-react'
 
+import { cn } from '@/lib/utils'
 import logoUrl from '@/assets/hero/shipu-logo.png'
 
-// Index 页 Footer（footer 参考版式的实朴适配）：上行=品牌 | 联系方式（占位）；
-// 分隔线；下行=版权+备案（占位）| 主链接行 + 法务链接行。
+// 全站公共 Footer（单一事实源）：品牌行 + 联系方式（占位）→ 分隔线 → 版权 + ICP 备案
+// （法定挂载：真值/工信部链接/显著可读）| 主链接行 + 法务链接行。
+// 宿主差异（Index 全宽 vs AppShell 内滚窄容器）由 className 传水平 padding/背景/边距。
 const MAIN_LINKS = [
   { label: '首页', to: '/home' },
   { label: '帮我设计', to: '/chat' },
@@ -23,9 +25,9 @@ const CONTACTS = [
   { icon: MailIcon, label: '邮箱（即将提供）' },
 ] as const
 
-export function IndexFooter() {
+export function SiteFooter({ className }: { className?: string }) {
   return (
-    <footer className="bg-white px-8 pb-16 pt-20 text-neutral-950 md:px-16">
+    <footer className={cn('text-neutral-950', className)}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-lg font-bold">
           <img src={logoUrl} alt="实朴 logo" className="size-9 object-contain" />
