@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 
-import { IndexFooter } from '@/components/home/IndexFooter'
 import { IndexNavbar } from '@/components/home/IndexNavbar'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import { MarqueeHero } from '@/components/home/MarqueeHero'
 import img01 from '@/assets/hero/0d92feb99fbab119.jpg'
 import img02 from '@/assets/hero/1eefddf7817977db.jpg'
@@ -36,7 +36,7 @@ export function HeroPage() {
         onCta={() => navigate('/home')}
         images={IMAGES}
       />
-      <IndexFooter />
+      <SiteFooter className="bg-white px-8 pb-16 pt-20 md:px-16" />
     </div>
   )
 }
