@@ -32,9 +32,9 @@ describe('jobToRecipe', () => {
   })
 
   it('复刻单：kind=clone、带 cloneMode、不可复用', () => {
-    const r = jobToRecipe(detail({ clone_mode: '高度复刻', images: [img(null)] }))
+    const r = jobToRecipe(detail({ clone_mode: '完全复刻', images: [img(null)] }))
     expect(r.kind).toBe('clone')
-    expect(r.cloneMode).toBe('高度复刻')
+    expect(r.cloneMode).toBe('完全复刻')
     expect(r.reusable).toBe(false)
   })
 
