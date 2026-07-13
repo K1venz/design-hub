@@ -56,3 +56,6 @@ related:
   状态=已确认，owner=coordinator 定夺 A/B。（**注：dev 此时缺 HOLD 上下文=compaction 后未带上，误当 P1 blocker 上报；见下 C 澄清。**）
 - 2026-07-08 [coordinator+PM] **C 维持 HOLD·合并既有上下文（coordinator #1086 澄清、dev-1 #1087 认、PM 并入）**：本红=**「完全复刻改版」用户 HOLD 哨兵**（用户 2026-06-22 卡改 d0b9d66 后点名挂起等自测），非新 bug；基线一直记「+1 known WIP red」、迁移轮 gates around 照跑、prod 无影响。
   **处置=C：A/B 都不动**（用户挂起的决策、等他自测拍）。frontmatter 改 **挂起 / severity P3 / owner=用户**。**本条即「+1 known WIP red」的权威登记**——防后人再「发现」一次当新 bug 报（memory `project_clone_full_replicate_hold` 同步）。PRD §3.13 🔄块「实现 in-flight」→「HOLD 待用户自测」纠正。**用户自测完拍改版方向时**，PM 再据其决策开实现 issue（A：clone_mode 重命名存量行需用户签字）或正式弃改版。owner=用户（HOLD 决策）。
+- 2026-07-13 [coordinator+PM] **🔓 HOLD 开封中：用户「先给我看看效果，再决定」→ dev 跑 A/B 实拍对比演示单（coordinator #1136）**：20 天 HOLD 进入决策流程。
+  **dev 演示单**（**隔离 worktree、main 零污染、用完清理**）：① worktree 内临时物化改版卡（d0b9d66「完全复刻」措辞）进 CloneModeRegistry（只在 worktree 让红测变绿）；② 本地真图后端同一组输入跑两次 clone——**A=现网「高度复刻」 vs B=改版「完全复刻」**（输入=showcase 强版式卖点图当爆款参考 + image-qa/品类扩展素材 跨品类产品图，各出 1 张 A/B 共 2 张≈¥0.8、可各 2=¥1.6 封顶）；③ 产物=图存本地报 coordinator + 两卡措辞 diff 要点（改版改了什么行为）。**coordinator 拿图给用户拍板**。
+  **用户拍板两分支（PM 待据决策接棒）**：**上改版**=洗掉 HOLD → PM 开实现 issue（clone_mode「高度复刻→完全复刻」重命名牵动 prod 存量行=**数据口径变更须用户签字** + CloneRequest.overlay_texts + 双块选块 + 前端标签 + QA 视觉复验）；**弃改版**=回滚卡对齐现码、逐字闸转正常绿、正式弃。owner=开发（跑演示）→用户（拍板）→PM（据决策接棒）。status 保持挂起（决策流程中、改版码仍未落 main）。
