@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0062
-title: 复刻卡「完全复刻」改版=用户 HOLD 哨兵（逐字闸红=既有已知 WIP 标记，非新 bug）
-status: 挂起          # C=维持 HOLD（用户 2026-06-22 点名挂起等自测，红测=改版收尾前哨兵，基线一直记+1 known WIP red）
-severity: P3          # 已知 WIP 哨兵·prod 无影响·迁移轮 gates around 照跑；非线上 bug、非绿门真阻断
+title: 复刻卡「高度复刻→完全复刻」改版——用户拍板上改版（版式整张迁移）·实现波
+status: 修复中        # HOLD 解除:用户看A3/B3判决图拍板上改版(#1148)→实现波开工(卡物化+存量行迁移[签字]+overlay双块+前端标签+知识库引导)
+severity: P2          # 功能改版(复刻语义升级=版式整张迁移)+涉存量行数据迁移(须用户签字)；非资损、内测灰度
 reporter: 开发
-owner: 用户            # 用户挂起的决策——等他自测「完全复刻」改版后拍（A 实现 / 撤 HOLD）；A/B 现都不动
+owner: 开发+frontend-b # 实现:dev(卡物化+data migration+枚举/openapi+overlay双块)+frontend-b(模式标签/tooltip/codegen)；数据迁移待用户签字
 created: 2026-07-08
 updated: 2026-07-08
 related:
@@ -59,3 +59,23 @@ related:
 - 2026-07-13 [coordinator+PM] **🔓 HOLD 开封中：用户「先给我看看效果，再决定」→ dev 跑 A/B 实拍对比演示单（coordinator #1136）**：20 天 HOLD 进入决策流程。
   **dev 演示单**（**隔离 worktree、main 零污染、用完清理**）：① worktree 内临时物化改版卡（d0b9d66「完全复刻」措辞）进 CloneModeRegistry（只在 worktree 让红测变绿）；② 本地真图后端同一组输入跑两次 clone——**A=现网「高度复刻」 vs B=改版「完全复刻」**（输入=showcase 强版式卖点图当爆款参考 + image-qa/品类扩展素材 跨品类产品图，各出 1 张 A/B 共 2 张≈¥0.8、可各 2=¥1.6 封顶）；③ 产物=图存本地报 coordinator + 两卡措辞 diff 要点（改版改了什么行为）。**coordinator 拿图给用户拍板**。
   **用户拍板两分支（PM 待据决策接棒）**：**上改版**=洗掉 HOLD → PM 开实现 issue（clone_mode「高度复刻→完全复刻」重命名牵动 prod 存量行=**数据口径变更须用户签字** + CloneRequest.overlay_texts + 双块选块 + 前端标签 + QA 视觉复验）；**弃改版**=回滚卡对齐现码、逐字闸转正常绿、正式弃。owner=开发（跑演示）→用户（拍板）→PM（据决策接棒）。status 保持挂起（决策流程中、改版码仍未落 main）。
+- 2026-07-13 [dev] **A/B 判决图三轮出稿**（worktree、main 零污染、¥2.4 内）：判决轮 A3/B3（参考=版式主导图·5 罐紫底俯拍 flat-lay·产品=花生袋）**决定性**——**A3 高度复刻=丢版式自起一张常规产品场景**（没紫底/没俯拍/没借版式），**B3 完全复刻=整张版式结构迁移**（紫底+俯视 flat-lay 机位照搬、产品换花生袋居中）。佐证轮 A2/B2 示「高度借风格道具自适应 vs 完全连道具位照搬」。带歪 exhibit（强产品参考→两档都复刻成参考图产品）=真实风险：参考图须「场景/版式主导、产品占比弱」。compare.html + 图 /private/tmp/claude-502/0062-demo/。
+- 2026-07-13 [coordinator+PM] **🏁 用户拍板=上「完全复刻」改版（#1148）→ 0062 转实现波、HOLD 解除**：判决轮 A3/B3 定案（完全档版式整张迁移=价值坐实、第二档不回炉）→ 用户拍板 B。**status 挂起→修复中**、20 天 known WIP red 待归零。**本波首跑完整 CI 工作流**（用户指令：push 远程 dev → gh 开 PR dev→main → CI ruff+pytest+gitleaks 绿 → 合并 → 从 main 部署 prod）。实现 scope + 验收定义见下两节。owner=开发+frontend-b（实现）+ 用户（数据迁移签字，coordinator 已递）。
+
+## 实现 scope（用户拍板后，#1148）
+- **① dev 卡正式物化落 main**：`CloneModeRegistry`「高度复刻」→「完全复刻」+ 措辞按 `d0b9d66` 设计稿，**逐字闸红转正常绿**（20 天 known WIP red 归零）。
+- **② dev 存量行数据迁移（⚠️ 须用户签字，coordinator 已递）**：alembic **data migration**——`listing_job.clone_mode` 值 '高度复刻'→'完全复刻'，**纯 UPDATE、零 DDL、down 可逆**。**签字落地前不跑 prod 迁移；代码可先行**（sign gate 只卡 prod 数据订正那一步）。
+- **③ dev clone_mode 枚举 / openapi 同步**。
+- **④ CloneRequest.overlay_texts + 双块选块**（设计稿：完全复刻有字版 overlay 沿卖点图 2×12、参考风格档带 overlay→400）——**dev 评估随波 or 拆后续小波**（别为它拖 CI 首跑）。
+- **⑤ frontend-b**：复刻工作台模式**标签/描述**「高度复刻→完全复刻」+ tooltip 新语义（"连构图道具位一并照搬"）+ codegen。
+- **⑥ PM 知识库引导回写（DoD）**：判决轮两条教训入知识库使用引导——「复刻参考图选**场景/版式主导**（产品占比弱）、别拿别家**完整产品卖点图**当参考（会带歪成参考图的产品/竞品泄漏）；完全复刻会**连道具一并入画**」。
+
+## 验收定义（QA，PM 定）
+1. **完全复刻语义**：新 clone 单走完全档→出图**版式整张迁移**（构图/机位/道具位/配色照搬参考图、产品换用户的），非「借风格另起」。
+2. **存量行迁移正确**：迁移后历史复刻单详情/配方显示**新名「完全复刻」**（旧值全订正无残留）；down 可逆验证。
+3. **参考风格档零回归**（借保真块、不搬布局，不受影响）。
+4. **overlay（若随波）**：完全复刻有字版 overlay verbatim 2×12、参考风格带 overlay→400 fail-fast。
+5. **前端**：模式标签/tooltip 新语义、codegen 对齐、复刻工作台零回归。
+6. **知识库引导落地**：chat 问「复刻怎么用/参考图怎么选」答判决轮两条教训。
+7. **卡↔code 逐字闸绿**（改版卡物化后 test_clone_blocks_match_card 转正常绿）。
+8. **CI 门禁**：本波走 PR dev→main、ruff+pytest+gitleaks 全绿方合并。
