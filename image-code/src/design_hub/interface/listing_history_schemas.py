@@ -65,7 +65,7 @@ class ListingJobDetailOut(BaseModel):
     images: list[ListingImageOut]
     input_urls: list[str]
     category: str | None = None  # 品类档（ISSUE-0060）：配方复用回填；None=编辑单/旧数据
-    clone_mode: str | None = None  # 参考风格|高度复刻；None=非复刻（历史「复刻」徽标）
+    clone_mode: str | None = None  # 参考风格|完全复刻；None=非复刻（历史「复刻」徽标）
     input_roles: list[str | None] = []  # product|reference，与 input_urls 同序；None=旧数据
     # 二次编辑（ISSUE-0040）：迭代链回显（None=非编辑单）
     parent_job_id: str | None = None
