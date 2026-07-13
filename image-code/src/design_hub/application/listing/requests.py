@@ -47,7 +47,7 @@ class CloneRequest(BaseModel):
 
     product_upload_ids: list[str]
     reference_upload_ids: list[str]
-    clone_mode: str  # 参考风格 | 高度复刻（中文档位 key）
+    clone_mode: str  # 参考风格 | 完全复刻（中文档位 key，ISSUE-0062 改版）
     ratio: str
     prompt: str = ""  # 统一复刻要求，选填（空=合法，模板+产品图已承载语义）
     modifiers: dict[str, str] = Field(default_factory=dict)

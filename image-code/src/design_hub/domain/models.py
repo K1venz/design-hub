@@ -63,7 +63,7 @@ class ListingJobStart:
     size: str  # 形如 1024x1536
     n: int  # 计划总张数（单图流=n、套图=Σplan、复刻/编辑=1）
     upload_keys: tuple[str, ...]
-    # 爆款复刻（PRD §3.13）：档位（参考风格|高度复刻；None=非复刻）+ 输入图角色
+    # 爆款复刻（PRD §3.13）：档位（参考风格|完全复刻；None=非复刻）+ 输入图角色
     # （product|reference，与 upload_keys 同序对齐；空=旧行为全 None）
     clone_mode: str | None = None
     input_roles: tuple[str, ...] = ()

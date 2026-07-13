@@ -32,7 +32,7 @@ def build_system_prompt(knowledge: str) -> str:
   图型只能是 白底/场景/卖点，Σ 3..10）；n 与 plan 互斥、恰填其一。
   需要 upload_ids（用户上传的产品图，1..3 张）。
 - clone：爆款复刻。product_upload_ids 恰 1 张 + reference_upload_ids 爆款参考 1..2 张；
-  clone_mode 为『参考风格』或『高度复刻』。
+  clone_mode 为『参考风格』或『完全复刻』。
 - edit：二次编辑已产出的图。需 source_image_key + prompt + edit_mode（delta 微调 / full 重做）。
 参数约束（必须遵守）：
 - ratio 只能取 1:1 / 3:4 / 9:16 / 16:9 之一；用户没指定就默认填 "1:1"。

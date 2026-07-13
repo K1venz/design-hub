@@ -120,9 +120,9 @@ def test_clone_prompt_optional_text_exact_assembly() -> None:
 def test_clone_prompt_order_with_text() -> None:
     out = compose_clone_prompt(
         "要喜庆一点", _MODS, _MR, category="FOOD", card_registry=_CR,
-        clone_registry=_CL, clone_mode="高度复刻",
+        clone_registry=_CL, clone_mode="完全复刻",
     )
-    assert out.index("产品绝对保真") < out.index("复刻·高度复刻") < out.index("要喜庆一点")
+    assert out.index("产品绝对保真") < out.index("复刻·完全复刻") < out.index("要喜庆一点")
 
 
 @pytest.mark.parametrize("mode", ["半复刻", "", "white_bg"])
