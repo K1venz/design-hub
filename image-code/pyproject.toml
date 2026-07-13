@@ -48,6 +48,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# alembic 自动生成的迁移文件不手工 lint（mypy 已 files=["src"] 同款范围；coordinator #1152 拍）
+exclude = ["migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
