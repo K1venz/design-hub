@@ -74,8 +74,13 @@ related:
 1. **完全复刻语义**：新 clone 单走完全档→出图**版式整张迁移**（构图/机位/道具位/配色照搬参考图、产品换用户的），非「借风格另起」。
 2. **存量行迁移正确**：迁移后历史复刻单详情/配方显示**新名「完全复刻」**（旧值全订正无残留）；down 可逆验证。
 3. **参考风格档零回归**（借保真块、不搬布局，不受影响）。
-4. **overlay（若随波）**：完全复刻有字版 overlay verbatim 2×12、参考风格带 overlay→400 fail-fast。
+4. **overlay（⏭️ 拆后续小波、不在本波，PM 认可 #1151）**：完全复刻**有字版**（block[2] overlay verbatim 2×12、参考风格带 overlay→400 fail-fast）——**改版核心=版式复刻已交付**（逐字闸只核 block[0/1]、有字模板未物化不红闸），overlay 走下一轮小波、别拖本波 CI 首跑。
 5. **前端**：模式标签/tooltip 新语义、codegen 对齐、复刻工作台零回归。
 6. **知识库引导落地**：chat 问「复刻怎么用/参考图怎么选」答判决轮两条教训。
 7. **卡↔code 逐字闸绿**（改版卡物化后 test_clone_blocks_match_card 转正常绿）。
 8. **CI 门禁**：本波走 PR dev→main、ruff+pytest+gitleaks 全绿方合并。
+
+## 处理记录（实现波）
+- 2026-07-13 [dev+frontend-b] **前后端棒交付**：dev `daa3bd8`（改版卡物化 `_CLONE_FULL`=完全复刻·逐字==复刻卡 block[1]、**逐字闸转正常绿=20 天 HOLD 归零**、151 绿；存量行 data migration `e2f3a4b5c6d7` '高度复刻'→'完全复刻' 纯 UPDATE 零 DDL·down 可逆·**代码先行·签字前不跑 prod·PM 盯放行**；clone_mode 枚举 + **chat system_prompt 工具契约改「完全复刻」**否则 chat 吐旧值被拒；知识库引导落 config 逐字同步 PM draft）+ frontend-b `60bdbe3`（CLONE_MODES/desc 改「完全复刻」新语义、参考风格档零改、**存量行迁移后徽标自动显新名=验收②前端侧免费**、门禁 62 测绿）。**同波原子**（前端发新 key、后端须已认）。
+- 2026-07-13 [PM] **两决策拍定**：① **验收④ overlay 有字版双块=拆后续小波**（认 dev #1151：改版核心=版式复刻已交付、逐字闸只核 block[0/1]，overlay 走下一轮、别拖本波 CI 首跑）；② **CI ruff 拦路（24 pre-existing 错全在老 migration 文件·非本次改动）→ 口径=`[tool.ruff] exclude=["migrations"]`**（PM 拍）：alembic 自动生成文件本不该 style-lint（import 排序/E501 长行对机器生成码无意义）、**mypy 已 `files=["src"]` 同 scope**，ruff 收敛到 src+tests=**修一致性非 shim**；不碰依赖版本、**gitleaks 秘密扫描不受影响**（安全扫描全量照旧）。dev 执行（pyproject.toml 属 image-code、PM 不写）。→ CI 首跑得以走通。
+  **待**：dev exclude migrations 落 → 合并 QA → **push dev→PR dev→main→CI 全绿→合并→prod**（CI 首跑）；**存量行迁移待用户签字**（coordinator 已递、签字后 PM 确认放行 prod 数据订正）；知识库引导随改版波 dev 落 config。owner=开发+frontend-b（同波）→用户（签字）→PM（关账验收 8 条）。
