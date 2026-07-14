@@ -70,3 +70,6 @@ jobs:
           fetch-depth: 0   # 全历史，gitleaks 扫所有提交
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
+        env:
+          # gitleaks-action v2 在 pull_request 事件下必需（读 PR 元数据），非扫描授权变更
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
