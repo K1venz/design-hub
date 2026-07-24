@@ -81,7 +81,7 @@ class ListingJobLauncher:
         在 launch 时做，本方法只校验 edit 的纯参数（档位 / delta-ratio 冲突）。"""
         if isinstance(req, ListingGenerateRequest):
             if not 1 <= len(req.upload_ids) <= 3:
-                raise ValueError(f"请上传 1–3 张产品图（当前 {len(req.upload_ids)} 张）")
+                raise ValueError(f"请上传 1–3 张图片（当前 {len(req.upload_ids)} 张）")
             ratio_to_size(req.ratio)
             overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
             build_listing_prompts(

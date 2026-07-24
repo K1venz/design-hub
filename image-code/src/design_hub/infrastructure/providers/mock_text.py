@@ -93,7 +93,6 @@ class MockTextLLMProvider(TextLLMPort):
                         "clone_mode": "参考风格",
                         "ratio": ratio,
                         "prompt": text,
-                        "category": "FOOD",
                     },
                 ),))
                 return
@@ -113,7 +112,6 @@ class MockTextLLMProvider(TextLLMPort):
                     "prompt": text,
                     "ratio": ratio,
                     "plan": {"白底": 1, "场景": 2, "卖点": 2},
-                    "category": "FOOD",
                 },
             ),))
             return
@@ -129,7 +127,6 @@ class MockTextLLMProvider(TextLLMPort):
                     "prompt": text,
                     "ratio": ratio,
                     "n": _count_from_text(text),
-                    "category": "FOOD",
                 },
             ),))
             return
