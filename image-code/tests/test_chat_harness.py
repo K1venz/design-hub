@@ -58,6 +58,12 @@ def test_generate_tool_uses_auto_ratio_instead_of_requiring_clarification() -> N
     assert "比例/张数等必填项明确" not in generate.description
 
 
+def test_chat_write_tool_schemas_never_expose_category() -> None:
+    for name in ("generate", "clone"):
+        tool = next(item for item in _tool_specs() if item.name == name)
+        assert "category" not in tool.parameters["properties"]
+
+
 def test_current_auto_ratio_is_added_only_to_latest_user_message() -> None:
     transcript = _transcript(3)
     out = _to_llm_messages(transcript, current_auto_ratio="3:4")
@@ -78,4 +84,3 @@ def test_context_truncates_long_keeps_head_and_recent() -> None:
     assert out[0].content == "m0"  # 首条(原始诉求)保留
     assert any("省略" in m.content for m in out)  # 省略备注在
     assert out[-1].content == f"m{n - 1}"  # 最近一条保留
-
