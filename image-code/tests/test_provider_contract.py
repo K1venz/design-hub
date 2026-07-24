@@ -44,7 +44,31 @@ class _CapturingClient:
         return httpx.Response(status, json={"data": [{"url": "https://x/1.png"}]})
 
 
-def _provider_with(client: _CapturingClient, **kw: Any) -> OpenAICompatImageProvider:
+class _Concurrent429Client:
+    def __init__(self) -> None:
+        self._both_started = asyncio.Event()
+        self._request_a_retried = asyncio.Event()
+        self.headers_by_prompt: dict[str, list[str]] = {}
+
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        payload = kwargs.get("json") or kwargs.get("data")
+        prompt = str(payload["prompt"])
+        authorization = str(kwargs["headers"]["Authorization"])
+        attempts = self.headers_by_prompt.setdefault(prompt, [])
+        attempts.append(authorization)
+        if len(attempts) == 1:
+            if prompt == "request-a":
+                await self._both_started.wait()
+            else:
+                self._both_started.set()
+                await self._request_a_retried.wait()
+            return httpx.Response(429, json={"error": {"message": "rate limited"}})
+        if prompt == "request-a":
+            self._request_a_retried.set()
+        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+
+
+def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
     api_keys = kw.pop("api_keys", ["k"])
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
@@ -54,8 +78,14 @@ def _provider_with(client: _CapturingClient, **kw: Any) -> OpenAICompatImageProv
 
 
 async def _run(provider: OpenAICompatImageProvider, *, refs: list[bytes]) -> None:
+    await _run_prompt(provider, prompt="p", refs=refs)
+
+
+async def _run_prompt(
+    provider: OpenAICompatImageProvider, *, prompt: str, refs: list[bytes]
+) -> None:
     await provider.generate(
-        prompt="p", negative_prompt="",
+        prompt=prompt, negative_prompt="",
         reference_images=[ReferenceImage(data=b) for b in refs], size=(1024, 1024), n=1,
     )
 
@@ -123,6 +153,30 @@ def test_retry_switches_to_next_api_key() -> None:
         "Bearer first-key",
         "Bearer second-key",
     ]
+
+
+def test_concurrent_retries_each_switch_away_from_its_starting_key() -> None:
+    client = _Concurrent429Client()
+    provider = _provider_with(
+        client,
+        api_keys=["first-key", "second-key"],
+        max_retries=1,
+        retry_backoff=0.0,
+        retry_max_sleep=0.0,
+    )
+
+    async def _impl() -> None:
+        await asyncio.gather(
+            _run_prompt(provider, prompt="request-a", refs=[]),
+            _run_prompt(provider, prompt="request-b", refs=[]),
+        )
+
+    asyncio.run(_impl())
+
+    assert client.headers_by_prompt == {
+        "request-a": ["Bearer first-key", "Bearer second-key"],
+        "request-b": ["Bearer second-key", "Bearer first-key"],
+    }
 
 
 def test_empty_config_sends_neither_param() -> None:
