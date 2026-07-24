@@ -56,7 +56,7 @@ def test_respects_exif_orientation_without_transposing_pixels(
     assert detect_supported_ratio(data) == "9:16"
 
 
-@pytest.mark.parametrize("image_format", ["PNG", "WEBP"])
+@pytest.mark.parametrize("image_format", ["JPEG", "PNG", "WEBP"])
 def test_falls_back_for_truncated_image(image_format: str) -> None:
     data = _image_with_orientation(900, 1600, 1, image_format)
 
