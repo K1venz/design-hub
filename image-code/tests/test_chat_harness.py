@@ -64,6 +64,24 @@ def test_chat_write_tool_schemas_never_expose_category() -> None:
         assert "category" not in tool.parameters["properties"]
 
 
+def test_system_prompt_requires_category_free_conservative_enhancement() -> None:
+    prompt = default_system_prompt()
+    for forbidden in (
+        'category 默认 "FOOD"',
+        "食品 / 服装 / 美妆 / 鞋类 / 数码",
+        "自动识别品类",
+    ):
+        assert forbidden not in prompt
+    for required in (
+        "不得询问、推断或填写品类",
+        "同一次工具调用",
+        "不得编造品牌",
+        "不得编造卖点",
+        "至少上传一张图片",
+    ):
+        assert required in prompt
+
+
 def test_current_auto_ratio_is_added_only_to_latest_user_message() -> None:
     transcript = _transcript(3)
     out = _to_llm_messages(transcript, current_auto_ratio="3:4")
