@@ -1,5 +1,22 @@
 # ISSUE-0065 异步出图 Provider — 端口演进设计（一页提案）
 
+## 0. 当前接入决策（2026-07-24）
+
+当前 GPT Image 2 主路径改为中转站 OpenAI 兼容 Images API：
+
+- Base URL：`https://api.yhlxj.ai/v1`
+- 生图：`POST /images/generations`
+- 参考图编辑：`POST /images/edits`
+- 模型：`gpt-image-2`
+- 多参考图：multipart 重复同名 `image` 字段
+- 单次数量：`n=1`
+- 响应：遍历 `data`，读取 `url` 或 `b64_json`
+- 保真：仅 edits 发送 `input_fidelity=high`
+- 双 Key：同一个 `api_key_env` 环境变量用逗号分隔，provider 按请求轮换；瞬时错误重试会切换下一把 Key
+
+依据：APINebula `gpt-image-2-1k` 文档明确建议一次请求的生图/编辑优先使用 Images API。
+下文保留异步任务 provider 的历史设计与备用能力说明，但它不再是当前 GPT Image 2 默认连接。
+
 > 目的：把出图从同步端点（新 key 分组下过载、prod 成功率 ~33%）迁到 apinebula 异步任务端点
 > （排队消化、失败自动退款、实测零「临时繁忙」）。dev 出稿待 coordinator 技术过后动码。
 
