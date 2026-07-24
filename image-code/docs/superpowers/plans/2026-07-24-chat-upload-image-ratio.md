@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 对话出图在用户未指定比例时自动沿用第一张上传图的受支持比例，并把已失效的 APINebula GPT Image 2 异步连接迁移到官方新域名。
+**Goal:** 对话出图在用户未指定比例时自动沿用第一张上传图的受支持比例，并把 GPT Image 2 切到中转站的 OpenAI 兼容 Images API。
 
-**Architecture:** 在 chat application 层新增纯图片比例识别单元，使用 Pillow 从首图字节读取校正后的宽高并匹配现有四档比例。`ChatOrchestrator` 通过既有 `UploadService` 读取首图，将自动比例作为系统备注注入当前 LLM 用户消息；system prompt 负责声明“文字明确比例优先，否则使用自动比例且不追问”。GPT Image 2 故障修复不改 provider 协议，通过 Alembic 数据迁移把异步 provider 的精确旧地址迁到官方新地址，保留其他 provider 配置。
+**Architecture:** 在 chat application 层新增纯图片比例识别单元，使用 Pillow 从首图字节读取校正后的宽高并匹配现有四档比例。`ChatOrchestrator` 通过既有 `UploadService` 读取首图，将自动比例作为系统备注注入当前 LLM 用户消息；system prompt 负责声明“文字明确比例优先，否则使用自动比例且不追问”。GPT Image 2 使用现有 `OpenAICompatImageProvider` 直调 `/v1/images/generations|edits`，Alembic 将当前异步连接切到新的同步中转站；两把 Key 由同一环境变量逗号分隔，provider 按请求轮换并在重试时切 Key。
 
 **Tech Stack:** Python 3.12、Pillow、FastAPI application layer、pytest、ruff、mypy
 
@@ -15,8 +15,9 @@
 - 匹配相对误差上限为 1%；不支持、损坏、读取失败统一回退 `1:1`。
 - 多图只读取第一张。
 - 不改工作台手动比例、API DTO、底层 size 映射。
-- APINebula 异步 API 地址从 `https://apinebula.com/v1` 迁到 `https://apinebula.ai/v1`。
-- 只迁移 `provider_type=apinebula_async_image` 且地址精确命中旧值的行；同步和其他供应商配置不动。
+- GPT Image 2 改用 `https://api.yhlxj.ai/v1/images/generations|edits`。
+- 多参考图使用重复的 `image` multipart 字段，单次请求固定 `n=1`。
+- 只迁移命中 APINebula GPT Image 2 异步连接的行；同步及其他供应商配置不动。
 - 生产代码必须在对应失败测试之后编写。
 
 ---
@@ -221,82 +222,51 @@ git add src/design_hub/application/chat/orchestrator.py src/design_hub/applicati
 git commit -m "feat(chat): 未指定比例时沿用首张上传图" -m "对话编排读取第一张上传图并注入自动比例；文字明确比例优先，未指定时不再追问，读取失败使用 1:1。"
 ```
 
-### Task 3: GPT Image 2 异步连接迁移
+### Task 3: GPT Image 2 直接 Images API
 
 **Files:**
-- Create: `migrations/versions/f3a4b5c6d7e8_apinebula_async_base_url.py`
-- Create: `tests/test_apinebula_base_url_migration.py`
+- Modify: `src/design_hub/infrastructure/providers/openai_compat.py`
+- Modify: `tests/test_provider_contract.py`
+- Create: `migrations/versions/f3a4b5c6d7e8_gpt_image_direct_connection.py`
+- Create: `tests/test_gpt_image_direct_connection_migration.py`
 - Modify: `docs/0065-async-image-provider-port-design.md`
 
 **Interfaces:**
-- Consumes: 现有 `model_config(provider_type, base_url)` 数据与 Alembic head `e2f3a4b5c6d7`。
-- Produces: 新 head `f3a4b5c6d7e8`，upgrade 精确迁移旧异步地址并记录实际改动行；
-  downgrade 仅恢复这些行，不影响原本已使用新地址的配置。
+- Consumes: APINebula GPT Image 2 文档、现有 `model_config(provider_type, base_url, model)` 与 Alembic head `e2f3a4b5c6d7`。
+- Produces: 文档一致的同步 Images API 请求；新 head `f3a4b5c6d7e8` 精确切换当前连接且可逆。
 
-- [ ] **Step 1: 写迁移作用域的失败测试**
+- [ ] **Step 1: 写 provider 契约与迁移失败测试**
 
-测试用 SQLite 建最小 `model_config` 表，插入四行：
+断言 edits 多参考图发送两个同名 `image` 字段；两次请求依次使用两把 Key，429 重试切到下一把 Key。
+迁移测试覆盖旧 `.com` 和当前 `.ai` 两条异步 GPT Image 2 连接，升级后都变为
+`openai_compat_image + https://api.yhlxj.ai/v1`，其他连接不动；回滚恢复各自原值。
 
-```python
-[
-    ("async-old", "apinebula_async_image", "https://apinebula.com/v1"),
-    ("sync-old", "openai_compat_image", "https://apinebula.com/v1"),
-    ("async-other", "apinebula_async_image", "https://relay.example/v1"),
-    ("async-new", "apinebula_async_image", "https://apinebula.ai/v1"),
-]
-```
-
-加载迁移模块后，以 Alembic `Operations` 执行 `upgrade()`，断言仅 `async-old` 变为
-`https://apinebula.ai/v1`；执行 `downgrade()` 后断言仅 `async-old` 恢复旧地址，
-`async-new` 保持新地址。
-
-- [ ] **Step 2: 运行迁移测试并确认因迁移模块不存在而失败**
-
-Run: `uv run pytest tests/test_apinebula_base_url_migration.py -v`
-
-Expected: FAIL，迁移文件不存在。
-
-- [ ] **Step 3: 实现精确数据迁移**
-
-```python
-_model_config = sa.table(
-    "model_config",
-    sa.column("name", sa.String),
-    sa.column("provider_type", sa.String),
-    sa.column("base_url", sa.String),
-)
-
-
-def upgrade() -> None:
-    # 先把精确匹配的 name 写入本迁移专用记录表，再更新地址。
-    ...
-    op.execute(
-        _model_config.update()
-        .where(_model_config.c.provider_type == "apinebula_async_image")
-        .where(_model_config.c.base_url == "https://apinebula.com/v1")
-        .values(base_url="https://apinebula.ai/v1")
-    )
-
-
-def downgrade() -> None:
-    # 只按记录表恢复本次 upgrade 实际改过、且当前仍是新地址的行，然后删除记录表。
-    ...
-```
-
-迁移 `revision="f3a4b5c6d7e8"`、`down_revision="e2f3a4b5c6d7"`。数据迁移不可区分
-“本次被升级的行”和“原本已是新地址的行”，因此用迁移专用记录表保存精确集合。
-
-- [ ] **Step 4: 更新异步 provider 设计文档中的 Base URL**
-
-把 submit/轮询契约明确为 `https://apinebula.ai/v1/image-tasks/...`，记录旧 `.com` 域名
-在 2026-07-24 实测连接超时、新 `.ai` 域名返回规范参数错误。
-
-- [ ] **Step 5: 运行迁移测试与 Alembic head 检查**
+- [ ] **Step 2: 运行测试并确认旧实现失败**
 
 Run:
 
 ```bash
-uv run pytest tests/test_apinebula_base_url_migration.py -v
+uv run pytest tests/test_provider_contract.py \
+  tests/test_gpt_image_direct_connection_migration.py -v
+```
+
+- [ ] **Step 3: 实现文档契约与精确可逆迁移**
+
+edits multipart 改为重复 `image`；保留既有 Key 轮换和瞬时错误重试。迁移先记录实际改动行的
+`name/provider_type/base_url`，再切换到直接 Images API；downgrade 只恢复记录集合。
+
+- [ ] **Step 4: 更新 provider 设计文档**
+
+记录当前主路径为 `https://api.yhlxj.ai/v1/images/...`，明确模型、字段、响应和双 Key 环境变量口径；
+异步 `image-tasks` 仅保留为历史/备用设计，不再是当前默认连接。
+
+- [ ] **Step 5: 运行契约、迁移与 Alembic head 检查**
+
+Run:
+
+```bash
+uv run pytest tests/test_provider_contract.py \
+  tests/test_gpt_image_direct_connection_migration.py -v
 uv run alembic heads
 ```
 
@@ -305,8 +275,8 @@ Expected: 迁移测试通过，唯一 head 为 `f3a4b5c6d7e8`。
 - [ ] **Step 6: 提交 API 配置修复**
 
 ```bash
-git add migrations/versions/f3a4b5c6d7e8_apinebula_async_base_url.py tests/test_apinebula_base_url_migration.py docs/0065-async-image-provider-port-design.md
-git commit -m "fix(provider): 迁移 APINebula 异步 API 新域名" -m "旧 apinebula.com 异步端点已连接超时；精确迁移异步 provider 配置到官方 apinebula.ai，不影响同步或其他中转配置。"
+git add src/design_hub/infrastructure/providers/openai_compat.py tests/test_provider_contract.py migrations/versions/f3a4b5c6d7e8_gpt_image_direct_connection.py tests/test_gpt_image_direct_connection_migration.py docs/0065-async-image-provider-port-design.md
+git commit -m "fix(provider): 切换 GPT Image 2 直接 Images API" -m "按中转站文档使用 generations/edits，同名 image 字段传多参考图，并把当前异步连接精确迁到双 Key 直接调用。"
 ```
 
 ### Task 4: 完整验证与本地验收

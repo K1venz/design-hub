@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     # gpt-image-2 中转站（apinebula/诗云），走 OpenAI 兼容协议
     gpt_image_base_url: str = ""
+    # 可配置一把或多把 Key；多把用逗号分隔，provider 按请求轮换并在重试时切换。
     gpt_image_api_key: SecretStr = SecretStr("")
     gpt_image_model: str = ""
     # 出图协议增强（apinebula 官方文档，coordinator #1092）：空串=不发该参数。

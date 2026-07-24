@@ -26,20 +26,29 @@ def _provider() -> OpenAICompatImageProvider:
 class _CapturingClient:
     """假 httpx client：记录最后一次 POST 的 json/data 载荷，恒返 200（断言请求参数用）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, statuses: list[int] | None = None) -> None:
+        self._statuses = list(statuses or [200])
+        self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
         self.json_payload: dict[str, Any] | None = None
         self.data_payload: dict[str, Any] | None = None
+        self.files_payload: list[tuple[str, tuple[str, bytes, str]]] | None = None
 
     async def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.urls.append(url)
+        self.headers.append(kwargs.get("headers", {}))
         self.json_payload = kwargs.get("json")
         self.data_payload = kwargs.get("data")
-        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+        self.files_payload = kwargs.get("files")
+        status = self._statuses.pop(0) if len(self._statuses) > 1 else self._statuses[0]
+        return httpx.Response(status, json={"data": [{"url": "https://x/1.png"}]})
 
 
 def _provider_with(client: _CapturingClient, **kw: Any) -> OpenAICompatImageProvider:
+    api_keys = kw.pop("api_keys", ["k"])
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
-        base_url="https://example.invalid", api_keys=["k"], model="gpt-image-2",
+        base_url="https://example.invalid/v1", api_keys=api_keys, model="gpt-image-2",
         client=client, **kw,  # type: ignore[arg-type]
     )
 
@@ -64,6 +73,17 @@ def test_edits_sends_input_fidelity_and_response_format() -> None:
     assert client.data_payload["response_format"] == "b64_json"
 
 
+def test_edits_repeats_documented_image_field_for_multiple_references() -> None:
+    client = _CapturingClient()
+    provider = _provider_with(client)
+
+    asyncio.run(_run(provider, refs=[b"product", b"background"]))
+
+    assert client.urls == ["https://example.invalid/v1/images/edits"]
+    assert client.files_payload is not None
+    assert [field for field, _file in client.files_payload] == ["image", "image"]
+
+
 def test_generations_sends_response_format_but_not_input_fidelity() -> None:
     # generations 端点（无参考图）：只发 response_format；input_fidelity 该端点无此参数、不发
     client = _CapturingClient()
@@ -72,6 +92,37 @@ def test_generations_sends_response_format_but_not_input_fidelity() -> None:
     assert client.json_payload is not None
     assert client.json_payload["response_format"] == "b64_json"
     assert "input_fidelity" not in client.json_payload
+
+
+def test_requests_round_robin_across_configured_api_keys() -> None:
+    client = _CapturingClient()
+    provider = _provider_with(client, api_keys=["first-key", "second-key"])
+
+    asyncio.run(_run(provider, refs=[]))
+    asyncio.run(_run(provider, refs=[]))
+
+    assert [headers["Authorization"] for headers in client.headers] == [
+        "Bearer first-key",
+        "Bearer second-key",
+    ]
+
+
+def test_retry_switches_to_next_api_key() -> None:
+    client = _CapturingClient([429, 200])
+    provider = _provider_with(
+        client,
+        api_keys=["first-key", "second-key"],
+        max_retries=1,
+        retry_backoff=0.0,
+        retry_max_sleep=0.0,
+    )
+
+    asyncio.run(_run(provider, refs=[]))
+
+    assert [headers["Authorization"] for headers in client.headers] == [
+        "Bearer first-key",
+        "Bearer second-key",
+    ]
 
 
 def test_empty_config_sends_neither_param() -> None:
