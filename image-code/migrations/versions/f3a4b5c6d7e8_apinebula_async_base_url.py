@@ -34,9 +34,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        _model_config.update()
-        .where(_model_config.c.provider_type == _ASYNC_PROVIDER_TYPE)
-        .where(_model_config.c.base_url == _NEW_BASE_URL)
-        .values(base_url=_OLD_BASE_URL)
-    )
+    # Forward-only: reverting every current URL would corrupt rows that already used it.
+    pass

@@ -55,6 +55,11 @@ def test_migrates_only_exact_apinebula_async_base_url() -> None:
                     "provider_type": "apinebula_async_image",
                     "base_url": "https://relay.example/v1",
                 },
+                {
+                    "name": "async-new",
+                    "provider_type": "apinebula_async_image",
+                    "base_url": _NEW_BASE_URL,
+                },
             ],
         )
         migration = _load_migration()
@@ -71,6 +76,7 @@ def test_migrates_only_exact_apinebula_async_base_url() -> None:
             "async-old": _NEW_BASE_URL,
             "sync-old": _OLD_BASE_URL,
             "async-other": "https://relay.example/v1",
+            "async-new": _NEW_BASE_URL,
         }
 
         migration.downgrade()
@@ -81,7 +87,8 @@ def test_migrates_only_exact_apinebula_async_base_url() -> None:
             )
         }
         assert downgraded == {
-            "async-old": _OLD_BASE_URL,
+            "async-old": _NEW_BASE_URL,
             "sync-old": _OLD_BASE_URL,
             "async-other": "https://relay.example/v1",
+            "async-new": _NEW_BASE_URL,
         }

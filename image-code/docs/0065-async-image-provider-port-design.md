@@ -6,6 +6,8 @@
 ## 1. 已确认上游契约（coordinator #1107 实证，¥0.8）
 - **Base URL**：`https://apinebula.ai/v1`。旧地址 `https://apinebula.com/v1`
   在 2026-07-24 实测连接超时；同一 Key 请求新地址可正常通过鉴权并返回规范参数错误。
+  配置迁移仅把“异步 provider + 精确旧地址”改到新域名；downgrade 不反向覆盖，避免误改
+  原本已配置新域名的记录。
 - **submit** `POST https://apinebula.ai/v1/image-tasks/edits`，JSON：
   `{model, prompt, quality?, size:"WxH", input_fidelity?, images:[{image_url}]}`；无参考图走
   `/image-tasks/generations` 同形无 `images`。Bearer 鉴权、服务端自动补 async=true。
