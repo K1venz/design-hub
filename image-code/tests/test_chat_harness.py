@@ -82,6 +82,18 @@ def test_system_prompt_requires_category_free_conservative_enhancement() -> None
         assert required in prompt
 
 
+def test_system_prompt_separates_design_discussion_from_generation_intent() -> None:
+    prompt = default_system_prompt()
+    for required in (
+        "只有用户明确要求生成、制作、复刻或编辑成品",
+        "分析、建议、讨论、比较或头脑风暴",
+        "不得调用 generate、clone、edit",
+        "不要把上传图片本身视为生图授权",
+        "意图模糊",
+    ):
+        assert required in prompt
+
+
 def test_current_auto_ratio_is_added_only_to_latest_user_message() -> None:
     transcript = _transcript(3)
     out = _to_llm_messages(transcript, current_auto_ratio="3:4")
