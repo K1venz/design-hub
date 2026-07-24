@@ -97,15 +97,23 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         # 模态解引用（ISSUE-0065）：同步走字节；launcher 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
+        start_key_index = self._reserve_key_index()
         attempt = 0
         overall_start = time.perf_counter()
         while True:
             start = time.perf_counter()
+            api_key = self._api_keys[
+                (start_key_index + attempt) % len(self._api_keys)
+            ]
             try:
                 if ref_bytes:
-                    response = await self._edit(composed, ref_bytes, size_str, n, quality)
+                    response = await self._edit(
+                        composed, ref_bytes, size_str, n, quality, api_key=api_key
+                    )
                 else:
-                    response = await self._generate(composed, size_str, n, quality)
+                    response = await self._generate(
+                        composed, size_str, n, quality, api_key=api_key
+                    )
                 raise_for_status(self.name, response)  # 4xx→DomainError；5xx/429→ProviderTimeout
             except httpx.TimeoutException as exc:
                 error: ProviderError = ProviderTimeout(f"{self.name} timeout: {exc}")
@@ -135,7 +143,13 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         )
 
     async def _generate(
-        self, prompt: str, size: str, n: int, quality: str | None = None
+        self,
+        prompt: str,
+        size: str,
+        n: int,
+        quality: str | None = None,
+        *,
+        api_key: str,
     ) -> httpx.Response:
         payload: dict[str, Any] = {
             "model": self._model, "prompt": prompt, "n": n, "size": size
@@ -144,10 +158,19 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             payload["quality"] = quality
         if self._response_format:  # 两端点发（input_fidelity 仅 edits，generations 不发）
             payload["response_format"] = self._response_format
-        return await self._request_json(f"{self._base_url}/images/generations", payload)
+        return await self._request_json(
+            f"{self._base_url}/images/generations", payload, api_key=api_key
+        )
 
     async def _edit(
-        self, prompt: str, images: list[bytes], size: str, n: int, quality: str | None = None
+        self,
+        prompt: str,
+        images: list[bytes],
+        size: str,
+        n: int,
+        quality: str | None = None,
+        *,
+        api_key: str,
     ) -> httpx.Response:
         # GPT Image 2 多参考图按中转站文档重复同名 image 字段。
         data = {"model": self._model, "prompt": prompt, "n": str(n), "size": size}
@@ -160,16 +183,20 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         files = [
             ("image", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
         ]
-        return await self._request_multipart(f"{self._base_url}/images/edits", data, files)
+        return await self._request_multipart(
+            f"{self._base_url}/images/edits", data, files, api_key=api_key
+        )
 
-    def _next_key(self) -> str:
-        # 多 key round-robin（asyncio 单线程，自增不跨 await，无需锁）；并发请求自动散到多 key
-        key = self._api_keys[self._key_idx % len(self._api_keys)]
+    def _reserve_key_index(self) -> int:
+        # 每个逻辑请求只从全局游标领取一次起点；其重试在自己的起点上顺序切 Key。
+        key_index = self._key_idx % len(self._api_keys)
         self._key_idx += 1
-        return key
+        return key_index
 
-    async def _request_json(self, url: str, payload: dict[str, Any]) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._next_key()}"}
+    async def _request_json(
+        self, url: str, payload: dict[str, Any], *, api_key: str
+    ) -> httpx.Response:
+        headers = {"Authorization": f"Bearer {api_key}"}
         if self._client is not None:
             return await self._client.post(
                 url, json=payload, headers=headers, timeout=self._client_timeout
@@ -184,8 +211,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         url: str,
         data: dict[str, str],
         files: list[tuple[str, tuple[str, bytes, str]]],
+        *,
+        api_key: str,
     ) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._next_key()}"}
+        headers = {"Authorization": f"Bearer {api_key}"}
         if self._client is not None:
             return await self._client.post(
                 url, data=data, files=files, headers=headers, timeout=self._client_timeout
