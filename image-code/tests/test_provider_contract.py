@@ -29,10 +29,12 @@ class _CapturingClient:
     def __init__(self) -> None:
         self.json_payload: dict[str, Any] | None = None
         self.data_payload: dict[str, Any] | None = None
+        self.files_payload: list[tuple[str, tuple[str, bytes, str]]] | None = None
 
     async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         self.json_payload = kwargs.get("json")
         self.data_payload = kwargs.get("data")
+        self.files_payload = kwargs.get("files")
         return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
 
 
@@ -62,6 +64,14 @@ def test_edits_sends_input_fidelity_and_response_format() -> None:
     assert client.data_payload is not None
     assert client.data_payload["input_fidelity"] == "high"
     assert client.data_payload["response_format"] == "b64_json"
+
+
+def test_edits_repeats_official_image_field_for_multiple_references() -> None:
+    client = _CapturingClient()
+    provider = _provider_with(client)
+    asyncio.run(_run(provider, refs=[b"product", b"background"]))
+    assert client.files_payload is not None
+    assert [field for field, _ in client.files_payload] == ["image", "image"]
 
 
 def test_generations_sends_response_format_but_not_input_fidelity() -> None:

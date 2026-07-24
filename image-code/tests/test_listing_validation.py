@@ -70,6 +70,21 @@ def test_ratio_to_size_message_is_user_facing() -> None:
     assert "ratio" not in msg
 
 
+@pytest.mark.parametrize(
+    ("ratio", "expected"),
+    [
+        ("1:1", (1024, 1024)),
+        ("3:4", (1152, 1536)),
+        ("9:16", (864, 1536)),
+        ("16:9", (1536, 864)),
+    ],
+)
+def test_ratio_to_size_preserves_requested_aspect_ratio(
+    ratio: str, expected: tuple[int, int]
+) -> None:
+    assert ratio_to_size(ratio) == expected
+
+
 def test_single_mode_no_image_type_block() -> None:
     tasks = _build(n=2)
     assert len(tasks) == 2

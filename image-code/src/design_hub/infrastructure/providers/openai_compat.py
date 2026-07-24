@@ -149,8 +149,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     async def _edit(
         self, prompt: str, images: list[bytes], size: str, n: int, quality: str | None = None
     ) -> httpx.Response:
-        # gpt-image edits 多图：同名重复字段 image[]（OpenAI gpt-image-1 协议）。
-        # 中转站若不支持多图，ListingGenerationService 会在上层退化为逐图调用（见 spec §6.1 风险）。
+        # APINebula edits 多图：按官方协议重复同名 image 字段。
         data = {"model": self._model, "prompt": prompt, "n": str(n), "size": size}
         if quality:
             data["quality"] = quality
@@ -159,7 +158,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         if self._input_fidelity:  # 仅 edits：保留产品阴影/高光/透视/文字（保真核心）
             data["input_fidelity"] = self._input_fidelity
         files = [
-            ("image[]", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
+            ("image", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
         ]
         return await self._request_multipart(f"{self._base_url}/images/edits", data, files)
 
