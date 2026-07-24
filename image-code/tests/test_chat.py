@@ -49,6 +49,7 @@ from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionReposito
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.events.memory import InMemoryEventBus
+from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
@@ -276,6 +277,42 @@ def test_auto_ratio_falls_back_when_first_upload_cannot_be_loaded(tmp_path) -> N
             inf.orch(llm).handle_message(USER, None, "给商品出图", ["missing/image.png"])
         )
         assert "自动比例=1:1" in llm.messages[-1].content
+
+    asyncio.run(_impl())
+
+
+def test_mock_text_llm_uses_first_upload_ratio_in_cost_confirm(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await inf.uploads.save(
+            data=_image_bytes(900, 1600), content_type="image/png", user_id=USER.user_id
+        )
+
+        events = await _drain(
+            inf.orch(MockTextLLMProvider()).handle_message(
+                USER, None, "给商品出一张图", [uid]
+            )
+        )
+
+        assert _first(events, "cost_confirm")["args"]["ratio"] == "9:16"
+
+    asyncio.run(_impl())
+
+
+def test_mock_text_llm_explicit_ratio_overrides_first_upload(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await inf.uploads.save(
+            data=_image_bytes(900, 1600), content_type="image/png", user_id=USER.user_id
+        )
+
+        events = await _drain(
+            inf.orch(MockTextLLMProvider()).handle_message(
+                USER, None, "给商品出一张 3：4 的图", [uid]
+            )
+        )
+
+        assert _first(events, "cost_confirm")["args"]["ratio"] == "3:4"
 
     asyncio.run(_impl())
 
