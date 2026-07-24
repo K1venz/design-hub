@@ -1649,16 +1649,22 @@
             "title": "Modifiers"
           },
           "category": {
-            "type": "string",
-            "enum": [
-              "FOOD",
-              "FASHION",
-              "BEAUTY",
-              "SHOES",
-              "DIGITAL"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "FOOD",
+                  "FASHION",
+                  "BEAUTY",
+                  "SHOES",
+                  "DIGITAL"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Category",
-            "default": "FOOD"
+            "title": "Category"
           }
         },
         "type": "object",
@@ -1792,16 +1798,22 @@
             "title": "Modifiers"
           },
           "category": {
-            "type": "string",
-            "enum": [
-              "FOOD",
-              "FASHION",
-              "BEAUTY",
-              "SHOES",
-              "DIGITAL"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "FOOD",
+                  "FASHION",
+                  "BEAUTY",
+                  "SHOES",
+                  "DIGITAL"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Category",
-            "default": "FOOD"
+            "title": "Category"
           }
         },
         "type": "object",

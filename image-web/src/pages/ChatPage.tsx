@@ -10,7 +10,8 @@ import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from 
 import { useListingJob, useUploadImage } from '@/api/listing'
 import { downloadImage } from '@/lib/download'
 import {
-  applyChatEvent, clearAwaiting, initialChatState, pushUserMessage, sessionMessagesToBubbles,
+  applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, initialChatState, pushUserMessage,
+  sessionMessagesToBubbles, shouldShowChatWelcome, shouldSubmitChatInput,
   type ChatBubble, type ChatState, type CostConfirm,
 } from '@/lib/chat'
 import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
@@ -186,10 +187,15 @@ export function ChatPage() {
               <span className="rounded-full bg-wb-tint-1 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep">内测</span>
             </div>
 
-            {state.bubbles.length === 0 && !state.streaming && (
-              <p className="pt-6 text-center text-[13.5px] text-wb-ink-6">
-                用大白话说说你的产品和想要的效果，我来帮你出图。
-              </p>
+            {shouldShowChatWelcome(state) && (
+              <div className="flex items-start gap-2 pt-4">
+                <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-[9px] bg-wb-tint-1 text-wb-brand-deep">
+                  <SparklesIcon className="size-4" />
+                </span>
+                <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-white/80 bg-white/85 px-4 py-3 text-[14px] leading-7 text-wb-ink-3 shadow-[0_10px_30px_-20px_rgba(40,40,90,.35)]">
+                  {CHAT_WELCOME_COPY}
+                </div>
+              </div>
             )}
 
             {state.bubbles.map((b, i) => (
@@ -237,7 +243,13 @@ export function ChatPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void send(draft, attached.map((a) => a.id))
+                if (!shouldSubmitChatInput({
+                  key: e.key,
+                  shiftKey: e.shiftKey,
+                  isComposing: e.nativeEvent.isComposing,
+                })) return
+                e.preventDefault()
+                void send(draft, attached.map((a) => a.id))
               }}
               disabled={busy}
               placeholder={state.awaiting ? '请先确认或取消上面的出图…' : '描述你的产品和想要的效果…'}

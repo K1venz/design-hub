@@ -542,12 +542,8 @@ export interface components {
             modifiers?: {
                 [key: string]: string;
             };
-            /**
-             * Category
-             * @default FOOD
-             * @enum {string}
-             */
-            category: "FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL";
+            /** Category */
+            category?: ("FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL") | null;
         };
         /**
          * EditRequest
@@ -606,12 +602,8 @@ export interface components {
             modifiers?: {
                 [key: string]: string;
             };
-            /**
-             * Category
-             * @default FOOD
-             * @enum {string}
-             */
-            category: "FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL";
+            /** Category */
+            category?: ("FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL") | null;
         };
         /** ListingImageOut */
         ListingImageOut: {
