@@ -164,12 +164,40 @@ def _image_bytes(width: int, height: int) -> bytes:
 def _gen_tc(
     uid: str, *, ratio: str = "1:1", n: int | None = 5, plan: dict | None = None
 ) -> tuple[ToolCall, ...]:
-    args: dict = {"upload_ids": [uid], "prompt": "花生", "ratio": ratio, "category": "FOOD"}
+    args: dict = {"upload_ids": [uid], "prompt": "花生", "ratio": ratio}
     if plan is not None:
         args["plan"] = plan
     else:
         args["n"] = n
     return (ToolCall(id="c1", name="generate", arguments=args),)
+
+
+def test_chat_generate_converts_to_category_free_listing_request() -> None:
+    req = ChatOrchestrator._parse_req(
+        "generate",
+        {
+            "upload_ids": ["u"],
+            "prompt": "主体居中，柔和棚拍光，保留原图 Logo",
+            "ratio": "1:1",
+            "n": 1,
+        },
+    )
+    assert isinstance(req, ListingGenerateRequest)
+    assert req.category is None
+
+
+def test_chat_generate_rejects_category_argument() -> None:
+    with pytest.raises(ValueError):
+        ChatOrchestrator._parse_req(
+            "generate",
+            {
+                "upload_ids": ["u"],
+                "prompt": "极简海报",
+                "ratio": "1:1",
+                "n": 1,
+                "category": "FOOD",
+            },
+        )
 
 
 @dataclass
