@@ -8,10 +8,29 @@ import {
   CHAT_WELCOME_COPY,
   initialChatState,
   sessionMessagesToBubbles,
+  shouldSubmitChatInput,
   shouldShowChatWelcome,
   type ChatState,
   type ChatTranscriptMessage,
 } from '@/lib/chat'
+
+describe('chat input keyboard', () => {
+  it('submits on Enter', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: false, isComposing: false })).toBe(true)
+  })
+
+  it('keeps Shift+Enter for a newline', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: true, isComposing: false })).toBe(false)
+  })
+
+  it('does not submit while an IME composition is active', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false)
+  })
+
+  it('ignores non-Enter keys', () => {
+    expect(shouldSubmitChatInput({ key: 'a', shiftKey: false, isComposing: false })).toBe(false)
+  })
+})
 
 describe('new chat capability card', () => {
   it('shows only for an idle empty session and describes unrestricted visual scope', () => {

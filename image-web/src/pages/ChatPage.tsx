@@ -11,7 +11,7 @@ import { useListingJob, useUploadImage } from '@/api/listing'
 import { downloadImage } from '@/lib/download'
 import {
   applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, initialChatState, pushUserMessage,
-  sessionMessagesToBubbles, shouldShowChatWelcome,
+  sessionMessagesToBubbles, shouldShowChatWelcome, shouldSubmitChatInput,
   type ChatBubble, type ChatState, type CostConfirm,
 } from '@/lib/chat'
 import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
@@ -243,7 +243,13 @@ export function ChatPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void send(draft, attached.map((a) => a.id))
+                if (!shouldSubmitChatInput({
+                  key: e.key,
+                  shiftKey: e.shiftKey,
+                  isComposing: e.nativeEvent.isComposing,
+                })) return
+                e.preventDefault()
+                void send(draft, attached.map((a) => a.id))
               }}
               disabled={busy}
               placeholder={state.awaiting ? '请先确认或取消上面的出图…' : '描述你的产品和想要的效果…'}
