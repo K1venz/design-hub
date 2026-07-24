@@ -5,11 +5,46 @@ import {
   applyChatEvent,
   pushUserMessage,
   clearAwaiting,
+  CHAT_WELCOME_COPY,
   initialChatState,
   sessionMessagesToBubbles,
+  shouldSubmitChatInput,
+  shouldShowChatWelcome,
   type ChatState,
   type ChatTranscriptMessage,
 } from '@/lib/chat'
+
+describe('chat input keyboard', () => {
+  it('submits on Enter', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: false, isComposing: false })).toBe(true)
+  })
+
+  it('keeps Shift+Enter for a newline', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: true, isComposing: false })).toBe(false)
+  })
+
+  it('does not submit while an IME composition is active', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false)
+  })
+
+  it('ignores non-Enter keys', () => {
+    expect(shouldSubmitChatInput({ key: 'a', shiftKey: false, isComposing: false })).toBe(false)
+  })
+})
+
+describe('new chat capability card', () => {
+  it('shows only for an idle empty session and describes unrestricted visual scope', () => {
+    const empty = initialChatState()
+    expect(shouldShowChatWelcome(empty)).toBe(true)
+    expect(CHAT_WELCOME_COPY).toContain('任意品类')
+    expect(CHAT_WELCOME_COPY).toContain('至少 1 张图片')
+    expect(CHAT_WELCOME_COPY).toContain('Logo')
+    expect(CHAT_WELCOME_COPY).not.toContain('食品、服装、美妆、鞋类、数码')
+
+    expect(shouldShowChatWelcome(pushUserMessage(empty, '做一张海报'))).toBe(false)
+    expect(shouldShowChatWelcome({ ...empty, streaming: true })).toBe(false)
+  })
+})
 
 describe('parseChatEvent', () => {
   it('maps session / assistant_delta / step / tool_call', () => {

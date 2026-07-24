@@ -162,14 +162,75 @@ def _image_bytes(width: int, height: int) -> bytes:
 
 
 def _gen_tc(
-    uid: str, *, ratio: str = "1:1", n: int | None = 5, plan: dict | None = None
+    uid: str,
+    *,
+    ratio: str = "1:1",
+    n: int | None = 5,
+    plan: dict | None = None,
+    prompt: str = "花生",
 ) -> tuple[ToolCall, ...]:
-    args: dict = {"upload_ids": [uid], "prompt": "花生", "ratio": ratio, "category": "FOOD"}
+    args: dict = {"upload_ids": [uid], "prompt": prompt, "ratio": ratio}
     if plan is not None:
         args["plan"] = plan
     else:
         args["n"] = n
     return (ToolCall(id="c1", name="generate", arguments=args),)
+
+
+def test_chat_generate_converts_to_category_free_listing_request() -> None:
+    req = ChatOrchestrator._parse_req(
+        "generate",
+        {
+            "upload_ids": ["u"],
+            "prompt": "主体居中，柔和棚拍光，保留原图 Logo",
+            "ratio": "1:1",
+            "n": 1,
+        },
+    )
+    assert isinstance(req, ListingGenerateRequest)
+    assert req.category is None
+
+
+def test_chat_generate_rejects_category_argument() -> None:
+    with pytest.raises(ValueError):
+        ChatOrchestrator._parse_req(
+            "generate",
+            {
+                "upload_ids": ["u"],
+                "prompt": "极简海报",
+                "ratio": "1:1",
+                "n": 1,
+                "category": "FOOD",
+            },
+        )
+
+
+def test_logo_request_uses_enhanced_prompt_without_category_clarification(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        enhanced = (
+            "以用户上传图为主体，设计简洁现代的 Logo 视觉；保持原图已有文字与标识不变，"
+            "主体居中，留白充足，使用清晰矢量感边缘，不新增品牌名或宣传文案。"
+        )
+        orch = inf.orch(
+            StubTextLLM(("正在完善设计要求", _gen_tc(uid, n=1, prompt=enhanced)))
+        )
+
+        events = await _drain(
+            orch.handle_message(USER, None, "帮我做一个简洁现代的 Logo", [uid])
+        )
+
+        confirm = _first(events, "cost_confirm")
+        assert confirm["args"]["prompt"] == enhanced
+        assert "category" not in confirm["args"]
+        assert not any(
+            "品类" in data.get("text", "")
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+
+    asyncio.run(_impl())
 
 
 @dataclass
