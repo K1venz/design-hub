@@ -87,7 +87,7 @@ def test_migrates_only_exact_apinebula_async_base_url() -> None:
             )
         }
         assert downgraded == {
-            "async-old": _NEW_BASE_URL,
+            "async-old": _OLD_BASE_URL,
             "sync-old": _OLD_BASE_URL,
             "async-other": "https://relay.example/v1",
             "async-new": _NEW_BASE_URL,
