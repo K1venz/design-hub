@@ -19,6 +19,9 @@ from design_hub.ports.text_llm import (
 )
 
 _UPLOAD_RE = re.compile(r"upload_ids=([\w,\-/.]+)")  # id=<ns>/<sha>.<ext>，含 / 与 .
+_RATIO_RE = re.compile(r"(?<!\d)(1|3|9|16)\s*(?:[:：xX×]|比)\s*(1|4|16|9)(?!\d)")
+_AUTO_RATIO_RE = re.compile(r"自动比例=(1:1|3:4|9:16|16:9)")
+_SUPPORTED_RATIOS = frozenset({"1:1", "3:4", "9:16", "16:9"})
 _DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7}
 
 
@@ -49,6 +52,16 @@ def _count_from_text(text: str) -> int:
     return 1
 
 
+def _ratio_from_text(text: str) -> str:
+    user_text = text.partition("\n\n[系统备注]")[0]
+    for hit in _RATIO_RE.finditer(user_text):
+        ratio = f"{hit.group(1)}:{hit.group(2)}"
+        if ratio in _SUPPORTED_RATIOS:
+            return ratio
+    auto_ratio = _AUTO_RATIO_RE.search(text)
+    return auto_ratio.group(1) if auto_ratio else "1:1"
+
+
 class MockTextLLMProvider(TextLLMPort):
     """规则驱动的文本 LLM 替身。"""
 
@@ -65,6 +78,7 @@ class MockTextLLMProvider(TextLLMPort):
 
         text = _latest_user_text(messages)
         uids = _available_uploads(messages)
+        ratio = _ratio_from_text(text)
 
         if any(k in text for k in ("复刻", "爆款", "照这张", "同款")):
             if len(uids) >= 2:
@@ -77,7 +91,7 @@ class MockTextLLMProvider(TextLLMPort):
                         "product_upload_ids": [uids[0]],
                         "reference_upload_ids": uids[1:3],
                         "clone_mode": "参考风格",
-                        "ratio": "1:1",
+                        "ratio": ratio,
                         "prompt": text,
                         "category": "FOOD",
                     },
@@ -97,7 +111,7 @@ class MockTextLLMProvider(TextLLMPort):
                 arguments={
                     "upload_ids": uids[:3],
                     "prompt": text,
-                    "ratio": "1:1",
+                    "ratio": ratio,
                     "plan": {"白底": 1, "场景": 2, "卖点": 2},
                     "category": "FOOD",
                 },
@@ -113,7 +127,7 @@ class MockTextLLMProvider(TextLLMPort):
                 arguments={
                     "upload_ids": uids[:3],
                     "prompt": text,
-                    "ratio": "1:1",
+                    "ratio": ratio,
                     "n": _count_from_text(text),
                     "category": "FOOD",
                 },
