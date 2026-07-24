@@ -4,11 +4,14 @@
 > （排队消化、失败自动退款、实测零「临时繁忙」）。dev 出稿待 coordinator 技术过后动码。
 
 ## 1. 已确认上游契约（coordinator #1107 实证，¥0.8）
-- **submit** `POST {base}/image-tasks/edits`（base 已含 `/v1`），JSON：
+- **Base URL**：`https://apinebula.ai/v1`。旧地址 `https://apinebula.com/v1`
+  在 2026-07-24 实测连接超时；同一 Key 请求新地址可正常通过鉴权并返回规范参数错误。
+- **submit** `POST https://apinebula.ai/v1/image-tasks/edits`，JSON：
   `{model, prompt, quality?, size:"WxH", input_fidelity?, images:[{image_url}]}`；无参考图走
   `/image-tasks/generations` 同形无 `images`。Bearer 鉴权、服务端自动补 async=true。
 - **submit 响应**：`{task_id, status:"queued", ...}`。
-- **轮询** `GET {base}/image-tasks/{task_id}?detail=true`，状态枚举 `queued/in_progress/completed/failed`；
+- **轮询** `GET https://apinebula.ai/v1/image-tasks/{task_id}?detail=true`，状态枚举
+  `queued/in_progress/completed/failed`；
   实测 ~10s 间隔、70s 内完成。
 - **完成体**：`detail.data[].download_url`（`cdnimage.apinebula.com` 公网直拉）；**失败体** `error.message`。
 - 四问结论：size **被尊重**（1536×1024→1536×1024）、n=2 仍返 1（我们 n=1 免疫）、input_fidelity 接受、
