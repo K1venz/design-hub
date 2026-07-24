@@ -39,7 +39,7 @@ def build_listing_prompts(
     card_registry: CategoryCardRegistry,
     type_registry: ImageTypeRegistry,
     *,
-    category: str,
+    category: str | None,
     n: int | None,
     plan: dict[str, int] | None,
     overlay_texts: tuple[str, ...] = (),
@@ -135,7 +135,7 @@ class ListingGenerationService:
         images: tuple[ReferenceImage, ...],
         ratio: str,
         user_id: str,
-        category: str,
+        category: str | None,
         n: int | None = None,
         plan: dict[str, int] | None = None,
         overlay_texts: tuple[str, ...] = (),
@@ -205,7 +205,7 @@ class ListingGenerationService:
         reference_images: tuple[ReferenceImage, ...],
         ratio: str,
         user_id: str,
-        category: str,
+        category: str | None,
         clone_mode: str,
     ) -> ListingResult:
         """爆款复刻（PRD §3.13）：单张 edit、喂图保序「产品前·参考后」（角色指认契约）。
