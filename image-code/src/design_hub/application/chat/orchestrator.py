@@ -254,8 +254,8 @@ class ChatOrchestrator:
                 req = self._parse_req(call.name, call.arguments)
             except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
                 clar = (
-                    "我还没完全弄清出图要求，麻烦再补充一下"
-                    "（比如产品、想要的风格和比例），我马上安排。"
+                    "这次出图参数还没整理完整，请确认已至少上传一张图片，"
+                    "并直接告诉我想做什么，我马上重新安排。"
                 )
                 yield ChatEvent("assistant_delta", {"text": clar})
                 await self.chat_repo.append_message(
