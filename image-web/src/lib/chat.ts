@@ -114,6 +114,16 @@ export interface ChatState {
 export const CHAT_WELCOME_COPY =
   '我可以基于你上传的图片，制作任意品类的电商主图、场景图、卖点图、海报和 Logo/品牌视觉，也支持爆款复刻与二次编辑。上传至少 1 张图片，再告诉我想做什么即可。'
 
+export interface ChatInputKey {
+  key: string
+  shiftKey: boolean
+  isComposing: boolean
+}
+
+export function shouldSubmitChatInput(event: ChatInputKey): boolean {
+  return event.key === 'Enter' && !event.shiftKey && !event.isComposing
+}
+
 export function shouldShowChatWelcome(state: ChatState): boolean {
   return state.bubbles.length === 0 && !state.streaming
 }
