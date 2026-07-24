@@ -18,6 +18,7 @@ from typing import Any
 from design_hub.application.chat.image_ratio import detect_supported_ratio
 from design_hub.application.chat.pending_store import PendingAction, PendingStore
 from design_hub.application.chat.system_prompt import default_system_prompt
+from design_hub.application.chat.tool_requests import ChatCloneRequest, ChatGenerateRequest
 from design_hub.application.listing.job_launcher import ListingJobLauncher
 from design_hub.application.listing.requests import (
     CloneRequest,
@@ -73,12 +74,12 @@ def _tool_specs() -> list[ToolSpec]:
             "出图（单图流 n 或套图 plan）。拿到产品图 upload_ids 且用户意图可执行时调用；"
             "比例由系统备注提供，用户文字明确指定时覆盖。未明确套图或张数时按单图 n=1，"
             "不要为比例或张数追问。",
-            ListingGenerateRequest.model_json_schema(),
+            ChatGenerateRequest.model_json_schema(),
         ),
         ToolSpec(
             "clone",
             "爆款图复刻。需产品图 1 张 + 爆款参考图 1..2 张 + clone_mode；未集齐先追问、不要调用。",
-            CloneRequest.model_json_schema(),
+            ChatCloneRequest.model_json_schema(),
         ),
         ToolSpec(
             "edit",
@@ -253,8 +254,8 @@ class ChatOrchestrator:
                 req = self._parse_req(call.name, call.arguments)
             except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
                 clar = (
-                    "我还没完全弄清出图要求，麻烦再补充一下"
-                    "（比如产品、想要的风格和比例），我马上安排。"
+                    "这次出图参数还没整理完整，请确认已至少上传一张图片，"
+                    "并直接告诉我想做什么，我马上重新安排。"
                 )
                 yield ChatEvent("assistant_delta", {"text": clar})
                 await self.chat_repo.append_message(
@@ -443,10 +444,9 @@ class ChatOrchestrator:
         plan = Counter(im.image_type for im in detail.images if im.image_type)
         plan_str = "、".join(f"{t}×{c}" for t, c in plan.items()) or f"单图 {detail.n} 张"
         platform = (detail.modifiers or {}).get("platform", "未指定")
-        category = detail.category or "未指定"
         return (
             f"这单（job_id={detail.job_id}）的配方（可复用）：\n"
-            f"- 品类：{category}\n- 比例：{detail.ratio}\n- 图型配比：{plan_str}\n"
+            f"- 比例：{detail.ratio}\n- 图型配比：{plan_str}\n"
             f"- 风格描述：{detail.prompt}\n- 平台：{platform}\n"
             "要用这套配置再出一套，就用这些参数调 generate（仍会先报预计费用等用户确认）。"
         )
@@ -474,9 +474,9 @@ class ChatOrchestrator:
         tool: str, args: dict[str, Any]
     ) -> ListingGenerateRequest | CloneRequest | EditRequest:
         if tool == "generate":
-            return ListingGenerateRequest(**args)
+            return ChatGenerateRequest(**args).to_listing()
         if tool == "clone":
-            return CloneRequest(**args)
+            return ChatCloneRequest(**args).to_listing()
         if tool == "edit":
             return EditRequest(**args)
         raise ValueError(f"未知工具：{tool}")

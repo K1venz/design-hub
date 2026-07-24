@@ -58,6 +58,42 @@ def test_generate_tool_uses_auto_ratio_instead_of_requiring_clarification() -> N
     assert "比例/张数等必填项明确" not in generate.description
 
 
+def test_chat_write_tool_schemas_never_expose_category() -> None:
+    for name in ("generate", "clone"):
+        tool = next(item for item in _tool_specs() if item.name == name)
+        assert "category" not in tool.parameters["properties"]
+
+
+def test_system_prompt_requires_category_free_conservative_enhancement() -> None:
+    prompt = default_system_prompt()
+    for forbidden in (
+        'category 默认 "FOOD"',
+        "食品 / 服装 / 美妆 / 鞋类 / 数码",
+        "自动识别品类",
+    ):
+        assert forbidden not in prompt
+    for required in (
+        "不得询问、推断或填写品类",
+        "同一次工具调用",
+        "不得编造品牌",
+        "不得编造卖点",
+        "至少上传一张图片",
+    ):
+        assert required in prompt
+
+
+def test_system_prompt_separates_design_discussion_from_generation_intent() -> None:
+    prompt = default_system_prompt()
+    for required in (
+        "只有用户明确要求生成、制作、复刻或编辑成品",
+        "分析、建议、讨论、比较或头脑风暴",
+        "不得调用 generate、clone、edit",
+        "不要把上传图片本身视为生图授权",
+        "意图模糊",
+    ):
+        assert required in prompt
+
+
 def test_current_auto_ratio_is_added_only_to_latest_user_message() -> None:
     transcript = _transcript(3)
     out = _to_llm_messages(transcript, current_auto_ratio="3:4")
@@ -78,4 +114,3 @@ def test_context_truncates_long_keeps_head_and_recent() -> None:
     assert out[0].content == "m0"  # 首条(原始诉求)保留
     assert any("省略" in m.content for m in out)  # 省略备注在
     assert out[-1].content == f"m{n - 1}"  # 最近一条保留
-

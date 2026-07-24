@@ -4,6 +4,9 @@
 # Playwright MCP 临时快照/截图
 .playwright-mcp/
 
+# Codex feature worktrees
+.worktrees/
+
 # 中转站实测探针的出图产物
 scripts/probe_*.png
 
