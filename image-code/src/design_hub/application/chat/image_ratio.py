@@ -14,12 +14,19 @@ _SUPPORTED_RATIOS = {
 }
 
 
+def _jpeg_has_end_marker(data: bytes) -> bool:
+    return data.rstrip(b"\x00\t\n\r ").endswith(b"\xff\xd9")
+
+
 def detect_supported_ratio(data: bytes) -> str:
     try:
         with Image.open(BytesIO(data)) as image:
+            image_format = image.format
             width, height = image.size
             raw_exif = image.info.get("exif")
             image.verify()
+        if image_format == "JPEG" and not _jpeg_has_end_marker(data):
+            return _DEFAULT_RATIO
         exif = Image.Exif()
         if raw_exif is not None:
             if not isinstance(raw_exif, bytes):
