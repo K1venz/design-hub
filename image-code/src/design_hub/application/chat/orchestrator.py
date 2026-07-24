@@ -70,8 +70,9 @@ def _tool_specs() -> list[ToolSpec]:
     return [
         ToolSpec(
             "generate",
-            "出图（单图流 n 或套图 plan）。仅当已拿到产品图 upload_ids 且比例/张数等必填项"
-            "明确时调用；缺任一必填项先用自然语言追问、不要调用。",
+            "出图（单图流 n 或套图 plan）。拿到产品图 upload_ids 且用户意图可执行时调用；"
+            "比例由系统备注提供，用户文字明确指定时覆盖。未明确套图或张数时按单图 n=1，"
+            "不要为比例或张数追问。",
             ListingGenerateRequest.model_json_schema(),
         ),
         ToolSpec(
