@@ -13,8 +13,10 @@ import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
+from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from design_hub.application.chat.orchestrator import ChatOrchestrator
@@ -130,6 +132,25 @@ class StubTextLLM(TextLLMPort):
             yield ToolCallChunk(calls)
 
 
+class CapturingTextLLM(TextLLMPort):
+    is_live = False
+
+    def __init__(self) -> None:
+        self.messages: list[ChatMessage] = []
+
+    async def complete(
+        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+    ) -> AsyncIterator[LLMChunk]:
+        self.messages = messages
+        yield TextChunk("请确认设计要求。")
+
+
+def _image_bytes(width: int, height: int) -> bytes:
+    out = BytesIO()
+    Image.new("RGB", (width, height)).save(out, format="PNG")
+    return out.getvalue()
+
+
 def _gen_tc(
     uid: str, *, ratio: str = "1:1", n: int | None = 5, plan: dict | None = None
 ) -> tuple[ToolCall, ...]:
@@ -227,6 +248,34 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
         assert await inf.chat_repo.job_count(sid) == 0
         t = await inf.chat_repo.get_transcript(sid, USER.user_id)
         assert t is not None and [m.role for m in t.messages] == ["user"]
+
+    asyncio.run(_impl())
+
+
+def test_auto_ratio_uses_first_uploaded_image(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        first = await inf.uploads.save(
+            data=_image_bytes(900, 1600), content_type="image/png", user_id=USER.user_id
+        )
+        second = await inf.uploads.save(
+            data=_image_bytes(1600, 900), content_type="image/png", user_id=USER.user_id
+        )
+        llm = CapturingTextLLM()
+        await _drain(inf.orch(llm).handle_message(USER, None, "给商品出图", [first, second]))
+        assert "自动比例=9:16" in llm.messages[-1].content
+
+    asyncio.run(_impl())
+
+
+def test_auto_ratio_falls_back_when_first_upload_cannot_be_loaded(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        llm = CapturingTextLLM()
+        await _drain(
+            inf.orch(llm).handle_message(USER, None, "给商品出图", ["missing/image.png"])
+        )
+        assert "自动比例=1:1" in llm.messages[-1].content
 
     asyncio.run(_impl())
 

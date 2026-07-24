@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from design_hub.application.chat.image_ratio import detect_supported_ratio
 from design_hub.application.chat.pending_store import PendingAction, PendingStore
 from design_hub.application.chat.system_prompt import default_system_prompt
 from design_hub.application.listing.job_launcher import ListingJobLauncher
@@ -41,6 +42,7 @@ from design_hub.ports.text_llm import (
     ToolCall,
     ToolSpec,
 )
+from design_hub.ports.upload_store import owns
 
 # 长会话上下文裁剪（A3）：LLM 上下文超此消息数 → 只带首条(原始诉求) + 最近若干；
 # DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
@@ -116,7 +118,9 @@ def _title(message: str) -> str:
     return (text[:40] or "新对话")
 
 
-def _to_llm_messages(transcript: ChatTranscript) -> list[ChatMessage]:
+def _to_llm_messages(
+    transcript: ChatTranscript, *, current_auto_ratio: str | None = None
+) -> list[ChatMessage]:
     """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。
 
     长会话裁剪（A3）：超 _CONTEXT_MAX_MESSAGES 条 → 首条(原始诉求) + 最近若干 + 一行省略备注，
@@ -129,6 +133,20 @@ def _to_llm_messages(transcript: ChatTranscript) -> list[ChatMessage]:
             note = ",".join(m.attachment_upload_ids)
             content = f"{content}\n\n[系统备注] 本轮可用产品图 upload_ids={note}"
         out.append(ChatMessage(role=m.role, content=content))
+    if current_auto_ratio is not None:
+        if not out or out[-1].role != "user":
+            raise ValueError("自动比例只能注入当前 user 消息")
+        current = out[-1]
+        ratio_note = (
+            f"[系统备注] 本轮自动比例={current_auto_ratio}。"
+            "用户文字明确指定比例时以文字为准；否则使用自动比例，不要追问比例。"
+        )
+        out[-1] = ChatMessage(
+            role=current.role,
+            content=f"{current.content}\n\n{ratio_note}",
+            tool_call_id=current.tool_call_id,
+            tool_calls=current.tool_calls,
+        )
     if len(out) <= _CONTEXT_MAX_MESSAGES:
         return out
     elided = ChatMessage(
@@ -154,6 +172,15 @@ class ChatOrchestrator:
     system_prompt: str = field(default_factory=default_system_prompt)
     _tools: list[ToolSpec] = field(default_factory=_tool_specs)
 
+    async def _auto_ratio(self, user: AuthUser, upload_ids: list[str]) -> str:
+        if not upload_ids or not owns(upload_ids[0], user.user_id):
+            return "1:1"
+        try:
+            data, _content_type = await self.launcher.uploads.load(upload_ids[0])
+        except (ValueError, NotFoundError, OSError):
+            return "1:1"
+        return detect_supported_ratio(data)
+
     async def handle_message(
         self, user: AuthUser, session_id: str | None, message: str, upload_ids: list[str]
     ) -> AsyncIterator[ChatEvent]:
@@ -176,9 +203,10 @@ class ChatOrchestrator:
         )
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         assert transcript is not None  # 刚 owner-check + append，必存在
+        auto_ratio = await self._auto_ratio(user, upload_ids)
         llm_messages = [
             ChatMessage(role="system", content=self.system_prompt),
-            *_to_llm_messages(transcript),
+            *_to_llm_messages(transcript, current_auto_ratio=auto_ratio),
         ]
 
         # 工具化 tool-use 循环（A3）：读工具即时执行→结果回喂→再问 LLM；写工具→费用闸；纯文本→收尾。
