@@ -1,6 +1,10 @@
 """Chat harness（ISSUE-0059 A 线）：知识库加载 + 四段 system prompt + 长会话上下文裁剪。"""
 
-from design_hub.application.chat.orchestrator import _CONTEXT_MAX_MESSAGES, _to_llm_messages
+from design_hub.application.chat.orchestrator import (
+    _CONTEXT_MAX_MESSAGES,
+    _to_llm_messages,
+    _tool_specs,
+)
 from design_hub.application.chat.system_prompt import (
     build_system_prompt,
     default_system_prompt,
@@ -37,6 +41,28 @@ def test_build_system_prompt_has_four_segments_and_embeds_knowledge() -> None:
 def test_default_system_prompt_embeds_real_knowledge() -> None:
     p = default_system_prompt()
     assert "商品套图" in p and "暂不支持" in p
+
+
+def test_build_system_prompt_uses_auto_ratio_without_asking() -> None:
+    prompt = build_system_prompt("KB")
+    assert "文字明确指定比例时，以文字为准" in prompt
+    assert "未指定比例时，使用系统备注中的自动比例" in prompt
+    assert "不要追问比例" in prompt
+    assert "未明确套图或张数时，按单图 n=1" in prompt
+    assert '用户没指定就默认填 "1:1"' not in prompt
+
+
+def test_generate_tool_uses_auto_ratio_instead_of_requiring_clarification() -> None:
+    generate = next(tool for tool in _tool_specs() if tool.name == "generate")
+    assert "比例由系统备注提供" in generate.description
+    assert "比例/张数等必填项明确" not in generate.description
+
+
+def test_current_auto_ratio_is_added_only_to_latest_user_message() -> None:
+    transcript = _transcript(3)
+    out = _to_llm_messages(transcript, current_auto_ratio="3:4")
+    assert "自动比例=3:4" in out[-1].content
+    assert all("自动比例=" not in message.content for message in out[:-1])
 
 
 def test_context_no_truncation_when_within_budget() -> None:
