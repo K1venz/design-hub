@@ -16,8 +16,14 @@ depends_on: str | Sequence[str] | None = None
 
 _model_config = sa.table(
     "model_config",
+    sa.column("name", sa.String),
     sa.column("provider_type", sa.String),
     sa.column("base_url", sa.String),
+)
+_MIGRATED_ROWS_TABLE = "apinebula_url_migration_f3a4b5c6d7e8"
+_migrated_rows = sa.table(
+    _MIGRATED_ROWS_TABLE,
+    sa.column("name", sa.String),
 )
 _OLD_BASE_URL = "https://apinebula.com/v1"
 _NEW_BASE_URL = "https://apinebula.ai/v1"
@@ -25,6 +31,18 @@ _ASYNC_PROVIDER_TYPE = "apinebula_async_image"
 
 
 def upgrade() -> None:
+    op.create_table(
+        _MIGRATED_ROWS_TABLE,
+        sa.Column("name", sa.String(length=255), primary_key=True),
+    )
+    op.execute(
+        _migrated_rows.insert().from_select(
+            ["name"],
+            sa.select(_model_config.c.name)
+            .where(_model_config.c.provider_type == _ASYNC_PROVIDER_TYPE)
+            .where(_model_config.c.base_url == _OLD_BASE_URL),
+        )
+    )
     op.execute(
         _model_config.update()
         .where(_model_config.c.provider_type == _ASYNC_PROVIDER_TYPE)
@@ -34,5 +52,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Forward-only: reverting every current URL would corrupt rows that already used it.
-    pass
+    op.execute(
+        _model_config.update()
+        .where(_model_config.c.name.in_(sa.select(_migrated_rows.c.name)))
+        .where(_model_config.c.provider_type == _ASYNC_PROVIDER_TYPE)
+        .where(_model_config.c.base_url == _NEW_BASE_URL)
+        .values(base_url=_OLD_BASE_URL)
+    )
+    op.drop_table(_MIGRATED_ROWS_TABLE)

@@ -230,8 +230,8 @@ git commit -m "feat(chat): 未指定比例时沿用首张上传图" -m "对话�
 
 **Interfaces:**
 - Consumes: 现有 `model_config(provider_type, base_url)` 数据与 Alembic head `e2f3a4b5c6d7`。
-- Produces: 新 head `f3a4b5c6d7e8`，upgrade 精确迁移旧异步地址；downgrade 为 no-op，
-  避免误改原本已使用新地址的配置。
+- Produces: 新 head `f3a4b5c6d7e8`，upgrade 精确迁移旧异步地址并记录实际改动行；
+  downgrade 仅恢复这些行，不影响原本已使用新地址的配置。
 
 - [ ] **Step 1: 写迁移作用域的失败测试**
 
@@ -247,7 +247,8 @@ git commit -m "feat(chat): 未指定比例时沿用首张上传图" -m "对话�
 ```
 
 加载迁移模块后，以 Alembic `Operations` 执行 `upgrade()`，断言仅 `async-old` 变为
-`https://apinebula.ai/v1`；执行 `downgrade()` 后断言两条新地址均保持不变。
+`https://apinebula.ai/v1`；执行 `downgrade()` 后断言仅 `async-old` 恢复旧地址，
+`async-new` 保持新地址。
 
 - [ ] **Step 2: 运行迁移测试并确认因迁移模块不存在而失败**
 
@@ -260,12 +261,15 @@ Expected: FAIL，迁移文件不存在。
 ```python
 _model_config = sa.table(
     "model_config",
+    sa.column("name", sa.String),
     sa.column("provider_type", sa.String),
     sa.column("base_url", sa.String),
 )
 
 
 def upgrade() -> None:
+    # 先把精确匹配的 name 写入本迁移专用记录表，再更新地址。
+    ...
     op.execute(
         _model_config.update()
         .where(_model_config.c.provider_type == "apinebula_async_image")
@@ -275,12 +279,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Forward-only: reverting every current URL would corrupt rows that already used it.
-    pass
+    # 只按记录表恢复本次 upgrade 实际改过、且当前仍是新地址的行，然后删除记录表。
+    ...
 ```
 
 迁移 `revision="f3a4b5c6d7e8"`、`down_revision="e2f3a4b5c6d7"`。数据迁移不可区分
-“本次被升级的行”和“原本已是新地址的行”，因此不做破坏性反向覆盖。
+“本次被升级的行”和“原本已是新地址的行”，因此用迁移专用记录表保存精确集合。
 
 - [ ] **Step 4: 更新异步 provider 设计文档中的 Base URL**
 
