@@ -5,7 +5,6 @@ from PIL import Image, UnidentifiedImageError
 _DEFAULT_RATIO = "1:1"
 _MAX_RELATIVE_ERROR = 0.01
 _EXIF_ORIENTATION = 274
-_FORMATS_WITH_HEADER_EXIF = frozenset({"JPEG", "TIFF"})
 _ORIENTATIONS_THAT_SWAP_DIMENSIONS = frozenset({5, 6, 7, 8})
 _SUPPORTED_RATIOS = {
     "1:1": 1 / 1,
@@ -19,12 +18,21 @@ def detect_supported_ratio(data: bytes) -> str:
     try:
         with Image.open(BytesIO(data)) as image:
             width, height = image.size
-            orientation = (
-                image.getexif().get(_EXIF_ORIENTATION)
-                if image.format in _FORMATS_WITH_HEADER_EXIF
-                else None
-            )
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+            raw_exif = image.info.get("exif")
+            image.verify()
+        exif = Image.Exif()
+        if raw_exif is not None:
+            if not isinstance(raw_exif, bytes):
+                raise ValueError("invalid EXIF payload")
+            exif.load(raw_exif)
+        orientation = exif.get(_EXIF_ORIENTATION)
+    except (
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+        Image.DecompressionBombError,
+    ):
         return _DEFAULT_RATIO
     if orientation in _ORIENTATIONS_THAT_SWAP_DIMENSIONS:
         width, height = height, width

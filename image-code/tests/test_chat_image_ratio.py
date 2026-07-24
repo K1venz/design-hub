@@ -12,11 +12,13 @@ def _png(width: int, height: int) -> bytes:
     return out.getvalue()
 
 
-def _jpeg_with_orientation(width: int, height: int, orientation: int) -> bytes:
+def _image_with_orientation(
+    width: int, height: int, orientation: int, image_format: str
+) -> bytes:
     out = BytesIO()
     exif = Image.Exif()
     exif[274] = orientation
-    Image.new("RGB", (width, height)).save(out, format="JPEG", exif=exif)
+    Image.new("RGB", (width, height)).save(out, format=image_format, exif=exif)
     return out.getvalue()
 
 
@@ -45,8 +47,20 @@ def test_reads_dimensions_without_decoding_pixels(
     assert detect_supported_ratio(data) == "9:16"
 
 
-def test_respects_exif_orientation_without_transposing_pixels() -> None:
-    assert detect_supported_ratio(_jpeg_with_orientation(1600, 900, 6)) == "9:16"
+@pytest.mark.parametrize("image_format", ["JPEG", "PNG", "WEBP"])
+def test_respects_exif_orientation_without_transposing_pixels(
+    image_format: str,
+) -> None:
+    data = _image_with_orientation(1600, 900, 6, image_format)
+
+    assert detect_supported_ratio(data) == "9:16"
+
+
+@pytest.mark.parametrize("image_format", ["PNG", "WEBP"])
+def test_falls_back_for_truncated_image(image_format: str) -> None:
+    data = _image_with_orientation(900, 1600, 1, image_format)
+
+    assert detect_supported_ratio(data[:-100]) == "1:1"
 
 
 def test_falls_back_for_decompression_bomb(
