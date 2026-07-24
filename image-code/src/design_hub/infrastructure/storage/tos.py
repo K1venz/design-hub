@@ -14,7 +14,7 @@ from design_hub.config.settings import Settings
 from design_hub.domain.errors import NotFoundError
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.media_url_signer import MediaUrlSigner
-from design_hub.ports.upload_store import UploadStore, upload_ns
+from design_hub.ports.upload_store import UploadReadError, UploadStore, upload_ns
 
 _EXT_BY_CONTENT_TYPE = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 _CONTENT_TYPE_BY_EXT = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
@@ -99,7 +99,8 @@ class TosUploadStore(UploadStore):
         except tos.exceptions.TosServerError as exc:
             if getattr(exc, "status_code", None) == 404:
                 raise NotFoundError(f"上传图不存在：{upload_id}") from exc
-            raise
+            raise UploadReadError(f"读取上传图失败：{upload_id}") from exc
+        except tos.exceptions.TosClientError as exc:
+            raise UploadReadError(f"读取上传图失败：{upload_id}") from exc
         return data, content_type
-
 

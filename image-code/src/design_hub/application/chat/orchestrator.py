@@ -42,7 +42,7 @@ from design_hub.ports.text_llm import (
     ToolCall,
     ToolSpec,
 )
-from design_hub.ports.upload_store import owns
+from design_hub.ports.upload_store import UploadReadError, owns
 
 # 长会话上下文裁剪（A3）：LLM 上下文超此消息数 → 只带首条(原始诉求) + 最近若干；
 # DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
@@ -177,7 +177,7 @@ class ChatOrchestrator:
             return "1:1"
         try:
             data, _content_type = await self.launcher.uploads.load(upload_ids[0])
-        except (ValueError, NotFoundError, OSError):
+        except (ValueError, NotFoundError, UploadReadError):
             return "1:1"
         return detect_supported_ratio(data)
 

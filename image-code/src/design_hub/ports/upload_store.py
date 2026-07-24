@@ -12,6 +12,10 @@ def owns(upload_id: str, user_id: str) -> bool:
     return upload_id.startswith(f"{upload_ns(user_id)}/")
 
 
+class UploadReadError(OSError):
+    """上传图存储可用，但本次读取因 I/O 或网络故障失败。"""
+
+
 class UploadStore(ABC):
     """上传图落点端口（DIP）：存字节返回 id（含用户命名空间），按 id 读回 (bytes, content_type)。
 
@@ -27,5 +31,5 @@ class UploadStore(ABC):
 
     @abstractmethod
     async def load(self, upload_id: str) -> tuple[bytes, str]:
-        """按 id 读回 (bytes, content_type)；id 非法 → ValueError，不存在 → NotFoundError。"""
+        """读回图片；非法 → ValueError，不存在 → NotFoundError，I/O 失败 → UploadReadError。"""
         ...

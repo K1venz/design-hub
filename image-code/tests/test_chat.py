@@ -65,6 +65,7 @@ from design_hub.ports.text_llm import (
     ToolCallChunk,
     ToolSpec,
 )
+from design_hub.ports.upload_store import UploadReadError, UploadStore, upload_ns
 
 USER = AuthUser(user_id="u1", name="测试", role=Role.DESIGNER)
 OTHER = AuthUser(user_id="u2", name="他人", role=Role.DESIGNER)
@@ -144,6 +145,14 @@ class CapturingTextLLM(TextLLMPort):
     ) -> AsyncIterator[LLMChunk]:
         self.messages = messages
         yield TextChunk("请确认设计要求。")
+
+
+class _ReadFailureUploadStore(UploadStore):
+    async def save(self, data: bytes, *, content_type: str, user_id: str) -> str:
+        raise NotImplementedError
+
+    async def load(self, upload_id: str) -> tuple[bytes, str]:
+        raise UploadReadError(f"读取上传图失败：{upload_id}")
 
 
 def _image_bytes(width: int, height: int) -> bytes:
@@ -276,6 +285,22 @@ def test_auto_ratio_falls_back_when_first_upload_cannot_be_loaded(tmp_path) -> N
         await _drain(
             inf.orch(llm).handle_message(USER, None, "给商品出图", ["missing/image.png"])
         )
+        assert "自动比例=1:1" in llm.messages[-1].content
+
+    asyncio.run(_impl())
+
+
+def test_auto_ratio_falls_back_when_upload_store_read_fails(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        inf.launcher.uploads.store = _ReadFailureUploadStore()
+        upload_id = f"{upload_ns(USER.user_id)}/0000000000000000.png"
+        llm = CapturingTextLLM()
+
+        await _drain(
+            inf.orch(llm).handle_message(USER, None, "给商品出图", [upload_id])
+        )
+
         assert "自动比例=1:1" in llm.messages[-1].content
 
     asyncio.run(_impl())

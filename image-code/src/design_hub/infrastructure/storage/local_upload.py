@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 from design_hub.domain.errors import NotFoundError
-from design_hub.ports.upload_store import UploadStore, upload_ns
+from design_hub.ports.upload_store import UploadReadError, UploadStore, upload_ns
 
 # content-type ↔ 扩展名白名单（与 UploadService 校验一致）
 _EXT_BY_CONTENT_TYPE = {
@@ -36,7 +36,13 @@ class LocalUploadStore(UploadStore):
         if not _ID_RE.match(upload_id):
             raise ValueError(f"非法 upload id：{upload_id}")
         path = self._dir / upload_id
-        if not path.is_file():
-            raise NotFoundError(f"上传图不存在：{upload_id}")
+        try:
+            if not path.is_file():
+                raise NotFoundError(f"上传图不存在：{upload_id}")
+            data = path.read_bytes()
+        except NotFoundError:
+            raise
+        except OSError as exc:
+            raise UploadReadError(f"读取上传图失败：{upload_id}") from exc
         ext = upload_id.rsplit(".", 1)[1]
-        return path.read_bytes(), _CONTENT_TYPE_BY_EXT[ext]
+        return data, _CONTENT_TYPE_BY_EXT[ext]
