@@ -191,7 +191,6 @@ class ListingGenerationCommand(ListingCommand):
             n=self._requested(),
             upload_keys=self.upload_keys,
             category=self.category,
-            model=self.model,
         )
 
 
@@ -236,7 +235,6 @@ class EditCommand(ListingCommand):
             parent_job_id=self.parent_job_id,
             source_image_key=self.source_image_key,
             edit_mode=self.edit_mode,
-            model=self.model,
         )
 
 
@@ -279,5 +277,4 @@ class CloneCommand(ListingCommand):
             input_roles=self._roles(),
             clone_mode=self.clone_mode,
             category=self.category,
-            model=self.model,
         )

@@ -26,11 +26,6 @@ from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.db.models import ListingJobRow
-from design_hub.infrastructure.storage.local import LocalMediaUrlSigner
-from design_hub.interface.listing_history_schemas import (
-    ListingJobDetailOut,
-    ListingJobSummaryOut,
-)
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.model_provider import ProviderTimeout
@@ -80,11 +75,9 @@ def test_two_phase_lifecycle_in_progress_queryable_and_partial_failure() -> None
         assert detail.images == ()
         assert detail.total_cost == Decimal("0")
         assert detail.input_keys == ("u1/a.png",)
-        assert detail.model is ModelName.GPT_IMAGE_2
         jobs = await query.list_jobs(user_id="u1", limit=10, offset=0)
         assert len(jobs) == 1
         assert jobs[0].status == "生成中"
-        assert jobs[0].model is ModelName.GPT_IMAGE_2
         assert jobs[0].image_count == 0  # 进行中：尚无成功张
         assert jobs[0].first_image_key is None
 
@@ -128,62 +121,6 @@ def test_two_phase_lifecycle_in_progress_queryable_and_partial_failure() -> None
         assert detail.total_cost == Decimal("0.4")
         assert detail.error is not None and "卖点" in detail.error
         assert len(detail.images) == 2  # 成功+失败张都在
-
-    asyncio.run(_impl())
-
-
-def test_standard_and_4k_models_persist_and_serialize_in_history_api() -> None:
-    async def _impl() -> None:
-        hist, query = await _fresh_repos()
-        await hist.start(_start(job_id="standard"))
-        await hist.start(
-            _start(
-                job_id="four-k",
-                model=ModelName.GPT_IMAGE_2_4K,
-                ratio="16:9",
-                size="3840x2160",
-            )
-        )
-
-        summaries = {
-            summary.job_id: summary
-            for summary in await query.list_jobs(user_id="u1", limit=10, offset=0)
-        }
-        assert summaries["standard"].model is ModelName.GPT_IMAGE_2
-        assert summaries["four-k"].model is ModelName.GPT_IMAGE_2_4K
-
-        standard = await query.get_job(job_id="standard", user_id="u1")
-        four_k = await query.get_job(job_id="four-k", user_id="u1")
-        assert standard is not None and standard.model is ModelName.GPT_IMAGE_2
-        assert four_k is not None and four_k.model is ModelName.GPT_IMAGE_2_4K
-
-        signer = LocalMediaUrlSigner("")
-        summary_json = ListingJobSummaryOut.of(
-            summaries["four-k"], signer
-        ).model_dump(mode="json")
-        detail_json = ListingJobDetailOut.of(four_k, signer).model_dump(mode="json")
-        assert summary_json["model"] == "gpt-image-2-4k"
-        assert detail_json["model"] == "gpt-image-2-4k"
-
-    asyncio.run(_impl())
-
-
-def test_unknown_persisted_model_fails_fast_on_history_reads() -> None:
-    async def _impl() -> None:
-        hist, query, sf = await _fresh_stack()
-        await hist.start(_start())
-        async with sf() as session:
-            await session.execute(
-                update(ListingJobRow)
-                .where(ListingJobRow.id == "j1")
-                .values(model="unknown-dirty-model")
-            )
-            await session.commit()
-
-        with pytest.raises(ValueError, match="unknown-dirty-model"):
-            await query.list_jobs(user_id="u1", limit=10, offset=0)
-        with pytest.raises(ValueError, match="unknown-dirty-model"):
-            await query.get_job(job_id="j1", user_id="u1")
 
     asyncio.run(_impl())
 
