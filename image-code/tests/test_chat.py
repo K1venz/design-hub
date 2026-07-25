@@ -61,6 +61,7 @@ from design_hub.ports.text_llm import (
     ChatMessage,
     LLMChunk,
     TextChunk,
+    TextLLMError,
     TextLLMPort,
     ToolCall,
     ToolCallChunk,
@@ -85,23 +86,41 @@ class _FakeLedger(LedgerRepository):
 
 class _FakeModelConfig(ModelConfigRepository):
     def __init__(
-        self, *, standard_enabled: bool = True, four_k_enabled: bool = True
+        self,
+        *,
+        standard_enabled: bool = True,
+        four_k_enabled: bool = True,
+        standard_cost: Decimal = Decimal("0.05"),
+        four_k_cost: Decimal = Decimal("0.18"),
+        include_four_k: bool = True,
     ) -> None:
         self._c = [
             ModelConfigRecord(
                 "gpt-image-2",
-                Decimal("0.05"),
+                standard_cost,
                 enabled=standard_enabled,
-                extra={},
-            ),
-            ModelConfigRecord(
-                "gpt-image-2-4k",
-                Decimal("0.18"),
-                enabled=four_k_enabled,
                 extra={},
             ),
             ModelConfigRecord("seedream-5", Decimal("0.20"), enabled=False, extra={}),
         ]
+        if include_four_k:
+            self._c.append(
+                ModelConfigRecord(
+                    "gpt-image-2-4k",
+                    four_k_cost,
+                    enabled=four_k_enabled,
+                    extra={},
+                )
+            )
+
+    def set_enabled(self, name: str, enabled: bool) -> None:
+        current = next(config for config in self._c if config.name == name)
+        self._c[self._c.index(current)] = ModelConfigRecord(
+            current.name,
+            current.unit_cost,
+            enabled=enabled,
+            extra=current.extra,
+        )
 
     async def list_all(self) -> list[ModelConfigRecord]:
         return list(self._c)
@@ -172,6 +191,17 @@ class CapturingTextLLM(TextLLMPort):
     ) -> AsyncIterator[LLMChunk]:
         self.messages = messages
         yield TextChunk("请确认设计要求。")
+
+
+class LateFailingTextLLM(TextLLMPort):
+    is_live = False
+
+    async def complete(
+        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+    ) -> AsyncIterator[LLMChunk]:
+        yield TextChunk("已收到，")
+        yield TextChunk("正在处理")
+        raise TextLLMError("文本服务暂时不可用")
 
 
 class _ReadFailureUploadStore(UploadStore):
@@ -328,7 +358,7 @@ class Infra:
     pending: PendingStore
     query: SqlAlchemyListingHistoryQuery
     ledger: LedgerRepository
-    model_config: ModelConfigRepository
+    model_config: _FakeModelConfig
     max_session_jobs: int
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
@@ -346,6 +376,9 @@ async def _infra(
     max_session_jobs: int = 5,
     standard_enabled: bool = True,
     four_k_enabled: bool = True,
+    standard_cost: Decimal = Decimal("0.05"),
+    four_k_cost: Decimal = Decimal("0.18"),
+    include_four_k: bool = True,
 ) -> Infra:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -379,6 +412,9 @@ async def _infra(
         _FakeModelConfig(
             standard_enabled=standard_enabled,
             four_k_enabled=four_k_enabled,
+            standard_cost=standard_cost,
+            four_k_cost=four_k_cost,
+            include_four_k=include_four_k,
         ),
         max_session_jobs,
     )
@@ -445,6 +481,31 @@ def test_4k_tool_call_uses_real_price_ratio_and_pending_model(tmp_path) -> None:
     asyncio.run(_impl())
 
 
+def test_chat_cost_confirm_ignores_stale_database_prices(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(
+            str(tmp_path),
+            standard_cost=Decimal("0.40"),
+            four_k_cost=Decimal("0.40"),
+        )
+        uid = await _stage(inf)
+        standard = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
+                USER, None, "生成普通主图", [uid]
+            )
+        )
+        four_k = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
+                USER, None, "生成 4K 主图", [uid]
+            )
+        )
+
+        assert _first(standard, "cost_confirm")["unit_cost"] == "0.05"
+        assert _first(four_k, "cost_confirm")["unit_cost"] == "0.18"
+
+    asyncio.run(_impl())
+
+
 def test_4k_conflicting_ratio_stops_before_cost_pending_or_job(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
@@ -475,6 +536,50 @@ def test_4k_conflicting_ratio_stops_before_cost_pending_or_job(tmp_path) -> None
     asyncio.run(_impl())
 
 
+def test_4k_unsupported_ratio_uses_supported_ratio_message(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        events = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, ratio="2:3", n=1)))).handle_message(
+                USER, None, "生成 4K，比例 2:3", [uid]
+            )
+        )
+
+        text = "".join(
+            data["text"]
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+        assert "当前支持的图片比例是 1:1 / 3:4 / 4:3 / 9:16 / 16:9" in text
+        assert "4K 当前仅支持" not in text
+        assert "tool_call" not in [event_type for event_type, _data in events]
+        assert "cost_confirm" not in [event_type for event_type, _data in events]
+
+    asyncio.run(_impl())
+
+
+def test_explicit_4k_note_reaches_llm_before_write_tool_selection(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        llm = CapturingTextLLM()
+        events = await _drain(
+            inf.orch(llm).handle_message(
+                USER, None, "4K 可以做成 4:3 吗？", []
+            )
+        )
+
+        assert "本轮确定比例=16:9" in llm.messages[-1].content
+        assert "4K 当前仅支持" not in "".join(
+            data.get("text", "")
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+        assert events[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
 def test_chat_without_tool_replays_every_buffered_text_chunk(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
@@ -492,6 +597,31 @@ def test_chat_without_tool_replays_every_buffered_text_chunk(tmp_path) -> None:
         assert deltas == ["4K 当前", "支持 16:9 横版。"]
         assert "".join(deltas) == "4K 当前支持 16:9 横版。"
         assert events[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
+def test_late_llm_error_replays_and_persists_partial_assistant_text(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        events = await _drain(
+            inf.orch(LateFailingTextLLM()).handle_message(USER, None, "帮我设计", [])
+        )
+
+        assert [
+            data["text"]
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        ] == ["已收到，", "正在处理"]
+        assert [event_type for event_type, _data in events][-2:] == [
+            "error",
+            "assistant_end",
+        ]
+        session_id = _first(events, "session")["session_id"]
+        transcript = await inf.chat_repo.get_transcript(session_id, USER.user_id)
+        assert transcript is not None
+        assert [message.role for message in transcript.messages] == ["user", "assistant"]
+        assert transcript.messages[-1].content == "已收到，正在处理"
 
     asyncio.run(_impl())
 
@@ -524,6 +654,46 @@ def test_unavailable_4k_stops_before_cost_pending_or_job(
             if event_type == "assistant_delta"
         )
         assert text == "4K 当前不可用，请取消 4K 后使用普通出图。"
+        assert "cost_confirm" not in event_types
+        assert session_id not in inf.pending._pending
+        assert await inf.chat_repo.job_count(session_id) == 0
+
+    asyncio.run(_impl())
+
+
+def test_missing_4k_config_row_does_not_disable_runtime_capability(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path), include_four_k=False)
+        uid = await _stage(inf)
+        events = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
+                USER, None, "生成一张 4K 主图", [uid]
+            )
+        )
+
+        assert _first(events, "cost_confirm")["unit_cost"] == "0.18"
+
+    asyncio.run(_impl())
+
+
+def test_4k_count_above_three_stops_before_tool_cost_pending_or_job(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        events = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, n=4)))).handle_message(
+                USER, None, "生成 4 张 4K 主图", [uid]
+            )
+        )
+
+        session_id = _first(events, "session")["session_id"]
+        assert [
+            data["text"]
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        ] == ["4K 单次最多生成 3 张，请将本次数量调整为 1–3 张；如需更多，请分批生成。"]
+        event_types = [event_type for event_type, _data in events]
+        assert "tool_call" not in event_types
         assert "cost_confirm" not in event_types
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0
@@ -770,6 +940,43 @@ def test_4k_confirm_launches_with_pending_model_snapshot(tmp_path) -> None:
     asyncio.run(_impl())
 
 
+def test_confirm_rechecks_model_disabled_after_cost_card(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        launch_calls = 0
+        original_launch = inf.launcher.launch_generate
+
+        async def _record_launch(
+            user: AuthUser,
+            req: ListingGenerateRequest,
+            *,
+            model: ModelName = ModelName.GPT_IMAGE_2,
+        ) -> str:
+            nonlocal launch_calls
+            launch_calls += 1
+            return await original_launch(user, req, model=model)
+
+        inf.launcher.launch_generate = _record_launch  # type: ignore[method-assign]
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        planned = await _drain(
+            orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
+        )
+        session_id = _first(planned, "session")["session_id"]
+        token = _first(planned, "cost_confirm")["confirm_token"]
+        inf.model_config.set_enabled(ModelName.GPT_IMAGE_2_4K.value, False)
+
+        confirmed = await _drain(
+            orch.handle_confirm(USER, session_id, token, "confirm")
+        )
+
+        assert _first(confirmed, "error")["code"] == "model_unavailable"
+        assert launch_calls == 0
+        assert await inf.chat_repo.job_count(session_id) == 0
+
+    asyncio.run(_impl())
+
+
 def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
     tmp_path,
 ) -> None:
@@ -900,6 +1107,29 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         after = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         assert any(t == "error" and d["code"] == "invalid_confirm_token" for t, d in after)
         assert launch_calls == 0
+
+    asyncio.run(_impl())
+
+
+def test_cancel_with_stale_token_preserves_current_pending(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        planned = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
+        session_id = _first(planned, "session")["session_id"]
+        token = _first(planned, "cost_confirm")["confirm_token"]
+
+        stale_cancel = await _drain(
+            orch.handle_confirm(USER, session_id, "ct_stale", "cancel")
+        )
+        assert _first(stale_cancel, "error")["code"] == "invalid_confirm_token"
+        assert inf.pending._pending[session_id].confirm_token == token
+
+        confirmed = await _drain(
+            orch.handle_confirm(USER, session_id, token, "confirm")
+        )
+        assert "job_started" in [event_type for event_type, _data in confirmed]
 
     asyncio.run(_impl())
 
@@ -1157,6 +1387,25 @@ def test_get_pricing_quota_reads_live_model_config(tmp_path) -> None:
         assert "（≈" not in out
         assert "gpt-image-2" not in out and "seedream-5" not in out
         assert "剩余" in out  # 额度真数据
+
+    asyncio.run(_impl())
+
+
+def test_get_pricing_quota_uses_fixed_registry_prices_and_missing_4k_config(
+    tmp_path,
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(
+            str(tmp_path),
+            standard_cost=Decimal("0.40"),
+            include_four_k=False,
+        )
+
+        out = await inf.orch(StubTextLLM(("", ())))._tool_get_pricing_quota(USER)
+
+        assert "普通出图 ¥0.05/张（余额约可生成 20000 张）" in out
+        assert "4K 16:9 ¥0.18/张（余额约可生成 5555 张）" in out
+        assert "¥0.4" not in out
 
     asyncio.run(_impl())
 
