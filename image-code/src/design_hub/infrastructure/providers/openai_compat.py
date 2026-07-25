@@ -110,13 +110,20 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             start = time.perf_counter()
             api_key = self._key_pool.key_for(start_key_index, attempt)
             try:
+                request_timeout = self._timeout_for_request(overall_start, attempt)
                 if ref_bytes:
                     response = await self._edit(
-                        composed, ref_bytes, size_str, n, quality, api_key=api_key
+                        composed,
+                        ref_bytes,
+                        size_str,
+                        n,
+                        quality,
+                        api_key=api_key,
+                        timeout=request_timeout,
                     )
                 else:
                     response = await self._generate(
-                        composed, size_str, n, quality, api_key=api_key
+                        composed, size_str, n, quality, api_key=api_key, timeout=request_timeout
                     )
                 raise_for_status(self.name, response)  # 4xx→DomainError；5xx/429→ProviderTimeout
             except httpx.TimeoutException:
@@ -142,6 +149,15 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             if time.perf_counter() - overall_start >= self._retry_max_elapsed:
                 raise error
 
+    def _timeout_for_request(self, overall_start: float, attempt: int) -> httpx.Timeout:
+        if attempt == 0:
+            return self._client_timeout
+        remaining = self._retry_max_elapsed - (time.perf_counter() - overall_start)
+        if remaining <= 0:
+            raise ProviderTimeout(f"{self.name} retry wall-clock budget exhausted")
+        timeout = min(self._timeout, remaining)
+        return httpx.Timeout(timeout, connect=min(timeout, 15.0))
+
     def _validate_request(self, *, size: tuple[int, int], n: int) -> None:
         if self._required_size is not None and size != self._required_size:
             raise ValueError(f"{self.name} requires size {self._required_size}")
@@ -162,6 +178,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         quality: str | None = None,
         *,
         api_key: str,
+        timeout: httpx.Timeout,
     ) -> httpx.Response:
         payload: dict[str, Any] = {
             "model": self._model, "prompt": prompt, "n": n, "size": size
@@ -171,7 +188,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         if self._response_format:  # 两端点发（input_fidelity 仅 edits，generations 不发）
             payload["response_format"] = self._response_format
         return await self._request_json(
-            f"{self._base_url}/images/generations", payload, api_key=api_key
+            f"{self._base_url}/images/generations", payload, api_key=api_key, timeout=timeout
         )
 
     async def _edit(
@@ -183,6 +200,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         quality: str | None = None,
         *,
         api_key: str,
+        timeout: httpx.Timeout,
     ) -> httpx.Response:
         # GPT Image 2 多参考图按中转站文档重复同名 image 字段。
         data: dict[str, Any] = {"model": self._model, "prompt": prompt, "n": n, "size": size}
@@ -196,19 +214,19 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             ("image", (f"product_{i}.png", img, "image/png")) for i, img in enumerate(images)
         ]
         return await self._request_multipart(
-            f"{self._base_url}/images/edits", data, files, api_key=api_key
+            f"{self._base_url}/images/edits", data, files, api_key=api_key, timeout=timeout
         )
 
     async def _request_json(
-        self, url: str, payload: dict[str, Any], *, api_key: str
+        self, url: str, payload: dict[str, Any], *, api_key: str, timeout: httpx.Timeout
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {api_key}"}
         if self._client is not None:
             return await self._client.post(
-                url, json=payload, headers=headers, timeout=self._client_timeout
+                url, json=payload, headers=headers, timeout=timeout
             )
         async with httpx.AsyncClient(
-            timeout=self._client_timeout, trust_env=self._trust_env
+            timeout=timeout, trust_env=self._trust_env
         ) as client:
             return await client.post(url, json=payload, headers=headers)
 
@@ -219,14 +237,15 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         files: list[tuple[str, tuple[str, bytes, str]]],
         *,
         api_key: str,
+        timeout: httpx.Timeout,
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {api_key}"}
         if self._client is not None:
             return await self._client.post(
-                url, data=data, files=files, headers=headers, timeout=self._client_timeout
+                url, data=data, files=files, headers=headers, timeout=timeout
             )
         async with httpx.AsyncClient(
-            timeout=self._client_timeout, trust_env=self._trust_env
+            timeout=timeout, trust_env=self._trust_env
         ) as client:
             return await client.post(url, data=data, files=files, headers=headers)
 

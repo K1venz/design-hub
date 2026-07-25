@@ -169,6 +169,62 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
     assert client.calls == 1
 
 
+def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Clock:
+        value = 0.0
+
+        def now(self) -> float:
+            return self.value
+
+    class _BudgetConsumingClient:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            timeout = kwargs["timeout"]
+            assert isinstance(timeout, httpx.Timeout)
+            assert timeout.read is not None
+            self.timeouts.append(timeout.read)
+            clock.value += 100.0 if len(self.timeouts) == 1 else timeout.read
+            return _500()
+
+    clock = _Clock()
+    monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
+    client = _BudgetConsumingClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        timeout=1800.0,
+        max_retries=1,
+        retry_backoff=0.0,
+        retry_max_sleep=0.0,
+        retry_max_elapsed=1800.0,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=[],
+                size=(3840, 2160),
+                n=1,
+            )
+        )
+
+    assert client.timeouts == [1800.0, 1700.0]
+    assert clock.value == 1800.0
+
+
 def test_generate_does_not_retry_4xx_business_error() -> None:
     # 4xx 坏请求/鉴权是业务错 → fail-fast 立抛 DomainError，绝不重试
     client = _SequencedClient([httpx.Response(400, text="bad request")])
