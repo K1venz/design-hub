@@ -113,11 +113,11 @@ def test_generate_exhausts_retry_budget_and_raises() -> None:
 
 def test_wall_clock_budget_stops_persistent_5xx_despite_max_retries() -> None:
     # ISSUE-0055 (i)：总重试墙钟耗尽即穷尽 fail-closed——持久 5xx 不再干等 max_retries×退避。
-    # 预算=0 → 首次失败后墙钟即耗尽、绝不重试（尽管 max_retries=5 本可 6 次调用）。
+    # 预算=0 → 首次 HTTP 前墙钟即耗尽，不发请求（尽管 max_retries=5 本可 6 次调用）。
     client = _SequencedClient([_500(), _500(), _500(), _500(), _500(), _500()])
     with pytest.raises(ProviderTimeout):
         asyncio.run(_gen(_provider(client, max_retries=5, retry_max_elapsed=0.0)))
-    assert client.calls == 1  # 墙钟预算截断，非 max_retries（否则会 6 次）
+    assert client.calls == 0  # 墙钟预算截断，非 max_retries（否则会 6 次）
 
 
 def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
@@ -223,6 +223,61 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
 
     assert client.timeouts == [1800.0, 1700.0]
     assert clock.value == 1800.0
+
+
+def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Clock:
+        def __init__(self) -> None:
+            self._values = iter((0.0, 100.0))
+            self.value = 0.0
+
+        def now(self) -> float:
+            self.value = next(self._values, self.value)
+            return self.value
+
+    class _CapturingClient:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            timeout = kwargs["timeout"]
+            assert isinstance(timeout, httpx.Timeout)
+            assert timeout.read is not None
+            self.timeouts.append(timeout.read)
+            return _500()
+
+    clock = _Clock()
+    monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
+    client = _CapturingClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        timeout=3600.0,
+        max_retries=0,
+        retry_max_elapsed=1800.0,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=[],
+                size=(3840, 2160),
+                n=1,
+            )
+        )
+
+    assert client.timeouts == [1700.0]
 
 
 def test_generate_does_not_retry_4xx_business_error() -> None:
