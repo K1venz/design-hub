@@ -13,6 +13,7 @@ import uuid
 from collections import Counter
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from design_hub.application.chat.image_ratio import detect_supported_ratio
@@ -21,6 +22,10 @@ from design_hub.application.chat.ratio_intent import (
     ChatRatioDecision,
     UnsupportedChatRatio,
     decide_chat_ratio,
+)
+from design_hub.application.chat.rendering_intent import (
+    ChatRenderingConflict,
+    decide_chat_rendering,
 )
 from design_hub.application.chat.system_prompt import default_system_prompt
 from design_hub.application.chat.tool_requests import ChatCloneRequest, ChatGenerateRequest
@@ -54,6 +59,10 @@ from design_hub.ports.upload_store import UploadReadError, owns
 # DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
 _CONTEXT_MAX_MESSAGES = 40
 _CONTEXT_HEAD = 1
+
+
+def _decimal_text(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 @dataclass(frozen=True)
@@ -191,7 +200,6 @@ class ChatOrchestrator:
     ledger: LedgerRepository  # 读工具：额度真数据
     model_config: ModelConfigRepository  # 读工具：价格/启用模型实时值（波动信息走工具，#1043）
     max_session_jobs: int = 5  # 会话级出图闸（#884②）
-    image_model: ModelName = ModelName.GPT_IMAGE_2
     # 四段 system prompt（persona/知识库/工具契约/守则，A3）：启动组装缓存，可注入便于测试
     system_prompt: str = field(default_factory=default_system_prompt)
     _tools: list[ToolSpec] = field(default_factory=_tool_specs)
@@ -284,9 +292,18 @@ class ChatOrchestrator:
             # 写工具（generate/clone/edit）→ 费用闸（护栏①：不给 LLM 绕闸的路）
             yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
             try:
+                rendering = decide_chat_rendering(message, auto_ratio)
                 normalized_args = self._prepare_write_args(
-                    call.name, call.arguments, ratio_decision, edit_source_image_key
+                    call.name, call.arguments, rendering.ratio, edit_source_image_key
                 )
+            except ChatRenderingConflict as exc:
+                clar = str(exc)
+                yield ChatEvent("assistant_delta", {"text": clar})
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=clar
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
             except UnsupportedChatRatio as exc:
                 clar = str(exc)
                 yield ChatEvent("assistant_delta", {"text": clar})
@@ -327,12 +344,34 @@ class ChatOrchestrator:
                 )
                 yield ChatEvent("assistant_end", {"status": "complete"})
                 return
+            config = await self.model_config.get(rendering.model.value)
+            if (
+                rendering.model not in self.registry
+                or config is None
+                or not config.enabled
+            ):
+                clar = (
+                    "4K 当前不可用，请取消 4K 后使用普通出图。"
+                    if rendering.model is ModelName.GPT_IMAGE_2_4K
+                    else "普通出图当前不可用，请稍后再试。"
+                )
+                yield ChatEvent("assistant_delta", {"text": clar})
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=clar
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
             yield ChatEvent("tool_call", {"tool": call.name, "args": normalized_args})
             count = self._count(call.name, req)
-            unit_cost = self.registry.get(self.image_model).unit_cost  # 与工作台同源（#884③）
+            unit_cost = self.registry.get(rendering.model).unit_cost
             estimate = unit_cost * count
             pending = self.pending.new(
-                session_id, tool=call.name, req=req, count=count, estimate=estimate
+                session_id,
+                tool=call.name,
+                req=req,
+                count=count,
+                estimate=estimate,
+                model=rendering.model,
             )
             # assistant 最终答复（收尾语+job_id）留到 confirm 后落库；tool_call/cost_confirm 不落库
             yield ChatEvent(
@@ -342,8 +381,8 @@ class ChatOrchestrator:
                     "tool": call.name,
                     "args": normalized_args,
                     "count": count,
-                    "unit_cost": str(unit_cost),
-                    "estimate_cny": str(estimate),
+                    "unit_cost": _decimal_text(unit_cost),
+                    "estimate_cny": _decimal_text(estimate),
                 },
             )
             yield ChatEvent("assistant_end", {"status": "awaiting_confirm"})
@@ -447,11 +486,11 @@ class ChatOrchestrator:
     async def _launch(self, user: AuthUser, pending: PendingAction) -> str:
         req = pending.req
         if pending.tool == "generate" and isinstance(req, ListingGenerateRequest):
-            return await self.launcher.launch_generate(user, req)
+            return await self.launcher.launch_generate(user, req, model=pending.model)
         if pending.tool == "clone" and isinstance(req, CloneRequest):
-            return await self.launcher.launch_clone(user, req)
+            return await self.launcher.launch_clone(user, req, model=pending.model)
         if pending.tool == "edit" and isinstance(req, EditRequest):
-            return await self.launcher.launch_edit(user, req)
+            return await self.launcher.launch_edit(user, req, model=pending.model)
         raise ValueError(f"未知工具：{pending.tool}")
 
     # ── 读工具（A3 工具化，owner-scoped 护栏③；不花钱、不过费用闸；结果回喂 LLM）──
@@ -508,16 +547,32 @@ class ChatOrchestrator:
         # 波动值走实时查（#1043）：价格/启用模型读 model_config 表当前值——管理员改价即变，
         # 绝不背知识库写死数字。0057 上线后多模型/渠道自动进这份清单。
         configs = await self.model_config.list_all()
-        enabled = [c for c in configs if c.enabled]
-        current = next((c for c in configs if c.name == self.image_model.value), None)
-        unit_cost = current.unit_cost if current else self.registry.get(self.image_model).unit_cost
+        by_name = {config.name: config for config in configs}
+        capabilities: list[str] = []
+        standard_config = by_name.get(ModelName.GPT_IMAGE_2.value)
+        four_k_config = by_name.get(ModelName.GPT_IMAGE_2_4K.value)
+        if (
+            standard_config is not None
+            and standard_config.enabled
+            and ModelName.GPT_IMAGE_2 in self.registry
+        ):
+            standard_cost = standard_config.unit_cost
+            capabilities.append(f"普通出图 ¥{_decimal_text(standard_cost)}/张")
+        else:
+            standard_cost = Decimal(0)
+        if (
+            four_k_config is not None
+            and four_k_config.enabled
+            and ModelName.GPT_IMAGE_2_4K in self.registry
+        ):
+            four_k_cost = four_k_config.unit_cost
+            capabilities.append(f"4K 16:9 ¥{_decimal_text(four_k_cost)}/张")
         snap = await self.ledger.snapshot(user.user_id)
         remaining = snap.user_monthly_quota - snap.user_month_used
-        approx = int(remaining / unit_cost) if unit_cost else 0
-        models = "、".join(f"{c.name}(¥{c.unit_cost}/张)" for c in enabled) or "（暂无启用模型）"
+        approx = int(remaining / standard_cost) if standard_cost else 0
+        capability_text = "、".join(capabilities) or "暂无可用出图能力"
         return (
-            f"价格（管理员实时配置）：当前出图约 ¥{unit_cost}/张。\n"
-            f"当前启用模型：{models}。\n"
+            f"价格（管理员实时配置）：{capability_text}。\n"
             f"该用户额度：已用 ¥{snap.user_month_used} / 额度 ¥{snap.user_monthly_quota}，"
             f"剩余约 ¥{remaining}（≈ {approx} 张）。\n当前内测期间，未开放公开充值。"
         )

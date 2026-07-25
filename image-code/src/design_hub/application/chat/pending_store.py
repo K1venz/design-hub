@@ -14,6 +14,7 @@ from design_hub.application.listing.requests import (
     EditRequest,
     ListingGenerateRequest,
 )
+from design_hub.domain.enums import ModelName
 
 ListingReq = ListingGenerateRequest | CloneRequest | EditRequest
 
@@ -27,6 +28,7 @@ class PendingAction:
     req: ListingReq
     count: int
     estimate: Decimal
+    model: ModelName
     expires_at: float  # time.monotonic() 基准
 
 
@@ -38,7 +40,14 @@ class PendingStore:
     _pending: dict[str, PendingAction] = field(default_factory=dict)
 
     def new(
-        self, session_id: str, *, tool: str, req: ListingReq, count: int, estimate: Decimal
+        self,
+        session_id: str,
+        *,
+        tool: str,
+        req: ListingReq,
+        count: int,
+        estimate: Decimal,
+        model: ModelName,
     ) -> PendingAction:
         pending = PendingAction(
             confirm_token="ct_" + secrets.token_urlsafe(16),
@@ -46,6 +55,7 @@ class PendingStore:
             req=req,
             count=count,
             estimate=estimate,
+            model=model,
             expires_at=time.monotonic() + self.ttl_seconds,
         )
         self._pending[session_id] = pending

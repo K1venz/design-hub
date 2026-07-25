@@ -49,3 +49,11 @@ def test_unsupported_explicit_ratio_is_preserved_as_user_facing_error() -> None:
 def test_invalid_auto_ratio_fails_fast() -> None:
     with pytest.raises(ValueError, match="无效自动比例"):
         decide_chat_ratio("做一张主图", "2:3")
+
+
+@pytest.mark.parametrize("separator", ["x", "X", "×"])
+def test_four_k_resolution_is_ignored_by_standard_ratio_parser(separator: str) -> None:
+    decision = decide_chat_ratio(f"生成 3840{separator}2160 图片", "3:4")
+
+    assert decision.ratio == "3:4"
+    assert decision.source is ChatRatioSource.AUTO
