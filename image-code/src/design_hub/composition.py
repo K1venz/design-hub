@@ -38,15 +38,15 @@ from design_hub.ports.upload_store import UploadStore
 # Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
 _MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
     ModelName.SEEDREAM_5: Decimal("0.20"),
-    # base 上线档($0.05实扣)；¥0.40=锁汇率~7.2的¥占位估算(非真实账单,季度复核)
-    ModelName.GPT_IMAGE_2: Decimal("0.40"),
+    ModelName.GPT_IMAGE_2: Decimal("0.05"),
+    ModelName.GPT_IMAGE_2_4K: Decimal("0.18"),
     ModelName.WANXIANG_27: Decimal("0.05"),
     ModelName.LINGDONG_2: Decimal("0.04"),
 }
 
 
 def default_model_configs() -> list[ModelConfigRecord]:
-    """默认 5 模型配置（启动 seed 用）：单价取 _MOCK_UNIT_COSTS，默认启用。"""
+    """默认模型配置（启动 seed 用）：单价取 _MOCK_UNIT_COSTS，默认启用。"""
     return [
         ModelConfigRecord(name=name.value, unit_cost=cost, enabled=True, extra={})
         for name, cost in _MOCK_UNIT_COSTS.items()
@@ -88,67 +88,58 @@ def _resolve_image_connection(
     keys = [
         k.strip() for k in settings.gpt_image_api_key.get_secret_value().split(",") if k.strip()
     ]
-    unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.40"))
+    unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.05"))
     return settings.gpt_image_base_url, settings.gpt_image_model, keys, unit_cost
 
 
-# 异步任务出图 provider_type（ISSUE-0065）：0057 注册表切到此值+重启=从同步单发切异步排队。
-_ASYNC_PROVIDER_TYPE = "apinebula_async_image"
-
-
-def build_gpt_image_provider(
+def build_gpt_image_providers(
     settings: Settings,
     unit_costs: Mapping[ModelName, Decimal] | None = None,
     *,
     default_config: ModelConfigRecord | None = None,
-) -> AbstractModelProvider:
-    """真实出图 Provider。连接优先取管理员配的默认模型（ISSUE-0057），否则回落 .env GPT_IMAGE_*。
-
-    provider_type 分派（ISSUE-0065）：`apinebula_async_image`→异步任务 provider（submit→轮询→
-    download，治同步端点过载 ~33% 成功率）；否则同步单发 provider。两者同占 GPT_IMAGE_2 槽、
-    共用连接解析，管理员切默认 provider_type+重启=切换（同 0042 快照口径）。单价优先取
-    model_config 表；出图经 image_store 落点，换 OSS 只改 image_store。
-    """
+) -> tuple[AbstractModelProvider, AbstractModelProvider]:
+    """组装普通异步模型与固定 4K 同步模型，并让两者共享同一 API Key 池。"""
     base_url, model, api_keys, unit_cost = _resolve_image_connection(
         settings, unit_costs, default_config
     )
     image_store = build_image_store(settings)
-    provider_type = default_config.provider_type if default_config is not None else ""
-    if provider_type == _ASYNC_PROVIDER_TYPE:
-        return AsyncImageTasksProvider(
-            name=ModelName.GPT_IMAGE_2,
-            unit_cost=unit_cost,
-            base_url=base_url,
-            key_pool=ApiKeyPool(tuple(api_keys)),
-            model=model,
-            image_store=image_store,  # download_url 拉回字节落存（异步端点只回 URL）
-            input_fidelity=settings.gpt_image_input_fidelity,  # 保真核心（edits 保留阴影/文字）
-            trust_env=False,  # 境内中转站直连，绕开本机梯子代理
-            poll_interval=settings.gpt_image_async_poll_interval,
-            poll_max_elapsed=settings.gpt_image_async_poll_max_elapsed,  # 墙钟穷尽 fail-closed
-            submit_max_retries=settings.gpt_image_max_retries,
-            submit_backoff=settings.gpt_image_retry_backoff,
-            submit_max_sleep=settings.gpt_image_retry_max_sleep,
-        )
-    return OpenAICompatImageProvider(
+    key_pool = ApiKeyPool(tuple(api_keys))
+    four_k_unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2_4K, Decimal("0.18"))
+    standard = AsyncImageTasksProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=unit_cost,
         base_url=base_url,
-        # 多 key 逗号分隔；共享池按逻辑请求 round-robin 分发（缓解单 key 限流）
-        key_pool=ApiKeyPool(tuple(api_keys)),
+        key_pool=key_pool,
         model=model,
-        # 出图协议增强（apinebula 文档，coordinator #1092）：edits 保真 + b64 自包含返回
+        image_store=image_store,
+        input_fidelity=settings.gpt_image_input_fidelity,
+        trust_env=False,
+        poll_interval=settings.gpt_image_async_poll_interval,
+        poll_max_elapsed=settings.gpt_image_async_poll_max_elapsed,
+        submit_max_retries=settings.gpt_image_max_retries,
+        submit_backoff=settings.gpt_image_retry_backoff,
+        submit_max_sleep=settings.gpt_image_retry_max_sleep,
+    )
+    four_k = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=four_k_unit_cost,
+        base_url=base_url,
+        key_pool=key_pool,
+        model=ModelName.GPT_IMAGE_2_4K.value,
         input_fidelity=settings.gpt_image_input_fidelity,
         response_format=settings.gpt_image_response_format,
         image_store=image_store,
-        trust_env=False,  # 境内中转站直连，绕开本机梯子代理
-        timeout=300.0,  # 图生图 edit 实测 ~187s（ISSUE-0007），180s 太紧；放宽到 300s 留余量
-        # 瞬时错误重试（ISSUE-0007 间歇 500 + ISSUE-0047 套图并发 429）：加大余量 + 抖动退避
+        trust_env=False,
+        timeout=settings.gpt_image_4k_timeout,
         max_retries=settings.gpt_image_max_retries,
         retry_backoff=settings.gpt_image_retry_backoff,
         retry_max_sleep=settings.gpt_image_retry_max_sleep,
-        retry_max_elapsed=settings.gpt_image_retry_max_elapsed,  # 总重试墙钟（ISSUE-0055 (i)）
+        retry_max_elapsed=settings.gpt_image_4k_timeout,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
     )
+    return standard, four_k
 
 
 def _tos_enabled(settings: Settings) -> bool:
@@ -231,14 +222,15 @@ def build_registry(
     unit_costs: Mapping[ModelName, Decimal] | None = None,
     default_config: ModelConfigRecord | None = None,
 ) -> ProviderRegistry:
-    """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖 GPT_IMAGE_2。
+    """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖普通与 4K 模型。
 
     unit_costs（model_config 真实单价）注入 Provider；default_config（ISSUE-0057 管理员配的
     默认出图模型）驱动真实 provider 的连接（备用渠道切换），缺省回落 .env。按 LSP 覆盖 Mock。
     """
     registry = build_mock_registry(unit_costs)
     if real_gpt_image:
-        registry.register(
-            build_gpt_image_provider(settings, unit_costs, default_config=default_config)
-        )
+        for provider in build_gpt_image_providers(
+            settings, unit_costs, default_config=default_config
+        ):
+            registry.register(provider)
     return registry

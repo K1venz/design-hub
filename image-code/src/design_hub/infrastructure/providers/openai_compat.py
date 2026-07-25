@@ -51,6 +51,9 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         retry_backoff: float = 2.0,
         retry_max_sleep: float = 30.0,
         retry_max_elapsed: float = 90.0,
+        required_size: tuple[int, int] | None = None,
+        required_quality: str | None = None,
+        required_count: int | None = None,
     ) -> None:
         self.name = name
         self.unit_cost = unit_cost
@@ -77,6 +80,9 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         # 5xx)仍会耗尽 max_retries×退避干等数分钟。本预算封顶整个重试窗口的墙钟——超预算即
         # 穷尽 fail-closed 落「失败」，用户短墙钟内得反馈而非干等。只 gate 重试、不砍首次/成功请求。
         self._retry_max_elapsed = retry_max_elapsed
+        self._required_size = required_size
+        self._required_quality = required_quality
+        self._required_count = required_count
         # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
         self._trust_env = trust_env
 
@@ -91,10 +97,12 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
+        self._validate_request(size=size, n=n)
         composed = compose_image_api_prompt(prompt, negative_prompt)
         # 模态解引用（ISSUE-0065）：同步走字节；launcher 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
+        quality = self._required_quality or quality
         start_key_index = self._key_pool.reserve()
         attempt = 0
         overall_start = time.perf_counter()
@@ -131,6 +139,14 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             # 退避不跨出墙钟预算边界（剩余预算内 sleep）
             sleep = min(self._retry_sleep(attempt), self._retry_max_elapsed - elapsed)
             await asyncio.sleep(sleep)
+            if time.perf_counter() - overall_start >= self._retry_max_elapsed:
+                raise error
+
+    def _validate_request(self, *, size: tuple[int, int], n: int) -> None:
+        if self._required_size is not None and size != self._required_size:
+            raise ValueError(f"{self.name} requires size {self._required_size}")
+        if self._required_count is not None and n != self._required_count:
+            raise ValueError(f"{self.name} requires n={self._required_count}")
 
     def _retry_sleep(self, attempt: int) -> float:
         # 退避+抖动（_openai_common 单一事实源）：并发撞 429 时错峰去相关，max_sleep 封顶。
@@ -169,7 +185,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         api_key: str,
     ) -> httpx.Response:
         # GPT Image 2 多参考图按中转站文档重复同名 image 字段。
-        data = {"model": self._model, "prompt": prompt, "n": str(n), "size": size}
+        data: dict[str, Any] = {"model": self._model, "prompt": prompt, "n": n, "size": size}
         if quality:
             data["quality"] = quality
         if self._response_format:  # 自包含 b64 返回，消 url 过期变数
@@ -199,7 +215,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     async def _request_multipart(
         self,
         url: str,
-        data: dict[str, str],
+        data: dict[str, Any],
         files: list[tuple[str, tuple[str, bytes, str]]],
         *,
         api_key: str,

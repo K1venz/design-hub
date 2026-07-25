@@ -3,6 +3,7 @@ from enum import StrEnum
 
 class ModelName(StrEnum):
     GPT_IMAGE_2 = "gpt-image-2"
+    GPT_IMAGE_2_4K = "gpt-image-2-4k"
     SEEDREAM_5 = "seedream-5"
     WANXIANG_27 = "wanxiang-2.7-pro"
     LINGDONG_2 = "lingdong-2"

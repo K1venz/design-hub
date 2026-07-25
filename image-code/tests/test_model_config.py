@@ -4,6 +4,7 @@ import asyncio
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from design_hub.application.admin.model_config_service import ModelConfigService
@@ -116,3 +117,11 @@ def test_resolve_image_connection_prefers_default_else_env(monkeypatch: pytest.M
     monkeypatch.delenv("MY_BACKUP_KEY", raising=False)
     b3, _, _, _ = _resolve_image_connection(s, None, dc)
     assert b3 == "https://envfallback"
+
+
+def test_4k_wall_clock_budget_is_positive() -> None:
+    from design_hub.config.settings import Settings
+
+    assert Settings().gpt_image_4k_timeout == 1800.0
+    with pytest.raises(ValidationError):
+        Settings(gpt_image_4k_timeout=0.0)
