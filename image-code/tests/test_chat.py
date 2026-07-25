@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
+from design_hub.application.chat.ratio_intent import decide_chat_ratio
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.application.cost.guard import CostGuard
 from design_hub.application.listing.job_launcher import ListingJobLauncher
@@ -175,6 +176,64 @@ def _gen_tc(
     else:
         args["n"] = n
     return (ToolCall(id="c1", name="generate", arguments=args),)
+
+
+def test_prepare_generate_args_forces_deterministic_landscape_ratio() -> None:
+    args = ChatOrchestrator._prepare_write_args(
+        "generate",
+        {"upload_ids": ["u"], "prompt": "主图", "ratio": "1:1", "n": 1},
+        decide_chat_ratio("做横版主图", "3:4"),
+        None,
+    )
+
+    assert args["ratio"] == "4:3"
+
+
+def test_prepare_edit_args_uses_selected_key_and_inherits_ratio_for_delta() -> None:
+    args = ChatOrchestrator._prepare_write_args(
+        "edit",
+        {
+            "source_image_key": "hallucinated.png",
+            "prompt": "背景换成海边",
+            "edit_mode": "delta",
+            "ratio": "1:1",
+        },
+        decide_chat_ratio("背景换成海边", "1:1"),
+        "selected.png",
+    )
+
+    assert args == {
+        "source_image_key": "selected.png",
+        "prompt": "背景换成海边",
+        "edit_mode": "delta",
+    }
+
+
+def test_prepare_edit_args_promotes_ratio_change_to_full() -> None:
+    args = ChatOrchestrator._prepare_write_args(
+        "edit",
+        {
+            "source_image_key": "wrong.png",
+            "prompt": "改成横版",
+            "edit_mode": "delta",
+        },
+        decide_chat_ratio("改成横版", "1:1"),
+        "selected.png",
+    )
+
+    assert args["source_image_key"] == "selected.png"
+    assert args["edit_mode"] == "full"
+    assert args["ratio"] == "4:3"
+
+
+def test_prepare_edit_args_rejects_missing_ui_selection() -> None:
+    with pytest.raises(ValueError, match="先在结果图上点击"):
+        ChatOrchestrator._prepare_write_args(
+            "edit",
+            {"source_image_key": "guessed.png", "prompt": "改暖色", "edit_mode": "delta"},
+            decide_chat_ratio("改暖色", "1:1"),
+            None,
+        )
 
 
 def test_chat_generate_converts_to_category_free_listing_request() -> None:
@@ -334,7 +393,7 @@ def test_auto_ratio_uses_first_uploaded_image(tmp_path) -> None:
         )
         llm = CapturingTextLLM()
         await _drain(inf.orch(llm).handle_message(USER, None, "给商品出图", [first, second]))
-        assert "自动比例=9:16" in llm.messages[-1].content
+        assert "本轮确定比例=9:16" in llm.messages[-1].content
 
     asyncio.run(_impl())
 
@@ -346,7 +405,7 @@ def test_auto_ratio_falls_back_when_first_upload_cannot_be_loaded(tmp_path) -> N
         await _drain(
             inf.orch(llm).handle_message(USER, None, "给商品出图", ["missing/image.png"])
         )
-        assert "自动比例=1:1" in llm.messages[-1].content
+        assert "本轮确定比例=1:1" in llm.messages[-1].content
 
     asyncio.run(_impl())
 
@@ -362,7 +421,90 @@ def test_auto_ratio_falls_back_when_upload_store_read_fails(tmp_path) -> None:
             inf.orch(llm).handle_message(USER, None, "给商品出图", [upload_id])
         )
 
-        assert "自动比例=1:1" in llm.messages[-1].content
+        assert "本轮确定比例=1:1" in llm.messages[-1].content
+
+    asyncio.run(_impl())
+
+
+def test_selected_edit_source_is_injected_only_into_llm_context(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        llm = CapturingTextLLM()
+        events = await _drain(
+            inf.orch(llm).handle_message(
+                USER,
+                None,
+                "把背景改成海边",
+                [],
+                edit_source_image_key="selected.png",
+            )
+        )
+
+        assert "source_image_key=selected.png" in llm.messages[-1].content
+        session_id = _first(events, "session")["session_id"]
+        transcript = await inf.chat_repo.get_transcript(session_id, USER.user_id)
+        assert transcript is not None
+        assert transcript.messages[0].content == "把背景改成海边"
+        assert transcript.messages[0].attachment_upload_ids == ()
+
+    asyncio.run(_impl())
+
+
+def test_invalid_selected_source_never_creates_or_charges_a_job(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        call = ToolCall(
+            id="edit-1",
+            name="edit",
+            arguments={
+                "source_image_key": "model-guessed.png",
+                "prompt": "改暖色",
+                "edit_mode": "delta",
+            },
+        )
+        planned = await _drain(
+            inf.orch(StubTextLLM(("好的，我来调整。", (call,)))).handle_message(
+                USER,
+                None,
+                "改暖色",
+                [],
+                edit_source_image_key="missing.png",
+            )
+        )
+        session_id = _first(planned, "session")["session_id"]
+        confirm_token = _first(planned, "cost_confirm")["confirm_token"]
+        confirmed = await _drain(
+            inf.orch(StubTextLLM(("完成", ()))).handle_confirm(
+                USER, session_id, confirm_token, "confirm"
+            )
+        )
+
+        assert _first(confirmed, "error")["code"] == "bad_request"
+        assert await inf.chat_repo.job_count(session_id) == 0
+        assert (await inf.ledger.snapshot(USER.user_id)).user_month_used == 0
+
+    asyncio.run(_impl())
+
+
+def test_mock_text_llm_uses_selected_image_for_edit(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        events = await _drain(
+            inf.orch(MockTextLLMProvider()).handle_message(
+                USER,
+                None,
+                "把背景换成海边",
+                [],
+                edit_source_image_key="selected.png",
+            )
+        )
+
+        assert "tool_call" in [event_type for event_type, _data in events]
+        tool_call = _first(events, "tool_call")
+        assert tool_call["tool"] == "edit"
+        assert tool_call["args"]["source_image_key"] == "selected.png"
+        assert tool_call["args"]["edit_mode"] == "delta"
+        assert _first(events, "cost_confirm")["count"] == 1
 
     asyncio.run(_impl())
 
@@ -492,18 +634,16 @@ def test_session_job_limit_blocks_second_confirm(tmp_path) -> None:
     asyncio.run(_impl())
 
 
-def test_placeholder_ratio_becomes_clarification_not_paid_error(tmp_path) -> None:
+def test_placeholder_model_ratio_is_overridden_by_deterministic_ratio(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
-        # 真 LLM 偶把「请问你要什么比例?」填进 ratio → 进费用闸前拦下转澄清
+        # 真 LLM 偶把问题填进 ratio，后端用确定比例覆盖，不让占位文本进入费用卡。
         orch = inf.orch(StubTextLLM(("好的", _gen_tc(uid, ratio="请问你要什么比例?", n=1))))
         ev = await _drain(orch.handle_message(USER, None, "出图", [uid]))
-        types = [t for t, _ in ev]
-        assert "cost_confirm" not in types
-        assert "tool_call" not in types
-        assert any(t == "assistant_delta" for t in types)
-        assert ev[-1] == ("assistant_end", {"status": "complete"})
+        assert _first(ev, "tool_call")["args"]["ratio"] == "1:1"
+        assert _first(ev, "cost_confirm")["args"]["ratio"] == "1:1"
+        assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
 
     asyncio.run(_impl())
 
