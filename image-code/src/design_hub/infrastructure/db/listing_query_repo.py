@@ -4,6 +4,7 @@ from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.db.models import (
     ListingImageRow,
     ListingJobInputRow,
@@ -57,6 +58,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
         return ListingJobSummary(
             job_id=r.id,
             status=r.status,
+            model=ModelName(r.model),
             platform=r.platform,
             ratio=r.ratio,
             n=r.n,
@@ -97,6 +99,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
         inputs = sorted(row.inputs, key=lambda i: i.ord)
         return ListingJobDetail(
             job_id=row.id,
+            model=ModelName(row.model),
             prompt=row.prompt,
             modifiers={str(k): str(v) for k, v in row.modifiers.items()},
             platform=row.platform,

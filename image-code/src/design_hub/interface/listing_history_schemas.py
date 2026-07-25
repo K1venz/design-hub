@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
+from design_hub.domain.enums import ModelName
 from design_hub.ports.listing_query import ListingJobDetail, ListingJobSummary
 from design_hub.ports.media_url_signer import MediaUrlSigner
 
@@ -10,6 +11,7 @@ from design_hub.ports.media_url_signer import MediaUrlSigner
 class ListingJobSummaryOut(BaseModel):
     job_id: str
     status: str
+    model: ModelName
     platform: str | None
     ratio: str
     n: int
@@ -25,6 +27,7 @@ class ListingJobSummaryOut(BaseModel):
         return cls(
             job_id=s.job_id,
             status=s.status,
+            model=s.model,
             platform=s.platform,
             ratio=s.ratio,
             n=s.n,
@@ -51,6 +54,7 @@ class ListingImageOut(BaseModel):
 
 class ListingJobDetailOut(BaseModel):
     job_id: str
+    model: ModelName
     prompt: str
     modifiers: dict[str, str]
     platform: str | None
@@ -78,6 +82,7 @@ class ListingJobDetailOut(BaseModel):
     def of(cls, d: ListingJobDetail, signer: MediaUrlSigner) -> "ListingJobDetailOut":
         return cls(
             job_id=d.job_id,
+            model=d.model,
             prompt=d.prompt,
             modifiers=d.modifiers,
             platform=d.platform,

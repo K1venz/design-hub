@@ -411,7 +411,7 @@ def test_set_generation_never_exceeds_concurrency() -> None:
     result = asyncio.run(
         service.generate(
             prompt="春节红色背景", modifiers=_MODS, images=(b"x",), ratio="1:1",
-            user_id="u1", category="FOOD",
+            user_id="u1", category="FOOD", model=ModelName.GPT_IMAGE_2,
             plan={"白底": 3, "场景": 4, "卖点": 3}, overlay_texts=("高山七彩花生",),
         )
     )
@@ -426,7 +426,7 @@ def test_single_image_flow_one_inflight_regardless_of_cap() -> None:
     result = asyncio.run(
         service.generate(
             prompt="干净背景主图", modifiers=_MODS, images=(b"x",), ratio="1:1",
-            user_id="u1", category="FOOD", n=1,
+            user_id="u1", category="FOOD", model=ModelName.GPT_IMAGE_2, n=1,
         )
     )
     assert len(result.images) == 1

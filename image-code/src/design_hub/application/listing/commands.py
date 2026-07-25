@@ -5,8 +5,8 @@ from decimal import Decimal
 
 from design_hub.application.listing.error_messages import humanize_image_error
 from design_hub.application.listing.listing_service import ListingGenerationService
-from design_hub.application.listing.sizing import ratio_to_size
-from design_hub.domain.enums import TaskEventType
+from design_hub.application.listing.sizing import generation_size
+from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.media import image_key_from_url
 from design_hub.domain.models import (
     ListingJobImage,
@@ -48,6 +48,7 @@ class ListingCommand(GenerationCommand):
     prompt: str
     modifiers: dict[str, str]
     ratio: str
+    model: ModelName
 
     @abstractmethod
     def _start(self, job_id: str, size: str) -> ListingJobStart:
@@ -64,7 +65,7 @@ class ListingCommand(GenerationCommand):
         return 1
 
     async def run(self, job_id: str) -> None:
-        size = "{}x{}".format(*ratio_to_size(self.ratio))
+        size = "{}x{}".format(*generation_size(self.model, self.ratio))
         await self.history.start(self._start(job_id, size))  # 入队建行：status='生成中'
         await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
@@ -172,6 +173,7 @@ class ListingGenerationCommand(ListingCommand):
             overlay_texts=self.overlay_texts,
             user_id=self.user_id,
             category=self.category,
+            model=self.model,
         )
 
     def _requested(self) -> int:
@@ -189,6 +191,7 @@ class ListingGenerationCommand(ListingCommand):
             n=self._requested(),
             upload_keys=self.upload_keys,
             category=self.category,
+            model=self.model,
         )
 
 
@@ -216,6 +219,7 @@ class EditCommand(ListingCommand):
             ratio=self.ratio,
             user_id=self.user_id,
             edit_mode=self.edit_mode,
+            model=self.model,
         )
 
     def _start(self, job_id: str, size: str) -> ListingJobStart:
@@ -232,6 +236,7 @@ class EditCommand(ListingCommand):
             parent_job_id=self.parent_job_id,
             source_image_key=self.source_image_key,
             edit_mode=self.edit_mode,
+            model=self.model,
         )
 
 
@@ -258,6 +263,7 @@ class CloneCommand(ListingCommand):
             user_id=self.user_id,
             category=self.category,
             clone_mode=self.clone_mode,
+            model=self.model,
         )
 
     def _start(self, job_id: str, size: str) -> ListingJobStart:
@@ -273,4 +279,5 @@ class CloneCommand(ListingCommand):
             input_roles=self._roles(),
             clone_mode=self.clone_mode,
             category=self.category,
+            model=self.model,
         )

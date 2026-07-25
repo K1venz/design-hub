@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from design_hub.domain.enums import ModelName
+
 
 @dataclass(frozen=True)
 class ListingJobImageView:
@@ -21,6 +23,7 @@ class ListingJobSummary:
 
     job_id: str
     status: str
+    model: ModelName
     platform: str | None
     ratio: str
     n: int
@@ -37,6 +40,7 @@ class ListingJobDetail:
     """历史详情（元数据 + 全部候选图 + 输入图 key）。"""
 
     job_id: str
+    model: ModelName
     prompt: str
     modifiers: dict[str, str]
     platform: str | None

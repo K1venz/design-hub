@@ -30,9 +30,10 @@ from design_hub.application.listing.requests import (
     EditRequest,
     ListingGenerateRequest,
 )
-from design_hub.application.listing.sizing import ratio_to_size
+from design_hub.application.listing.sizing import generation_size, ratio_to_size
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.rate_limit import ThrottledCommand, UserRateLimiter
+from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import AuthUser, ReferenceImage
 from design_hub.ports.events import EventPublisher
@@ -113,14 +114,21 @@ class ListingJobLauncher:
             if req.edit_mode == "delta" and req.ratio is not None:
                 raise ValueError("微调会沿用原图比例，如需修改比例请改用「重做」")
 
-    async def launch_generate(self, user: AuthUser, req: ListingGenerateRequest) -> str:
+    async def launch_generate(
+        self,
+        user: AuthUser,
+        req: ListingGenerateRequest,
+        *,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> str:
         """listing 出图（单图 n / 套图 plan 互斥，PRD §3.12.14）：入队返回 job_id。"""
         # 边界 fail-fast（ISSUE-0024）：入队前同步校验完所有输入，任一非法 → 4xx，不入队。
         self.validate(user, req)
+        generation_size(model, req.ratio)
         overlay = tuple(req.overlay_texts) if req.overlay_texts else ()
         # 参考图按 provider 模态物化（ISSUE-0065）：url 模态签公网 URL、bytes 模态载字节。
         # load() 对非法格式→400、缺文件→404（url 模态下 owner 校验已在 validate 完成）。
-        mode = self.service.reference_mode()
+        mode = self.service.reference_mode(model)
         images = tuple([await self._ref_from_upload(uid, mode) for uid in req.upload_ids])
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：5 单/分 + ≤2 in-flight，超限 429
         job_id = uuid.uuid4().hex
@@ -138,6 +146,7 @@ class ListingJobLauncher:
             plan=req.plan,
             overlay_texts=overlay,
             category=req.category,
+            model=model,
         )
         throttled = ThrottledCommand(
             inner=command, limiter=self.rate_limiter, user_id=user.user_id
@@ -145,12 +154,19 @@ class ListingJobLauncher:
         await self.queue.enqueue(job_id=job_id, command=throttled)
         return job_id
 
-    async def launch_clone(self, user: AuthUser, req: CloneRequest) -> str:
+    async def launch_clone(
+        self,
+        user: AuthUser,
+        req: CloneRequest,
+        *,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> str:
         """爆款图复刻（PRD §3.13）：产品图==1 + 爆款参考图 1..2，两档复刻，返回 job_id。"""
         # 边界 fail-fast（ISSUE-0024 口径）：入队前同步校验完所有输入。
         self.validate(user, req)
+        generation_size(model, req.ratio)
         ordered_ids = [*req.product_upload_ids, *req.reference_upload_ids]  # 产品前·参考后=角色契约
-        mode = self.service.reference_mode()  # 参考图模态物化（ISSUE-0065）
+        mode = self.service.reference_mode(model)  # 参考图模态物化（ISSUE-0065）
         loaded = [await self._ref_from_upload(uid, mode) for uid in ordered_ids]
         self.rate_limiter.acquire(user.user_id)  # 频控（A-4）：与 generate 同闸（计费动作统一限）
         job_id = uuid.uuid4().hex
@@ -167,6 +183,7 @@ class ListingJobLauncher:
             ratio=req.ratio,
             category=req.category,
             clone_mode=req.clone_mode,
+            model=model,
         )
         throttled = ThrottledCommand(
             inner=command, limiter=self.rate_limiter, user_id=user.user_id
@@ -174,7 +191,13 @@ class ListingJobLauncher:
         await self.queue.enqueue(job_id=job_id, command=throttled)
         return job_id
 
-    async def launch_edit(self, user: AuthUser, req: EditRequest) -> str:
+    async def launch_edit(
+        self,
+        user: AuthUser,
+        req: EditRequest,
+        *,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> str:
         """二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。
 
         源图=唯一不透明 handle（source_image_key），owner/parent 链全部服务端反解；
@@ -188,7 +211,7 @@ class ListingJobLauncher:
         if source is None:
             raise NotFoundError(f"源图不存在或无权访问：{req.source_image_key}")
         ratio = req.ratio if req.ratio is not None else source.parent_ratio  # full 显式可覆盖
-        ratio_to_size(ratio)
+        generation_size(model, ratio)
         # modifiers 叠新（R3）：父语境为底、本轮覆盖；组装与落库同用 effective（每单自包含）。
         # 继承值同样过 registry：父历史值若已被收窄下架 → 400 如实报错，不静默剔除。
         effective = {**source.parent_modifiers, **req.modifiers}
@@ -198,7 +221,7 @@ class ListingJobLauncher:
         )
         # 载图按 provider 模态物化（ISSUE-0065）：源图=generate 桶、链根锚=uploads 桶
         # （keys 来自 DB 可信）；url 模态各签公网 URL 不载字节，bytes 模态各载字节。
-        mode = self.service.reference_mode()
+        mode = self.service.reference_mode(model)
         source_image = await self._ref_from_generated(req.source_image_key, mode)
         anchors = tuple(
             [await self._ref_from_upload(k, mode) for k in source.root_product_upload_keys]
@@ -219,6 +242,7 @@ class ListingJobLauncher:
             source_image_key=req.source_image_key,
             ratio=ratio,
             edit_mode=req.edit_mode,
+            model=model,
         )
         throttled = ThrottledCommand(
             inner=command, limiter=self.rate_limiter, user_id=user.user_id

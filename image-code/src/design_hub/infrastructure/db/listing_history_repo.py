@@ -34,6 +34,7 @@ class SqlAlchemyListingHistory(ListingHistory):
                 modifiers=dict(job.modifiers),
                 platform=job.modifiers.get("platform"),
                 category=job.category,
+                model=job.model.value,
                 ratio=job.ratio,
                 size=job.size,
                 n=job.n,

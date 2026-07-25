@@ -75,6 +75,7 @@ class ListingJobStart:
     edit_mode: str | None = None  # delta|full
     # 品类保真档（ISSUE-0060）：generate/clone 各自品类；edit=None（继承链根语境，不重述品类）
     category: str | None = None
+    model: ModelName = ModelName.GPT_IMAGE_2
 
 
 @dataclass(frozen=True)
