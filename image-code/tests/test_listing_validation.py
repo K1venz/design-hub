@@ -183,6 +183,7 @@ class _ModeProvider(AbstractModelProvider):
     def __init__(self, name: ModelName, reference_mode: ReferenceMode) -> None:
         self.name = name
         self.reference_mode = reference_mode
+        self.calls: list[dict[str, object]] = []
 
     async def generate(
         self,
@@ -195,7 +196,21 @@ class _ModeProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
-        raise AssertionError("launcher test must not execute the queued command")
+        self.calls.append(
+            {
+                "reference_images": reference_images,
+                "size": size,
+                "n": n,
+            }
+        )
+        return [
+            GeneratedImage(
+                url=f"mock://{self.name}/{seed or 0}.png",
+                seed=seed or 0,
+                latency_ms=1,
+                cost=self.unit_cost,
+            )
+        ]
 
 
 class _BytesUploadStore(UploadStore):
@@ -265,6 +280,48 @@ def _launcher() -> tuple[ListingJobLauncher, _CapturingQueue]:
         media_signer=object(),  # type: ignore[arg-type]
     )
     return launcher, queue
+
+
+def test_4k_model_reaches_4k_provider_and_listing_result() -> None:
+    async def _impl() -> None:
+        registry = ProviderRegistry()
+        standard = _ModeProvider(ModelName.GPT_IMAGE_2, "url")
+        four_k = _ModeProvider(ModelName.GPT_IMAGE_2_4K, "bytes")
+        registry.register(standard)
+        registry.register(four_k)
+        service = ListingGenerationService(
+            registry=registry,
+            guard=CostGuard(ledger=_NoopLedger(), policy=BudgetPolicy()),
+            modifier_registry=PromptModifierRegistry(),
+            card_registry=CategoryCardRegistry(),
+            type_registry=ImageTypeRegistry(),
+            clone_registry=CloneModeRegistry(),
+            edit_registry=EditModeRegistry(),
+        )
+        reference = ReferenceImage(data=b"product")
+
+        result = await service.generate(
+            prompt="商品主图",
+            modifiers={},
+            images=(reference,),
+            ratio="16:9",
+            user_id="u1",
+            category=None,
+            model=ModelName.GPT_IMAGE_2_4K,
+            n=1,
+        )
+
+        assert standard.calls == []
+        assert four_k.calls == [
+            {
+                "reference_images": [reference],
+                "size": (3840, 2160),
+                "n": 1,
+            }
+        ]
+        assert result.used_model is ModelName.GPT_IMAGE_2_4K
+
+    asyncio.run(_impl())
 
 
 def _captured_inner(queue: _CapturingQueue) -> GenerationCommand:
