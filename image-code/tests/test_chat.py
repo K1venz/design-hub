@@ -84,9 +84,15 @@ class _FakeLedger(LedgerRepository):
 
 
 class _FakeModelConfig(ModelConfigRepository):
-    def __init__(self) -> None:
+    def __init__(self, *, four_k_enabled: bool = True) -> None:
         self._c = [
-            ModelConfigRecord("gpt-image-2", Decimal("0.40"), enabled=True, extra={}),
+            ModelConfigRecord("gpt-image-2", Decimal("0.05"), enabled=True, extra={}),
+            ModelConfigRecord(
+                "gpt-image-2-4k",
+                Decimal("0.18"),
+                enabled=four_k_enabled,
+                extra={},
+            ),
             ModelConfigRecord("seedream-5", Decimal("0.20"), enabled=False, extra={}),
         ]
 
@@ -314,12 +320,19 @@ class Infra:
         )
 
 
-async def _infra(tmp: str, *, max_session_jobs: int = 5) -> Infra:
+async def _infra(
+    tmp: str, *, max_session_jobs: int = 5, four_k_enabled: bool = True
+) -> Infra:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     sf = async_sessionmaker(engine, expire_on_commit=False)
-    registry = build_mock_registry()
+    registry = build_mock_registry(
+        {
+            ModelName.GPT_IMAGE_2: Decimal("0.0500"),
+            ModelName.GPT_IMAGE_2_4K: Decimal("0.1800"),
+        }
+    )
     service = ListingGenerationService(
         registry=registry, guard=CostGuard(ledger=_FakeLedger(), policy=BudgetPolicy()),
         modifier_registry=PromptModifierRegistry(), card_registry=CategoryCardRegistry(),
@@ -338,7 +351,8 @@ async def _infra(tmp: str, *, max_session_jobs: int = 5) -> Infra:
     )
     return Infra(
         launcher, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
-        PendingStore(), query, ledger, _FakeModelConfig(), max_session_jobs,
+        PendingStore(), query, ledger, _FakeModelConfig(four_k_enabled=four_k_enabled),
+        max_session_jobs,
     )
 
 
@@ -370,14 +384,116 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
         assert _first(ev, "tool_call")["tool"] == "generate"
         cc = _first(ev, "cost_confirm")
         assert cc["count"] == 5
-        unit = inf.registry.get(ModelName.GPT_IMAGE_2).unit_cost
-        assert cc["estimate_cny"] == str(unit * 5)  # 与工作台同源(#884③)
-        assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
+        assert cc["unit_cost"] == "0.05"
+        assert cc["estimate_cny"] == "0.25"
         sid = _first(ev, "session")["session_id"]
+        assert inf.pending._pending[sid].model is ModelName.GPT_IMAGE_2
+        assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
         # 费用闸：确认前 DB 无 job(未出图);user 消息已落、assistant 未落(答复留到 confirm)
         assert await inf.chat_repo.job_count(sid) == 0
         t = await inf.chat_repo.get_transcript(sid, USER.user_id)
         assert t is not None and [m.role for m in t.messages] == ["user"]
+
+    asyncio.run(_impl())
+
+
+def test_4k_tool_call_uses_real_price_ratio_and_pending_model(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        events = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, ratio="1:1", n=1)))).handle_message(
+                USER, None, "生成一张 4K 主图", [uid]
+            )
+        )
+
+        session_id = _first(events, "session")["session_id"]
+        confirm = _first(events, "cost_confirm")
+        assert confirm["unit_cost"] == "0.18"
+        assert confirm["estimate_cny"] == "0.18"
+        assert confirm["args"]["ratio"] == "16:9"
+        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2_4K
+
+    asyncio.run(_impl())
+
+
+def test_4k_conflicting_ratio_stops_before_cost_pending_or_job(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        events = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, ratio="4:3", n=1)))).handle_message(
+                USER, None, "生成 4K，比例 4:3", [uid]
+            )
+        )
+
+        session_id = _first(events, "session")["session_id"]
+        event_types = [event_type for event_type, _data in events]
+        text = "".join(
+            data.get("text", "")
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+        assert text == (
+            "4K 当前仅支持 16:9 横版（3840×2160）。"
+            "你可以选择继续生成 4K 16:9，或取消 4K 后按本次指定比例生成。"
+        )
+        assert "tool_call" not in event_types
+        assert "cost_confirm" not in event_types
+        assert session_id not in inf.pending._pending
+        assert await inf.chat_repo.job_count(session_id) == 0
+
+    asyncio.run(_impl())
+
+
+@pytest.mark.parametrize(
+    ("registry_available", "four_k_enabled"),
+    [(True, False), (False, True)],
+)
+def test_unavailable_4k_stops_before_cost_pending_or_job(
+    tmp_path, registry_available: bool, four_k_enabled: bool
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path), four_k_enabled=four_k_enabled)
+        if not registry_available:
+            standard_only = ProviderRegistry()
+            standard_only.register(inf.registry.get(ModelName.GPT_IMAGE_2))
+            inf.registry = standard_only
+        uid = await _stage(inf)
+        events = await _drain(
+            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
+                USER, None, "生成 4K 主图", [uid]
+            )
+        )
+
+        session_id = _first(events, "session")["session_id"]
+        event_types = [event_type for event_type, _data in events]
+        text = "".join(
+            data.get("text", "")
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+        assert text == "4K 当前不可用，请取消 4K 后使用普通出图。"
+        assert "cost_confirm" not in event_types
+        assert session_id not in inf.pending._pending
+        assert await inf.chat_repo.job_count(session_id) == 0
+
+    asyncio.run(_impl())
+
+
+def test_4k_capability_question_without_write_tool_does_not_create_pending(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        events = await _drain(
+            inf.orch(StubTextLLM(("4K 当前支持 16:9 横版。", ()))).handle_message(
+                USER, None, "4K 支持什么比例？", []
+            )
+        )
+
+        session_id = _first(events, "session")["session_id"]
+        assert "cost_confirm" not in [event_type for event_type, _data in events]
+        assert session_id not in inf.pending._pending
+        assert await inf.chat_repo.job_count(session_id) == 0
 
     asyncio.run(_impl())
 
@@ -570,6 +686,114 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
     asyncio.run(_impl())
 
 
+def test_4k_confirm_launches_with_pending_model_snapshot(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        launched_models: list[ModelName] = []
+        original_launch = inf.launcher.launch_generate
+
+        async def _record_launch(
+            user: AuthUser,
+            req: ListingGenerateRequest,
+            *,
+            model: ModelName = ModelName.GPT_IMAGE_2,
+        ) -> str:
+            launched_models.append(model)
+            return await original_launch(user, req, model=model)
+
+        inf.launcher.launch_generate = _record_launch  # type: ignore[method-assign]
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        planned = await _drain(
+            orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
+        )
+        session_id = _first(planned, "session")["session_id"]
+        token = _first(planned, "cost_confirm")["confirm_token"]
+
+        confirmed = await _drain(
+            orch.handle_confirm(USER, session_id, token, "confirm")
+        )
+
+        assert launched_models == [ModelName.GPT_IMAGE_2_4K]
+        assert "job_started" in [event_type for event_type, _data in confirmed]
+
+    asyncio.run(_impl())
+
+
+def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
+    tmp_path,
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        edit_call = (
+            ToolCall(
+                id="edit-1",
+                name="edit",
+                arguments={
+                    "source_image_key": "model-guessed.png",
+                    "prompt": "把背景改成蓝色",
+                    "edit_mode": "delta",
+                },
+            ),
+        )
+        orch = inf.orch(
+            StubTextLLM(
+                ("", _gen_tc(uid, n=1)),
+                ("", edit_call),
+                ("", edit_call),
+            )
+        )
+        generated = await _drain(
+            orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
+        )
+        session_id = _first(generated, "session")["session_id"]
+        confirmed = await _drain(
+            orch.handle_confirm(
+                USER,
+                session_id,
+                _first(generated, "cost_confirm")["confirm_token"],
+                "confirm",
+            )
+        )
+        detail = await inf.query.get_job(
+            job_id=_first(confirmed, "job_started")["job_id"],
+            user_id=USER.user_id,
+        )
+        assert detail is not None
+        source_image_key = detail.images[0].image_key
+
+        standard_edit = await _drain(
+            orch.handle_message(
+                USER,
+                session_id,
+                "把背景改成蓝色",
+                [],
+                edit_source_image_key=source_image_key,
+            )
+        )
+        standard_confirm = _first(standard_edit, "cost_confirm")
+        assert standard_confirm["unit_cost"] == "0.05"
+        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2
+
+        four_k_edit = await _drain(
+            orch.handle_message(
+                USER,
+                session_id,
+                "继续改成蓝色，保持 4K",
+                [],
+                edit_source_image_key=source_image_key,
+            )
+        )
+        four_k_confirm = _first(four_k_edit, "cost_confirm")
+        assert four_k_confirm["unit_cost"] == "0.18"
+        assert four_k_confirm["args"]["ratio"] == "16:9"
+        assert four_k_confirm["args"]["edit_mode"] == "full"
+        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2_4K
+
+    asyncio.run(_impl())
+
+
 def test_confirm_token_is_one_time(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
@@ -603,6 +827,20 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        launch_calls = 0
+        original_launch = inf.launcher.launch_generate
+
+        async def _record_launch(
+            user: AuthUser,
+            req: ListingGenerateRequest,
+            *,
+            model: ModelName = ModelName.GPT_IMAGE_2,
+        ) -> str:
+            nonlocal launch_calls
+            launch_calls += 1
+            return await original_launch(user, req, model=model)
+
+        inf.launcher.launch_generate = _record_launch  # type: ignore[method-assign]
         msg = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         sid = _first(msg, "session")["session_id"]
         tok = _first(msg, "cost_confirm")["confirm_token"]
@@ -611,6 +849,7 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         assert canc[-1] == ("assistant_end", {"status": "complete"})
         after = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         assert any(t == "error" and d["code"] == "invalid_confirm_token" for t, d in after)
+        assert launch_calls == 0
 
     asyncio.run(_impl())
 
@@ -796,7 +1035,15 @@ def _req() -> ListingGenerateRequest:
 
 def test_pending_take_one_time_and_mismatch_preserves() -> None:
     p = PendingStore()
-    action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
+    action = p.new(
+        "s1",
+        tool="generate",
+        req=_req(),
+        count=1,
+        estimate=Decimal("0.4"),
+        model=ModelName.GPT_IMAGE_2_4K,
+    )
+    assert action.model is ModelName.GPT_IMAGE_2_4K
     assert p.take("s1", "wrong") is None  # 不匹配不消费
     assert p.take("s1", action.confirm_token) is action  # 真 token 仍在
     assert p.take("s1", action.confirm_token) is None  # 一次性，二次拒
@@ -804,14 +1051,28 @@ def test_pending_take_one_time_and_mismatch_preserves() -> None:
 
 def test_pending_take_expired() -> None:
     p = PendingStore(ttl_seconds=-1.0)  # 立即过期
-    action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
+    action = p.new(
+        "s1",
+        tool="generate",
+        req=_req(),
+        count=1,
+        estimate=Decimal("0.4"),
+        model=ModelName.GPT_IMAGE_2,
+    )
     assert p.take("s1", action.confirm_token) is None  # 匹配但过期
     assert p.take("s1", action.confirm_token) is None  # 已消费
 
 
 def test_pending_clear() -> None:
     p = PendingStore()
-    action = p.new("s1", tool="generate", req=_req(), count=1, estimate=Decimal("0.4"))
+    action = p.new(
+        "s1",
+        tool="generate",
+        req=_req(),
+        count=1,
+        estimate=Decimal("0.4"),
+        model=ModelName.GPT_IMAGE_2,
+    )
     p.clear("s1")
     assert p.take("s1", action.confirm_token) is None
 
@@ -841,8 +1102,9 @@ def test_get_pricing_quota_reads_live_model_config(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         out = await inf.orch(StubTextLLM(("", ())))._tool_get_pricing_quota(USER)
-        assert "0.40" in out  # 实时价（非写死）
-        assert "gpt-image-2" in out and "seedream-5" not in out  # 只列 enabled
+        assert "普通出图 ¥0.05/张" in out
+        assert "4K 16:9 ¥0.18/张" in out
+        assert "gpt-image-2" not in out and "seedream-5" not in out
         assert "剩余" in out  # 额度真数据
 
     asyncio.run(_impl())

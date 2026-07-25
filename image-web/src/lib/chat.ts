@@ -146,7 +146,7 @@ export interface ChatState {
 }
 
 export const CHAT_WELCOME_COPY =
-  '我可以基于你上传的图片，制作任意品类的电商主图、场景图、卖点图、海报和 Logo/品牌视觉，也支持爆款复刻与二次编辑。上传至少 1 张图片，再告诉我想做什么即可。'
+  '我可以基于你上传的图片制作全品类主图、场景图、卖点图、海报、Logo/品牌视觉，也支持爆款复刻和连续编辑。普通出图支持多种比例；如需 4K，请在需求中明确写出“4K”，4K 当前仅支持 16:9 横版。上传至少 1 张图片，再告诉我想做什么即可。'
 
 export interface ChatInputKey {
   key: string
