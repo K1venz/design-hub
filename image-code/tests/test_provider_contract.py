@@ -9,6 +9,7 @@ import pytest
 
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_provider import ProviderError
 
@@ -18,7 +19,7 @@ def _provider() -> OpenAICompatImageProvider:
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
-        api_keys=["k"],
+        key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
     )
 
@@ -69,10 +70,10 @@ class _Concurrent429Client:
 
 
 def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
-    api_keys = kw.pop("api_keys", ["k"])
+    key_pool = kw.pop("key_pool", ApiKeyPool(("k",)))
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
-        base_url="https://example.invalid/v1", api_keys=api_keys, model="gpt-image-2",
+        base_url="https://example.invalid/v1", key_pool=key_pool, model="gpt-image-2",
         client=client, **kw,  # type: ignore[arg-type]
     )
 
@@ -155,7 +156,7 @@ def test_final_image_payload_injects_policy_once_before_task_and_negative(
 
 def test_requests_round_robin_across_configured_api_keys() -> None:
     client = _CapturingClient()
-    provider = _provider_with(client, api_keys=["first-key", "second-key"])
+    provider = _provider_with(client, key_pool=ApiKeyPool(("first-key", "second-key")))
 
     asyncio.run(_run(provider, refs=[]))
     asyncio.run(_run(provider, refs=[]))
@@ -170,7 +171,7 @@ def test_retry_switches_to_next_api_key() -> None:
     client = _CapturingClient([429, 200])
     provider = _provider_with(
         client,
-        api_keys=["first-key", "second-key"],
+        key_pool=ApiKeyPool(("first-key", "second-key")),
         max_retries=1,
         retry_backoff=0.0,
         retry_max_sleep=0.0,
@@ -188,7 +189,7 @@ def test_concurrent_retries_each_switch_away_from_its_starting_key() -> None:
     client = _Concurrent429Client()
     provider = _provider_with(
         client,
-        api_keys=["first-key", "second-key"],
+        key_pool=ApiKeyPool(("first-key", "second-key")),
         max_retries=1,
         retry_backoff=0.0,
         retry_max_sleep=0.0,
@@ -206,6 +207,30 @@ def test_concurrent_retries_each_switch_away_from_its_starting_key() -> None:
         "request-a": ["Bearer first-key", "Bearer second-key"],
         "request-b": ["Bearer second-key", "Bearer first-key"],
     }
+
+
+def test_shared_pool_distributes_new_requests_across_providers() -> None:
+    """共享池游标错误地留在各 Provider 内部时，此用例会失败。"""
+    pool = ApiKeyPool(("key-a", "key-b", "key-c"))
+
+    first = pool.reserve()
+    second = pool.reserve()
+
+    assert pool.key_for(first, 0) == "key-a"
+    assert pool.key_for(second, 0) == "key-b"
+    assert pool.key_for(first, 1) == "key-b"
+
+
+def test_api_key_pool_rejects_empty_keys() -> None:
+    with pytest.raises(ValueError, match="API key"):
+        ApiKeyPool(())
+
+
+def test_api_key_pool_repr_does_not_expose_secrets() -> None:
+    pool = ApiKeyPool(("secret-a", "secret-b"))
+
+    assert "secret-a" not in repr(pool)
+    assert "secret-b" not in repr(pool)
 
 
 def test_empty_config_sends_neither_param() -> None:

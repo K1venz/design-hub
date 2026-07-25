@@ -13,6 +13,7 @@ from design_hub.application.registry import ProviderRegistry
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.auth.rsa_cipher import RsaPasswordCipher
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
@@ -118,7 +119,7 @@ def build_gpt_image_provider(
             name=ModelName.GPT_IMAGE_2,
             unit_cost=unit_cost,
             base_url=base_url,
-            api_keys=api_keys,
+            key_pool=ApiKeyPool(tuple(api_keys)),
             model=model,
             image_store=image_store,  # download_url 拉回字节落存（异步端点只回 URL）
             input_fidelity=settings.gpt_image_input_fidelity,  # 保真核心（edits 保留阴影/文字）
@@ -133,8 +134,8 @@ def build_gpt_image_provider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=unit_cost,
         base_url=base_url,
-        # 多 key 逗号分隔；provider 按请求 round-robin 分发（缓解单 key 限流）
-        api_keys=api_keys,
+        # 多 key 逗号分隔；共享池按逻辑请求 round-robin 分发（缓解单 key 限流）
+        key_pool=ApiKeyPool(tuple(api_keys)),
         model=model,
         # 出图协议增强（apinebula 文档，coordinator #1092）：edits 保真 + b64 自包含返回
         input_fidelity=settings.gpt_image_input_fidelity,
