@@ -5,6 +5,7 @@ import {
   applyChatEvent,
   pushUserMessage,
   clearAwaiting,
+  consumeChatEditSource,
   CHAT_WELCOME_COPY,
   editSourceFromSlot,
   initialChatState,
@@ -74,6 +75,23 @@ describe('chat result image actions', () => {
 
   it('rejects preview for an unfinished result slot', () => {
     expect(previewImageFromSlot({ url: null })).toBeNull()
+  })
+
+  it('captures the selected key for one send and clears the composer selection', () => {
+    const selected = {
+      url: 'https://img/result.png',
+      imageKey: 'result.png',
+      imageType: '场景',
+    }
+
+    expect(consumeChatEditSource(selected)).toEqual({
+      editSourceImageKey: 'result.png',
+      nextSelection: null,
+    })
+    expect(consumeChatEditSource(null)).toEqual({
+      editSourceImageKey: undefined,
+      nextSelection: null,
+    })
   })
 })
 
