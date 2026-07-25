@@ -65,6 +65,13 @@ def _decimal_text(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
+def _pricing_capability(label: str, unit_cost: Decimal, remaining: Decimal) -> str:
+    affordable = (
+        f"（余额约可生成 {int(remaining / unit_cost)} 张）" if unit_cost else ""
+    )
+    return f"{label} ¥{_decimal_text(unit_cost)}/张{affordable}"
+
+
 @dataclass(frozen=True)
 class ChatEvent:
     """对话流事件（路由序列化为 SSE：event: <type>\\ndata: <json>）。"""
@@ -255,6 +262,7 @@ class ChatOrchestrator:
         # 工具化 tool-use 循环（A3）：读工具即时执行→结果回喂→再问 LLM；写工具→费用闸；纯文本→收尾。
         for _ in range(_MAX_TOOL_ITERS):
             assistant_text = ""
+            assistant_chunks: list[str] = []
             tool_calls: tuple[ToolCall, ...] = ()
             try:
                 async for chunk in self.text_llm.complete(
@@ -262,7 +270,7 @@ class ChatOrchestrator:
                 ):
                     if isinstance(chunk, TextChunk):
                         assistant_text += chunk.text
-                        yield ChatEvent("assistant_delta", {"text": chunk.text})
+                        assistant_chunks.append(chunk.text)
                     else:
                         tool_calls = chunk.tool_calls
             except TextLLMError as exc:
@@ -271,6 +279,8 @@ class ChatOrchestrator:
                 return
 
             if not tool_calls:  # 纯文本（澄清/答复/顾问建议）：落 assistant 转录，收尾
+                for text in assistant_chunks:
+                    yield ChatEvent("assistant_delta", {"text": text})
                 await self.chat_repo.append_message(
                     session_id=session_id, role="assistant", content=assistant_text
                 )
@@ -279,6 +289,8 @@ class ChatOrchestrator:
 
             call = tool_calls[0]  # MVP：一轮一工具
             if call.name in _READ_TOOLS:  # 读工具：owner-scoped 即时执行回喂（护栏③；不落库）
+                for text in assistant_chunks:
+                    yield ChatEvent("assistant_delta", {"text": text})
                 yield ChatEvent("step", {"phase": "querying", "detail": "正在查询"})
                 result = await self._run_read_tool(user, call)
                 llm_messages.append(
@@ -551,30 +563,31 @@ class ChatOrchestrator:
         capabilities: list[str] = []
         standard_config = by_name.get(ModelName.GPT_IMAGE_2.value)
         four_k_config = by_name.get(ModelName.GPT_IMAGE_2_4K.value)
+        snap = await self.ledger.snapshot(user.user_id)
+        remaining = snap.user_monthly_quota - snap.user_month_used
         if (
             standard_config is not None
             and standard_config.enabled
             and ModelName.GPT_IMAGE_2 in self.registry
         ):
             standard_cost = standard_config.unit_cost
-            capabilities.append(f"普通出图 ¥{_decimal_text(standard_cost)}/张")
-        else:
-            standard_cost = Decimal(0)
+            capabilities.append(
+                _pricing_capability("普通出图", standard_cost, remaining)
+            )
         if (
             four_k_config is not None
             and four_k_config.enabled
             and ModelName.GPT_IMAGE_2_4K in self.registry
         ):
             four_k_cost = four_k_config.unit_cost
-            capabilities.append(f"4K 16:9 ¥{_decimal_text(four_k_cost)}/张")
-        snap = await self.ledger.snapshot(user.user_id)
-        remaining = snap.user_monthly_quota - snap.user_month_used
-        approx = int(remaining / standard_cost) if standard_cost else 0
+            capabilities.append(
+                _pricing_capability("4K 16:9", four_k_cost, remaining)
+            )
         capability_text = "、".join(capabilities) or "暂无可用出图能力"
         return (
             f"价格（管理员实时配置）：{capability_text}。\n"
             f"该用户额度：已用 ¥{snap.user_month_used} / 额度 ¥{snap.user_monthly_quota}，"
-            f"剩余约 ¥{remaining}（≈ {approx} 张）。\n当前内测期间，未开放公开充值。"
+            f"剩余约 ¥{remaining}。\n当前内测期间，未开放公开充值。"
         )
 
     @staticmethod
