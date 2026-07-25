@@ -10,7 +10,9 @@ import pytest
 
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
+from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.model_provider import ProviderError, ProviderTimeout
 
@@ -49,17 +51,23 @@ class _ScriptedClient:
     """POST→submit 响应并记 payload；GET→按 URL 路由（download_url 走下载、否则弹轮询序列）。"""
 
     def __init__(
-        self, *, submit: httpx.Response, polls: list[httpx.Response], download: httpx.Response
+        self,
+        *,
+        submit: httpx.Response | list[httpx.Response],
+        polls: list[httpx.Response],
+        download: httpx.Response,
     ) -> None:
-        self._submit = submit
+        self._submit = list(submit) if isinstance(submit, list) else [submit]
         self._polls = list(polls)
         self._download = download
         self.post_payloads: list[Any] = []
+        self.post_headers: list[dict[str, str]] = []
         self.get_headers: list[Any] = []
 
     async def post(self, url: str, **kw: Any) -> httpx.Response:
         self.post_payloads.append(kw.get("json"))
-        return self._submit
+        self.post_headers.append(kw.get("headers", {}))
+        return self._submit.pop(0)
 
     async def get(self, url: str, **kw: Any) -> httpx.Response:
         self.get_headers.append(kw.get("headers"))
@@ -81,13 +89,16 @@ def _provider(client: object, **kw: Any) -> AsyncImageTasksProvider:
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://api.example/v1",
-        api_keys=["k"],
+        key_pool=kw.pop("key_pool", ApiKeyPool(("k",))),
         model="gpt-image-2",
         image_store=kw.pop("image_store", _FakeImageStore()),
         input_fidelity=kw.pop("input_fidelity", "high"),
         client=client,  # type: ignore[arg-type]
         poll_interval=0.001,
         poll_max_elapsed=kw.pop("poll_max_elapsed", 5.0),
+        submit_max_retries=kw.pop("submit_max_retries", 0),
+        submit_backoff=kw.pop("submit_backoff", 0.0),
+        submit_max_sleep=kw.pop("submit_max_sleep", 0.0),
     )
 
 
@@ -157,6 +168,77 @@ def test_generations_omits_images_key_when_no_refs() -> None:
     )
     asyncio.run(_gen(_provider(client), []))
     assert "images" not in client.post_payloads[0]
+
+
+def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
+    """若 Provider 仍维护独立游标，两次首发都会使用 key-a。"""
+    pool = ApiKeyPool(("key-a", "key-b"))
+    normal_client = _NormalSuccessClient()
+    task_client = _ScriptedClient(
+        submit=_submit_ok(), polls=[_poll("completed", [_CDN])], download=_download()
+    )
+    normal = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.40"),
+        base_url="https://api.example/v1",
+        key_pool=pool,
+        model="gpt-image-2",
+        client=normal_client,  # type: ignore[arg-type]
+    )
+    tasks = _provider(task_client, key_pool=pool)
+
+    async def run() -> None:
+        await normal.generate(
+            prompt="normal request",
+            negative_prompt="",
+            reference_images=[],
+            size=(1024, 1024),
+            n=1,
+        )
+        await _gen(tasks, [])
+
+    asyncio.run(run())
+
+    assert normal_client.headers == [{"Authorization": "Bearer key-a"}]
+    assert task_client.post_headers == [{"Authorization": "Bearer key-b"}]
+    assert task_client.get_headers == [
+        {"Authorization": "Bearer key-b"},
+        {},
+    ]
+
+
+def test_submit_retry_rotates_key_but_polling_keeps_request_reservation() -> None:
+    """若 submit 重试或轮询推动全局游标，会用错 key 或影响下一个逻辑请求。"""
+    client = _ScriptedClient(
+        submit=[httpx.Response(429, text="busy"), _submit_ok()],
+        polls=[_poll("completed", [_CDN])],
+        download=_download(),
+    )
+    provider = _provider(
+        client,
+        key_pool=ApiKeyPool(("key-a", "key-b")),
+        submit_max_retries=1,
+    )
+
+    asyncio.run(_gen(provider, []))
+
+    assert client.post_headers == [
+        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
+    ]
+    assert client.get_headers == [
+        {"Authorization": "Bearer key-a"},
+        {},
+    ]
+
+
+class _NormalSuccessClient:
+    def __init__(self) -> None:
+        self.headers: list[dict[str, str]] = []
+
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.headers.append(kwargs["headers"])
+        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
 
 
 @pytest.mark.parametrize("refs", [[], [ReferenceImage(url="https://sig/u1.png")]])

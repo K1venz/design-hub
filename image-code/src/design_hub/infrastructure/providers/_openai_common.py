@@ -20,10 +20,9 @@ def raise_for_status(name: ModelName, response: httpx.Response) -> None:
     code = response.status_code
     if 200 <= code < 300:
         return
-    snippet = response.text[:200]
     if code == 429 or code >= 500:
-        raise ProviderTimeout(f"{name} {code}: {snippet}")
-    raise DomainError(f"{name} {code} (不切备): {snippet}")
+        raise ProviderTimeout(f"{name} {code}")
+    raise DomainError(f"{name} {code} (不切备)")
 
 
 def retry_sleep(attempt: int, *, backoff: float, max_sleep: float) -> float:

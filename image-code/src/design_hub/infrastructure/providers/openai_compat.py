@@ -13,6 +13,7 @@ from design_hub.infrastructure.providers._openai_common import (
     raise_for_status,
     retry_sleep,
 )
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
@@ -38,7 +39,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         name: ModelName,
         unit_cost: Decimal,
         base_url: str,
-        api_keys: list[str],
+        key_pool: ApiKeyPool,
         model: str,
         input_fidelity: str = "",
         response_format: str = "",
@@ -54,10 +55,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self.name = name
         self.unit_cost = unit_cost
         self._base_url = base_url.rstrip("/")
-        if not api_keys:
-            raise ValueError("api_keys 不能为空")
-        self._api_keys = api_keys
-        self._key_idx = 0  # 多 key round-robin 游标
+        self._key_pool = key_pool
         self._model = model
         # 出图协议增强（apinebula 文档，coordinator #1092）：空串=不发该参数（保测/CI 旧行为）。
         # input_fidelity 仅 edits 端点发（保真）；response_format 两端点发（b64 自包含返回）。
@@ -97,14 +95,12 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         # 模态解引用（ISSUE-0065）：同步走字节；launcher 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
-        start_key_index = self._reserve_key_index()
+        start_key_index = self._key_pool.reserve()
         attempt = 0
         overall_start = time.perf_counter()
         while True:
             start = time.perf_counter()
-            api_key = self._api_keys[
-                (start_key_index + attempt) % len(self._api_keys)
-            ]
+            api_key = self._key_pool.key_for(start_key_index, attempt)
             try:
                 if ref_bytes:
                     response = await self._edit(
@@ -115,10 +111,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                         composed, size_str, n, quality, api_key=api_key
                     )
                 raise_for_status(self.name, response)  # 4xx→DomainError；5xx/429→ProviderTimeout
-            except httpx.TimeoutException as exc:
-                error: ProviderError = ProviderTimeout(f"{self.name} timeout: {exc}")
-            except httpx.HTTPError as exc:  # 连接/传输层错误
-                error = ProviderTimeout(f"{self.name} transport error: {exc}")
+            except httpx.TimeoutException:
+                error: ProviderError = ProviderTimeout(f"{self.name} timeout")
+            except httpx.HTTPError:  # 连接/传输层错误
+                error = ProviderTimeout(f"{self.name} transport error")
             except ProviderTimeout as exc:  # _raise_for_status 的 5xx/429（如"系统繁忙"）
                 error = exc
             else:
@@ -186,12 +182,6 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         return await self._request_multipart(
             f"{self._base_url}/images/edits", data, files, api_key=api_key
         )
-
-    def _reserve_key_index(self) -> int:
-        # 每个逻辑请求只从全局游标领取一次起点；其重试在自己的起点上顺序切 Key。
-        key_index = self._key_idx % len(self._api_keys)
-        self._key_idx += 1
-        return key_index
 
     async def _request_json(
         self, url: str, payload: dict[str, Any], *, api_key: str

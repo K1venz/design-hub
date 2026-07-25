@@ -24,6 +24,7 @@ from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_provider import ProviderTimeout
 
@@ -38,9 +39,13 @@ class _SequencedClient:
     def __init__(self, outcomes: list[object]) -> None:
         self._outcomes = list(outcomes)
         self.calls = 0
+        self.headers: list[dict[str, str]] = []
 
     async def post(self, *args: object, **kwargs: object) -> httpx.Response:
         self.calls += 1
+        headers = kwargs.get("headers")
+        assert isinstance(headers, dict)
+        self.headers.append(headers)
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, BaseException):
             raise outcome
@@ -49,14 +54,18 @@ class _SequencedClient:
 
 
 def _provider(
-    client: _SequencedClient, *, max_retries: int, retry_max_elapsed: float = 90.0
+    client: _SequencedClient,
+    *,
+    max_retries: int,
+    retry_max_elapsed: float = 90.0,
+    key_pool: ApiKeyPool | None = None,
 ) -> OpenAICompatImageProvider:
     # 退避设极小值，单测不真等；契约不依赖具体时长
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
-        api_keys=["k"],
+        key_pool=key_pool or ApiKeyPool(("k",)),
         model="gpt-image-2",
         client=client,  # type: ignore[arg-type]
         max_retries=max_retries,
@@ -126,12 +135,40 @@ def test_generate_retries_transient_network_error() -> None:
     assert client.calls == 2
 
 
+@pytest.mark.parametrize("retryable", [_500(), httpx.ConnectError("transport failed")])
+def test_retryable_failure_rotates_to_the_next_key(retryable: object) -> None:
+    client = _SequencedClient([retryable, _ok()])
+    provider = _provider(
+        client,
+        max_retries=1,
+        key_pool=ApiKeyPool(("key-a", "key-b")),
+    )
+
+    asyncio.run(_gen(provider))
+
+    assert client.headers == [
+        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
+    ]
+
+
+def test_transport_exception_does_not_expose_api_key() -> None:
+    secret = "secret-key-must-not-leak"
+    client = _SequencedClient([httpx.ConnectError(f"connection refused: {secret}")])
+    provider = _provider(client, max_retries=0, key_pool=ApiKeyPool((secret,)))
+
+    with pytest.raises(ProviderTimeout) as error:
+        asyncio.run(_gen(provider))
+
+    assert secret not in str(error.value)
+
+
 def test_retry_sleep_exponential_bounded_and_jittered() -> None:
     provider = OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
-        api_keys=["k"],
+        key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
         retry_backoff=2.0,
         retry_max_sleep=30.0,
