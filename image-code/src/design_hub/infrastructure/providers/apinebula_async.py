@@ -154,7 +154,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
     def _task_id_of(self, body: Any) -> str:
         task_id = body.get("task_id") or body.get("id") if isinstance(body, dict) else None
         if not task_id:
-            raise ProviderError(f"{self.name} submit 未返回 task_id：{body}")
+            raise ProviderError(f"{self.name} submit 未返回 task_id")
         return str(task_id)
 
     async def _poll(self, task_id: str, start: float, *, start_key_index: int) -> Any:
@@ -179,8 +179,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
                 return body
             if status == _STATUS_FAIL:
                 # MVP 不重投（coordinator 拍②）：failed=确定性终态，fail-closed 上抛，上游自动退款
-                message = (body.get("error") or {}).get("message") or "上游任务失败"
-                raise ProviderError(f"{self.name} 任务失败：{message}")
+                raise ProviderError(f"{self.name} 任务失败")
             # queued / in_progress（及其它非终态）→ 继续轮询
 
     async def _parse(
