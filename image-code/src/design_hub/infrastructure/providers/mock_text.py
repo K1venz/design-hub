@@ -19,9 +19,11 @@ from design_hub.ports.text_llm import (
 )
 
 _UPLOAD_RE = re.compile(r"upload_ids=([\w,\-/.]+)")  # id=<ns>/<sha>.<ext>，含 / 与 .
-_RATIO_RE = re.compile(r"(?<!\d)(1|3|9|16)\s*(?:[:：xX×]|比)\s*(1|4|16|9)(?!\d)")
-_AUTO_RATIO_RE = re.compile(r"自动比例=(1:1|3:4|9:16|16:9)")
-_SUPPORTED_RATIOS = frozenset({"1:1", "3:4", "9:16", "16:9"})
+_RATIO_RE = re.compile(
+    r"(?<!\d)(1|3|4|9|16)\s*(?:[:：xX×]|比)\s*(1|3|4|9|16)(?!\d)"
+)
+_AUTO_RATIO_RE = re.compile(r"自动比例=(1:1|3:4|4:3|9:16|16:9)")
+_SUPPORTED_RATIOS = frozenset({"1:1", "3:4", "4:3", "9:16", "16:9"})
 _DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7}
 
 
