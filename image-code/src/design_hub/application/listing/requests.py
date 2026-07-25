@@ -32,9 +32,8 @@ class ListingGenerateRequest(BaseModel):
     # 卖点图可选图上文案（≤2 条、每条 ≤12 字；仅 plan 含卖点时合法；verbatim 锁定压图）
     overlay_texts: list[str] | None = None
     modifiers: dict[str, str] = Field(default_factory=dict)
-    # 品类（PRD §3.12.11 / ISSUE-0060）：默认 FOOD；5 值枚举进 openapi 供前端 codegen；
-    # 选对应品类保真卡。非枚举值 → DTO 层拒（HTTP 422 / chat 澄清），launcher 卡链再兜底。
-    category: Category = "FOOD"
+    # 品类是结构化工作台的可选保真增强；无品类请求使用基础参考图保真规则。
+    category: Category | None = None
 
 
 class CloneRequest(BaseModel):
@@ -51,7 +50,7 @@ class CloneRequest(BaseModel):
     ratio: str
     prompt: str = ""  # 统一复刻要求，选填（空=合法，模板+产品图已承载语义）
     modifiers: dict[str, str] = Field(default_factory=dict)
-    category: Category = "FOOD"
+    category: Category | None = None
 
 
 class EditRequest(BaseModel):

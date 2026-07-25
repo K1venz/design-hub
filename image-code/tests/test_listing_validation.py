@@ -13,6 +13,7 @@ from design_hub.application.listing.prompt_composer import (
     compose_edit_prompt,
     compose_prompt,
 )
+from design_hub.application.listing.requests import ListingGenerateRequest
 from design_hub.application.listing.sizing import ratio_to_size
 
 _MR = PromptModifierRegistry()
@@ -21,6 +22,38 @@ _TR = ImageTypeRegistry()
 _CL = CloneModeRegistry()
 _ED = EditModeRegistry()
 _MODS = {"platform": "抖音电商", "language": "中文"}
+
+
+def test_category_is_optional_without_food_fallback() -> None:
+    from design_hub.application.listing.prompt_composer import _FOOD_FIDELITY
+
+    req = ListingGenerateRequest(
+        upload_ids=["u"], prompt="极简品牌海报", ratio="1:1", n=1
+    )
+    assert req.category is None
+
+    out = compose_prompt(
+        req.prompt,
+        {},
+        PromptModifierRegistry(),
+        category=req.category,
+        card_registry=CategoryCardRegistry(),
+    )
+    assert "参考图是画面主体的唯一事实来源" in out
+    assert _FOOD_FIDELITY not in out
+
+
+def test_explicit_category_keeps_specialized_fidelity() -> None:
+    from design_hub.application.listing.prompt_composer import _FOOD_FIDELITY
+
+    out = compose_prompt(
+        "清晨场景",
+        {},
+        PromptModifierRegistry(),
+        category="FOOD",
+        card_registry=CategoryCardRegistry(),
+    )
+    assert _FOOD_FIDELITY in out
 
 
 def _build(**kw):
@@ -75,6 +108,7 @@ def test_ratio_to_size_message_is_user_facing() -> None:
     [
         ("1:1", (1024, 1024)),
         ("3:4", (1152, 1536)),
+        ("4:3", (1536, 1152)),
         ("9:16", (864, 1536)),
         ("16:9", (1536, 864)),
     ],
@@ -93,10 +127,13 @@ def test_single_mode_no_image_type_block() -> None:
 
 
 def test_plan_mode_stable_order_and_blocks() -> None:
+    from design_hub.application.listing.prompt_composer import _BASE_REFERENCE_FIDELITY
+
     tasks = _build(plan={"白底": 1, "场景": 2, "卖点": 2}, overlay_texts=("高山七彩花生",))
     assert [t for t, _ in tasks] == ["白底", "场景", "场景", "卖点", "卖点"]
     by_type = dict(tasks)
-    assert by_type["白底"].startswith("产品绝对保真")  # 保真块在最前
+    assert by_type["白底"].startswith(_BASE_REFERENCE_FIDELITY)  # 基础保真块在最前
+    assert "产品绝对保真" in by_type["白底"]  # 显式 FOOD 继续叠加专项保真
     assert "图型·白底主图" in by_type["白底"]
     assert "「高山七彩花生」" in by_type["卖点"]  # 有字版模板填充
     no_overlay = dict(_build(plan={"白底": 1, "场景": 1, "卖点": 1}))
@@ -104,13 +141,16 @@ def test_plan_mode_stable_order_and_blocks() -> None:
 
 
 def test_white_bg_strips_user_styling_scene_selling_keep() -> None:
+    from design_hub.application.listing.prompt_composer import _BASE_REFERENCE_FIDELITY
+
     # ISSUE-0052 档A：白底剥离用户自由文本(prompt='春节红色背景'=强场景/背景描述)，
     # 场景/卖点保留；白底仍保 保真块 + 白底卡块 + modifiers。
     tasks = _build(plan={"白底": 1, "场景": 1, "卖点": 1})
     by_type = dict(tasks)
     white = by_type["白底"]
     assert "春节红色背景" not in white  # 白底剥离用户场景文本（防污染纯白背景）
-    assert white.startswith("产品绝对保真")  # 保真块保留、在最前
+    assert white.startswith(_BASE_REFERENCE_FIDELITY)  # 基础保真块保留、在最前
+    assert "产品绝对保真" in white  # 显式 FOOD 专项保真仍保留
     assert "图型·白底主图" in white  # 白底卡块保留
     assert "抖音电商" in white  # modifiers（平台/语言）保留
     assert "春节红色背景" in by_type["场景"]  # 场景不受损
@@ -127,9 +167,15 @@ def test_clone_prompt_optional_text_exact_assembly() -> None:
         "", {}, _MR, category="FOOD", card_registry=_CR,
         clone_registry=_CL, clone_mode="参考风格",
     )
-    from design_hub.application.listing.prompt_composer import _CLONE_REF_STYLE, _FOOD_FIDELITY
+    from design_hub.application.listing.prompt_composer import (
+        _BASE_REFERENCE_FIDELITY,
+        _CLONE_REF_STYLE,
+        _FOOD_FIDELITY,
+    )
 
-    assert out == _FOOD_FIDELITY + "\n" + _CLONE_REF_STYLE  # prompt 空=合法、精确拼接
+    assert out == (
+        _BASE_REFERENCE_FIDELITY + "\n" + _FOOD_FIDELITY + "\n" + _CLONE_REF_STYLE
+    )  # prompt 空=合法、基础保真→专项保真→复刻档
 
 
 def test_clone_prompt_order_with_text() -> None:

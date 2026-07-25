@@ -9,6 +9,7 @@ _ORIENTATIONS_THAT_SWAP_DIMENSIONS = frozenset({5, 6, 7, 8})
 _SUPPORTED_RATIOS = {
     "1:1": 1 / 1,
     "3:4": 3 / 4,
+    "4:3": 4 / 3,
     "9:16": 9 / 16,
     "16:9": 16 / 9,
 }
