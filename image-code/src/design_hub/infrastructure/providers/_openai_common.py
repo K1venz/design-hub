@@ -26,13 +26,6 @@ def raise_for_status(name: ModelName, response: httpx.Response) -> None:
     raise DomainError(f"{name} {code} (不切备): {snippet}")
 
 
-def compose_prompt(prompt: str, negative_prompt: str) -> str:
-    """gpt-image 协议无 negative 字段：把负面约束并入正向文本，避免信息丢失。"""
-    if not negative_prompt:
-        return prompt
-    return f"{prompt}\n（请避免：{negative_prompt}）"
-
-
 def retry_sleep(attempt: int, *, backoff: float, max_sleep: float) -> float:
     """指数退避 + equal-jitter 抖动（ISSUE-0047）：并发同时撞 429 时错峰去相关重发时刻。
     下界=backoff/2 保底退避量、上界=backoff 加随机扰动；max_sleep 封顶防指数失控。"""
