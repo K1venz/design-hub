@@ -298,8 +298,8 @@ export function parseListingEvent(type: string, rawData: string): ListingEvent {
   }
 }
 
-/** base gpt-image-2 单价 ¥0.40/张（PM 拍板 / 后端 model_config）。CTA 估算用，完成后显示真实 total_cost。 */
-export const LISTING_UNIT_COST = 0.4
+/** 普通 gpt-image-2 固定单价 ¥0.05/张。CTA 估算用，完成后显示真实 total_cost。 */
+export const LISTING_UNIT_COST = 0.05
 export function estimateCost(n: number): number {
   return n * LISTING_UNIT_COST
 }
