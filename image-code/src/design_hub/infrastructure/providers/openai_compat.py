@@ -6,10 +6,10 @@ from typing import Any
 
 import httpx
 
+from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
-    compose_prompt,
     raise_for_status,
     retry_sleep,
 )
@@ -93,7 +93,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
-        composed = compose_prompt(prompt, negative_prompt)
+        composed = compose_image_api_prompt(prompt, negative_prompt)
         # 模态解引用（ISSUE-0065）：同步走字节；launcher 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"

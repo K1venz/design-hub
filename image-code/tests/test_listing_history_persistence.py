@@ -69,6 +69,8 @@ def test_two_phase_lifecycle_in_progress_queryable_and_partial_failure() -> None
         detail = await query.get_job(job_id="j1", user_id="u1")
         assert detail is not None
         assert detail.status == "生成中"
+        assert detail.prompt == "春节红"
+        assert "【全局真实性与细节质量约束】" not in detail.prompt
         assert detail.completed_at is None
         assert detail.images == ()
         assert detail.total_cost == Decimal("0")

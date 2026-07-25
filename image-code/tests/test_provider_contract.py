@@ -52,7 +52,7 @@ class _Concurrent429Client:
 
     async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         payload = kwargs.get("json") or kwargs.get("data")
-        prompt = str(payload["prompt"])
+        prompt = str(payload["prompt"]).split("【本次生图要求】\n\n", 1)[1]
         authorization = str(kwargs["headers"]["Authorization"])
         attempts = self.headers_by_prompt.setdefault(prompt, [])
         attempts.append(authorization)
@@ -82,10 +82,14 @@ async def _run(provider: OpenAICompatImageProvider, *, refs: list[bytes]) -> Non
 
 
 async def _run_prompt(
-    provider: OpenAICompatImageProvider, *, prompt: str, refs: list[bytes]
+    provider: OpenAICompatImageProvider,
+    *,
+    prompt: str,
+    refs: list[bytes],
+    negative_prompt: str = "",
 ) -> None:
     await provider.generate(
-        prompt=prompt, negative_prompt="",
+        prompt=prompt, negative_prompt=negative_prompt,
         reference_images=[ReferenceImage(data=b) for b in refs], size=(1024, 1024), n=1,
     )
 
@@ -122,6 +126,31 @@ def test_generations_sends_response_format_but_not_input_fidelity() -> None:
     assert client.json_payload is not None
     assert client.json_payload["response_format"] == "b64_json"
     assert "input_fidelity" not in client.json_payload
+
+
+@pytest.mark.parametrize("refs", [[], [b"product"]])
+def test_final_image_payload_injects_policy_once_before_task_and_negative(
+    refs: list[bytes],
+) -> None:
+    client = _CapturingClient()
+    provider = _provider_with(client)
+
+    asyncio.run(
+        _run_prompt(
+            provider,
+            prompt="生成红色水杯",
+            negative_prompt="不要水印",
+            refs=refs,
+        )
+    )
+
+    payload = client.data_payload if refs else client.json_payload
+    assert payload is not None
+    prompt = str(payload["prompt"])
+    assert prompt.count("【全局真实性与细节质量约束】") == 1
+    assert prompt.count("生成红色水杯") == 1
+    assert prompt.index("生成红色水杯") < prompt.index("【需要避免】")
+    assert prompt.endswith("不要水印")
 
 
 def test_requests_round_robin_across_configured_api_keys() -> None:

@@ -92,10 +92,17 @@ def _provider(client: object, **kw: Any) -> AsyncImageTasksProvider:
 
 
 async def _gen(
-    provider: AsyncImageTasksProvider, refs: list[ReferenceImage]
+    provider: AsyncImageTasksProvider,
+    refs: list[ReferenceImage],
+    *,
+    negative_prompt: str = "",
 ) -> list:
     return await provider.generate(
-        prompt="p", negative_prompt="", reference_images=refs, size=(1536, 1024), n=1
+        prompt="生成红色水杯",
+        negative_prompt=negative_prompt,
+        reference_images=refs,
+        size=(1536, 1024),
+        n=1,
     )
 
 
@@ -150,6 +157,23 @@ def test_generations_omits_images_key_when_no_refs() -> None:
     )
     asyncio.run(_gen(_provider(client), []))
     assert "images" not in client.post_payloads[0]
+
+
+@pytest.mark.parametrize("refs", [[], [ReferenceImage(url="https://sig/u1.png")]])
+def test_submit_payload_injects_policy_once_before_task_and_negative(
+    refs: list[ReferenceImage],
+) -> None:
+    client = _ScriptedClient(
+        submit=_submit_ok(), polls=[_poll("completed", [_CDN])], download=_download()
+    )
+
+    asyncio.run(_gen(_provider(client), refs, negative_prompt="不要水印"))
+
+    prompt = str(client.post_payloads[0]["prompt"])
+    assert prompt.count("【全局真实性与细节质量约束】") == 1
+    assert prompt.count("生成红色水杯") == 1
+    assert prompt.index("生成红色水杯") < prompt.index("【需要避免】")
+    assert prompt.endswith("不要水印")
 
 
 def test_require_url_fails_fast_on_bytes_only_ref() -> None:
