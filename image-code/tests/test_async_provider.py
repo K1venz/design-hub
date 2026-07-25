@@ -154,6 +154,34 @@ def test_failed_task_raises_provider_error_fail_closed() -> None:
         asyncio.run(_gen(_provider(client), [ReferenceImage(url="https://sig/u1.png")]))
 
 
+def test_submit_without_task_id_does_not_expose_upstream_secret() -> None:
+    secret = "upstream-echoed-authorization"
+    client = _ScriptedClient(
+        submit=httpx.Response(200, json={"authorization": f"Bearer {secret}"}),
+        polls=[],
+        download=_download(),
+    )
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(_gen(_provider(client), []))
+
+    assert secret not in str(error.value)
+
+
+def test_failed_task_error_message_does_not_expose_upstream_secret() -> None:
+    secret = "upstream-echoed-authorization"
+    client = _ScriptedClient(
+        submit=_submit_ok(),
+        polls=[httpx.Response(200, json={"status": "failed", "error": {"message": secret}})],
+        download=_download(),
+    )
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(_gen(_provider(client), []))
+
+    assert secret not in str(error.value)
+
+
 def test_poll_wall_clock_exhausts_to_timeout() -> None:
     # 永远 queued → 墙钟穷尽 ProviderTimeout（不无限轮询）
     with pytest.raises(ProviderTimeout):
