@@ -1546,6 +1546,17 @@
             },
             "type": "array",
             "title": "Upload Ids"
+          },
+          "edit_source_image_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Source Image Key"
           }
         },
         "type": "object",

@@ -6,7 +6,9 @@ import {
   pushUserMessage,
   clearAwaiting,
   CHAT_WELCOME_COPY,
+  editSourceFromSlot,
   initialChatState,
+  previewImageFromSlot,
   sessionMessagesToBubbles,
   shouldSubmitChatInput,
   shouldShowChatWelcome,
@@ -43,6 +45,35 @@ describe('new chat capability card', () => {
 
     expect(shouldShowChatWelcome(pushUserMessage(empty, '做一张海报'))).toBe(false)
     expect(shouldShowChatWelcome({ ...empty, streaming: true })).toBe(false)
+  })
+})
+
+describe('chat result image actions', () => {
+  it('creates an edit source only after a stable image key exists', () => {
+    expect(editSourceFromSlot({ url: 'https://img/result.png' })).toBeNull()
+    expect(
+      editSourceFromSlot({
+        url: 'https://img/result.png',
+        imageKey: 'result.png',
+        imageType: '场景',
+      }),
+    ).toEqual({
+      url: 'https://img/result.png',
+      imageKey: 'result.png',
+      imageType: '场景',
+    })
+  })
+
+  it('allows preview before a stable edit key exists', () => {
+    expect(previewImageFromSlot({ url: 'https://img/live.png' })).toEqual({
+      url: 'https://img/live.png',
+      imageKey: undefined,
+      imageType: undefined,
+    })
+  })
+
+  it('rejects preview for an unfinished result slot', () => {
+    expect(previewImageFromSlot({ url: null })).toBeNull()
   })
 })
 
@@ -155,6 +186,7 @@ describe('applyChatEvent reducer', () => {
     s = clearAwaiting(s)
     expect(s.awaiting).toBeNull()
     s = feed(s, [{ kind: 'job_started', jobId: 'j1', tool: 'generate', count: 3 }])
+    expect(s.activeJobId).toBe('j1')
     expect(s.slots).toHaveLength(3)
     expect(s.jobTotal).toBe(3)
     // 三张陆续到达
