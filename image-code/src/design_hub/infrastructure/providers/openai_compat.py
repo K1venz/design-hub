@@ -76,9 +76,8 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_max_sleep = retry_max_sleep
-        # 总重试墙钟预算(ISSUE-0055 (i))：retry_max_sleep 只封单次退避，持续同错(上游持久
-        # 5xx)仍会耗尽 max_retries×退避干等数分钟。本预算封顶整个重试窗口的墙钟——超预算即
-        # 穷尽 fail-closed 落「失败」，用户短墙钟内得反馈而非干等。只 gate 重试、不砍首次/成功请求。
+        # The wall-clock budget caps the entire retry loop. Every HTTP attempt is restricted
+        # to its remaining budget so no request can extend the operation past the deadline.
         self._retry_max_elapsed = retry_max_elapsed
         self._required_size = required_size
         self._required_quality = required_quality
@@ -110,7 +109,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             start = time.perf_counter()
             api_key = self._key_pool.key_for(start_key_index, attempt)
             try:
-                request_timeout = self._timeout_for_request(overall_start, attempt)
+                request_timeout = self._timeout_for_request(overall_start)
                 if ref_bytes:
                     response = await self._edit(
                         composed,
@@ -149,9 +148,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             if time.perf_counter() - overall_start >= self._retry_max_elapsed:
                 raise error
 
-    def _timeout_for_request(self, overall_start: float, attempt: int) -> httpx.Timeout:
-        if attempt == 0:
-            return self._client_timeout
+    def _timeout_for_request(self, overall_start: float) -> httpx.Timeout:
         remaining = self._retry_max_elapsed - (time.perf_counter() - overall_start)
         if remaining <= 0:
             raise ProviderTimeout(f"{self.name} retry wall-clock budget exhausted")
