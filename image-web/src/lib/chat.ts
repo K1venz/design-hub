@@ -30,6 +30,16 @@ export function editSourceFromSlot(slot: ResultSlot): ChatEditSource | null {
   return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
 }
 
+export function consumeChatEditSource(source: ChatEditSource | null): {
+  editSourceImageKey: string | undefined
+  nextSelection: null
+} {
+  return {
+    editSourceImageKey: source?.imageKey,
+    nextSelection: null,
+  }
+}
+
 /** 费用确认闸载荷（cost_confirm 事件）。 */
 export interface CostConfirm {
   confirmToken: string
