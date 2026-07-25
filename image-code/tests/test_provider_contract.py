@@ -78,6 +78,20 @@ def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
     )
 
 
+def _four_k_provider(client: object) -> OpenAICompatImageProvider:
+    return OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid/v1",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+
 async def _run(provider: OpenAICompatImageProvider, *, refs: list[bytes]) -> None:
     await _run_prompt(provider, prompt="p", refs=refs)
 
@@ -95,7 +109,49 @@ async def _run_prompt(
     )
 
 
+async def _run_four_k(
+    provider: OpenAICompatImageProvider,
+    *,
+    refs: list[bytes],
+    size: tuple[int, int] = (3840, 2160),
+    n: int = 1,
+) -> None:
+    await provider.generate(
+        prompt="p",
+        negative_prompt="",
+        reference_images=[ReferenceImage(data=data) for data in refs],
+        size=size,
+        n=n,
+    )
+
+
 # ── 出图协议增强（apinebula 文档，coordinator #1092）：input_fidelity + response_format ──
+
+
+@pytest.mark.parametrize("refs", [[], [b"product"]])
+def test_fixed_4k_provider_sends_immutable_generation_and_edit_contract(refs: list[bytes]) -> None:
+    client = _CapturingClient()
+
+    asyncio.run(_run_four_k(_four_k_provider(client), refs=refs))
+
+    payload = client.data_payload if refs else client.json_payload
+    assert payload is not None
+    assert payload["model"] == "gpt-image-2-4k"
+    assert payload["size"] == "3840x2160"
+    assert payload["quality"] == "high"
+    assert payload["n"] == 1
+
+
+@pytest.mark.parametrize("size,n", [((1024, 1024), 1), ((3840, 2160), 2)])
+def test_fixed_4k_provider_rejects_wrong_size_or_count_before_http(
+    size: tuple[int, int], n: int,
+) -> None:
+    client = _CapturingClient()
+
+    with pytest.raises(ValueError):
+        asyncio.run(_run_four_k(_four_k_provider(client), refs=[], size=size, n=n))
+
+    assert client.urls == []
 
 
 def test_edits_sends_input_fidelity_and_response_format() -> None:

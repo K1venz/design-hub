@@ -12,6 +12,7 @@ from decimal import Decimal
 import httpx
 import pytest
 
+import design_hub.infrastructure.providers.openai_compat as openai_compat
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -117,6 +118,55 @@ def test_wall_clock_budget_stops_persistent_5xx_despite_max_retries() -> None:
     with pytest.raises(ProviderTimeout):
         asyncio.run(_gen(_provider(client, max_retries=5, retry_max_elapsed=0.0)))
     assert client.calls == 1  # 墙钟预算截断，非 max_retries（否则会 6 次）
+
+
+def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Clock:
+        value = 0.0
+
+        def now(self) -> float:
+            return self.value
+
+    class _SlowFailureClient:
+        calls = 0
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            self.calls += 1
+            clock.value += 1800.0
+            return _500()
+
+    clock = _Clock()
+    monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
+    client = _SlowFailureClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        timeout=1800.0,
+        max_retries=5,
+        retry_max_elapsed=1800.0,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=[],
+                size=(3840, 2160),
+                n=1,
+            )
+        )
+
+    assert client.calls == 1
 
 
 def test_generate_does_not_retry_4xx_business_error() -> None:
