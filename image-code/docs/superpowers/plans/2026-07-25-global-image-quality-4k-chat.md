@@ -4,7 +4,7 @@
 
 **Goal:** 为所有真实 GPT Image 请求统一注入全品类真实性与细节质量约束，并让 Chat 仅在用户本轮明确要求 4K 时按固定 16:9、¥0.18/张调用 `gpt-image-2-4k`；普通请求继续按原比例规则和 ¥0.05/张调用 `gpt-image-2`。
 
-**Architecture:** 在 Provider 最终请求边界统一组合全局质量策略、业务提示词和负向提示词；普通异步 Provider 与 4K 同步 Provider 共用一个无密钥泄露的轮换池。领域任务显式携带 `ModelName`，Chat 在计费前通过确定性解析器同时决定模型与比例，所选模型一路传递到 Provider、费用和历史持久化。
+**Architecture:** 在 Provider 最终请求边界统一组合全局质量策略、业务提示词和负向提示词；普通异步 Provider 与 4K 同步 Provider 共用一个无密钥泄露的轮换池。Chat 在计费前通过确定性解析器同时决定模型与比例，并将所选模型保存在费用确认快照中，确认后仅在运行时传递到 launcher、Provider 和费用流程。
 
 **Tech Stack:** Python 3.12、FastAPI、Pydantic、SQLAlchemy 2、Alembic、httpx、pytest、Ruff、Mypy；React 19、TypeScript、Vite、Vitest、ESLint。
 
@@ -15,7 +15,8 @@
 - 不把全局质量策略写回用户消息、`listing_job.prompt` 或其他历史字段。
 - 普通模型继续支持现有五种比例；4K 只允许 `3840x2160`（16:9）、`quality=high`、`n=1`。
 - 4K 失败不得降级到普通模型。确定性 4xx 立即失败；仅 429、5xx、传输错误可在 1800 秒总墙钟预算内换 Key 重试。
-- 不用 Alembic 数据迁移覆盖运营价格；迁移只增加任务模型字段。新库默认价格由代码播种，已有数据库通过模型配置服务幂等更新。
+- 用户最终裁决已取代原持久化/迁移方案：模型只做运行时路由和费用确认快照传递，不写入 `listing_job` 或历史 API，不新增迁移；生产 MySQL schema 与 Alembic head `f3a4b5c6d7e8` 保持不变。
+- 本需求不更新默认、开发或生产数据库中的模型配置数据；普通 ¥0.05、4K ¥0.18 只验证代码默认和测试。
 - 每个任务先写失败测试，再实现最小完整改动，再跑针对性测试并立即提交。
 - 未再次获得用户明确授权，不执行真实付费生图。实现验收使用 Mock、HTTP Stub 和本地 Chat。
 
@@ -320,7 +321,7 @@ git commit -m "feat(image): 注册普通与 4K 双模型" -m "保留普通异步
 
 ---
 
-## Task 4: 让任务管线显式携带并持久化实际模型
+## Task 4: 让任务管线仅在运行时显式携带实际模型
 
 **Files:**
 
@@ -328,17 +329,13 @@ git commit -m "feat(image): 注册普通与 4K 双模型" -m "保留普通异步
 - Modify: `image-code/src/design_hub/application/listing/listing_service.py`
 - Modify: `image-code/src/design_hub/application/listing/job_launcher.py`
 - Modify: `image-code/src/design_hub/application/listing/commands.py`
-- Modify: `image-code/src/design_hub/domain/models.py`
-- Modify: `image-code/src/design_hub/infrastructure/db/models.py`
-- Modify: `image-code/src/design_hub/infrastructure/db/listing_history_repo.py`
-- Modify: `image-code/src/design_hub/infrastructure/db/listing_query_repo.py`
-- Modify: `image-code/src/design_hub/ports/listing_query.py`
-- Modify: `image-code/src/design_hub/interface/listing_history_schemas.py`
-- Create: `image-code/migrations/versions/a4b5c6d7e8f9_listing_job_model.py`
 - Modify: `image-code/tests/test_listing_validation.py`
-- Modify: `image-code/tests/test_listing_history_persistence.py`
 
-- [ ] **Step 1: 为模型传递、尺寸约束和历史读写写失败测试**
+> **用户最终裁决（取代本 Task 的原持久化设计）：** 只保留 runtime model routing。
+> 不向 `listing_job` 持久化 model，不修改历史 summary/detail API，不新增迁移。生产 MySQL
+> schema 保持不变，Alembic head 必须仍为 `f3a4b5c6d7e8`。
+
+- [ ] **Step 1: 为运行时模型传递和尺寸约束写失败测试**
 
 覆盖：
 
@@ -351,8 +348,7 @@ with pytest.raises(ValueError, match="16:9"):
 
 在三个独立用例中分别给 `launch_generate`、`launch_clone`、`launch_edit` 传入
 `model=GPT_IMAGE_2_4K`，断言按 4K Provider 的 `reference_mode` 物化输入，并将
-model 传入 command。持久化测试断言普通与 4K job 分别保存和查询对应枚举，现有历史
-API 集成测试断言 summary/detail 返回 `model` 字段。
+model 传入 command。不得增加持久化断言或历史 API `model` 字段断言。
 
 - [ ] **Step 2: 运行测试确认模型仍被硬编码**
 
@@ -360,10 +356,10 @@ Run:
 
 ```bash
 cd image-code
-uv run pytest tests/test_listing_validation.py tests/test_listing_history_persistence.py -q
+uv run pytest tests/test_listing_validation.py -q
 ```
 
-Expected: FAIL，launcher/service/command 仍固定 `GPT_IMAGE_2`，数据库无 `model` 列。
+Expected: FAIL，launcher/service/command 仍固定 `GPT_IMAGE_2`。
 
 - [ ] **Step 3: 建立模型感知的尺寸和服务 API**
 
@@ -380,12 +376,11 @@ def generation_size(model: ModelName, ratio: str) -> tuple[int, int]:
 
 将 `ListingService.reference_mode()` 改为 `reference_mode(model: ModelName)`；`generate/clone/edit` 增加必传 `model`，使用 `registry.get(model)`，并在 `ListingResult.used_model` 返回同一模型。普通 listing 路由由 launcher 默认参数显式落为 `GPT_IMAGE_2`；Chat 后续传具体模型。
 
-- [ ] **Step 4: 让 command、launcher 和 JobStart 全链路携带 model**
+- [ ] **Step 4: 让 command 和 launcher 在运行时携带 model**
 
-在现有 `ListingJobStart` dataclass 的字段列表末尾增加
-`model: ModelName = ModelName.GPT_IMAGE_2`，现有普通页面调用因此仍显式落为普通模型。
-
-`ListingCommand` 增加 `model`；`run()` 使用 `generation_size(self.model, self.req.ratio)`；三种 command 的 `_generate()` 传入 `model`，三种 `_start()` 都保存 `model`。Launcher 三个入口签名统一为：
+`ListingCommand` 增加仅供执行期使用的 `model`；`run()` 使用
+`generation_size(self.model, self.req.ratio)`；三种 command 的 `_generate()` 传入
+`model`，但 `_start()` 不保存 model。Launcher 三个入口签名统一为：
 
 ```python
 async def launch_generate(
@@ -399,69 +394,36 @@ async def launch_generate(
 
 `clone`、`edit` 同样处理，且 `reference_mode(model)` 必须在参考图物化前调用。
 
-- [ ] **Step 5: 增加 `listing_job.model` 迁移并更新读写模型**
+- [ ] **Step 5: 确认数据库 schema 和历史 API 不变**
 
-先执行：
+不得创建 `listing_job.model`、不得修改历史 repository/schema，也不得新增迁移。只执行：
 
 ```bash
 cd image-code
 uv run alembic heads
 ```
 
-Expected: 单一 head 为 `f3a4b5c6d7e8`。迁移 `a4b5c6d7e8f9` 的 `down_revision` 固定为该 head：
+Expected: 单一 head 仍为 `f3a4b5c6d7e8`。本任务不执行 upgrade/downgrade；如后续在临时
+SQLite 做独立迁移冒烟，环境变量必须使用 `DB_URL`，且绝不指向默认、开发或生产数据库。
 
-```python
-def upgrade() -> None:
-    op.add_column(
-        "listing_job",
-        sa.Column(
-            "model",
-            sa.String(length=64),
-            nullable=False,
-            server_default="gpt-image-2",
-        ),
-    )
-    op.alter_column("listing_job", "model", server_default=None)
-
-
-def downgrade() -> None:
-    op.drop_column("listing_job", "model")
-```
-
-`ListingJobRow.model` 使用非空字符串；repository 写入 `job.model.value`，读侧转换为 `ModelName(row.model)`，让未知脏值 fail-fast。`ListingJobSummary`、`ListingJobDetail` 和两个 API schema 都增加 `model: ModelName`。
-
-- [ ] **Step 6: 验证迁移升级、降级、再升级**
-
-用临时 SQLite URL 执行，不接触开发数据库：
-
-```bash
-cd image-code
-db_file="$(mktemp -d)/migration.db"
-DATABASE_URL="sqlite+aiosqlite:///$db_file" uv run alembic upgrade head
-DATABASE_URL="sqlite+aiosqlite:///$db_file" uv run alembic downgrade f3a4b5c6d7e8
-DATABASE_URL="sqlite+aiosqlite:///$db_file" uv run alembic upgrade head
-```
-
-Expected: 三条命令都成功；已有行升级后模型为 `gpt-image-2`。
-
-- [ ] **Step 7: 运行任务管线、持久化和静态检查**
+- [ ] **Step 6: 运行任务管线和静态检查**
 
 Run:
 
 ```bash
 cd image-code
-uv run pytest tests/test_listing_validation.py tests/test_listing_history_persistence.py -q
+uv run pytest tests/test_listing_validation.py -q
 uv run ruff check src tests
 uv run mypy src
 ```
 
-Expected: PASS；普通页面行为不变，4K 模型可以显式贯穿并被历史 API 返回。
+Expected: PASS；普通页面行为不变，4K 模型在运行时显式贯穿且不进入持久化或历史 API。
 
-- [ ] **Step 8: 提交模型贯穿与迁移**
+- [ ] **Step 7: 提交运行时模型贯穿**
 
 ```bash
-git add image-code/src/design_hub/application/listing image-code/src/design_hub/domain/models.py image-code/src/design_hub/infrastructure/db image-code/src/design_hub/ports/listing_query.py image-code/src/design_hub/interface/listing_history_schemas.py image-code/migrations/versions/a4b5c6d7e8f9_listing_job_model.py image-code/tests
-git commit -m "feat(listing): 持久化任务实际生图模型" -m "将模型选择从 launcher 贯穿到尺寸、Provider、计费结果和任务历史，并为已有任务安全回填普通模型，确保 4K 不被记作普通请求。"
+git add image-code/src/design_hub/application/listing image-code/tests/test_listing_validation.py
+git commit -m "feat(listing): 运行时传递实际生图模型" -m "将模型选择从 launcher 贯穿到尺寸和 Provider，不修改 listing_job、历史 API 或数据库 schema。"
 ```
 
 ---
@@ -647,27 +609,11 @@ GPT_IMAGE_API_KEY count=3
 
 不得使用 `set -x`、`echo "$GPT_IMAGE_API_KEY"`、`git diff --no-index` 或任何会打印值的命令。
 
-- [ ] **Step 3: 通过模型配置服务幂等更新本地价格**
+- [ ] **Step 3: 验证代码默认价格，不更新数据库数据**
 
-启动应用依赖后调用现有管理员模型配置服务，而不是直接拼 SQL：
-
-```python
-await service.update("gpt-image-2", unit_cost=Decimal("0.05"), enabled=True)
-existing = await service.get("gpt-image-2-4k")
-if existing is None:
-    await service.create(
-        ModelConfigRecord(
-            name="gpt-image-2-4k",
-            unit_cost=Decimal("0.18"),
-            enabled=True,
-            extra={},
-        )
-    )
-else:
-    await service.update("gpt-image-2-4k", unit_cost=Decimal("0.18"), enabled=True)
-```
-
-如果服务没有公开 `get()`，使用 repository 的 `get()` 读取后仍通过 service 的 `create/update()` 写入；不增加一次性生产迁移代码。输出只显示模型名、价格和 enabled，不显示连接密钥。
+用户最终裁决已取代原“通过模型配置服务幂等更新本地价格”步骤。本任务不得更新默认、
+开发或生产数据库中的任何数据；只通过代码默认配置和测试验证普通模型 ¥0.05、4K 模型
+¥0.18。
 
 - [ ] **Step 4: 运行后端全量 CI**
 
@@ -718,7 +664,7 @@ Expected: 第一条无输出；第二条只命中策略模块及必要测试引�
 4. “生成 4K 4:3 商品图”只返回冲突说明，不出现确认卡。
 5. “不要 4K，生成 1:1”走普通 1:1。
 6. 选择生成结果连续编辑但本轮未写 4K，走普通模型；本轮再次写 4K 才升级。
-7. 任务历史显示实际模型，保存 prompt 不含全局策略全文。
+7. 保存的业务 prompt 不含全局策略全文；不验收任务历史模型字段。
 
 不点击会触发真实上游付费请求的确认动作；如必须做 1 张真实 4K 回归，先暂停并重新取得用户授权。
 
@@ -743,21 +689,23 @@ Expected: 工作树干净，任务 1–5 的提交均存在。
 
 确认目标分支和用户要求的 dev/prod 流程，不自行推送或部署。
 
-- [ ] **Step 2: 发布前备份运营配置**
+- [ ] **Step 2: 发布前准备代码回滚点**
 
-记录发布前两个模型的 `unit_cost`、enabled 和默认模型配置；不要记录 Key 明文。按现有 SOP 创建数据库备份和可回滚镜像。
+按现有 SOP 创建可回滚镜像；本需求不变更数据库 schema 或模型配置数据。
 
-- [ ] **Step 3: 安全更新生产三 Key 与模型价格**
+- [ ] **Step 3: 安全更新生产三 Key**
 
-生产 `.env` 只保留三 Key 去重列表；通过模型配置服务幂等设置普通 ¥0.05、4K ¥0.18 并启用。只报告 Key 数量。
+生产 `.env` 只保留三 Key 去重列表，只报告 Key 数量。本需求不更新生产模型配置数据。
 
-- [ ] **Step 4: 迁移、部署并验证**
+- [ ] **Step 4: 部署并验证**
 
-先执行 Alembic 到 head，再发布 API 和前端。验证健康端点、普通/4K 价格、欢迎语、4K 冲突、任务模型历史和错误退款路径。
+确认 Alembic head 仍为 `f3a4b5c6d7e8`，不执行数据库迁移；发布 API 和前端。验证健康
+端点、普通/4K 代码默认价格、欢迎语、4K 冲突、运行时模型路由和错误退款路径。
 
 - [ ] **Step 5: 失败时完整回滚**
 
-代码/容器回到发布前镜像，数据库按迁移 downgrade 或备份恢复，运营价格恢复发布前值。密钥池无需回滚，除非生产密钥验证本身失败。
+代码/容器回到发布前镜像。由于本需求不修改数据库 schema 或数据，无数据库 downgrade
+或运营价格恢复步骤。密钥池无需回滚，除非生产密钥验证本身失败。
 
 ---
 
@@ -766,12 +714,13 @@ Expected: 工作树干净，任务 1–5 的提交均存在。
 - [ ] 所有同步/异步、生成/编辑真实 GPT Image 请求只注入一次全局全品类质量策略。
 - [ ] 业务 prompt 和历史 prompt 不包含全局策略。
 - [ ] 普通与 4K Provider 共享三 Key 游标，重试规则与密钥保密满足规格。
-- [ ] 普通模型 ¥0.05，4K 模型 ¥0.18；已有数据库用服务更新而非价格迁移。
+- [ ] 普通模型 ¥0.05、4K 模型 ¥0.18 由代码默认和测试验证，不更新任何数据库数据。
 - [ ] 4K 固定 3840×2160、16:9、high、n=1、1800 秒且不降级。
 - [ ] Chat 只在本轮明确 4K 且确有生图/改图意图时升级。
 - [ ] 4K 与 1:1、3:4、4:3、9:16 冲突在费用确认和任务创建前阻断。
 - [ ] 连续编辑不继承上一轮 4K。
-- [ ] 实际模型贯穿费用、Provider、任务历史和历史 API。
+- [ ] 实际模型通过费用确认快照在运行时贯穿 launcher、Provider 和费用流程，不进入 `listing_job` 或历史 API。
+- [ ] 生产 MySQL schema 不变、不新增迁移，Alembic head 保持 `f3a4b5c6d7e8`。
 - [ ] 新对话欢迎语说明全品类能力、至少一张图、4K 明示条件及 16:9 限制。
 - [ ] 后端 pytest/Ruff/Mypy 与前端 Vitest/ESLint/TypeScript/build 全部通过。
 - [ ] 本地验收前不触发新的真实付费请求，生产发布前再次获得用户明确授权。
