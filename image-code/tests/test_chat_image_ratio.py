@@ -25,6 +25,7 @@ def _image_with_orientation(
 def test_detects_supported_ratios_and_rounding_error() -> None:
     assert detect_supported_ratio(_png(800, 800)) == "1:1"
     assert detect_supported_ratio(_png(800, 1067)) == "3:4"
+    assert detect_supported_ratio(_png(1600, 1200)) == "4:3"
     assert detect_supported_ratio(_png(900, 1600)) == "9:16"
     assert detect_supported_ratio(_png(1600, 900)) == "16:9"
 
