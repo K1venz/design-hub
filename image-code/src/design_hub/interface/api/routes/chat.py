@@ -47,7 +47,11 @@ async def chat_messages(
 
     async def generator() -> AsyncIterator[str]:
         async for event in orch.handle_message(
-            user, req.session_id, req.message, req.upload_ids
+            user,
+            req.session_id,
+            req.message,
+            req.upload_ids,
+            edit_source_image_key=req.edit_source_image_key,
         ):
             yield _sse(event)
 
