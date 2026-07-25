@@ -22,7 +22,9 @@ _UPLOAD_RE = re.compile(r"upload_ids=([\w,\-/.]+)")  # id=<ns>/<sha>.<ext>，含
 _RATIO_RE = re.compile(
     r"(?<!\d)(1|3|4|9|16)\s*(?:[:：xX×]|比)\s*(1|3|4|9|16)(?!\d)"
 )
-_AUTO_RATIO_RE = re.compile(r"自动比例=(1:1|3:4|4:3|9:16|16:9)")
+_AUTO_RATIO_RE = re.compile(r"本轮确定比例=(1:1|3:4|4:3|9:16|16:9)")
+_EDIT_SOURCE_RE = re.compile(r"明确选定编辑底图 source_image_key=([^\s。]+)")
+_EDIT_INTENT_WORDS = ("改", "换", "调整", "重做", "变成")
 _SUPPORTED_RATIOS = frozenset({"1:1", "3:4", "4:3", "9:16", "16:9"})
 _DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7}
 
@@ -81,6 +83,24 @@ class MockTextLLMProvider(TextLLMPort):
         text = _latest_user_text(messages)
         uids = _available_uploads(messages)
         ratio = _ratio_from_text(text)
+        user_text = text.partition("\n\n[系统备注]")[0]
+        edit_source = _EDIT_SOURCE_RE.search(text)
+
+        if edit_source and any(word in user_text for word in _EDIT_INTENT_WORDS):
+            async for chunk in self._stream("好的，我会基于你选中的图片继续调整。"):
+                yield chunk
+            yield ToolCallChunk((
+                ToolCall(
+                    id="mock_edit",
+                    name="edit",
+                    arguments={
+                        "source_image_key": edit_source.group(1),
+                        "prompt": user_text,
+                        "edit_mode": "delta",
+                    },
+                ),
+            ))
+            return
 
         if any(k in text for k in ("复刻", "爆款", "照这张", "同款")):
             if len(uids) >= 2:
