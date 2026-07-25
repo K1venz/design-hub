@@ -486,6 +486,8 @@ export interface components {
             message: string;
             /** Upload Ids */
             upload_ids?: string[];
+            /** Edit Source Image Key */
+            edit_source_image_key?: string | null;
         };
         /**
          * ChatSessionSummaryOut

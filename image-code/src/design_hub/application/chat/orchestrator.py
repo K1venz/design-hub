@@ -17,6 +17,11 @@ from typing import Any
 
 from design_hub.application.chat.image_ratio import detect_supported_ratio
 from design_hub.application.chat.pending_store import PendingAction, PendingStore
+from design_hub.application.chat.ratio_intent import (
+    ChatRatioDecision,
+    UnsupportedChatRatio,
+    decide_chat_ratio,
+)
 from design_hub.application.chat.system_prompt import default_system_prompt
 from design_hub.application.chat.tool_requests import ChatCloneRequest, ChatGenerateRequest
 from design_hub.application.listing.job_launcher import ListingJobLauncher
@@ -72,7 +77,7 @@ def _tool_specs() -> list[ToolSpec]:
         ToolSpec(
             "generate",
             "出图（单图流 n 或套图 plan）。拿到产品图 upload_ids 且用户意图可执行时调用；"
-            "比例由系统备注提供，用户文字明确指定时覆盖。未明确套图或张数时按单图 n=1，"
+            "确定比例由系统备注提供，调用时必须原样使用。未明确套图或张数时按单图 n=1，"
             "不要为比例或张数追问。",
             ChatGenerateRequest.model_json_schema(),
         ),
@@ -121,7 +126,10 @@ def _title(message: str) -> str:
 
 
 def _to_llm_messages(
-    transcript: ChatTranscript, *, current_auto_ratio: str | None = None
+    transcript: ChatTranscript,
+    *,
+    current_ratio: ChatRatioDecision | None = None,
+    edit_source_image_key: str | None = None,
 ) -> list[ChatMessage]:
     """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。
 
@@ -135,17 +143,31 @@ def _to_llm_messages(
             note = ",".join(m.attachment_upload_ids)
             content = f"{content}\n\n[系统备注] 本轮可用产品图 upload_ids={note}"
         out.append(ChatMessage(role=m.role, content=content))
-    if current_auto_ratio is not None:
-        if not out or out[-1].role != "user":
-            raise ValueError("自动比例只能注入当前 user 消息")
-        current = out[-1]
-        ratio_note = (
-            f"[系统备注] 本轮自动比例={current_auto_ratio}。"
-            "用户文字明确指定比例时以文字为准；否则使用自动比例，不要追问比例。"
+    notes: list[str] = []
+    if current_ratio is not None:
+        if current_ratio.ratio is None:
+            notes.append(
+                f"[系统备注] 用户明确要求比例={current_ratio.requested}，当前不支持；"
+                "若用户明确要出图，不要调用写工具，告知支持的五种比例。"
+            )
+        else:
+            notes.append(
+                f"[系统备注] 本轮确定比例={current_ratio.ratio}，"
+                f"来源={current_ratio.source.value}。调用 generate/clone 时必须原样使用。"
+            )
+    if edit_source_image_key is not None:
+        notes.append(
+            "[系统备注] 用户已通过界面明确选定编辑底图 "
+            f"source_image_key={edit_source_image_key}。若本轮要求修改图片，必须调用 edit "
+            "并原样使用此 key；不得改用 generate 或猜测其他底图。"
         )
+    if notes:
+        if not out or out[-1].role != "user":
+            raise ValueError("本轮系统备注只能注入当前 user 消息")
+        current = out[-1]
         out[-1] = ChatMessage(
             role=current.role,
-            content=f"{current.content}\n\n{ratio_note}",
+            content=f"{current.content}\n\n" + "\n".join(notes),
             tool_call_id=current.tool_call_id,
             tool_calls=current.tool_calls,
         )
@@ -184,7 +206,13 @@ class ChatOrchestrator:
         return detect_supported_ratio(data)
 
     async def handle_message(
-        self, user: AuthUser, session_id: str | None, message: str, upload_ids: list[str]
+        self,
+        user: AuthUser,
+        session_id: str | None,
+        message: str,
+        upload_ids: list[str],
+        *,
+        edit_source_image_key: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         if session_id is None:
             session_id = uuid.uuid4().hex
@@ -206,9 +234,14 @@ class ChatOrchestrator:
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         assert transcript is not None  # 刚 owner-check + append，必存在
         auto_ratio = await self._auto_ratio(user, upload_ids)
+        ratio_decision = decide_chat_ratio(message, auto_ratio)
         llm_messages = [
             ChatMessage(role="system", content=self.system_prompt),
-            *_to_llm_messages(transcript, current_auto_ratio=auto_ratio),
+            *_to_llm_messages(
+                transcript,
+                current_ratio=ratio_decision,
+                edit_source_image_key=edit_source_image_key,
+            ),
         ]
 
         # 工具化 tool-use 循环（A3）：读工具即时执行→结果回喂→再问 LLM；写工具→费用闸；纯文本→收尾。
@@ -251,7 +284,27 @@ class ChatOrchestrator:
             # 写工具（generate/clone/edit）→ 费用闸（护栏①：不给 LLM 绕闸的路）
             yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
             try:
-                req = self._parse_req(call.name, call.arguments)
+                normalized_args = self._prepare_write_args(
+                    call.name, call.arguments, ratio_decision, edit_source_image_key
+                )
+            except UnsupportedChatRatio as exc:
+                clar = str(exc)
+                yield ChatEvent("assistant_delta", {"text": clar})
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=clar
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+            except ValueError as exc:
+                clar = str(exc)
+                yield ChatEvent("assistant_delta", {"text": clar})
+                await self.chat_repo.append_message(
+                    session_id=session_id, role="assistant", content=clar
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+            try:
+                req = self._parse_req(call.name, normalized_args)
             except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
                 clar = (
                     "这次出图参数还没整理完整，请确认已至少上传一张图片，"
@@ -274,7 +327,7 @@ class ChatOrchestrator:
                 )
                 yield ChatEvent("assistant_end", {"status": "complete"})
                 return
-            yield ChatEvent("tool_call", {"tool": call.name, "args": call.arguments})
+            yield ChatEvent("tool_call", {"tool": call.name, "args": normalized_args})
             count = self._count(call.name, req)
             unit_cost = self.registry.get(self.image_model).unit_cost  # 与工作台同源（#884③）
             estimate = unit_cost * count
@@ -287,7 +340,7 @@ class ChatOrchestrator:
                 {
                     "confirm_token": pending.confirm_token,
                     "tool": call.name,
-                    "args": call.arguments,
+                    "args": normalized_args,
                     "count": count,
                     "unit_cost": str(unit_cost),
                     "estimate_cny": str(estimate),
@@ -468,6 +521,29 @@ class ChatOrchestrator:
             f"该用户额度：已用 ¥{snap.user_month_used} / 额度 ¥{snap.user_monthly_quota}，"
             f"剩余约 ¥{remaining}（≈ {approx} 张）。\n当前内测期间，未开放公开充值。"
         )
+
+    @staticmethod
+    def _prepare_write_args(
+        tool: str,
+        args: dict[str, Any],
+        ratio: ChatRatioDecision,
+        edit_source_image_key: str | None,
+    ) -> dict[str, Any]:
+        normalized = dict(args)
+        if tool in {"generate", "clone"}:
+            normalized["ratio"] = ratio.require_supported()
+            return normalized
+        if tool != "edit":
+            return normalized
+        if edit_source_image_key is None:
+            raise ValueError("请先在结果图上点击「继续编辑」，再告诉我需要怎么修改。")
+        normalized["source_image_key"] = edit_source_image_key
+        if ratio.changes_edit_ratio:
+            normalized["edit_mode"] = "full"
+            normalized["ratio"] = ratio.require_supported()
+        else:
+            normalized.pop("ratio", None)
+        return normalized
 
     @staticmethod
     def _parse_req(
