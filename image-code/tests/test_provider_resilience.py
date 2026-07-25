@@ -280,6 +280,51 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
     assert client.timeouts == [1700.0]
 
 
+@pytest.mark.parametrize(
+    "reference_images",
+    [[], [ReferenceImage(data=b"product")]],
+    ids=["generation", "edit"],
+)
+def test_absolute_deadline_interrupts_an_active_http_await(
+    reference_images: list[ReferenceImage],
+) -> None:
+    class _ActivePastDeadlineClient:
+        def __init__(self) -> None:
+            self.activity = 0
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            for _ in range(10):
+                self.activity += 1
+                await asyncio.sleep(0.005)
+            return _ok()
+
+    client = _ActivePastDeadlineClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.05"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2",
+        client=client,  # type: ignore[arg-type]
+        timeout=1.0,
+        max_retries=0,
+        retry_max_elapsed=0.015,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=reference_images,
+                size=(1024, 1024),
+                n=1,
+            )
+        )
+
+    assert 1 <= client.activity < 10
+
+
 def test_generate_does_not_retry_4xx_business_error() -> None:
     # 4xx 坏请求/鉴权是业务错 → fail-fast 立抛 DomainError，绝不重试
     client = _SequencedClient([httpx.Response(400, text="bad request")])

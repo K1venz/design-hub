@@ -2,21 +2,37 @@
 
 from decimal import Decimal
 
-from design_hub.composition import build_registry, default_model_configs
+import pytest
+
+from design_hub.composition import (
+    build_gpt_image_providers,
+    build_mock_registry,
+    build_registry,
+    default_model_configs,
+)
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
-from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
+from design_hub.ports.model_config_repository import ModelConfigRecord
 
 
-def test_real_registry_registers_standard_and_fixed_4k_models_with_one_key_pool() -> None:
-    settings = Settings(
+def _settings() -> Settings:
+    return Settings(
         gpt_image_base_url="https://images.example.invalid/v1",
         gpt_image_api_key="test-key-a,test-key-b",
         gpt_image_model="standard-upstream-model",
     )
 
-    registry = build_registry(settings, real_gpt_image=True)
+
+def test_real_registry_uses_two_sync_providers_with_fixed_prices_and_one_key_pool() -> None:
+    registry = build_registry(
+        _settings(),
+        real_gpt_image=True,
+        unit_costs={
+            ModelName.GPT_IMAGE_2: Decimal("0.40"),
+            ModelName.GPT_IMAGE_2_4K: Decimal("9.99"),
+        },
+    )
 
     standard = registry.get(ModelName.GPT_IMAGE_2)
     four_k = registry.get(ModelName.GPT_IMAGE_2_4K)
@@ -24,12 +40,73 @@ def test_real_registry_registers_standard_and_fixed_4k_models_with_one_key_pool(
 
     assert ModelName.GPT_IMAGE_2_4K.value == "gpt-image-2-4k"
     assert defaults["gpt-image-2"].unit_cost == Decimal("0.05")
-    assert defaults["gpt-image-2-4k"].unit_cost == Decimal("0.18")
-    assert isinstance(standard, AsyncImageTasksProvider)
+    assert "gpt-image-2-4k" not in defaults
+    assert isinstance(standard, OpenAICompatImageProvider)
     assert isinstance(four_k, OpenAICompatImageProvider)
-    assert standard.reference_mode == "url"
+    assert standard.reference_mode == "bytes"
     assert four_k.reference_mode == "bytes"
     assert standard._key_pool is four_k._key_pool
+    assert standard.unit_cost == Decimal("0.05")
+    assert four_k.unit_cost == Decimal("0.18")
+    assert standard._model == "standard-upstream-model"
     assert four_k._model == "gpt-image-2-4k"
     assert four_k._timeout == 1800.0
     assert four_k._retry_max_elapsed == 1800.0
+
+
+def test_compatible_default_connection_cannot_override_fixed_runtime_price(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMPAT_IMAGE_KEYS", "test-key-a,test-key-b")
+    configured = ModelConfigRecord(
+        name="configured-image-route",
+        unit_cost=Decimal("0.40"),
+        enabled=True,
+        extra={},
+        provider_type="openai_compat_image",
+        base_url="https://configured.example.invalid/v1",
+        model="configured-upstream-model",
+        api_key_env="COMPAT_IMAGE_KEYS",
+        is_default=True,
+    )
+
+    standard, four_k = build_gpt_image_providers(
+        _settings(),
+        unit_costs={ModelName.GPT_IMAGE_2: Decimal("0.40")},
+        default_config=configured,
+    )
+
+    assert standard.unit_cost == Decimal("0.05")
+    assert four_k.unit_cost == Decimal("0.18")
+
+
+def test_mock_runtime_also_ignores_stale_fixed_model_prices() -> None:
+    registry = build_mock_registry(
+        {
+            ModelName.GPT_IMAGE_2: Decimal("0.40"),
+            ModelName.GPT_IMAGE_2_4K: Decimal("9.99"),
+        }
+    )
+
+    assert registry.get(ModelName.GPT_IMAGE_2).unit_cost == Decimal("0.05")
+    assert registry.get(ModelName.GPT_IMAGE_2_4K).unit_cost == Decimal("0.18")
+
+
+def test_incompatible_default_connection_protocol_fails_fast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ASYNC_IMAGE_KEYS", "test-key-a")
+    incompatible = ModelConfigRecord(
+        name="legacy-async-route",
+        unit_cost=Decimal("0.40"),
+        enabled=True,
+        extra={},
+        provider_type="apinebula_async_image",
+        base_url="https://configured.example.invalid/v1",
+        model="gpt-image-2",
+        api_key_env="ASYNC_IMAGE_KEYS",
+        is_default=True,
+    )
+
+    with pytest.raises(ValueError, match="openai_compat_image"):
+        build_gpt_image_providers(_settings(), default_config=incompatible)

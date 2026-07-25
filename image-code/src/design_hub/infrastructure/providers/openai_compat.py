@@ -67,9 +67,6 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._image_store = image_store
         self._client = client
         self._timeout = timeout
-        # connect 快失败(≤15s)，read/write 容忍慢响应：gpt-image 图生图 edit 实测 ~187s
-        # （ISSUE-0007：edit 比文生图慢得多，单一短超时会卡在临界点误判超时）
-        self._client_timeout = httpx.Timeout(timeout, connect=min(timeout, 15.0))
         # 瞬时错误(超时/5xx/429"系统繁忙"/限流)重试：中转站 edit 端点间歇过载（ISSUE-0007）、
         # apikey 轮换后新 key 分组并发档低致套图并发打满 429（ISSUE-0047）。
         # I/O 域允许重试；默认 0 不重试(保 dev/CI 行为)，生产装配开启。4xx 业务错不重试(fail-fast)。
@@ -109,24 +106,33 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             start = time.perf_counter()
             api_key = self._key_pool.key_for(start_key_index, attempt)
             try:
-                request_timeout = self._timeout_for_request(overall_start)
-                if ref_bytes:
-                    response = await self._edit(
-                        composed,
-                        ref_bytes,
-                        size_str,
-                        n,
-                        quality,
-                        api_key=api_key,
-                        timeout=request_timeout,
-                    )
-                else:
-                    response = await self._generate(
-                        composed, size_str, n, quality, api_key=api_key, timeout=request_timeout
-                    )
+                remaining = self._remaining_budget(overall_start)
+                request_timeout = self._timeout_for_request(remaining)
+                async with asyncio.timeout(remaining):
+                    if ref_bytes:
+                        response = await self._edit(
+                            composed,
+                            ref_bytes,
+                            size_str,
+                            n,
+                            quality,
+                            api_key=api_key,
+                            timeout=request_timeout,
+                        )
+                    else:
+                        response = await self._generate(
+                            composed,
+                            size_str,
+                            n,
+                            quality,
+                            api_key=api_key,
+                            timeout=request_timeout,
+                        )
                 raise_for_status(self.name, response)  # 4xx→DomainError；5xx/429→ProviderTimeout
-            except httpx.TimeoutException:
+            except TimeoutError:
                 error: ProviderError = ProviderTimeout(f"{self.name} timeout")
+            except httpx.TimeoutException:
+                error = ProviderTimeout(f"{self.name} timeout")
             except httpx.HTTPError:  # 连接/传输层错误
                 error = ProviderTimeout(f"{self.name} transport error")
             except ProviderTimeout as exc:  # _raise_for_status 的 5xx/429（如"系统繁忙"）
@@ -148,10 +154,13 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             if time.perf_counter() - overall_start >= self._retry_max_elapsed:
                 raise error
 
-    def _timeout_for_request(self, overall_start: float) -> httpx.Timeout:
+    def _remaining_budget(self, overall_start: float) -> float:
         remaining = self._retry_max_elapsed - (time.perf_counter() - overall_start)
         if remaining <= 0:
             raise ProviderTimeout(f"{self.name} retry wall-clock budget exhausted")
+        return remaining
+
+    def _timeout_for_request(self, remaining: float) -> httpx.Timeout:
         timeout = min(self._timeout, remaining)
         return httpx.Timeout(timeout, connect=min(timeout, 15.0))
 
