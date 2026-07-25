@@ -172,7 +172,11 @@ class ListingGenerationService:
                 return [replace(im, image_type=image_type) for im in generated]
 
         coros = [one(i, t, p) for i, (t, p) in enumerate(tasks)]
-        results = await asyncio.gather(*coros, return_exceptions=True)
+        try:
+            results = await asyncio.gather(*coros, return_exceptions=True)
+        except asyncio.CancelledError:
+            await self.guard.rollback(user_id, estimate)
+            raise
         generated: list[GeneratedImage] = []
         failures: list[tuple[str, str]] = []
         first_error: BaseException | None = None
@@ -188,7 +192,11 @@ class ListingGenerationService:
             await self.guard.rollback(user_id, estimate)
             raise first_error or ProviderError("listing 出图全部失败")
         total = sum((img.cost for img in generated), Decimal("0"))
-        await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        try:
+            await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        except asyncio.CancelledError:
+            await self.guard.rollback(user_id, estimate)
+            raise
         return ListingResult(
             prompt=tasks[0][1],  # 代表 prompt（首任务的 final_prompt；套图各图型块不同、取首个）
             used_model=model,
@@ -235,11 +243,18 @@ class ListingGenerationService:
                 n=1,
                 seed=0,
             )
+        except asyncio.CancelledError:
+            await self.guard.rollback(user_id, estimate)
+            raise
         except Exception:
             await self.guard.rollback(user_id, estimate)
             raise
         total = sum((img.cost for img in generated), Decimal("0"))
-        await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        try:
+            await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        except asyncio.CancelledError:
+            await self.guard.rollback(user_id, estimate)
+            raise
         return ListingResult(
             prompt=final_prompt,
             used_model=model,
@@ -284,11 +299,18 @@ class ListingGenerationService:
                 n=1,
                 seed=0,
             )
+        except asyncio.CancelledError:
+            await self.guard.rollback(user_id, estimate)
+            raise
         except Exception:
             await self.guard.rollback(user_id, estimate)
             raise
         total = sum((img.cost for img in generated), Decimal("0"))
-        await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        try:
+            await self.guard.reconcile(user_id, reserved=estimate, actual=total)
+        except asyncio.CancelledError:
+            await self.guard.rollback(user_id, estimate)
+            raise
         return ListingResult(
             prompt=final_prompt,
             used_model=model,

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -70,6 +71,9 @@ class ListingCommand(GenerationCommand):
         await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
             result = await self._generate()
+        except asyncio.CancelledError as exc:
+            await self._fail(job_id, exc, refunded=True)
+            raise
         except Exception as exc:  # 出图段兜底：成本已在 service 内回滚/未预扣 → 本单未扣费
             await self._fail(job_id, exc, refunded=True)
             raise
@@ -77,6 +81,9 @@ class ListingCommand(GenerationCommand):
             # fail-closed（Finding A）：出图成功后的「发事件/落图/终态」段裸奔会留永久
             # 「生成中」僵尸行 + SSE 永久转圈，故整段兜底——同 generate 段同构。
             await self._persist_and_complete(job_id, result)
+        except asyncio.CancelledError as exc:
+            await self._fail(job_id, exc, refunded=False)
+            raise
         except Exception as exc:  # 落库段：出图已成功且已计费 → 不宣称未扣费
             await self._fail(job_id, exc, refunded=False)
             raise
@@ -133,7 +140,7 @@ class ListingCommand(GenerationCommand):
             )
         )
 
-    async def _fail(self, job_id: str, exc: Exception, *, refunded: bool) -> None:
+    async def _fail(self, job_id: str, exc: BaseException, *, refunded: bool) -> None:
         """失败兜底：finalize('失败') 先于 TASK_FAILED（时序契约）。finalize 本身失败即
         抛（DB 真 down 由启动 reaper 扫尾，Finding B），绝不静默吞。成本不动（service 内）。
 
