@@ -1546,6 +1546,17 @@
             },
             "type": "array",
             "title": "Upload Ids"
+          },
+          "edit_source_image_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Source Image Key"
           }
         },
         "type": "object",
@@ -1649,16 +1660,22 @@
             "title": "Modifiers"
           },
           "category": {
-            "type": "string",
-            "enum": [
-              "FOOD",
-              "FASHION",
-              "BEAUTY",
-              "SHOES",
-              "DIGITAL"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "FOOD",
+                  "FASHION",
+                  "BEAUTY",
+                  "SHOES",
+                  "DIGITAL"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Category",
-            "default": "FOOD"
+            "title": "Category"
           }
         },
         "type": "object",
@@ -1792,16 +1809,22 @@
             "title": "Modifiers"
           },
           "category": {
-            "type": "string",
-            "enum": [
-              "FOOD",
-              "FASHION",
-              "BEAUTY",
-              "SHOES",
-              "DIGITAL"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "FOOD",
+                  "FASHION",
+                  "BEAUTY",
+                  "SHOES",
+                  "DIGITAL"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Category",
-            "default": "FOOD"
+            "title": "Category"
           }
         },
         "type": "object",

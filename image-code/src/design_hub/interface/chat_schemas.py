@@ -15,6 +15,7 @@ class ChatMessageRequest(BaseModel):
     session_id: str | None = None
     message: str
     upload_ids: list[str] = Field(default_factory=list)  # 来自现有 POST /uploads（带图路径）
+    edit_source_image_key: str | None = None
 
 
 class ChatConfirmRequest(BaseModel):

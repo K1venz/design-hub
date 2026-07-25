@@ -156,7 +156,7 @@ class ListingGenerationCommand(ListingCommand):
 
     images: tuple[ReferenceImage, ...]
     upload_keys: tuple[str, ...]
-    category: str
+    category: str | None
     n: int | None = None
     plan: dict[str, int] | None = None  # 套图配比（与 n 互斥，PRD §3.12.14）
     overlay_texts: tuple[str, ...] = ()
@@ -242,7 +242,7 @@ class CloneCommand(ListingCommand):
     product_image: ReferenceImage
     reference_images: tuple[ReferenceImage, ...]
     upload_keys: tuple[str, ...]  # 保序：产品图在前、参考图在后（与喂图序一致）
-    category: str
+    category: str | None
     clone_mode: str
 
     def _roles(self) -> tuple[str, ...]:

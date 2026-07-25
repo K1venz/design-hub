@@ -140,6 +140,21 @@ class CategoryCardRegistry:
             raise ValueError(f"未知品类：{category}") from None
 
 
+_BASE_REFERENCE_FIDELITY = (
+    "参考图是画面主体的唯一事实来源：保持主体结构、轮廓比例、颜色、材质、已有 Logo 与文字不变，"
+    "不替换、不翻译、不凭空增删主体内容；只按照用户明确要求调整构图、背景、光线与整体视觉呈现。"
+)
+
+
+def resolve_fidelity_prompt(
+    category: str | None, registry: CategoryCardRegistry
+) -> str:
+    """无品类使用基础保真；显式品类在基础保真后叠加专项约束。"""
+    if category is None:
+        return _BASE_REFERENCE_FIDELITY
+    return _BASE_REFERENCE_FIDELITY + "\n" + registry.card(category)
+
+
 # 图型卡物化块（套图，PRD §3.12.14）：逐字对齐 image-prompt/image-type-cards/<图型>.md
 # 的 ```text 块。单一事实源在卡、此处硬编码引用、程序化核对 code 串==卡串（行长 >100 故
 # 隐式拼接，勿改一字）。卖点有字版为模板：静态部分逐字核对，{overlay_texts} 槽运行时填充。
@@ -305,7 +320,7 @@ def compose_clone_prompt(
     modifiers: dict[str, str],
     registry: PromptModifierRegistry,
     *,
-    category: str,
+    category: str | None,
     card_registry: CategoryCardRegistry,
     clone_registry: CloneModeRegistry,
     clone_mode: str,
@@ -315,7 +330,7 @@ def compose_clone_prompt(
     与 compose_prompt 的差异：用户文本**可为空**（模板图+产品图已承载语义，PRD §3.13 选填）；
     不叠图型卡（模板已决定构图）。未知档位/品类/下拉值均 fail-fast。
     """
-    fidelity = card_registry.card(category)
+    fidelity = resolve_fidelity_prompt(category, card_registry)
     clone_block = clone_registry.block(clone_mode)
     fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
     base = prompt.strip()
@@ -334,7 +349,7 @@ def compose_prompt(
     modifiers: dict[str, str],
     registry: PromptModifierRegistry,
     *,
-    category: str,
+    category: str | None,
     card_registry: CategoryCardRegistry,
     image_type_block: str | None = None,
     drop_user_text: bool = False,
@@ -351,7 +366,7 @@ def compose_prompt(
     base = prompt.strip()
     if not base:
         raise ValueError("请先描述想要的画面（风格、场景等）")
-    fidelity = card_registry.card(category)
+    fidelity = resolve_fidelity_prompt(category, card_registry)
     fragments = [registry.fragment(k, v) for k, v in modifiers.items()]
     mods = "；".join(fragments)
     if drop_user_text:

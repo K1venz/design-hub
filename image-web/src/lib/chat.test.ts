@@ -5,11 +5,95 @@ import {
   applyChatEvent,
   pushUserMessage,
   clearAwaiting,
+  consumeChatEditSource,
+  CHAT_WELCOME_COPY,
+  editSourceFromSlot,
   initialChatState,
+  previewImageFromSlot,
   sessionMessagesToBubbles,
+  shouldSubmitChatInput,
+  shouldShowChatWelcome,
   type ChatState,
   type ChatTranscriptMessage,
 } from '@/lib/chat'
+
+describe('chat input keyboard', () => {
+  it('submits on Enter', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: false, isComposing: false })).toBe(true)
+  })
+
+  it('keeps Shift+Enter for a newline', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: true, isComposing: false })).toBe(false)
+  })
+
+  it('does not submit while an IME composition is active', () => {
+    expect(shouldSubmitChatInput({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false)
+  })
+
+  it('ignores non-Enter keys', () => {
+    expect(shouldSubmitChatInput({ key: 'a', shiftKey: false, isComposing: false })).toBe(false)
+  })
+})
+
+describe('new chat capability card', () => {
+  it('shows only for an idle empty session and describes unrestricted visual scope', () => {
+    const empty = initialChatState()
+    expect(shouldShowChatWelcome(empty)).toBe(true)
+    expect(CHAT_WELCOME_COPY).toContain('任意品类')
+    expect(CHAT_WELCOME_COPY).toContain('至少 1 张图片')
+    expect(CHAT_WELCOME_COPY).toContain('Logo')
+    expect(CHAT_WELCOME_COPY).not.toContain('食品、服装、美妆、鞋类、数码')
+
+    expect(shouldShowChatWelcome(pushUserMessage(empty, '做一张海报'))).toBe(false)
+    expect(shouldShowChatWelcome({ ...empty, streaming: true })).toBe(false)
+  })
+})
+
+describe('chat result image actions', () => {
+  it('creates an edit source only after a stable image key exists', () => {
+    expect(editSourceFromSlot({ url: 'https://img/result.png' })).toBeNull()
+    expect(
+      editSourceFromSlot({
+        url: 'https://img/result.png',
+        imageKey: 'result.png',
+        imageType: '场景',
+      }),
+    ).toEqual({
+      url: 'https://img/result.png',
+      imageKey: 'result.png',
+      imageType: '场景',
+    })
+  })
+
+  it('allows preview before a stable edit key exists', () => {
+    expect(previewImageFromSlot({ url: 'https://img/live.png' })).toEqual({
+      url: 'https://img/live.png',
+      imageKey: undefined,
+      imageType: undefined,
+    })
+  })
+
+  it('rejects preview for an unfinished result slot', () => {
+    expect(previewImageFromSlot({ url: null })).toBeNull()
+  })
+
+  it('captures the selected key for one send and clears the composer selection', () => {
+    const selected = {
+      url: 'https://img/result.png',
+      imageKey: 'result.png',
+      imageType: '场景',
+    }
+
+    expect(consumeChatEditSource(selected)).toEqual({
+      editSourceImageKey: 'result.png',
+      nextSelection: null,
+    })
+    expect(consumeChatEditSource(null)).toEqual({
+      editSourceImageKey: undefined,
+      nextSelection: null,
+    })
+  })
+})
 
 describe('parseChatEvent', () => {
   it('maps session / assistant_delta / step / tool_call', () => {
@@ -120,6 +204,7 @@ describe('applyChatEvent reducer', () => {
     s = clearAwaiting(s)
     expect(s.awaiting).toBeNull()
     s = feed(s, [{ kind: 'job_started', jobId: 'j1', tool: 'generate', count: 3 }])
+    expect(s.activeJobId).toBe('j1')
     expect(s.slots).toHaveLength(3)
     expect(s.jobTotal).toBe(3)
     // 三张陆续到达
