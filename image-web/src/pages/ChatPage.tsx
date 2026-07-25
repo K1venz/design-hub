@@ -4,15 +4,18 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ImagePlusIcon, Loader2Icon, SendIcon, SparklesIcon, WandSparklesIcon, XIcon } from 'lucide-react'
 
-import { AppShell } from '@/components/layout/AppShell'
+import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
+import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
+import { AppShell } from '@/components/layout/AppShell'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
 import { useListingJob, useUploadImage } from '@/api/listing'
-import { downloadImage } from '@/lib/download'
 import {
-  applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, initialChatState, pushUserMessage,
+  applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, consumeChatEditSource,
+  initialChatState, pushUserMessage,
   sessionMessagesToBubbles, shouldShowChatWelcome, shouldSubmitChatInput,
-  type ChatBubble, type ChatState, type CostConfirm,
+  type ChatBubble, type ChatEditSource, type ChatPreviewImage, type ChatState,
+  type CostConfirm,
 } from '@/lib/chat'
 import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
@@ -52,6 +55,8 @@ export function ChatPage() {
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
+  const [selectedEditSource, setSelectedEditSource] = useState<ChatEditSource | null>(null)
+  const [previewImage, setPreviewImage] = useState<ChatPreviewImage | null>(null)
   const upload = useUploadImage()
   const qc = useQueryClient()
   const abortRef = useRef<AbortController | null>(null)
@@ -82,6 +87,8 @@ export function ChatPage() {
   function selectSession(id: string) {
     if (id === stateRef.current.sessionId || loadSession.isPending) return
     abortRef.current?.abort()
+    setSelectedEditSource(null)
+    setPreviewImage(null)
     loadSession.mutate(id)
   }
 
@@ -91,19 +98,37 @@ export function ChatPage() {
     setState(initialChatState())
     setDraft('')
     setAttached([])
+    setSelectedEditSource(null)
+    setPreviewImage(null)
+  }
+
+  function selectEditSource(source: ChatEditSource) {
+    if (stateRef.current.streaming || stateRef.current.awaiting) {
+      toast.info('请等待当前对话完成后再继续编辑')
+      return
+    }
+    setAttached([])
+    setSelectedEditSource(source)
   }
 
   async function send(message: string, uploadIds?: string[]) {
     const text = message.trim()
     if (!text || stateRef.current.streaming || stateRef.current.awaiting) return
+    const consumed = consumeChatEditSource(selectedEditSource)
     setState((prev) => pushUserMessage(prev, text, uploadIds && uploadIds.length ? attached.map((a) => uploadPreviewUrl(a.url)) : undefined))
     setDraft('')
     setAttached([])
+    setSelectedEditSource(consumed.nextSelection)
     abortRef.current?.abort() // 中止上一条在途流（至多一条活跃）
     const ac = new AbortController()
     abortRef.current = ac
     try {
-      await sendChatMessage({ sessionId: stateRef.current.sessionId, message: text, uploadIds }, on, ac.signal)
+      await sendChatMessage({
+        sessionId: stateRef.current.sessionId,
+        message: text,
+        uploadIds,
+        editSourceImageKey: consumed.editSourceImageKey,
+      }, on, ac.signal)
       refreshSessions()
     } catch (err) {
       if (!ac.signal.aborted) {
@@ -155,6 +180,7 @@ export function ChatPage() {
 
   async function onPickFiles(files: FileList | null) {
     if (!files?.length) return
+    setSelectedEditSource(null)
     for (const f of Array.from(files).slice(0, 3 - attached.length)) {
       try {
         const up = await upload.mutateAsync(f)
@@ -201,12 +227,22 @@ export function ChatPage() {
             {state.bubbles.map((b, i) => (
               <Fragment key={i}>
                 <Bubble bubble={b} awaiting={state.awaiting} onResolve={resolveConfirm} />
-                {b.jobId && <JobResult jobId={b.jobId} />}
+                {b.jobId && (
+                  <JobResult
+                    jobId={b.jobId}
+                    onPreview={setPreviewImage}
+                    onEdit={selectEditSource}
+                  />
+                )}
               </Fragment>
             ))}
 
             {state.jobTotal > 0 && (
-              <ResultBlock slots={state.slots} done={state.jobDone} total={state.jobTotal} />
+              <CurrentJobResult
+                state={state}
+                onPreview={setPreviewImage}
+                onEdit={selectEditSource}
+              />
             )}
 
             {state.streaming && !state.awaiting && (
@@ -224,6 +260,31 @@ export function ChatPage() {
 
           {/* 输入区 */}
           <div className="glass-panel rounded-[20px] p-3">
+            {selectedEditSource && (
+              <div className="mb-2 flex items-center gap-2 rounded-xl border border-wb-brand-soft bg-wb-tint-3 p-2">
+                <img
+                  src={selectedEditSource.url}
+                  alt=""
+                  className="size-12 rounded-lg border border-wb-line-1 object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] font-semibold text-wb-brand-deep">
+                    正在基于此图编辑
+                  </p>
+                  <p className="truncate text-[11.5px] text-wb-ink-6">
+                    输入需要修改的内容，发送后再确认费用
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedEditSource(null)}
+                  aria-label="取消继续编辑"
+                  className="grid size-7 place-items-center rounded-full text-wb-ink-5 hover:bg-white"
+                >
+                  <XIcon className="size-4" />
+                </button>
+              </div>
+            )}
             {attached.length > 0 && (
               <div className="mb-1.5 flex gap-2 px-1">
                 {attached.map((a, i) => (
@@ -252,7 +313,13 @@ export function ChatPage() {
                 void send(draft, attached.map((a) => a.id))
               }}
               disabled={busy}
-              placeholder={state.awaiting ? '请先确认或取消上面的出图…' : '描述你的产品和想要的效果…'}
+              placeholder={
+                state.awaiting
+                  ? '请先确认或取消上面的出图…'
+                  : selectedEditSource
+                    ? '描述你希望如何修改这张图片…'
+                    : '描述你的产品和想要的效果…'
+              }
               className="h-[72px] w-full resize-none bg-transparent px-3 py-2 text-[14px] leading-relaxed text-wb-ink-2 outline-none placeholder:text-wb-faint-1 disabled:opacity-60"
             />
             <div className="flex items-center justify-between px-1">
@@ -283,6 +350,13 @@ export function ChatPage() {
           </div>
         </div>
       </main>
+      <ChatImagePreviewDialog
+        image={previewImage}
+        onOpenChange={(open) => {
+          if (!open) setPreviewImage(null)
+        }}
+        onEdit={selectEditSource}
+      />
     </AppShell>
   )
 }
@@ -377,59 +451,64 @@ function CostCard({
  * 回显出图卡：转录只存 job_id，进页按需 useListingJob(job_id) 现签取终态图（取舍②）。
  * 与实时流的 ResultBlock 同渲染——只是数据源从 SSE 槽换成详情快照。
  */
-function JobResult({ jobId }: { jobId: string }) {
-  const q = useListingJob(jobId)
-  if (q.isLoading) {
+function JobResult({
+  jobId,
+  onPreview,
+  onEdit,
+}: {
+  jobId: string
+  onPreview: (image: ChatPreviewImage) => void
+  onEdit: (source: ChatEditSource) => void
+}) {
+  const query = useListingJob(jobId)
+  if (query.isLoading) {
     return (
       <div className="glass-lite flex max-w-[88%] items-center gap-2 rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
         <Loader2Icon className="size-3.5 animate-spin" /> 正在载入出图结果…
       </div>
     )
   }
-  if (q.error || !q.data) {
+  if (query.error || !query.data) {
     return (
       <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
         出图结果已失效或无法载入
       </div>
     )
   }
-  const slots = detailToResultSlots(q.data)
+  const slots = detailToResultSlots(query.data)
   if (slots.length === 0) return null
-  const done = slots.filter((s) => s.url).length
-  return <ResultBlock slots={slots} done={done} total={slots.length} />
+  return (
+    <ChatResultBlock
+      slots={slots}
+      done={slots.filter((slot) => slot.url).length}
+      total={slots.length}
+      onPreview={onPreview}
+      onEdit={onEdit}
+    />
+  )
 }
 
-function ResultBlock({ slots, done, total }: { slots: { url: string | null; imageType?: string; error?: string }[]; done: number; total: number }) {
-  const generating = done < total && slots.some((s) => s.url === null && !s.error)
+function CurrentJobResult({
+  state,
+  onPreview,
+  onEdit,
+}: {
+  state: ChatState
+  onPreview: (image: ChatPreviewImage) => void
+  onEdit: (source: ChatEditSource) => void
+}) {
+  const stableJobId = !state.streaming ? state.activeJobId ?? undefined : undefined
+  const job = useListingJob(stableJobId)
+  const slots = job.data ? detailToResultSlots(job.data) : state.slots
+  const done = slots.filter((slot) => slot.url).length
+
   return (
-    <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md p-3">
-      <p className="mb-2 px-1 text-[12.5px] font-medium text-wb-ink-3">
-        出图结果 <span className="text-wb-ink-6">{done}/{total}</span>
-        {generating && <Loader2Icon className="ml-1.5 inline size-3 animate-spin text-wb-brand" />}
-      </p>
-      <div className="grid grid-cols-3 gap-2">
-        {slots.map((s, i) =>
-          s.url ? (
-            <div key={i} className="group relative aspect-square overflow-hidden rounded-xl border border-wb-line-1 bg-white">
-              <img src={s.url} alt="" className="size-full object-cover" />
-              <button
-                onClick={() => void downloadImage(s.url!, `${s.imageType ?? 'chat'}-${i + 1}.png`)}
-                className="absolute bottom-1.5 right-1.5 rounded-lg bg-wb-ink-2/90 px-2 py-1 text-[11px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-              >
-                下载
-              </button>
-            </div>
-          ) : s.error ? (
-            <div key={i} title={s.error} className="grid aspect-square place-items-center rounded-xl border border-dashed border-wb-red-line bg-wb-red-tint p-2 text-center text-[11px] text-wb-red">
-              生成失败
-            </div>
-          ) : (
-            <div key={i} className="grid aspect-square place-items-center rounded-xl border border-dashed border-wb-line-3 bg-wb-surface-1">
-              <div className="size-5 animate-spin rounded-full border-2 border-wb-line-2 border-t-wb-brand" />
-            </div>
-          ),
-        )}
-      </div>
-    </div>
+    <ChatResultBlock
+      slots={slots}
+      done={job.data ? done : state.jobDone}
+      total={job.data ? slots.length : state.jobTotal}
+      onPreview={onPreview}
+      onEdit={onEdit}
+    />
   )
 }
