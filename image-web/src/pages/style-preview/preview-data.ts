@@ -12,6 +12,8 @@
 //   cp "image-qa/通用块多产品/通用块-花生.png"  image-web/public/preview/wb-sell2.png
 //   cp image-code/.playwright-mcp/3d579b6bd423ce51.png image-web/public/preview/wb-upload.png
 
+import { estimateCost } from '../../lib/listing'
+
 export interface PreviewImage {
   src: string
   type: '白底' | '场景' | '卖点'
@@ -19,12 +21,14 @@ export interface PreviewImage {
   cost: string
 }
 
+const PREVIEW_UNIT_COST = `¥${estimateCost(1).toFixed(2)}`
+
 export const PREVIEW_RESULTS: PreviewImage[] = [
-  { src: '/preview/wb-white.png', type: '白底', no: '01', cost: '¥0.40' },
-  { src: '/preview/wb-scene1.png', type: '场景', no: '02', cost: '¥0.40' },
-  { src: '/preview/wb-scene2.png', type: '场景', no: '03', cost: '¥0.40' },
-  { src: '/preview/wb-sell1.png', type: '卖点', no: '04', cost: '¥0.40' },
-  { src: '/preview/wb-sell2.png', type: '卖点', no: '05', cost: '¥0.40' },
+  { src: '/preview/wb-white.png', type: '白底', no: '01', cost: PREVIEW_UNIT_COST },
+  { src: '/preview/wb-scene1.png', type: '场景', no: '02', cost: PREVIEW_UNIT_COST },
+  { src: '/preview/wb-scene2.png', type: '场景', no: '03', cost: PREVIEW_UNIT_COST },
+  { src: '/preview/wb-sell1.png', type: '卖点', no: '04', cost: PREVIEW_UNIT_COST },
+  { src: '/preview/wb-sell2.png', type: '卖点', no: '05', cost: PREVIEW_UNIT_COST },
 ]
 
 export const PREVIEW_UPLOAD = '/preview/wb-upload.png'
