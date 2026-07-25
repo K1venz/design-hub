@@ -14,7 +14,6 @@ from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.auth.rsa_cipher import RsaPasswordCipher
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
-from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
@@ -35,29 +34,41 @@ from design_hub.ports.password_cipher import PasswordCipher
 from design_hub.ports.text_llm import TextLLMPort
 from design_hub.ports.upload_store import UploadStore
 
-# Mock 单价对齐 PRD §3.5 参考价（默认/兜底价；真实单价由 model_config 表热更覆盖，见 WP-H）
-_MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
-    ModelName.SEEDREAM_5: Decimal("0.20"),
+# 两个 GPT Image runtime 的价格是产品固定契约，不受持久化 model_config 旧值覆盖。
+_FIXED_IMAGE_UNIT_COSTS: dict[ModelName, Decimal] = {
     ModelName.GPT_IMAGE_2: Decimal("0.05"),
     ModelName.GPT_IMAGE_2_4K: Decimal("0.18"),
+}
+
+# 其他 Mock 模型仍允许 model_config 热更；4K 只注册 runtime，不进入启动 seed。
+_MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
+    ModelName.SEEDREAM_5: Decimal("0.20"),
+    **_FIXED_IMAGE_UNIT_COSTS,
     ModelName.WANXIANG_27: Decimal("0.05"),
     ModelName.LINGDONG_2: Decimal("0.04"),
 }
+_IMAGE_PROVIDER_PROTOCOL = "openai_compat_image"
 
 
 def default_model_configs() -> list[ModelConfigRecord]:
-    """默认模型配置（启动 seed 用）：单价取 _MOCK_UNIT_COSTS，默认启用。"""
+    """启动 seed：不新增 4K 持久行；4K 能力由 runtime Provider 注册决定。"""
     return [
         ModelConfigRecord(name=name.value, unit_cost=cost, enabled=True, extra={})
         for name, cost in _MOCK_UNIT_COSTS.items()
+        if name is not ModelName.GPT_IMAGE_2_4K
     ]
 
 
 def build_mock_registry(
     unit_costs: Mapping[ModelName, Decimal] | None = None,
 ) -> ProviderRegistry:
-    """Mock 全模型。unit_costs（来自 model_config 表）覆盖默认价，缺失项回落 Mock 兜底。"""
-    costs = {**_MOCK_UNIT_COSTS, **(unit_costs or {})}
+    """Mock 全模型；持久价格只覆盖非固定价模型。"""
+    configurable_costs = {
+        name: cost
+        for name, cost in (unit_costs or {}).items()
+        if name not in _FIXED_IMAGE_UNIT_COSTS
+    }
+    costs = {**_MOCK_UNIT_COSTS, **configurable_costs}
     registry = ProviderRegistry()
     for name, unit_cost in costs.items():
         registry.register(MockModelProvider(name=name, unit_cost=unit_cost))
@@ -66,30 +77,30 @@ def build_mock_registry(
 
 def _resolve_image_connection(
     settings: Settings,
-    unit_costs: Mapping[ModelName, Decimal] | None,
     default_config: ModelConfigRecord | None,
-) -> tuple[str, str, list[str], Decimal]:
+) -> tuple[str, str, list[str]]:
     """出图 provider 连接解析（ISSUE-0057）：优先管理员配的默认模型连接（备用渠道切换、治 0056
     单点），需 base_url+model+非空 key（A1 真 key 从 api_key_env 指向的环境变量取）；否则回落 .env。
-    单模型口径 MVP：默认模型的连接驱动 GPT_IMAGE_2 出图槽（切默认+重启即换渠道，同 0042 快照口径）。
+    runtime 只支持同步 Images API；完整但协议不兼容的默认连接必须 fail-fast。
     """
     if default_config is not None and default_config.base_url and default_config.model:
+        if default_config.provider_type != _IMAGE_PROVIDER_PROTOCOL:
+            raise ValueError(
+                "configured image provider_type must be openai_compat_image"
+            )
         keys = [
             k.strip()
             for k in os.environ.get(default_config.api_key_env, "").split(",")
             if k.strip()
         ]
         if keys:
-            return (
-                default_config.base_url, default_config.model, keys, default_config.unit_cost
-            )
+            return default_config.base_url, default_config.model, keys
     if not settings.gpt_image_base_url or not settings.gpt_image_model:
         raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env 或 model_config）")
     keys = [
         k.strip() for k in settings.gpt_image_api_key.get_secret_value().split(",") if k.strip()
     ]
-    unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2, Decimal("0.05"))
-    return settings.gpt_image_base_url, settings.gpt_image_model, keys, unit_cost
+    return settings.gpt_image_base_url, settings.gpt_image_model, keys
 
 
 def build_gpt_image_providers(
@@ -98,31 +109,29 @@ def build_gpt_image_providers(
     *,
     default_config: ModelConfigRecord | None = None,
 ) -> tuple[AbstractModelProvider, AbstractModelProvider]:
-    """组装普通异步模型与固定 4K 同步模型，并让两者共享同一 API Key 池。"""
-    base_url, model, api_keys, unit_cost = _resolve_image_connection(
-        settings, unit_costs, default_config
-    )
+    """组装两个同步 Images API Provider，并让它们共享同一 API Key 池。"""
+    base_url, model, api_keys = _resolve_image_connection(settings, default_config)
     image_store = build_image_store(settings)
     key_pool = ApiKeyPool(tuple(api_keys))
-    four_k_unit_cost = (unit_costs or {}).get(ModelName.GPT_IMAGE_2_4K, Decimal("0.18"))
-    standard = AsyncImageTasksProvider(
+    standard = OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
-        unit_cost=unit_cost,
+        unit_cost=_FIXED_IMAGE_UNIT_COSTS[ModelName.GPT_IMAGE_2],
         base_url=base_url,
         key_pool=key_pool,
         model=model,
-        image_store=image_store,
         input_fidelity=settings.gpt_image_input_fidelity,
+        response_format=settings.gpt_image_response_format,
+        image_store=image_store,
         trust_env=False,
-        poll_interval=settings.gpt_image_async_poll_interval,
-        poll_max_elapsed=settings.gpt_image_async_poll_max_elapsed,
-        submit_max_retries=settings.gpt_image_max_retries,
-        submit_backoff=settings.gpt_image_retry_backoff,
-        submit_max_sleep=settings.gpt_image_retry_max_sleep,
+        timeout=300.0,
+        max_retries=settings.gpt_image_max_retries,
+        retry_backoff=settings.gpt_image_retry_backoff,
+        retry_max_sleep=settings.gpt_image_retry_max_sleep,
+        retry_max_elapsed=settings.gpt_image_retry_max_elapsed,
     )
     four_k = OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2_4K,
-        unit_cost=four_k_unit_cost,
+        unit_cost=_FIXED_IMAGE_UNIT_COSTS[ModelName.GPT_IMAGE_2_4K],
         base_url=base_url,
         key_pool=key_pool,
         model=ModelName.GPT_IMAGE_2_4K.value,
@@ -224,8 +233,8 @@ def build_registry(
 ) -> ProviderRegistry:
     """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖普通与 4K 模型。
 
-    unit_costs（model_config 真实单价）注入 Provider；default_config（ISSUE-0057 管理员配的
-    默认出图模型）驱动真实 provider 的连接（备用渠道切换），缺省回落 .env。按 LSP 覆盖 Mock。
+    unit_costs 仅覆盖非固定价模型；default_config（ISSUE-0057 管理员配的默认出图模型）
+    驱动兼容 Images API 的连接，缺省回落 .env。按 LSP 覆盖 Mock。
     """
     registry = build_mock_registry(unit_costs)
     if real_gpt_image:

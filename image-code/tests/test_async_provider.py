@@ -54,7 +54,7 @@ class _ScriptedClient:
         self,
         *,
         submit: httpx.Response | list[httpx.Response],
-        polls: list[httpx.Response],
+        polls: list[object],
         download: httpx.Response,
     ) -> None:
         self._submit = list(submit) if isinstance(submit, list) else [submit]
@@ -63,6 +63,7 @@ class _ScriptedClient:
         self.post_payloads: list[Any] = []
         self.post_headers: list[dict[str, str]] = []
         self.get_headers: list[Any] = []
+        self.get_urls: list[str] = []
 
     async def post(self, url: str, **kw: Any) -> httpx.Response:
         self.post_payloads.append(kw.get("json"))
@@ -70,10 +71,15 @@ class _ScriptedClient:
         return self._submit.pop(0)
 
     async def get(self, url: str, **kw: Any) -> httpx.Response:
+        self.get_urls.append(url)
         self.get_headers.append(kw.get("headers"))
         if "cdnimage" in url:
             return self._download
-        return self._polls.pop(0)
+        outcome = self._polls.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        assert isinstance(outcome, httpx.Response)
+        return outcome
 
 
 class _AlwaysQueued:
@@ -235,8 +241,9 @@ def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
     ]
 
 
-def test_submit_retry_rotates_key_but_polling_keeps_request_reservation() -> None:
-    """若 submit 重试或轮询推动全局游标，会用错 key 或影响下一个逻辑请求。"""
+def test_submit_retry_successful_key_becomes_poll_start_without_advancing_pool() -> None:
+    """submit A 失败、B 成功后，轮询必须从 B 开始，且不推进共享全局游标。"""
+    pool = ApiKeyPool(("key-a", "key-b"))
     client = _ScriptedClient(
         submit=[httpx.Response(429, text="busy"), _submit_ok()],
         polls=[_poll("completed", [_CDN])],
@@ -244,7 +251,7 @@ def test_submit_retry_rotates_key_but_polling_keeps_request_reservation() -> Non
     )
     provider = _provider(
         client,
-        key_pool=ApiKeyPool(("key-a", "key-b")),
+        key_pool=pool,
         submit_max_retries=1,
     )
 
@@ -255,9 +262,69 @@ def test_submit_retry_rotates_key_but_polling_keeps_request_reservation() -> Non
         {"Authorization": "Bearer key-b"},
     ]
     assert client.get_headers == [
-        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
         {},
     ]
+    next_request = pool.reserve()
+    assert pool.key_for(next_request, 0) == "key-b"
+
+
+@pytest.mark.parametrize(
+    "retryable",
+    [httpx.Response(500, text="busy"), httpx.ConnectError("transport")],
+    ids=["server-error", "transport-error"],
+)
+def test_poll_retry_rotates_only_local_key_offset(retryable: object) -> None:
+    pool = ApiKeyPool(("key-a", "key-b", "key-c"))
+    client = _ScriptedClient(
+        submit=_submit_ok(),
+        polls=[retryable, _poll("completed", [_CDN])],
+        download=_download(),
+    )
+
+    asyncio.run(_gen(_provider(client, key_pool=pool), []))
+
+    assert client.post_headers == [{"Authorization": "Bearer key-a"}]
+    assert client.get_headers == [
+        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
+        {},
+    ]
+    next_request = pool.reserve()
+    assert pool.key_for(next_request, 0) == "key-b"
+
+
+def test_rejects_unsafe_task_id_without_using_or_exposing_it() -> None:
+    unsafe_task_id = "../private-upstream-task"
+    client = _ScriptedClient(
+        submit=_submit_ok(unsafe_task_id),
+        polls=[],
+        download=_download(),
+    )
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(_gen(_provider(client), []))
+
+    assert unsafe_task_id not in str(error.value)
+    assert client.get_urls == []
+
+
+def test_poll_timeout_does_not_expose_valid_upstream_task_id() -> None:
+    task_id = "private-task-token"
+
+    class _AlwaysQueuedTask:
+        async def post(self, url: str, **kw: Any) -> httpx.Response:
+            return _submit_ok(task_id)
+
+        async def get(self, url: str, **kw: Any) -> httpx.Response:
+            return _poll("queued")
+
+    with pytest.raises(ProviderTimeout) as error:
+        asyncio.run(
+            _gen(_provider(_AlwaysQueuedTask(), poll_max_elapsed=0.01), [])
+        )
+
+    assert task_id not in str(error.value)
 
 
 class _NormalSuccessClient:

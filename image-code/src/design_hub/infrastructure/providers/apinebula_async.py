@@ -13,6 +13,7 @@ reference_mode="url"）；完成体的 download_url 为公网 CDN，直拉字节
 """
 
 import asyncio
+import re
 import time
 from decimal import Decimal
 from typing import Any
@@ -37,6 +38,7 @@ from design_hub.ports.model_provider import (
 
 _STATUS_OK = "completed"
 _STATUS_FAIL = "failed"
+_SAFE_TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
 
 class AsyncImageTasksProvider(AbstractModelProvider):
@@ -100,10 +102,15 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         size_str = f"{size[0]}x{size[1]}"
         start = time.perf_counter()
         start_key_index = self._key_pool.reserve()
-        task_id = await self._submit(
+        task_id, successful_key_offset = await self._submit(
             composed, image_urls, size_str, quality, start_key_index=start_key_index
         )
-        body = await self._poll(task_id, start, start_key_index=start_key_index)
+        body = await self._poll(
+            task_id,
+            start,
+            start_key_index=start_key_index,
+            start_key_offset=successful_key_offset,
+        )
         latency_ms = int((time.perf_counter() - start) * 1000)
         return await self._parse(body, seed, latency_ms, expected_n=n)
 
@@ -115,7 +122,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         quality: str | None,
         *,
         start_key_index: int,
-    ) -> str:
+    ) -> tuple[str, int]:
         endpoint = "edits" if image_urls else "generations"
         payload: dict[str, Any] = {"model": self._model, "prompt": prompt, "size": size}
         if quality:
@@ -140,7 +147,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
                 error = exc
             else:
                 task_id = self._task_id_of(response.json())
-                return task_id
+                return task_id, attempt
             # submit 段瞬时错重试（I/O 域）；4xx 已在 raise_for_status 抛 DomainError 不入此分支
             elapsed = time.perf_counter() - overall_start
             if attempt >= self._submit_max_retries or elapsed >= self._poll_max_elapsed:
@@ -153,25 +160,35 @@ class AsyncImageTasksProvider(AbstractModelProvider):
 
     def _task_id_of(self, body: Any) -> str:
         task_id = body.get("task_id") or body.get("id") if isinstance(body, dict) else None
-        if not task_id:
-            raise ProviderError(f"{self.name} submit 未返回 task_id")
-        return str(task_id)
+        if not isinstance(task_id, str) or _SAFE_TASK_ID.fullmatch(task_id) is None:
+            raise ProviderError(f"{self.name} submit 未返回有效 task_id")
+        return task_id
 
-    async def _poll(self, task_id: str, start: float, *, start_key_index: int) -> Any:
+    async def _poll(
+        self,
+        task_id: str,
+        start: float,
+        *,
+        start_key_index: int,
+        start_key_offset: int,
+    ) -> Any:
         url = f"{self._base_url}/image-tasks/{task_id}?detail=true"
+        key_offset = start_key_offset
         while True:
             if time.perf_counter() - start >= self._poll_max_elapsed:
                 # 墙钟穷尽 fail-closed（ISSUE-0055 (i)）：不无限轮询，用户短时得反馈
                 raise ProviderTimeout(
-                    f"{self.name} 任务 {task_id} 轮询超墙钟 {self._poll_max_elapsed}s"
+                    f"{self.name} 任务轮询超墙钟 {self._poll_max_elapsed}s"
                 )
             await asyncio.sleep(self._poll_interval)
             try:
                 response = await self._get(
-                    url, api_key=self._key_pool.key_for(start_key_index, 0)
+                    url,
+                    api_key=self._key_pool.key_for(start_key_index, key_offset),
                 )
                 raise_for_status(self.name, response)
             except (httpx.HTTPError, ProviderTimeout):
+                key_offset += 1
                 continue  # 轮询期瞬时错（429/5xx/超时/传输）→ 墙钟内继续轮询，不炸任务
             body = response.json()
             status = body.get("status") if isinstance(body, dict) else None
