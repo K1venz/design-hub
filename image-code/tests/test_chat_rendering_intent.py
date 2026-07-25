@@ -1,7 +1,9 @@
 import pytest
 
+from design_hub.application.chat.ratio_intent import UnsupportedChatRatio
 from design_hub.application.chat.rendering_intent import (
     ChatRenderingConflict,
+    decide_chat_ratio_note,
     decide_chat_rendering,
 )
 from design_hub.domain.enums import ModelName
@@ -20,7 +22,16 @@ def test_explicit_4k_generation_selects_4k(message: str) -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["生成高清图片", "不要4K，生成横版", "无需 4 k，按 1:1 生成"],
+    [
+        "生成高清图片",
+        "不要4K，生成横版",
+        "不要生成 4K 图，按 4:3 生成",
+        "不需要做成 4K，按 1:1 生成",
+        "不用改成 4K，按 3:4 生成",
+        "别用 4K，按 4:3 生成",
+        "这不是 4K，按 9:16 生成",
+        "无需 4 k，按 1:1 生成",
+    ],
 )
 def test_vague_or_negated_4k_stays_standard(message: str) -> None:
     assert decide_chat_rendering(message, "1:1").model is ModelName.GPT_IMAGE_2
@@ -44,3 +55,20 @@ def test_four_k_resolution_is_not_treated_as_an_unsupported_ratio() -> None:
 
     assert decision.model is ModelName.GPT_IMAGE_2_4K
     assert decision.ratio.require_supported() == "16:9"
+
+
+def test_4k_with_unsupported_ratio_preserves_supported_ratio_message() -> None:
+    decision = decide_chat_rendering("生成 4K，比例 2:3", auto_ratio="1:1")
+
+    assert decision.model is ModelName.GPT_IMAGE_2_4K
+    with pytest.raises(
+        UnsupportedChatRatio,
+        match="当前支持的图片比例是 1:1 / 3:4 / 4:3 / 9:16 / 16:9",
+    ):
+        decision.ratio.require_supported()
+
+
+def test_explicit_4k_ratio_note_is_sixteen_by_nine_before_tool_selection() -> None:
+    decision = decide_chat_ratio_note("生成 4K，比例 4:3", auto_ratio="1:1")
+
+    assert decision.ratio == "16:9"

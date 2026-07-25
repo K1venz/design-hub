@@ -18,7 +18,8 @@ _FOUR_K_TOKEN = (
     r"(?:(?<!\d)4\s*[kK](?![A-Za-z0-9])|(?<!\d)3840\s*[xX×]\s*2160(?!\d))"
 )
 _NEGATED_FOUR_K_RE = re.compile(
-    rf"(?:不要|不需要|无需|不用)\s*{_FOUR_K_TOKEN}"
+    rf"(?:不要(?:生成)?|不需要(?:做成)?|无需|不用(?:改成)?|别用|不是)"
+    rf"\s*(?:一张|这张|图片)?\s*{_FOUR_K_TOKEN}"
 )
 _EXPLICIT_FOUR_K_RE = re.compile(_FOUR_K_TOKEN)
 
@@ -33,19 +34,30 @@ class ChatRenderingConflict(ValueError):
     pass
 
 
+def _requests_four_k(message: str) -> bool:
+    return (
+        _NEGATED_FOUR_K_RE.search(message) is None
+        and _EXPLICIT_FOUR_K_RE.search(message) is not None
+    )
+
+
+def decide_chat_ratio_note(message: str, auto_ratio: str) -> ChatRatioDecision:
+    """Build the ratio note before the LLM chooses whether to use a write tool."""
+    if _requests_four_k(message):
+        return ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9")
+    return decide_chat_ratio(message, auto_ratio)
+
+
 def decide_chat_rendering(message: str, auto_ratio: str) -> ChatRenderingDecision:
-    if _NEGATED_FOUR_K_RE.search(message) is not None:
-        return ChatRenderingDecision(
-            ModelName.GPT_IMAGE_2,
-            decide_chat_ratio(message, auto_ratio),
-        )
-    if _EXPLICIT_FOUR_K_RE.search(message) is None:
+    if not _requests_four_k(message):
         return ChatRenderingDecision(
             ModelName.GPT_IMAGE_2,
             decide_chat_ratio(message, auto_ratio),
         )
 
     explicit_ratio = extract_explicit_chat_ratio(message)
+    if explicit_ratio is not None and explicit_ratio.ratio is None:
+        return ChatRenderingDecision(ModelName.GPT_IMAGE_2_4K, explicit_ratio)
     if explicit_ratio is not None and explicit_ratio.ratio != "16:9":
         raise ChatRenderingConflict(FOUR_K_RATIO_CONFLICT_MESSAGE)
     return ChatRenderingDecision(
