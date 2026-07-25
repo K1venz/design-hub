@@ -16,7 +16,7 @@
 - 普通模型继续支持现有五种比例；4K 只允许 `3840x2160`（16:9）、`quality=high`、`n=1`。
 - 4K 失败不得降级到普通模型。确定性 4xx 立即失败；仅 429、5xx、传输错误可在 1800 秒总墙钟预算内换 Key 重试。
 - 用户最终裁决已取代原持久化/迁移方案：模型只做运行时路由和费用确认快照传递，不写入 `listing_job` 或历史 API，不新增迁移；生产 MySQL schema 与 Alembic head `f3a4b5c6d7e8` 保持不变。
-- 本需求不更新默认、开发或生产数据库中的模型配置数据；普通 ¥0.05、4K ¥0.18 只验证代码默认和测试。
+- 本需求不更新默认、开发或生产持久数据库及其数据；普通 ¥0.05、4K ¥0.18 只验证代码默认和测试。可启动性冒烟允许使用一次性 `mktemp` SQLite 测试 fixture，让现有 mock 启动流程初始化既有 schema 并执行 `seed_defaults`，验收后停止进程并删除临时数据库；这不属于持久数据库更新，也不改变项目 schema。
 - 每个任务先写失败测试，再实现最小完整改动，再跑针对性测试并立即提交。
 - 未再次获得用户明确授权，不执行真实付费生图。实现验收使用 Mock、HTTP Stub 和本地 Chat。
 
@@ -581,11 +581,11 @@ git commit -m "feat(chat): 按明确意图路由 4K 生图" -m "在费用确认�
 
 ---
 
-## Task 6: 幂等配置本地模型价格和三 Key，并完成全量验收
+## Task 6: 验证已安全配置的本地三 Key，并完成全量验收
 
 **Files:**
 
-- Modify locally only: `image-code/.env`（gitignored，不提交）
+- Inspect locally only: `image-code/.env`（已由 controller 安全配置；gitignored，不修改、不提交）
 - No committed source files unless verification exposes a defect
 
 - [ ] **Step 1: 确认 `.env` 被忽略且不会进入 Git**
@@ -599,21 +599,24 @@ git status --short
 
 Expected: 第一条输出 `image-code/.env`；状态中没有 `.env`。
 
-- [ ] **Step 2: 安全合并第三把 Key，只检查数量不输出内容**
+- [ ] **Step 2: 只验证已安全配置的三 Key 元数据**
 
-使用不会回显密钥值的本地脚本，将用户提供的三把 Key 去重后写入现有 `GPT_IMAGE_API_KEY` 逗号列表；写入前保留权限为仅当前用户可读写。验证命令只输出：
+controller 已将三把 Key 安全写入 gitignored 的 worktree `.env`。本 Task 不再合并、写入或
+改动本地 Key，只验证 `.env` 被忽略、权限为 `600`，并让安全检查只输出：
 
 ```text
+image-code/.env permission=600
 GPT_IMAGE_API_KEY count=3
 ```
 
-不得使用 `set -x`、`echo "$GPT_IMAGE_API_KEY"`、`git diff --no-index` 或任何会打印值的命令。
+不得在文档、命令或报告中写入 Key 值；不得使用 `set -x`、回显环境变量或任何会打印值的
+命令。
 
 - [ ] **Step 3: 验证代码默认价格，不更新数据库数据**
 
 用户最终裁决已取代原“通过模型配置服务幂等更新本地价格”步骤。本任务不得更新默认、
-开发或生产数据库中的任何数据；只通过代码默认配置和测试验证普通模型 ¥0.05、4K 模型
-¥0.18。
+开发或生产持久数据库中的任何数据；只通过代码默认配置和测试验证普通模型 ¥0.05、4K
+模型 ¥0.18。一次性 `mktemp` SQLite 仅供 mock 启动 fixture 使用。
 
 - [ ] **Step 4: 运行后端全量 CI**
 
@@ -656,7 +659,10 @@ Expected: 第一条无输出；第二条只命中策略模块及必要测试引�
 
 - [ ] **Step 7: 本地启动并做不付费的 Chat 手工验收**
 
-在隔离工作树启动后端与前端，使用 Mock/HTTP Stub 验证：
+在隔离工作树启动后端与前端，使用 Mock/HTTP Stub 验证。数据库必须是一次性 `mktemp`
+SQLite fixture；现有 mock 启动流程可在其中初始化既有 schema 并执行 `seed_defaults`，
+验收后必须停止进程并删除临时数据库。这些临时写入不属于持久数据库更新，也不改变项目
+schema：
 
 1. 新 Chat 欢迎语说明全品类、至少上传一张图、4K 需明确写出且仅 16:9。
 2. “生成横版商品图”仍走普通 4:3，确认价 ¥0.05。
