@@ -8,6 +8,28 @@ import type { components } from '@/api/schema'
 
 export type ChatTool = 'generate' | 'clone' | 'edit'
 
+export interface ChatPreviewImage {
+  url: string
+  imageKey?: string
+  imageType?: string
+}
+
+export interface ChatEditSource {
+  url: string
+  imageKey: string
+  imageType?: string
+}
+
+export function previewImageFromSlot(slot: ResultSlot): ChatPreviewImage | null {
+  if (!slot.url) return null
+  return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
+}
+
+export function editSourceFromSlot(slot: ResultSlot): ChatEditSource | null {
+  if (!slot.url || !slot.imageKey) return null
+  return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
+}
+
 /** 费用确认闸载荷（cost_confirm 事件）。 */
 export interface CostConfirm {
   confirmToken: string
@@ -103,6 +125,8 @@ export interface ChatState {
   bubbles: ChatBubble[]
   /** 当前出图结果槽（job_event 填充，复用工作台槽模型）。 */
   slots: ResultSlot[]
+  /** 当前实时出图任务；任务结束后据此补拉稳定 image_key。 */
+  activeJobId: string | null
   jobDone: number
   jobTotal: number
   /** 有 awaiting confirm 时非空——UI 据此渲染确认卡并禁用输入。 */
@@ -129,7 +153,17 @@ export function shouldShowChatWelcome(state: ChatState): boolean {
 }
 
 export function initialChatState(): ChatState {
-  return { sessionId: null, bubbles: [], slots: [], jobDone: 0, jobTotal: 0, awaiting: null, streaming: false, error: null }
+  return {
+    sessionId: null,
+    bubbles: [],
+    slots: [],
+    activeJobId: null,
+    jobDone: 0,
+    jobTotal: 0,
+    awaiting: null,
+    streaming: false,
+    error: null,
+  }
 }
 
 /** 追加用户消息（本地即时回显，发送前调用）。 */
@@ -192,6 +226,7 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
         ...state,
         awaiting: null,
         slots: Array.from({ length: ev.count }, () => ({ url: null }) as ResultSlot),
+        activeJobId: ev.jobId,
         jobDone: 0,
         jobTotal: ev.count,
       }

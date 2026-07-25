@@ -1,6 +1,7 @@
 import { parseChatEvent, type ChatEvent, type ChatSessionSummary, type ChatSessionDetail } from '@/lib/chat'
 import { api } from '@/api/client'
 import { errorMessage } from '@/api/errors'
+import type { components } from '@/api/schema'
 import { useAuthStore } from '@/stores/auth-store'
 
 /** 从一个 SSE 帧（event:/data: 行块）取出事件名与 data JSON。 */
@@ -60,16 +61,26 @@ export interface SendMessageInput {
   sessionId: string | null
   message: string
   uploadIds?: string[]
+  editSourceImageKey?: string
+}
+
+export type ChatMessageBody = components['schemas']['ChatMessageRequest']
+
+export function buildChatMessageBody(input: SendMessageInput): ChatMessageBody {
+  const body: ChatMessageBody = {
+    session_id: input.sessionId,
+    message: input.message,
+    upload_ids: input.uploadIds ?? [],
+  }
+  if (input.editSourceImageKey) {
+    body.edit_source_image_key = input.editSourceImageKey
+  }
+  return body
 }
 
 /** POST /chat/messages —— 发一句话，流式收一轮（session/delta/step/tool/cost_confirm/end）。 */
 export function sendChatMessage(input: SendMessageInput, onEvent: (e: ChatEvent) => void, signal?: AbortSignal) {
-  return streamSSE(
-    '/chat/messages',
-    { session_id: input.sessionId, message: input.message, upload_ids: input.uploadIds ?? [] },
-    onEvent,
-    signal,
-  )
+  return streamSSE('/chat/messages', buildChatMessageBody(input), onEvent, signal)
 }
 
 /** POST /chat/confirm —— 显式确认/取消出图（费用闸用户动作）。 */
