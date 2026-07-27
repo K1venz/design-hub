@@ -22,7 +22,7 @@ _NEGATED_FOUR_K_RE = re.compile(
     rf"\s*(?:一张|这张|图片)?\s*{_FOUR_K_TOKEN}"
 )
 _EXPLICIT_FOUR_K_RE = re.compile(_FOUR_K_TOKEN)
-_CLAUSE_SEPARATOR_RE = re.compile(r"[，。；;！？!?\n]+")
+_CLAUSE_SEPARATOR_RE = re.compile(r"(?:[，。；;！？!?\n]+|但是|但|不过|然而|而是)")
 
 
 @dataclass(frozen=True)
