@@ -66,15 +66,17 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._response_format = response_format
         self._image_store = image_store
         self._client = client
-        self._timeout = timeout
+        # One operation has an absolute wall-clock deadline. The separate retry budget only
+        # decides whether another attempt may start; it must not truncate a successful request.
+        self._operation_timeout = timeout
         # 瞬时错误(超时/5xx/429"系统繁忙"/限流)重试：中转站 edit 端点间歇过载（ISSUE-0007）、
         # apikey 轮换后新 key 分组并发档低致套图并发打满 429（ISSUE-0047）。
         # I/O 域允许重试；默认 0 不重试(保 dev/CI 行为)，生产装配开启。4xx 业务错不重试(fail-fast)。
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_max_sleep = retry_max_sleep
-        # The wall-clock budget caps the entire retry loop. Every HTTP attempt is restricted
-        # to its remaining budget so no request can extend the operation past the deadline.
+        # Retry eligibility budget. The operation deadline above remains authoritative for
+        # active HTTP awaits.
         self._retry_max_elapsed = retry_max_elapsed
         self._required_size = required_size
         self._required_quality = required_quality
@@ -106,7 +108,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             start = time.perf_counter()
             api_key = self._key_pool.key_for(start_key_index, attempt)
             try:
-                remaining = self._remaining_budget(overall_start)
+                remaining = self._remaining_operation_budget(overall_start)
                 request_timeout = self._timeout_for_request(remaining)
                 async with asyncio.timeout(remaining):
                     if ref_bytes:
@@ -149,19 +151,23 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                 raise error
             attempt += 1
             # 退避不跨出墙钟预算边界（剩余预算内 sleep）
-            sleep = min(self._retry_sleep(attempt), self._retry_max_elapsed - elapsed)
+            sleep = min(
+                self._retry_sleep(attempt),
+                self._retry_max_elapsed - elapsed,
+                self._remaining_operation_budget(overall_start),
+            )
             await asyncio.sleep(sleep)
             if time.perf_counter() - overall_start >= self._retry_max_elapsed:
                 raise error
 
-    def _remaining_budget(self, overall_start: float) -> float:
-        remaining = self._retry_max_elapsed - (time.perf_counter() - overall_start)
+    def _remaining_operation_budget(self, overall_start: float) -> float:
+        remaining = self._operation_timeout - (time.perf_counter() - overall_start)
         if remaining <= 0:
-            raise ProviderTimeout(f"{self.name} retry wall-clock budget exhausted")
+            raise ProviderTimeout(f"{self.name} operation timeout")
         return remaining
 
     def _timeout_for_request(self, remaining: float) -> httpx.Timeout:
-        timeout = min(self._timeout, remaining)
+        timeout = min(self._operation_timeout, remaining)
         return httpx.Timeout(timeout, connect=min(timeout, 15.0))
 
     def _validate_request(self, *, size: tuple[int, int], n: int) -> None:
