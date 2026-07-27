@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from design_hub.application.rate_limit import RateLimited, ThrottledCommand, UserRateLimiter
-from design_hub.domain.media import image_key_from_url
 from design_hub.ports.task_queue import GenerationCommand
 from design_hub.ports.upload_store import owns, upload_ns
 
@@ -48,15 +47,3 @@ def test_owns_is_namespace_prefixed() -> None:
     assert owns(f"{ns}/abc.png", "user-7")
     assert not owns(f"{ns}/abc.png", "user-8")  # 越权
     assert not owns("abc.png", "user-7")  # 无命名空间
-
-
-@pytest.mark.parametrize(
-    ("url", "key"),
-    [
-        ("/img/a1b2.png", "a1b2.png"),
-        ("https://host/img/a1b2.png", "a1b2.png"),
-        ("https://bucket.tos-cn-shanghai.volces.com/a1b2.png?X-Tos-Sig=xx", "a1b2.png"),
-    ],
-)
-def test_image_key_from_url_three_forms(url: str, key: str) -> None:
-    assert image_key_from_url(url) == key

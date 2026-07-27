@@ -8,7 +8,6 @@ from design_hub.application.listing.error_messages import humanize_image_error
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.sizing import generation_size
 from design_hub.domain.enums import ModelName, TaskEventType
-from design_hub.domain.media import image_key_from_url
 from design_hub.domain.models import (
     ListingJobImage,
     ListingJobStart,
@@ -110,7 +109,7 @@ class ListingCommand(GenerationCommand):
             )
         success_images = tuple(
             ListingJobImage(
-                image_key=image_key_from_url(im.url),
+                image_key=im.image_key,
                 seed=im.seed,
                 cost=im.cost,
                 status="成功",

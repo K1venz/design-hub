@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import binascii
 import time
 from decimal import Decimal
 from typing import Any
@@ -14,7 +15,7 @@ from design_hub.infrastructure.providers._openai_common import (
     retry_sleep,
 )
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
-from design_hub.ports.image_store import ImageStore
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderError,
@@ -28,7 +29,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
 
     与具体中转站（apinebula/诗云/...）解耦，只认 base_url + api_key + model。
     有参考图 → /images/edits（图生图，主业务）；无 → /images/generations（文生图）。
-    返回 b64_json 时经 ImageStore 落点换 url（DIP）。httpx.AsyncClient 可注入便于测试。
+    返回 b64_json 或外部 url 时统一经 ImageStore 转存。httpx.AsyncClient 可注入便于测试。
     """
 
     reference_mode: ReferenceMode = "bytes"  # 同步走 multipart 字节（ISSUE-0065）
@@ -41,9 +42,9 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         base_url: str,
         key_pool: ApiKeyPool,
         model: str,
+        image_store: ImageStore,
         input_fidelity: str = "",
         response_format: str = "",
-        image_store: ImageStore | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 180.0,
         trust_env: bool = True,
@@ -54,7 +55,10 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         required_size: tuple[int, int] | None = None,
         required_quality: str | None = None,
         required_count: int | None = None,
+        max_download_bytes: int = 64 * 1024 * 1024,
     ) -> None:
+        if max_download_bytes <= 0:
+            raise ValueError("max_download_bytes must be positive")
         self.name = name
         self.unit_cost = unit_cost
         self._base_url = base_url.rstrip("/")
@@ -81,6 +85,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._required_size = required_size
         self._required_quality = required_quality
         self._required_count = required_count
+        self._max_download_bytes = max_download_bytes
         # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
         self._trust_env = trust_env
 
@@ -141,7 +146,13 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                 error = exc
             else:
                 latency_ms = int((time.perf_counter() - start) * 1000)
-                return await self._parse(response.json(), seed, latency_ms, expected_n=n)
+                return await self._parse(
+                    response.json(),
+                    seed,
+                    latency_ms,
+                    expected_n=n,
+                    operation_started_at=overall_start,
+                )
             # 瞬时网络/服务端错误（429/超时/5xx，I/O 域）：抖动退避后重试，超上限才抛。
             # 4xx 业务错在 _raise_for_status 已抛 DomainError、不入本分支（fail-fast）。
             # 穷尽条件（ISSUE-0055 (i)）：重试次数上限 或 总重试墙钟预算耗尽——持续同错(上游持久
@@ -262,7 +273,13 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             return await client.post(url, data=data, files=files, headers=headers)
 
     async def _parse(
-        self, body: Any, seed: int | None, latency_ms: int, *, expected_n: int
+        self,
+        body: Any,
+        seed: int | None,
+        latency_ms: int,
+        *,
+        expected_n: int,
+        operation_started_at: float | None = None,
     ) -> list[GeneratedImage]:
         data = body.get("data") if isinstance(body, dict) else None
         if not data:
@@ -279,11 +296,14 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         data = data[:expected_n]
         base = seed if seed is not None else 0
         images: list[GeneratedImage] = []
+        if operation_started_at is None:
+            operation_started_at = time.perf_counter()
         for index, item in enumerate(data):
-            url = await self._resolve_url(item)
+            stored = await self._resolve_stored_image(item, operation_started_at)
             images.append(
                 GeneratedImage(
-                    url=url,
+                    image_key=stored.key,
+                    url=stored.url,
                     seed=base + index,
                     latency_ms=latency_ms,
                     cost=self.unit_cost,
@@ -291,15 +311,79 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             )
         return images
 
-    async def _resolve_url(self, item: dict[str, Any]) -> str:
-        if item.get("url"):
-            return str(item["url"])
-        b64 = item.get("b64_json")
-        if b64:
-            if self._image_store is None:
-                raise ProviderError(f"{self.name} returned b64 but no ImageStore configured")
-            return await self._image_store.save(base64.b64decode(b64))
-        raise ProviderError(f"{self.name} item has neither url nor b64_json")
+    async def _resolve_stored_image(
+        self, item: dict[str, Any], operation_started_at: float
+    ) -> StoredImage:
+        if "b64_json" in item:
+            raw = item["b64_json"]
+            if not isinstance(raw, str) or not raw:
+                raise ProviderError(f"{self.name} 返回了无效 b64_json")
+            try:
+                data = base64.b64decode(raw, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ProviderError(f"{self.name} 返回了无效 b64_json") from exc
+            if not data:
+                raise ProviderError(f"{self.name} 返回了空图片")
+            return await self._image_store.save(data)
+
+        raw_url = item.get("url")
+        if not isinstance(raw_url, str) or not raw_url:
+            raise ProviderError(f"{self.name} item has neither url nor b64_json")
+        url = httpx.URL(raw_url)
+        if url.scheme not in {"http", "https"} or not url.host:
+            raise ProviderError(f"{self.name} 图片 URL 必须使用 http/https")
+        response = await self._download_external_image(raw_url, operation_started_at)
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        suffixes = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/webp": ".webp",
+        }
+        suffix = suffixes.get(content_type)
+        if suffix is None:
+            raise ProviderError(f"{self.name} 返回了非图片内容")
+        if not response.content:
+            raise ProviderError(f"{self.name} 返回了空图片")
+        if len(response.content) > self._max_download_bytes:
+            raise ProviderError(f"{self.name} 返回图片过大")
+        return await self._image_store.save(response.content, suffix=suffix)
+
+    async def _download_external_image(
+        self, url: str, operation_started_at: float
+    ) -> httpx.Response:
+        attempt = 0
+        download_started_at = time.perf_counter()
+        while True:
+            try:
+                remaining = self._remaining_operation_budget(operation_started_at)
+                timeout = self._timeout_for_request(remaining)
+                response = await self._get_external(url, timeout=timeout)
+                raise_for_status(self.name, response)
+                return response
+            except (TimeoutError, httpx.TimeoutException, httpx.HTTPError):
+                error: ProviderError = ProviderTimeout(f"{self.name} image download failed")
+            except ProviderTimeout as exc:
+                error = exc
+            elapsed = time.perf_counter() - download_started_at
+            if attempt >= self._max_retries or elapsed >= self._retry_max_elapsed:
+                raise error
+            attempt += 1
+            sleep = min(
+                self._retry_sleep(attempt),
+                self._retry_max_elapsed - elapsed,
+                self._remaining_operation_budget(operation_started_at),
+            )
+            await asyncio.sleep(sleep)
+
+    async def _get_external(self, url: str, *, timeout: httpx.Timeout) -> httpx.Response:
+        if self._client is not None:
+            return await self._client.get(url, headers={}, timeout=timeout)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            trust_env=self._trust_env,
+            follow_redirects=True,
+        ) as client:
+            return await client.get(url, headers={})
 
     @staticmethod
     def _require_bytes(ref: ReferenceImage) -> bytes:

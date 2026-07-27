@@ -2,7 +2,7 @@ import hashlib
 from pathlib import Path
 
 from design_hub.domain.errors import NotFoundError
-from design_hub.ports.image_store import ImageStore
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.media_url_signer import MediaUrlSigner
 
 
@@ -19,11 +19,11 @@ class LocalImageStore(ImageStore):
         self._dir = Path(base_dir)
         self._public_base_url = public_base_url.rstrip("/")
 
-    async def save(self, data: bytes, *, suffix: str = ".png") -> str:
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
         self._dir.mkdir(parents=True, exist_ok=True)
         name = hashlib.sha256(data).hexdigest()[:16] + suffix
         (self._dir / name).write_bytes(data)
-        return f"{self._public_base_url}/img/{name}"
+        return StoredImage(key=name, url=f"{self._public_base_url}/img/{name}")
 
     async def load(self, image_key: str) -> bytes:
         # 二次编辑源图读回（ISSUE-0040）；key=纯文件名，防穿越后按缺失→404

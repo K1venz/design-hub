@@ -239,12 +239,20 @@ class _BlockingService(_FakeService):
         raise AssertionError("unreachable")
 
 
-def _single(url: str) -> ListingResult:
+def _single(image_key: str, url: str) -> ListingResult:
     """复刻/编辑用：单张成功结果（image_type 恒 None、failures 恒空）。"""
     return ListingResult(
         prompt="p",
         used_model=ModelName.GPT_IMAGE_2,
-        images=(GeneratedImage(url=url, seed=3, latency_ms=5, cost=Decimal("0.4")),),
+        images=(
+            GeneratedImage(
+                image_key=image_key,
+                url=url,
+                seed=3,
+                latency_ms=5,
+                cost=Decimal("0.4"),
+            ),
+        ),
         total_cost=Decimal("0.4"),
     )
 
@@ -313,6 +321,7 @@ def test_command_two_phase_partial_persists_failure_and_orders_before_completed(
         used_model=ModelName.GPT_IMAGE_2,
         images=(
             GeneratedImage(
+                image_key="aa.png",
                 url="/img/aa.png", seed=7, latency_ms=10, cost=Decimal("0.4"), image_type="白底"
             ),
         ),
@@ -355,9 +364,11 @@ def test_command_full_success_status_complete() -> None:
         used_model=ModelName.GPT_IMAGE_2,
         images=(
             GeneratedImage(
+                image_key="a.png",
                 url="/img/a.png", seed=1, latency_ms=1, cost=Decimal("0.4"), image_type="白底"
             ),
             GeneratedImage(
+                image_key="b.png",
                 url="/img/b.png", seed=2, latency_ms=1, cost=Decimal("0.4"), image_type="卖点"
             ),
         ),
@@ -368,6 +379,30 @@ def test_command_full_success_status_complete() -> None:
     asyncio.run(cmd.run("j1"))
     assert history.finals[0][1] == "完成"  # 成功 2 >= 计划 2
     assert history.finals[0][3] is None  # 无失败原因
+
+
+def test_command_persists_explicit_image_key_instead_of_parsing_display_url() -> None:
+    history = _FakeHistory([])
+    long_external_url = "https://upstream.example/result/" + ("signed-segment-" * 20)
+    result = ListingResult(
+        prompt="p",
+        used_model=ModelName.GPT_IMAGE_2_4K,
+        images=(
+            GeneratedImage(
+                image_key="owned.png",
+                url=long_external_url,
+                seed=1,
+                latency_ms=1,
+                cost=Decimal("0.18"),
+            ),
+        ),
+        total_cost=Decimal("0.18"),
+    )
+
+    asyncio.run(_clone_command(_FakeService(result), history, _FakeEvents([])).run("j1"))
+
+    persisted = history.batches[0][1][0]
+    assert persisted.image_key == "owned.png"
 
 
 def test_command_failure_path_finalizes_failed_before_task_failed_no_images() -> None:
@@ -425,7 +460,7 @@ def test_clone_command_orchestration_and_ordering() -> None:
     log: list[tuple[str, object]] = []
     history = _FakeHistory(log)
     events = _FakeEvents(log)
-    cmd = _clone_command(_FakeService(_single("/img/c.png")), history, events)
+    cmd = _clone_command(_FakeService(_single("c.png", "/img/c.png")), history, events)
 
     asyncio.run(cmd.run("jc"))
 
@@ -453,7 +488,7 @@ def test_edit_command_orchestration_and_ordering() -> None:
     log: list[tuple[str, object]] = []
     history = _FakeHistory(log)
     events = _FakeEvents(log)
-    cmd = _edit_command(_FakeService(_single("/img/e.png")), history, events)
+    cmd = _edit_command(_FakeService(_single("e.png", "/img/e.png")), history, events)
 
     asyncio.run(cmd.run("je"))
 
@@ -488,6 +523,7 @@ def test_command_persist_failure_fails_closed_to_failed() -> None:
         used_model=ModelName.GPT_IMAGE_2,
         images=(
             GeneratedImage(
+                image_key="aa.png",
                 url="/img/aa.png", seed=7, latency_ms=10, cost=Decimal("0.4"), image_type="白底"
             ),
         ),
