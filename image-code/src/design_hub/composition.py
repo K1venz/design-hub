@@ -103,21 +103,47 @@ def _resolve_image_connection(
     return settings.gpt_image_base_url, settings.gpt_image_model, keys
 
 
+def _require_image_keys(
+    raw_keys: list[str],
+    *,
+    setting_name: str,
+    expected_count: int,
+    count_label: str,
+) -> tuple[str, ...]:
+    keys = tuple(key.strip() for key in raw_keys if key.strip())
+    if len(keys) != expected_count:
+        raise ValueError(f"{setting_name} must contain exactly {count_label} API key(s)")
+    return keys
+
+
 def build_gpt_image_providers(
     settings: Settings,
     unit_costs: Mapping[ModelName, Decimal] | None = None,
     *,
     default_config: ModelConfigRecord | None = None,
 ) -> tuple[AbstractModelProvider, AbstractModelProvider]:
-    """组装两个同步 Images API Provider，并让它们共享同一 API Key 池。"""
-    base_url, model, api_keys = _resolve_image_connection(settings, default_config)
+    """组装两个同步 Images API Provider，各自使用严格隔离的凭据池。"""
+    base_url, model, standard_raw_keys = _resolve_image_connection(settings, default_config)
+    standard_keys = _require_image_keys(
+        standard_raw_keys,
+        setting_name="GPT_IMAGE_API_KEY",
+        expected_count=2,
+        count_label="two",
+    )
+    four_k_keys = _require_image_keys(
+        settings.gpt_image_4k_api_key.get_secret_value().split(","),
+        setting_name="GPT_IMAGE_4K_API_KEY",
+        expected_count=1,
+        count_label="one",
+    )
     image_store = build_image_store(settings)
-    key_pool = ApiKeyPool(tuple(api_keys))
+    standard_key_pool = ApiKeyPool(standard_keys)
+    four_k_key_pool = ApiKeyPool(four_k_keys)
     standard = OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=_FIXED_IMAGE_UNIT_COSTS[ModelName.GPT_IMAGE_2],
         base_url=base_url,
-        key_pool=key_pool,
+        key_pool=standard_key_pool,
         model=model,
         input_fidelity=settings.gpt_image_input_fidelity,
         response_format=settings.gpt_image_response_format,
@@ -133,7 +159,7 @@ def build_gpt_image_providers(
         name=ModelName.GPT_IMAGE_2_4K,
         unit_cost=_FIXED_IMAGE_UNIT_COSTS[ModelName.GPT_IMAGE_2_4K],
         base_url=base_url,
-        key_pool=key_pool,
+        key_pool=four_k_key_pool,
         model=ModelName.GPT_IMAGE_2_4K.value,
         input_fidelity=settings.gpt_image_input_fidelity,
         response_format=settings.gpt_image_response_format,
