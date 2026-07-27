@@ -6,12 +6,12 @@ import { toast } from 'sonner'
 import { AppShell } from '@/components/layout/AppShell'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 
-/** 出图工作台外壳：全局 SideNav（AppShell）+ 顶栏「新建任务」+ 内容（路由切换轻过渡）。 */
+/** 出图工作台外壳：全局顶部导航 + 页面操作区 + 内容（路由切换轻过渡）。 */
 export function WorkbenchLayout() {
   const location = useLocation()
   return (
-    <AppShell
-      topbarLeft={
+    <AppShell>
+      <div className="flex shrink-0 justify-end px-3 pb-2">
         <button
           onClick={() => {
             newTaskBus.emit()
@@ -21,14 +21,13 @@ export function WorkbenchLayout() {
         >
           <PlusIcon className="size-4" /> 新建任务
         </button>
-      }
-    >
+      </div>
       <motion.div
         key={location.pathname}
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3 md:flex-row md:overflow-visible md:px-0 md:pr-3"
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3 md:flex-row md:overflow-visible"
       >
         <Outlet />
       </motion.div>

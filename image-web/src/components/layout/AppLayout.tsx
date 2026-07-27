@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { AppShell } from '@/components/layout/AppShell'
 import { DotPattern } from '@/components/visual/DotPattern'
 
-/** 历史/管理页外壳：全局 SideNav（AppShell）+ 居中内容区（路由切换轻过渡）。 */
+/** 历史/管理页外壳：全局顶部导航 + 居中内容区（路由切换轻过渡）。 */
 export function AppLayout() {
   const location = useLocation()
   return (
