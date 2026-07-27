@@ -57,10 +57,11 @@ def test_generate_tool_uses_determined_ratio() -> None:
     assert "确定比例由系统备注提供" in generate.description
 
 
-def test_chat_write_tool_schemas_never_expose_category() -> None:
-    for name in ("generate", "clone"):
+def test_chat_write_tool_schemas_never_expose_listing_only_fields() -> None:
+    for name in ("generate", "clone", "edit"):
         tool = next(item for item in _tool_specs() if item.name == name)
         assert "category" not in tool.parameters["properties"]
+        assert "modifiers" not in tool.parameters["properties"]
 
 
 def test_system_prompt_requires_category_free_conservative_enhancement() -> None:
@@ -73,6 +74,8 @@ def test_system_prompt_requires_category_free_conservative_enhancement() -> None
         assert forbidden not in prompt
     for required in (
         "不得询问、推断或填写品类",
+        "不得生成 modifiers 字段",
+        "风格只写入 prompt",
         "同一次工具调用",
         "不得编造品牌",
         "不得编造卖点",
