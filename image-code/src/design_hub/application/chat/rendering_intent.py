@@ -22,6 +22,7 @@ _NEGATED_FOUR_K_RE = re.compile(
     rf"\s*(?:一张|这张|图片)?\s*{_FOUR_K_TOKEN}"
 )
 _EXPLICIT_FOUR_K_RE = re.compile(_FOUR_K_TOKEN)
+_CLAUSE_SEPARATOR_RE = re.compile(r"[，。；;！？!?\n]+")
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,11 @@ class ChatRenderingConflict(ValueError):
 
 
 def _requests_four_k(message: str) -> bool:
-    return (
-        _NEGATED_FOUR_K_RE.search(message) is None
-        and _EXPLICIT_FOUR_K_RE.search(message) is not None
-    )
+    for clause in _CLAUSE_SEPARATOR_RE.split(message):
+        positive_text = _NEGATED_FOUR_K_RE.sub("", clause)
+        if _EXPLICIT_FOUR_K_RE.search(positive_text) is not None:
+            return True
+    return False
 
 
 def decide_chat_ratio_note(message: str, auto_ratio: str) -> ChatRatioDecision:

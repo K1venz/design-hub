@@ -50,7 +50,7 @@ def test_real_registry_uses_two_sync_providers_with_fixed_prices_and_one_key_poo
     assert four_k.unit_cost == Decimal("0.18")
     assert standard._model == "standard-upstream-model"
     assert four_k._model == "gpt-image-2-4k"
-    assert four_k._timeout == 1800.0
+    assert four_k._operation_timeout == 1800.0
     assert four_k._retry_max_elapsed == 1800.0
 
 

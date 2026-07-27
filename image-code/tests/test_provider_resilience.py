@@ -111,13 +111,40 @@ def test_generate_exhausts_retry_budget_and_raises() -> None:
     assert client.calls == 4  # 首发 + 3 次重试
 
 
-def test_wall_clock_budget_stops_persistent_5xx_despite_max_retries() -> None:
-    # ISSUE-0055 (i)：总重试墙钟耗尽即穷尽 fail-closed——持久 5xx 不再干等 max_retries×退避。
-    # 预算=0 → 首次 HTTP 前墙钟即耗尽，不发请求（尽管 max_retries=5 本可 6 次调用）。
+def test_zero_retry_budget_stops_after_initial_5xx() -> None:
+    # Retry budget controls additional attempts, not the initial request.
     client = _SequencedClient([_500(), _500(), _500(), _500(), _500(), _500()])
     with pytest.raises(ProviderTimeout):
         asyncio.run(_gen(_provider(client, max_retries=5, retry_max_elapsed=0.0)))
-    assert client.calls == 0  # 墙钟预算截断，非 max_retries（否则会 6 次）
+    assert client.calls == 1
+
+
+def test_retry_budget_does_not_cut_off_a_successful_initial_request() -> None:
+    class _SlowSuccessClient:
+        calls = 0
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            self.calls += 1
+            await asyncio.sleep(0.02)
+            return _ok()
+
+    client = _SlowSuccessClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.05"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2",
+        client=client,  # type: ignore[arg-type]
+        timeout=0.05,
+        max_retries=1,
+        retry_max_elapsed=0.01,
+    )
+
+    images = asyncio.run(_gen(provider))
+
+    assert len(images) == 1
+    assert client.calls == 1
 
 
 def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
@@ -277,7 +304,7 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
             )
         )
 
-    assert client.timeouts == [1700.0]
+    assert client.timeouts == [3500.0]
 
 
 @pytest.mark.parametrize(
@@ -306,9 +333,9 @@ def test_absolute_deadline_interrupts_an_active_http_await(
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
         client=client,  # type: ignore[arg-type]
-        timeout=1.0,
+        timeout=0.015,
         max_retries=0,
-        retry_max_elapsed=0.015,
+        retry_max_elapsed=1.0,
     )
 
     with pytest.raises(ProviderTimeout):
