@@ -820,6 +820,81 @@ Expected: 工作树干净，任务 1–7 的提交均存在。
 
 ---
 
+## Task 8A: 用顺序状态机替换累加式 4K 正则判断
+
+**Files:**
+
+- Modify: `image-code/src/design_hub/application/chat/rendering_intent.py`
+- Test: `image-code/tests/test_chat_rendering_intent.py`
+
+**Interfaces:**
+
+- Consumes: 现有 `_CLAUSE_SEPARATOR_RE`、`_NEGATED_FOUR_K_RE`、`_EXPLICIT_FOUR_K_RE`
+- Produces: `_resolve_four_k_intent(message: str) -> _FourKIntent`，其中 `requested` 是
+  `bool | None`，`scope_text` 是最后一个明确决策所在分句及后续文本
+
+- [ ] **Step 1: 写后置否定失败测试**
+
+覆盖：
+
+```python
+[
+    ("生成 4K 16:9，但是不要 4K，改成 1:1 普通图", ModelName.GPT_IMAGE_2, "1:1"),
+    ("先做成 4K，不过还是别用 4K，生成横版普通图", ModelName.GPT_IMAGE_2, "4:3"),
+    ("生成 4K 草稿但最终不要生成 4K，按普通 4:3 出图", ModelName.GPT_IMAGE_2, "4:3"),
+]
+```
+
+- [ ] **Step 2: 运行测试并确认 RED**
+
+```bash
+cd image-code
+uv run pytest -q tests/test_chat_rendering_intent.py -k "later_negation"
+```
+
+Expected: FAIL，现实现仍选择 `gpt-image-2-4k` 或返回 4K 比例冲突。
+
+- [ ] **Step 3: 实现最后明确决策生效**
+
+按分句顺序扫描；包含 4K token 的分句根据否定表达产生 `requested=False/True`，后者覆盖
+前者。`scope_text` 从最后明确决策分句开始拼接到消息末尾。`decide_chat_ratio_note()` 与
+`decide_chat_rendering()` 必须共用该结果：
+
+```python
+@dataclass(frozen=True)
+class _FourKIntent:
+    requested: bool | None
+    scope_text: str
+```
+
+最终 `requested is True` 才路由 4K；`False` 路由普通模型并从 `scope_text` 解析比例；
+`None` 路由普通模型并从整条消息解析比例。
+
+- [ ] **Step 4: 运行完整意图与 Chat 聚焦回归**
+
+```bash
+cd image-code
+uv run pytest -q \
+  tests/test_chat_rendering_intent.py \
+  tests/test_chat_ratio_intent.py \
+  tests/test_chat.py
+uv run ruff check src tests
+uv run mypy src
+```
+
+Expected: PASS；先否定后要求、先要求后取消、重复 token、标点和无标点转折全部正确。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add \
+  image-code/src/design_hub/application/chat/rendering_intent.py \
+  image-code/tests/test_chat_rendering_intent.py
+git commit -m "refactor(chat): 按最终决策解析 4K 意图"
+```
+
+---
+
 ## Task 9: 用户本地确认后的生产发布检查点
 
 本任务不是当前实现阶段的自动动作。只有用户完成本地验收并明确要求上线生产后执行。
