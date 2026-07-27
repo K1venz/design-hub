@@ -74,7 +74,7 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
         <div className="grid grid-cols-2 gap-1 rounded-xl border border-wb-line-1 bg-wb-surface-1 p-1">
           {(
             [
-              { mode: 'single', label: '单图 ¥0.40' },
+              { mode: 'single', label: `单图 ¥${estimateCost(1).toFixed(2)}` },
               { mode: 'set', label: '套图' },
             ] as const
           ).map((m) => (

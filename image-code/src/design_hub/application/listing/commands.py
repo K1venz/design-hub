@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -5,8 +6,8 @@ from decimal import Decimal
 
 from design_hub.application.listing.error_messages import humanize_image_error
 from design_hub.application.listing.listing_service import ListingGenerationService
-from design_hub.application.listing.sizing import ratio_to_size
-from design_hub.domain.enums import TaskEventType
+from design_hub.application.listing.sizing import generation_size
+from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.media import image_key_from_url
 from design_hub.domain.models import (
     ListingJobImage,
@@ -48,6 +49,7 @@ class ListingCommand(GenerationCommand):
     prompt: str
     modifiers: dict[str, str]
     ratio: str
+    model: ModelName
 
     @abstractmethod
     def _start(self, job_id: str, size: str) -> ListingJobStart:
@@ -64,11 +66,14 @@ class ListingCommand(GenerationCommand):
         return 1
 
     async def run(self, job_id: str) -> None:
-        size = "{}x{}".format(*ratio_to_size(self.ratio))
+        size = "{}x{}".format(*generation_size(self.model, self.ratio))
         await self.history.start(self._start(job_id, size))  # 入队建行：status='生成中'
         await self.events.publish(TaskEvent(job_id, TaskEventType.TASK_STARTED, {}))
         try:
             result = await self._generate()
+        except asyncio.CancelledError as exc:
+            await self._fail(job_id, exc, refunded=True)
+            raise
         except Exception as exc:  # 出图段兜底：成本已在 service 内回滚/未预扣 → 本单未扣费
             await self._fail(job_id, exc, refunded=True)
             raise
@@ -76,6 +81,9 @@ class ListingCommand(GenerationCommand):
             # fail-closed（Finding A）：出图成功后的「发事件/落图/终态」段裸奔会留永久
             # 「生成中」僵尸行 + SSE 永久转圈，故整段兜底——同 generate 段同构。
             await self._persist_and_complete(job_id, result)
+        except asyncio.CancelledError as exc:
+            await self._fail(job_id, exc, refunded=False)
+            raise
         except Exception as exc:  # 落库段：出图已成功且已计费 → 不宣称未扣费
             await self._fail(job_id, exc, refunded=False)
             raise
@@ -132,7 +140,7 @@ class ListingCommand(GenerationCommand):
             )
         )
 
-    async def _fail(self, job_id: str, exc: Exception, *, refunded: bool) -> None:
+    async def _fail(self, job_id: str, exc: BaseException, *, refunded: bool) -> None:
         """失败兜底：finalize('失败') 先于 TASK_FAILED（时序契约）。finalize 本身失败即
         抛（DB 真 down 由启动 reaper 扫尾，Finding B），绝不静默吞。成本不动（service 内）。
 
@@ -172,6 +180,7 @@ class ListingGenerationCommand(ListingCommand):
             overlay_texts=self.overlay_texts,
             user_id=self.user_id,
             category=self.category,
+            model=self.model,
         )
 
     def _requested(self) -> int:
@@ -216,6 +225,7 @@ class EditCommand(ListingCommand):
             ratio=self.ratio,
             user_id=self.user_id,
             edit_mode=self.edit_mode,
+            model=self.model,
         )
 
     def _start(self, job_id: str, size: str) -> ListingJobStart:
@@ -258,6 +268,7 @@ class CloneCommand(ListingCommand):
             user_id=self.user_id,
             category=self.category,
             clone_mode=self.clone_mode,
+            model=self.model,
         )
 
     def _start(self, job_id: str, size: str) -> ListingJobStart:

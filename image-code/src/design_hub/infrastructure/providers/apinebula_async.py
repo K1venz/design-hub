@@ -13,19 +13,21 @@ reference_mode="url"）；完成体的 download_url 为公网 CDN，直拉字节
 """
 
 import asyncio
+import re
 import time
 from decimal import Decimal
 from typing import Any
 
 import httpx
 
+from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
-    compose_prompt,
     raise_for_status,
     retry_sleep,
 )
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
@@ -36,6 +38,7 @@ from design_hub.ports.model_provider import (
 
 _STATUS_OK = "completed"
 _STATUS_FAIL = "failed"
+_SAFE_TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
 
 class AsyncImageTasksProvider(AbstractModelProvider):
@@ -49,7 +52,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         name: ModelName,
         unit_cost: Decimal,
         base_url: str,
-        api_keys: list[str],
+        key_pool: ApiKeyPool,
         model: str,
         image_store: ImageStore,
         input_fidelity: str = "",
@@ -65,10 +68,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         self.name = name
         self.unit_cost = unit_cost
         self._base_url = base_url.rstrip("/")
-        if not api_keys:
-            raise ValueError("api_keys 不能为空")
-        self._api_keys = api_keys
-        self._key_idx = 0
+        self._key_pool = key_pool
         self._model = model
         # 异步端点只回 download_url，必须有 image_store 拉回字节落存（对齐同步 b64 落点）
         self._image_store = image_store
@@ -96,19 +96,33 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
-        composed = compose_prompt(prompt, negative_prompt)
+        composed = compose_image_api_prompt(prompt, negative_prompt)
         # 模态解引用（ISSUE-0065）：异步走现签 URL；launcher 按 reference_mode 物化 url，缺=装配错。
         image_urls = [self._require_url(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
         start = time.perf_counter()
-        task_id = await self._submit(composed, image_urls, size_str, quality)
-        body = await self._poll(task_id, start)
+        start_key_index = self._key_pool.reserve()
+        task_id, successful_key_offset = await self._submit(
+            composed, image_urls, size_str, quality, start_key_index=start_key_index
+        )
+        body = await self._poll(
+            task_id,
+            start,
+            start_key_index=start_key_index,
+            start_key_offset=successful_key_offset,
+        )
         latency_ms = int((time.perf_counter() - start) * 1000)
         return await self._parse(body, seed, latency_ms, expected_n=n)
 
     async def _submit(
-        self, prompt: str, image_urls: list[str], size: str, quality: str | None
-    ) -> str:
+        self,
+        prompt: str,
+        image_urls: list[str],
+        size: str,
+        quality: str | None,
+        *,
+        start_key_index: int,
+    ) -> tuple[str, int]:
         endpoint = "edits" if image_urls else "generations"
         payload: dict[str, Any] = {"model": self._model, "prompt": prompt, "size": size}
         if quality:
@@ -122,17 +136,18 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         overall_start = time.perf_counter()
         while True:
             try:
-                response = await self._post_json(url, payload)
+                api_key = self._key_pool.key_for(start_key_index, attempt)
+                response = await self._post_json(url, payload, api_key=api_key)
                 raise_for_status(self.name, response)  # 4xx→DomainError；429/5xx→ProviderTimeout
-            except httpx.TimeoutException as exc:
-                error: ProviderError = ProviderTimeout(f"{self.name} submit timeout: {exc}")
-            except httpx.HTTPError as exc:
-                error = ProviderTimeout(f"{self.name} submit transport error: {exc}")
+            except httpx.TimeoutException:
+                error: ProviderError = ProviderTimeout(f"{self.name} submit timeout")
+            except httpx.HTTPError:
+                error = ProviderTimeout(f"{self.name} submit transport error")
             except ProviderTimeout as exc:
                 error = exc
             else:
                 task_id = self._task_id_of(response.json())
-                return task_id
+                return task_id, attempt
             # submit 段瞬时错重试（I/O 域）；4xx 已在 raise_for_status 抛 DomainError 不入此分支
             elapsed = time.perf_counter() - overall_start
             if attempt >= self._submit_max_retries or elapsed >= self._poll_max_elapsed:
@@ -145,23 +160,35 @@ class AsyncImageTasksProvider(AbstractModelProvider):
 
     def _task_id_of(self, body: Any) -> str:
         task_id = body.get("task_id") or body.get("id") if isinstance(body, dict) else None
-        if not task_id:
-            raise ProviderError(f"{self.name} submit 未返回 task_id：{body}")
-        return str(task_id)
+        if not isinstance(task_id, str) or _SAFE_TASK_ID.fullmatch(task_id) is None:
+            raise ProviderError(f"{self.name} submit 未返回有效 task_id")
+        return task_id
 
-    async def _poll(self, task_id: str, start: float) -> Any:
+    async def _poll(
+        self,
+        task_id: str,
+        start: float,
+        *,
+        start_key_index: int,
+        start_key_offset: int,
+    ) -> Any:
         url = f"{self._base_url}/image-tasks/{task_id}?detail=true"
+        key_offset = start_key_offset
         while True:
             if time.perf_counter() - start >= self._poll_max_elapsed:
                 # 墙钟穷尽 fail-closed（ISSUE-0055 (i)）：不无限轮询，用户短时得反馈
                 raise ProviderTimeout(
-                    f"{self.name} 任务 {task_id} 轮询超墙钟 {self._poll_max_elapsed}s"
+                    f"{self.name} 任务轮询超墙钟 {self._poll_max_elapsed}s"
                 )
             await asyncio.sleep(self._poll_interval)
             try:
-                response = await self._get(url)
+                response = await self._get(
+                    url,
+                    api_key=self._key_pool.key_for(start_key_index, key_offset),
+                )
                 raise_for_status(self.name, response)
             except (httpx.HTTPError, ProviderTimeout):
+                key_offset += 1
                 continue  # 轮询期瞬时错（429/5xx/超时/传输）→ 墙钟内继续轮询，不炸任务
             body = response.json()
             status = body.get("status") if isinstance(body, dict) else None
@@ -169,8 +196,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
                 return body
             if status == _STATUS_FAIL:
                 # MVP 不重投（coordinator 拍②）：failed=确定性终态，fail-closed 上抛，上游自动退款
-                message = (body.get("error") or {}).get("message") or "上游任务失败"
-                raise ProviderError(f"{self.name} 任务失败：{message}")
+                raise ProviderError(f"{self.name} 任务失败")
             # queued / in_progress（及其它非终态）→ 继续轮询
 
     async def _parse(
@@ -202,7 +228,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         if not download_url:
             raise ProviderError(f"{self.name} 完成项缺 download_url")
         # 公网 CDN（cdnimage.apinebula.com）直拉，不带 Bearer（避免把 key 泄给 CDN 主机）
-        response = await self._get(str(download_url), auth=False)
+        response = await self._get(str(download_url))
         raise_for_status(self.name, response)
         return await self._image_store.save(response.content)
 
@@ -213,13 +239,10 @@ class AsyncImageTasksProvider(AbstractModelProvider):
             raise ProviderError("异步 provider 收到无 URL 的参考图（reference_mode 装配错）")
         return ref.url
 
-    def _next_key(self) -> str:
-        key = self._api_keys[self._key_idx % len(self._api_keys)]
-        self._key_idx += 1
-        return key
-
-    async def _post_json(self, url: str, payload: dict[str, Any]) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._next_key()}"}
+    async def _post_json(
+        self, url: str, payload: dict[str, Any], *, api_key: str
+    ) -> httpx.Response:
+        headers = {"Authorization": f"Bearer {api_key}"}
         if self._client is not None:
             return await self._client.post(
                 url, json=payload, headers=headers, timeout=self._request_timeout
@@ -229,8 +252,8 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         ) as client:
             return await client.post(url, json=payload, headers=headers)
 
-    async def _get(self, url: str, *, auth: bool = True) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._next_key()}"} if auth else {}
+    async def _get(self, url: str, *, api_key: str | None = None) -> httpx.Response:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         if self._client is not None:
             return await self._client.get(url, headers=headers, timeout=self._request_timeout)
         async with httpx.AsyncClient(

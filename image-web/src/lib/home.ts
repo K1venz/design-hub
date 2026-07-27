@@ -6,6 +6,8 @@ import {
   HistoryIcon, EraserIcon, ExpandIcon, type LucideIcon,
 } from 'lucide-react'
 
+import { estimateCost } from './listing'
+
 /** Hero 6 张快捷卡：实朴真实能力，点卡预填一句对话意图进「帮我设计」。 */
 export interface QuickCard {
   key: string
@@ -57,7 +59,13 @@ export interface ToolTile {
 }
 
 export const TOOL_TILES: ToolTile[] = [
-  { key: 'single', to: '/set', label: '单图出图', desc: '只出一张 · ¥0.40', icon: ImageIcon },
+  {
+    key: 'single',
+    to: '/set',
+    label: '单图出图',
+    desc: `只出一张 · ¥${estimateCost(1).toFixed(2)}`,
+    icon: ImageIcon,
+  },
   { key: 'edit', to: '/history', label: '二次编辑', desc: '从历史选一张再改', icon: SquarePenIcon },
   { key: 'history', to: '/history', label: '出图历史', desc: '回看与重新下载', icon: HistoryIcon },
 ]

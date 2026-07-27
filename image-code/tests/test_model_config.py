@@ -4,6 +4,7 @@ import asyncio
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from design_hub.application.admin.model_config_service import ModelConfigService
@@ -96,7 +97,7 @@ def test_out_schema_exposes_env_name_never_real_key() -> None:
 
 
 def test_resolve_image_connection_prefers_default_else_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ISSUE-0057 de-hardcode：默认模型连接驱动出图(备用渠道切换)、连接空/无默认回落 .env。
+    # ISSUE-0057 de-hardcode：兼容协议的默认连接驱动出图；连接空/无默认回落 .env。
     from design_hub.composition import _resolve_image_connection
     from design_hub.config.settings import Settings
     s = Settings(
@@ -106,13 +107,21 @@ def test_resolve_image_connection_prefers_default_else_env(monkeypatch: pytest.M
     monkeypatch.setenv("MY_BACKUP_KEY", "dk1,dk2")
     dc = _rec("backup", base_url="https://backup", model="backup-model",
               api_key_env="MY_BACKUP_KEY", unit_cost=Decimal("0.55"), is_default=True)
-    base, model, keys, cost = _resolve_image_connection(s, None, dc)
+    base, model, keys = _resolve_image_connection(s, dc)
     assert base == "https://backup" and model == "backup-model"
-    assert keys == ["dk1", "dk2"] and cost == Decimal("0.55")
+    assert keys == ["dk1", "dk2"]
     # 无默认 → 回落 .env
-    b2, m2, k2, _ = _resolve_image_connection(s, None, None)
+    b2, m2, k2 = _resolve_image_connection(s, None)
     assert b2 == "https://envfallback" and m2 == "env-model" and k2 == ["envkey"]
     # 有默认但 env key 未设 → 回落 .env（不拿空 key 起 provider）
     monkeypatch.delenv("MY_BACKUP_KEY", raising=False)
-    b3, _, _, _ = _resolve_image_connection(s, None, dc)
+    b3, _, _ = _resolve_image_connection(s, dc)
     assert b3 == "https://envfallback"
+
+
+def test_4k_wall_clock_budget_is_positive() -> None:
+    from design_hub.config.settings import Settings
+
+    assert Settings().gpt_image_4k_timeout == 1800.0
+    with pytest.raises(ValidationError):
+        Settings(gpt_image_4k_timeout=0.0)

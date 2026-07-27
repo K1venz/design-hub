@@ -12,6 +12,7 @@ from decimal import Decimal
 import httpx
 import pytest
 
+import design_hub.infrastructure.providers.openai_compat as openai_compat
 from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -24,6 +25,7 @@ from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_provider import ProviderTimeout
 
@@ -38,9 +40,13 @@ class _SequencedClient:
     def __init__(self, outcomes: list[object]) -> None:
         self._outcomes = list(outcomes)
         self.calls = 0
+        self.headers: list[dict[str, str]] = []
 
     async def post(self, *args: object, **kwargs: object) -> httpx.Response:
         self.calls += 1
+        headers = kwargs.get("headers")
+        assert isinstance(headers, dict)
+        self.headers.append(headers)
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, BaseException):
             raise outcome
@@ -49,14 +55,18 @@ class _SequencedClient:
 
 
 def _provider(
-    client: _SequencedClient, *, max_retries: int, retry_max_elapsed: float = 90.0
+    client: _SequencedClient,
+    *,
+    max_retries: int,
+    retry_max_elapsed: float = 90.0,
+    key_pool: ApiKeyPool | None = None,
 ) -> OpenAICompatImageProvider:
     # 退避设极小值，单测不真等；契约不依赖具体时长
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
-        api_keys=["k"],
+        key_pool=key_pool or ApiKeyPool(("k",)),
         model="gpt-image-2",
         client=client,  # type: ignore[arg-type]
         max_retries=max_retries,
@@ -101,13 +111,245 @@ def test_generate_exhausts_retry_budget_and_raises() -> None:
     assert client.calls == 4  # 首发 + 3 次重试
 
 
-def test_wall_clock_budget_stops_persistent_5xx_despite_max_retries() -> None:
-    # ISSUE-0055 (i)：总重试墙钟耗尽即穷尽 fail-closed——持久 5xx 不再干等 max_retries×退避。
-    # 预算=0 → 首次失败后墙钟即耗尽、绝不重试（尽管 max_retries=5 本可 6 次调用）。
+def test_zero_retry_budget_stops_after_initial_5xx() -> None:
+    # Retry budget controls additional attempts, not the initial request.
     client = _SequencedClient([_500(), _500(), _500(), _500(), _500(), _500()])
     with pytest.raises(ProviderTimeout):
         asyncio.run(_gen(_provider(client, max_retries=5, retry_max_elapsed=0.0)))
-    assert client.calls == 1  # 墙钟预算截断，非 max_retries（否则会 6 次）
+    assert client.calls == 1
+
+
+def test_retry_budget_does_not_cut_off_a_successful_initial_request() -> None:
+    class _SlowSuccessClient:
+        calls = 0
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            self.calls += 1
+            await asyncio.sleep(0.02)
+            return _ok()
+
+    client = _SlowSuccessClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.05"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2",
+        client=client,  # type: ignore[arg-type]
+        timeout=0.05,
+        max_retries=1,
+        retry_max_elapsed=0.01,
+    )
+
+    images = asyncio.run(_gen(provider))
+
+    assert len(images) == 1
+    assert client.calls == 1
+
+
+def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Clock:
+        value = 0.0
+
+        def now(self) -> float:
+            return self.value
+
+    class _SlowFailureClient:
+        calls = 0
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            self.calls += 1
+            clock.value += 1800.0
+            return _500()
+
+    clock = _Clock()
+    monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
+    client = _SlowFailureClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        timeout=1800.0,
+        max_retries=5,
+        retry_max_elapsed=1800.0,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=[],
+                size=(3840, 2160),
+                n=1,
+            )
+        )
+
+    assert client.calls == 1
+
+
+def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Clock:
+        value = 0.0
+
+        def now(self) -> float:
+            return self.value
+
+    class _BudgetConsumingClient:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            timeout = kwargs["timeout"]
+            assert isinstance(timeout, httpx.Timeout)
+            assert timeout.read is not None
+            self.timeouts.append(timeout.read)
+            clock.value += 100.0 if len(self.timeouts) == 1 else timeout.read
+            return _500()
+
+    clock = _Clock()
+    monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
+    client = _BudgetConsumingClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        timeout=1800.0,
+        max_retries=1,
+        retry_backoff=0.0,
+        retry_max_sleep=0.0,
+        retry_max_elapsed=1800.0,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=[],
+                size=(3840, 2160),
+                n=1,
+            )
+        )
+
+    assert client.timeouts == [1800.0, 1700.0]
+    assert clock.value == 1800.0
+
+
+def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Clock:
+        def __init__(self) -> None:
+            self._values = iter((0.0, 100.0))
+            self.value = 0.0
+
+        def now(self) -> float:
+            self.value = next(self._values, self.value)
+            return self.value
+
+    class _CapturingClient:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            timeout = kwargs["timeout"]
+            assert isinstance(timeout, httpx.Timeout)
+            assert timeout.read is not None
+            self.timeouts.append(timeout.read)
+            return _500()
+
+    clock = _Clock()
+    monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
+    client = _CapturingClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        timeout=3600.0,
+        max_retries=0,
+        retry_max_elapsed=1800.0,
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=[],
+                size=(3840, 2160),
+                n=1,
+            )
+        )
+
+    assert client.timeouts == [3500.0]
+
+
+@pytest.mark.parametrize(
+    "reference_images",
+    [[], [ReferenceImage(data=b"product")]],
+    ids=["generation", "edit"],
+)
+def test_absolute_deadline_interrupts_an_active_http_await(
+    reference_images: list[ReferenceImage],
+) -> None:
+    class _ActivePastDeadlineClient:
+        def __init__(self) -> None:
+            self.activity = 0
+
+        async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+            for _ in range(10):
+                self.activity += 1
+                await asyncio.sleep(0.005)
+            return _ok()
+
+    client = _ActivePastDeadlineClient()
+    provider = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.05"),
+        base_url="https://example.invalid",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2",
+        client=client,  # type: ignore[arg-type]
+        timeout=0.015,
+        max_retries=0,
+        retry_max_elapsed=1.0,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        asyncio.run(
+            provider.generate(
+                prompt="p",
+                negative_prompt="",
+                reference_images=reference_images,
+                size=(1024, 1024),
+                n=1,
+            )
+        )
+
+    assert 1 <= client.activity < 10
 
 
 def test_generate_does_not_retry_4xx_business_error() -> None:
@@ -126,12 +368,40 @@ def test_generate_retries_transient_network_error() -> None:
     assert client.calls == 2
 
 
+@pytest.mark.parametrize("retryable", [_500(), httpx.ConnectError("transport failed")])
+def test_retryable_failure_rotates_to_the_next_key(retryable: object) -> None:
+    client = _SequencedClient([retryable, _ok()])
+    provider = _provider(
+        client,
+        max_retries=1,
+        key_pool=ApiKeyPool(("key-a", "key-b")),
+    )
+
+    asyncio.run(_gen(provider))
+
+    assert client.headers == [
+        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
+    ]
+
+
+def test_transport_exception_does_not_expose_api_key() -> None:
+    secret = "secret-key-must-not-leak"
+    client = _SequencedClient([httpx.ConnectError(f"connection refused: {secret}")])
+    provider = _provider(client, max_retries=0, key_pool=ApiKeyPool((secret,)))
+
+    with pytest.raises(ProviderTimeout) as error:
+        asyncio.run(_gen(provider))
+
+    assert secret not in str(error.value)
+
+
 def test_retry_sleep_exponential_bounded_and_jittered() -> None:
     provider = OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
-        api_keys=["k"],
+        key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
         retry_backoff=2.0,
         retry_max_sleep=30.0,
@@ -213,7 +483,7 @@ def test_set_generation_never_exceeds_concurrency() -> None:
     result = asyncio.run(
         service.generate(
             prompt="春节红色背景", modifiers=_MODS, images=(b"x",), ratio="1:1",
-            user_id="u1", category="FOOD",
+            user_id="u1", category="FOOD", model=ModelName.GPT_IMAGE_2,
             plan={"白底": 3, "场景": 4, "卖点": 3}, overlay_texts=("高山七彩花生",),
         )
     )
@@ -228,7 +498,7 @@ def test_single_image_flow_one_inflight_regardless_of_cap() -> None:
     result = asyncio.run(
         service.generate(
             prompt="干净背景主图", modifiers=_MODS, images=(b"x",), ratio="1:1",
-            user_id="u1", category="FOOD", n=1,
+            user_id="u1", category="FOOD", model=ModelName.GPT_IMAGE_2, n=1,
         )
     )
     assert len(result.images) == 1
