@@ -35,29 +35,29 @@ class ChatRenderingConflict(ValueError):
     pass
 
 
-def _requests_four_k(message: str) -> bool:
-    for clause in _CLAUSE_SEPARATOR_RE.split(message):
-        positive_text = _NEGATED_FOUR_K_RE.sub("", clause)
-        if _EXPLICIT_FOUR_K_RE.search(positive_text) is not None:
-            return True
-    return False
+def _positive_four_k_text(message: str) -> str:
+    clauses = _CLAUSE_SEPARATOR_RE.split(message)
+    return "，".join(
+        clause for clause in clauses if _NEGATED_FOUR_K_RE.search(clause) is None
+    )
 
 
 def decide_chat_ratio_note(message: str, auto_ratio: str) -> ChatRatioDecision:
     """Build the ratio note before the LLM chooses whether to use a write tool."""
-    if _requests_four_k(message):
+    if _EXPLICIT_FOUR_K_RE.search(_positive_four_k_text(message)) is not None:
         return ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9")
     return decide_chat_ratio(message, auto_ratio)
 
 
 def decide_chat_rendering(message: str, auto_ratio: str) -> ChatRenderingDecision:
-    if not _requests_four_k(message):
+    positive_four_k_text = _positive_four_k_text(message)
+    if _EXPLICIT_FOUR_K_RE.search(positive_four_k_text) is None:
         return ChatRenderingDecision(
             ModelName.GPT_IMAGE_2,
             decide_chat_ratio(message, auto_ratio),
         )
 
-    explicit_ratio = extract_explicit_chat_ratio(message)
+    explicit_ratio = extract_explicit_chat_ratio(positive_four_k_text)
     if explicit_ratio is not None and explicit_ratio.ratio is None:
         return ChatRenderingDecision(ModelName.GPT_IMAGE_2_4K, explicit_ratio)
     if explicit_ratio is not None and explicit_ratio.ratio != "16:9":

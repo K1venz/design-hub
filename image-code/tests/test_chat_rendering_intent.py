@@ -47,6 +47,26 @@ def test_positive_4k_clause_is_not_vetoed_by_a_separate_negated_clause() -> None
     assert decision.ratio.ratio == "16:9"
 
 
+def test_negated_clause_with_duplicate_4k_tokens_stays_standard() -> None:
+    decision = decide_chat_rendering(
+        "不要生成 4K（3840×2160）图片，按 4:3 生成普通图",
+        auto_ratio="1:1",
+    )
+
+    assert decision.model is ModelName.GPT_IMAGE_2
+    assert decision.ratio.ratio == "4:3"
+
+
+def test_4k_ratio_ignores_ratio_from_a_negated_clause() -> None:
+    decision = decide_chat_rendering(
+        "不要 4K 4:3 草稿，最终生成 4K 16:9 成品",
+        auto_ratio="1:1",
+    )
+
+    assert decision.model is ModelName.GPT_IMAGE_2_4K
+    assert decision.ratio.ratio == "16:9"
+
+
 @pytest.mark.parametrize("ratio", ["1:1", "3:4", "4:3", "9:16"])
 def test_4k_conflicting_ratio_is_rejected_before_cost_confirm(ratio: str) -> None:
     with pytest.raises(ChatRenderingConflict, match="4K 当前仅支持 16:9 横版"):
