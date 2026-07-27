@@ -481,6 +481,28 @@ def test_4k_tool_call_uses_real_price_ratio_and_pending_model(tmp_path) -> None:
     asyncio.run(_impl())
 
 
+def test_national_style_4k_request_reaches_4k_cost_confirm_without_modifiers(
+    tmp_path,
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        prompt = "以用户上传图为主体，设计国风风格画面，保持产品事实与已有文字不变"
+        events = await _drain(
+            inf.orch(
+                StubTextLLM(("", _gen_tc(uid, ratio="1:1", n=1, prompt=prompt)))
+            ).handle_message(USER, None, "我要生成 4K 图，国风风格的", [uid])
+        )
+
+        confirm = _first(events, "cost_confirm")
+        assert confirm["unit_cost"] == "0.18"
+        assert confirm["args"]["ratio"] == "16:9"
+        assert confirm["args"]["prompt"] == prompt
+        assert "modifiers" not in confirm["args"]
+
+    asyncio.run(_impl())
+
+
 def test_chat_cost_confirm_ignores_stale_database_prices(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(

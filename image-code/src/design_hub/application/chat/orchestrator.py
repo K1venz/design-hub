@@ -28,7 +28,11 @@ from design_hub.application.chat.rendering_intent import (
     decide_chat_rendering,
 )
 from design_hub.application.chat.system_prompt import default_system_prompt
-from design_hub.application.chat.tool_requests import ChatCloneRequest, ChatGenerateRequest
+from design_hub.application.chat.tool_requests import (
+    ChatCloneRequest,
+    ChatEditRequest,
+    ChatGenerateRequest,
+)
 from design_hub.application.listing.job_launcher import ListingJobLauncher
 from design_hub.application.listing.requests import (
     CloneRequest,
@@ -109,7 +113,7 @@ def _tool_specs() -> list[ToolSpec]:
         ToolSpec(
             "edit",
             "二次编辑已产出的图。需 source_image_key + 编辑指令；用户未明确要改哪张/怎么改先追问。",
-            EditRequest.model_json_schema(),
+            ChatEditRequest.model_json_schema(),
         ),
         ToolSpec(
             "query_my_jobs",
@@ -660,7 +664,7 @@ class ChatOrchestrator:
         if tool == "clone":
             return ChatCloneRequest(**args).to_listing()
         if tool == "edit":
-            return EditRequest(**args)
+            return ChatEditRequest(**args).to_listing()
         raise ValueError(f"未知工具：{tool}")
 
     @staticmethod
