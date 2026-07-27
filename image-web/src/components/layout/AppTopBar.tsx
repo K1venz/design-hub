@@ -37,9 +37,10 @@ function DesktopNavItem({ item }: { item: NavigationItem }) {
       aria-label={item.label}
       className={({ isActive }) =>
         cn(
-          'group/nav inline-flex h-9 items-center justify-center overflow-hidden rounded-full px-2.5 text-wb-ink-5 outline-none transition-[color,background-color,box-shadow] duration-200 hover:bg-white/75 hover:text-wb-ink-2 focus-visible:ring-2 focus-visible:ring-wb-brand-soft',
-          isActive &&
-            'bg-wb-brand font-semibold text-white shadow-[0_7px_18px_-10px_rgba(91,91,214,.85)] hover:bg-wb-brand hover:text-white',
+          'group/nav inline-flex h-9 items-center justify-center overflow-hidden rounded-full px-2.5 outline-none transition-[color,background-color,box-shadow,translate] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-wb-brand-soft',
+          isActive
+            ? 'bg-wb-brand font-semibold text-white shadow-[0_7px_18px_-10px_rgba(91,91,214,.85)]'
+            : 'text-wb-ink-5 hover:-translate-y-0.5 hover:bg-wb-tint-1 hover:text-wb-brand-deep hover:shadow-[0_8px_18px_-12px_rgba(91,91,214,.55)] focus-visible:-translate-y-0.5 focus-visible:bg-wb-tint-1 focus-visible:text-wb-brand-deep',
         )
       }
     >
