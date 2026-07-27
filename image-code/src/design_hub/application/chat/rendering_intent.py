@@ -26,6 +26,12 @@ _CLAUSE_SEPARATOR_RE = re.compile(r"(?:[，。；;！？!?\n]+|但是|但|不过
 
 
 @dataclass(frozen=True)
+class _FourKIntent:
+    requested: bool | None
+    scope_text: str
+
+
+@dataclass(frozen=True)
 class ChatRenderingDecision:
     model: ModelName
     ratio: ChatRatioDecision
@@ -35,29 +41,45 @@ class ChatRenderingConflict(ValueError):
     pass
 
 
-def _positive_four_k_text(message: str) -> str:
-    clauses = _CLAUSE_SEPARATOR_RE.split(message)
-    return "，".join(
-        clause for clause in clauses if _NEGATED_FOUR_K_RE.search(clause) is None
-    )
+def _resolve_four_k_intent(message: str) -> _FourKIntent:
+    requested: bool | None = None
+    scope_start = 0
+    clause_start = 0
+
+    for separator in _CLAUSE_SEPARATOR_RE.finditer(message):
+        clause = message[clause_start : separator.start()]
+        if _EXPLICIT_FOUR_K_RE.search(clause) is not None:
+            requested = _NEGATED_FOUR_K_RE.search(clause) is None
+            scope_start = clause_start
+        clause_start = separator.end()
+
+    final_clause = message[clause_start:]
+    if _EXPLICIT_FOUR_K_RE.search(final_clause) is not None:
+        requested = _NEGATED_FOUR_K_RE.search(final_clause) is None
+        scope_start = clause_start
+
+    if requested is None:
+        return _FourKIntent(None, message)
+    return _FourKIntent(requested, message[scope_start:])
 
 
 def decide_chat_ratio_note(message: str, auto_ratio: str) -> ChatRatioDecision:
     """Build the ratio note before the LLM chooses whether to use a write tool."""
-    if _EXPLICIT_FOUR_K_RE.search(_positive_four_k_text(message)) is not None:
+    intent = _resolve_four_k_intent(message)
+    if intent.requested is True:
         return ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9")
-    return decide_chat_ratio(message, auto_ratio)
+    return decide_chat_ratio(intent.scope_text, auto_ratio)
 
 
 def decide_chat_rendering(message: str, auto_ratio: str) -> ChatRenderingDecision:
-    positive_four_k_text = _positive_four_k_text(message)
-    if _EXPLICIT_FOUR_K_RE.search(positive_four_k_text) is None:
+    intent = _resolve_four_k_intent(message)
+    if intent.requested is not True:
         return ChatRenderingDecision(
             ModelName.GPT_IMAGE_2,
-            decide_chat_ratio(message, auto_ratio),
+            decide_chat_ratio(intent.scope_text, auto_ratio),
         )
 
-    explicit_ratio = extract_explicit_chat_ratio(positive_four_k_text)
+    explicit_ratio = extract_explicit_chat_ratio(intent.scope_text)
     if explicit_ratio is not None and explicit_ratio.ratio is None:
         return ChatRenderingDecision(ModelName.GPT_IMAGE_2_4K, explicit_ratio)
     if explicit_ratio is not None and explicit_ratio.ratio != "16:9":

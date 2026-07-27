@@ -47,6 +47,24 @@ def test_positive_4k_clause_is_not_vetoed_by_a_separate_negated_clause() -> None
     assert decision.ratio.ratio == "16:9"
 
 
+@pytest.mark.parametrize(
+    ("message", "expected_ratio"),
+    [
+        ("生成 4K 16:9，但是不要 4K，改成 1:1 普通图", "1:1"),
+        ("先做成 4K，不过还是别用 4K，生成横版普通图", "4:3"),
+        ("生成 4K 草稿但最终不要生成 4K，按普通 4:3 出图", "4:3"),
+    ],
+)
+def test_later_negation_overrides_earlier_4k_request(
+    message: str,
+    expected_ratio: str,
+) -> None:
+    decision = decide_chat_rendering(message, auto_ratio="1:1")
+
+    assert decision.model is ModelName.GPT_IMAGE_2
+    assert decision.ratio.ratio == expected_ratio
+
+
 def test_negated_clause_with_duplicate_4k_tokens_stays_standard() -> None:
     decision = decide_chat_rendering(
         "不要生成 4K（3840×2160）图片，按 4:3 生成普通图",
