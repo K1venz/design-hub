@@ -185,4 +185,3 @@ git commit -m "chore(deploy): 增加独立 4K Key 配置"
 按现有 SOP 创建回滚镜像、备份生产 `.env` 和 MySQL、推送 dev/main、运行 `push.sh` 与
 `deploy.sh`。只读验证 API healthy、1K/4K Key 数量 2+1、Alembic head 不变、无新增
 4K model_config 行、近期错误日志为 0。
-
