@@ -31,6 +31,10 @@ describe('top navigation implementation contract', () => {
 
     expect(html).toContain('group-hover/nav:max-w-24')
     expect(html).toContain('group-focus-visible/nav:max-w-24')
+    expect(html).toContain('hover:bg-wb-tint-1')
+    expect(html).toContain('hover:text-wb-brand-deep')
+    expect(html).toContain('hover:-translate-y-0.5')
+    expect(html).toContain('transition-[color,background-color,box-shadow,translate]')
     expect(html).toContain('aria-label="打开导航菜单"')
     expect(html).toContain('aria-label="主导航"')
   })
