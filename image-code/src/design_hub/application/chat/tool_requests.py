@@ -6,9 +6,13 @@ Chat 不接收、不推断品类；这里的严格 schema 是文本 LLM 可见�
 
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
-from design_hub.application.listing.requests import CloneRequest, ListingGenerateRequest
+from design_hub.application.listing.requests import (
+    CloneRequest,
+    EditRequest,
+    ListingGenerateRequest,
+)
 
 Prompt = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -22,10 +26,13 @@ class ChatGenerateRequest(BaseModel):
     n: int | None = None
     plan: dict[str, int] | None = None
     overlay_texts: list[str] | None = None
-    modifiers: dict[str, str] = Field(default_factory=dict)
 
     def to_listing(self) -> ListingGenerateRequest:
-        return ListingGenerateRequest(**self.model_dump(), category=None)
+        return ListingGenerateRequest(
+            **self.model_dump(),
+            modifiers={},
+            category=None,
+        )
 
 
 class ChatCloneRequest(BaseModel):
@@ -36,7 +43,25 @@ class ChatCloneRequest(BaseModel):
     clone_mode: str
     ratio: str
     prompt: str = ""
-    modifiers: dict[str, str] = Field(default_factory=dict)
 
     def to_listing(self) -> CloneRequest:
-        return CloneRequest(**self.model_dump(), category=None)
+        return CloneRequest(
+            **self.model_dump(),
+            modifiers={},
+            category=None,
+        )
+
+
+class ChatEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_image_key: str
+    prompt: Prompt
+    edit_mode: str = "delta"
+    ratio: str | None = None
+
+    def to_listing(self) -> EditRequest:
+        return EditRequest(
+            **self.model_dump(),
+            modifiers={},
+        )
