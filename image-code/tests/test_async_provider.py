@@ -13,7 +13,7 @@ from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
-from design_hub.ports.image_store import ImageStore
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_provider import ProviderError, ProviderTimeout
 
 
@@ -21,9 +21,10 @@ class _FakeImageStore(ImageStore):
     def __init__(self) -> None:
         self.saved: list[bytes] = []
 
-    async def save(self, data: bytes, *, suffix: str = ".png") -> str:
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
         self.saved.append(data)
-        return f"stored://{len(self.saved)}.png"
+        key = f"{len(self.saved)}.png"
+        return StoredImage(key=key, url=f"stored://{key}")
 
     async def load(self, image_key: str) -> bytes:
         raise NotImplementedError
@@ -217,6 +218,7 @@ def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
         base_url="https://api.example/v1",
         key_pool=pool,
         model="gpt-image-2",
+        image_store=_FakeImageStore(),
         client=normal_client,  # type: ignore[arg-type]
     )
     tasks = _provider(task_client, key_pool=pool)
@@ -333,7 +335,7 @@ class _NormalSuccessClient:
 
     async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         self.headers.append(kwargs["headers"])
-        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+        return httpx.Response(200, json={"data": [{"b64_json": "UE5H"}]})
 
 
 @pytest.mark.parametrize("refs", [[], [ReferenceImage(url="https://sig/u1.png")]])

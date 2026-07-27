@@ -1,6 +1,7 @@
 """provider 上游契约核（ISSUE-0045：返回张数 != 请求 n 必须 fail-fast，防双计费资损）。"""
 
 import asyncio
+import base64
 from decimal import Decimal
 from typing import Any
 
@@ -11,29 +12,62 @@ from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_provider import ProviderError
 
 
-def _provider() -> OpenAICompatImageProvider:
+class _RecordingImageStore(ImageStore):
+    def __init__(self) -> None:
+        self.saved: list[tuple[bytes, str]] = []
+
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
+        self.saved.append((data, suffix))
+        key = f"stored-{len(self.saved)}{suffix}"
+        return StoredImage(
+            key=key,
+            url=f"https://owned.example/{key}?signature=local",
+        )
+
+    async def load(self, image_key: str) -> bytes:
+        raise NotImplementedError
+
+
+def _provider(image_store: ImageStore | None = None) -> OpenAICompatImageProvider:
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
+        image_store=image_store or _RecordingImageStore(),
     )
 
 
 class _CapturingClient:
     """假 httpx client：记录最后一次 POST 的 json/data 载荷，恒返 200（断言请求参数用）。"""
 
-    def __init__(self, statuses: list[int] | None = None) -> None:
+    def __init__(
+        self,
+        statuses: list[int] | None = None,
+        *,
+        download_response: httpx.Response | list[httpx.Response] | None = None,
+    ) -> None:
         self._statuses = list(statuses or [200])
         self.urls: list[str] = []
         self.headers: list[dict[str, str]] = []
+        self.get_urls: list[str] = []
+        self.get_headers: list[dict[str, str]] = []
         self.json_payload: dict[str, Any] | None = None
         self.data_payload: dict[str, Any] | None = None
         self.files_payload: list[tuple[str, tuple[str, bytes, str]]] | None = None
+        default_download = httpx.Response(
+            200, content=b"PNG", headers={"content-type": "image/png"}
+        )
+        self._download_responses = (
+            list(download_response)
+            if isinstance(download_response, list)
+            else [download_response or default_download]
+        )
 
     async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         self.urls.append(url)
@@ -43,6 +77,13 @@ class _CapturingClient:
         self.files_payload = kwargs.get("files")
         status = self._statuses.pop(0) if len(self._statuses) > 1 else self._statuses[0]
         return httpx.Response(status, json={"data": [{"url": "https://x/1.png"}]})
+
+    async def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.get_urls.append(url)
+        self.get_headers.append(kwargs.get("headers", {}))
+        if len(self._download_responses) > 1:
+            return self._download_responses.pop(0)
+        return self._download_responses[0]
 
 
 class _Concurrent429Client:
@@ -66,15 +107,16 @@ class _Concurrent429Client:
             return httpx.Response(429, json={"error": {"message": "rate limited"}})
         if prompt == "request-a":
             self._request_a_retried.set()
-        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+        return httpx.Response(200, json={"data": [{"b64_json": "UE5H"}]})
 
 
 def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
     key_pool = kw.pop("key_pool", ApiKeyPool(("k",)))
+    image_store = kw.pop("image_store", _RecordingImageStore())
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
         base_url="https://example.invalid/v1", key_pool=key_pool, model="gpt-image-2",
-        client=client, **kw,  # type: ignore[arg-type]
+        client=client, image_store=image_store, **kw,  # type: ignore[arg-type]
     )
 
 
@@ -86,6 +128,7 @@ def _four_k_provider(client: object) -> OpenAICompatImageProvider:
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
         client=client,  # type: ignore[arg-type]
+        image_store=_RecordingImageStore(),
         required_size=(3840, 2160),
         required_quality="high",
         required_count=1,
@@ -299,13 +342,124 @@ def test_empty_config_sends_neither_param() -> None:
     assert "response_format" not in client.data_payload
 
 
+def test_parse_prefers_b64_and_persists_owned_image_key() -> None:
+    store = _RecordingImageStore()
+    body = {
+        "data": [
+            {
+                "b64_json": base64.b64encode(b"generated-image").decode(),
+                "url": "https://upstream.example/" + ("long-segment-" * 20),
+            }
+        ]
+    }
+
+    images = asyncio.run(_provider(store)._parse(body, 0, 1, expected_n=1))
+
+    assert store.saved == [(b"generated-image", ".png")]
+    assert images[0].image_key == "stored-1.png"
+    assert images[0].url == "https://owned.example/stored-1.png?signature=local"
+
+
+def test_parse_downloads_external_url_without_api_authorization_and_persists_it() -> None:
+    client = _CapturingClient()
+    store = _RecordingImageStore()
+    provider = _provider_with(client, image_store=store)
+    external_url = "https://upstream.example/result/" + ("signed-segment-" * 20)
+
+    images = asyncio.run(
+        provider._parse({"data": [{"url": external_url}]}, 0, 1, expected_n=1)
+    )
+
+    assert client.get_urls == [external_url]
+    assert client.get_headers == [{}]
+    assert store.saved == [(b"PNG", ".png")]
+    assert images[0].image_key == "stored-1.png"
+
+
+def test_external_image_download_retries_without_regenerating() -> None:
+    client = _CapturingClient(
+        download_response=[
+            httpx.Response(500, text="temporary"),
+            httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"}),
+        ]
+    )
+    store = _RecordingImageStore()
+    provider = _provider_with(
+        client,
+        image_store=store,
+        max_retries=1,
+        retry_backoff=0.0,
+        retry_max_sleep=0.0,
+    )
+
+    images = asyncio.run(
+        provider._parse(
+            {"data": [{"url": "https://upstream.example/result.png"}]},
+            0,
+            1,
+            expected_n=1,
+        )
+    )
+
+    assert len(client.get_urls) == 2
+    assert client.urls == []
+    assert images[0].image_key == "stored-1.png"
+
+
+@pytest.mark.parametrize(
+    ("url", "response", "extra", "error"),
+    [
+        (
+            "ftp://upstream.example/result.png",
+            httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"}),
+            {},
+            "http/https",
+        ),
+        (
+            "https://upstream.example/result.txt",
+            httpx.Response(200, content=b"not image", headers={"content-type": "text/plain"}),
+            {},
+            "非图片",
+        ),
+        (
+            "https://upstream.example/empty.png",
+            httpx.Response(200, content=b"", headers={"content-type": "image/png"}),
+            {},
+            "空图片",
+        ),
+        (
+            "https://upstream.example/large.png",
+            httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"}),
+            {"max_download_bytes": 2},
+            "过大",
+        ),
+    ],
+)
+def test_external_image_rejects_invalid_or_unsafe_response(
+    url: str,
+    response: httpx.Response,
+    extra: dict[str, object],
+    error: str,
+) -> None:
+    client = _CapturingClient(download_response=response)
+    provider = _provider_with(client, **extra)
+
+    with pytest.raises(ProviderError, match=error):
+        asyncio.run(provider._parse({"data": [{"url": url}]}, 0, 1, expected_n=1))
+
+
 def test_parse_over_deliver_truncates_and_bills_n() -> None:
     # 中转站对 n=1 回 2 条 data（ISSUE-0045 二修）：取前 1 张、计 1 份、不失败
     # ——出图保住（#735 用户实测：图是好的）+ 资损堵死（成本=n×unit 不随实返放大）
-    body = {"data": [{"url": "https://x/1.png"}, {"url": "https://x/2.png"}]}
+    body = {
+        "data": [
+            {"b64_json": base64.b64encode(b"one").decode()},
+            {"b64_json": base64.b64encode(b"two").decode()},
+        ]
+    }
     images = asyncio.run(_provider()._parse(body, 0, 1, expected_n=1))
     assert len(images) == 1
-    assert images[0].url == "https://x/1.png"  # 取前 n 张（保序）
+    assert images[0].image_key == "stored-1.png"  # 取前 n 张（保序）
     assert images[0].cost == Decimal("0.40")  # 计 n 份不计 len 份
 
 
@@ -317,7 +471,7 @@ def test_parse_under_deliver_fails() -> None:
 
 
 def test_parse_accepts_exact_count() -> None:
-    body = {"data": [{"url": "https://x/1.png"}]}
+    body = {"data": [{"b64_json": base64.b64encode(b"one").decode()}]}
     images = asyncio.run(_provider()._parse(body, 0, 1, expected_n=1))
     assert len(images) == 1
     assert images[0].cost == Decimal("0.40")  # 按张计费：恰 1 张恰 1 份

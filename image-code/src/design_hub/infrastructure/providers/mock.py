@@ -41,6 +41,7 @@ class MockModelProvider(AbstractModelProvider):
         base = seed if seed is not None else 0
         return [
             GeneratedImage(
+                image_key=f"{self.name}-{base + i}.png",
                 url=f"mock://{self.name}/{base + i}.png",
                 seed=base + i,
                 latency_ms=self._latency_ms,

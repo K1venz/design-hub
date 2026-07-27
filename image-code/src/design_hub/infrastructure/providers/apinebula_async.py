@@ -28,7 +28,7 @@ from design_hub.infrastructure.providers._openai_common import (
     retry_sleep,
 )
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
-from design_hub.ports.image_store import ImageStore
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderError,
@@ -215,15 +215,19 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         base = seed if seed is not None else 0
         images: list[GeneratedImage] = []
         for index, item in enumerate(data):
-            url = await self._download_and_store(item)
+            stored = await self._download_and_store(item)
             images.append(
                 GeneratedImage(
-                    url=url, seed=base + index, latency_ms=latency_ms, cost=self.unit_cost
+                    image_key=stored.key,
+                    url=stored.url,
+                    seed=base + index,
+                    latency_ms=latency_ms,
+                    cost=self.unit_cost,
                 )
             )
         return images
 
-    async def _download_and_store(self, item: dict[str, Any]) -> str:
+    async def _download_and_store(self, item: dict[str, Any]) -> StoredImage:
         download_url = item.get("download_url")
         if not download_url:
             raise ProviderError(f"{self.name} 完成项缺 download_url")

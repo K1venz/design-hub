@@ -44,7 +44,7 @@ from design_hub.domain.models import (
     GeneratedImage,
     ReferenceImage,
 )
-from design_hub.ports.image_store import ImageStore
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.listing_query import EditSource, ListingHistoryQuery
 from design_hub.ports.model_provider import AbstractModelProvider, ReferenceMode
@@ -205,6 +205,7 @@ class _ModeProvider(AbstractModelProvider):
         )
         return [
             GeneratedImage(
+                image_key=f"{self.name}-{seed or 0}.png",
                 url=f"mock://{self.name}/{seed or 0}.png",
                 seed=seed or 0,
                 latency_ms=1,
@@ -222,7 +223,7 @@ class _BytesUploadStore(UploadStore):
 
 
 class _BytesImageStore(ImageStore):
-    async def save(self, data: bytes, *, suffix: str = ".png") -> str:
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
         raise NotImplementedError
 
     async def load(self, image_key: str) -> bytes:
