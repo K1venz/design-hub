@@ -17,6 +17,7 @@ class ReferenceImage:
 
 @dataclass(frozen=True)
 class GeneratedImage:
+    image_key: str
     url: str
     seed: int
     latency_ms: int
