@@ -26,6 +26,7 @@ from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.db.models import ListingJobRow
+from design_hub.interface.api.asgi import STALE_JOB_REAP_AFTER
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.listing_history import ListingHistory
 from design_hub.ports.model_provider import ProviderTimeout
@@ -69,6 +70,8 @@ def test_two_phase_lifecycle_in_progress_queryable_and_partial_failure() -> None
         detail = await query.get_job(job_id="j1", user_id="u1")
         assert detail is not None
         assert detail.status == "生成中"
+        assert detail.prompt == "春节红"
+        assert "【全局真实性与细节质量约束】" not in detail.prompt
         assert detail.completed_at is None
         assert detail.images == ()
         assert detail.total_cost == Decimal("0")
@@ -225,6 +228,17 @@ class _FakeService:
         return await self._run()
 
 
+class _BlockingService(_FakeService):
+    def __init__(self) -> None:
+        super().__init__(None)
+        self.started = asyncio.Event()
+
+    async def _run(self) -> ListingResult:
+        self.started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
 def _single(url: str) -> ListingResult:
     """复刻/编辑用：单张成功结果（image_type 恒 None、failures 恒空）。"""
     return ListingResult(
@@ -247,6 +261,7 @@ def _clone_command(service: _FakeService, history: ListingHistory, events: Event
         reference_images=(b"r",),
         upload_keys=("u1/p.png", "u1/r.png"),
         ratio="1:1",
+        model=ModelName.GPT_IMAGE_2,
         category="FOOD",
         clone_mode="参考风格",
     )
@@ -266,6 +281,7 @@ def _edit_command(service: _FakeService, history: ListingHistory, events: EventP
         parent_job_id="parent1",
         source_image_key="src.png",
         ratio="1:1",
+        model=ModelName.GPT_IMAGE_2,
         edit_mode="delta",
     )
 
@@ -281,6 +297,7 @@ def _command(service: _FakeService, history: ListingHistory, events: EventPublis
         images=(b"x",),
         upload_keys=("u1/a.png",),
         ratio="1:1",
+        model=ModelName.GPT_IMAGE_2,
         category="FOOD",
         n=None,
         plan={"白底": 1, "卖点": 1},  # 套图，Σ=2
@@ -377,6 +394,28 @@ def test_command_failure_path_finalizes_failed_before_task_failed_no_images() ->
     assert "500" not in error and "traceid" not in error and "gpt-image-2" not in error
     # 时序：finalize(失败) 先于 TASK_FAILED 事件
     assert log.index(("finalize", "失败")) < log.index(("event", TaskEventType.TASK_FAILED))
+
+
+def test_command_cancellation_finalizes_failed_before_reraising() -> None:
+    async def _impl() -> None:
+        log: list[tuple[str, object]] = []
+        history = _FakeHistory(log)
+        events = _FakeEvents(log)
+        service = _BlockingService()
+        cmd = _command(service, history, events)
+        task = asyncio.create_task(cmd.run("j-cancelled"))
+        await service.started.wait()
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert history.finals[0][1] == "失败"
+        assert log.index(("finalize", "失败")) < log.index(
+            ("event", TaskEventType.TASK_FAILED)
+        )
+
+    asyncio.run(_impl())
 
 
 # ── 复刻/编辑命令编排 + 时序（单张流：start→add_images→finalize 先于 TASK_COMPLETED）──
@@ -498,8 +537,11 @@ def test_reaper_sweeps_stale_in_progress_only() -> None:
         # 僵尸：start 后无 finalize（进程崩），且超龄
         await hist.start(_start(job_id="stale", n=1))
         await _backdate(sf, "stale", old)
-        # 新鲜：生成中但刚建（仍可能在飞，绝不误杀）
-        await hist.start(_start(job_id="fresh", n=1))
+        # 30 分钟：长 4K 批次仍可能在飞，45 分钟阈值下绝不误杀。
+        await hist.start(_start(job_id="long-running", n=1))
+        await _backdate(
+            sf, "long-running", datetime.now(UTC) - timedelta(minutes=30)
+        )
         # 终态：完成（即便超龄也不该被碰）
         await hist.start(_start(job_id="done", n=1))
         await _backdate(sf, "done", old)
@@ -510,7 +552,7 @@ def test_reaper_sweeps_stale_in_progress_only() -> None:
         assert pre is not None and pre.status == "生成中" and pre.completed_at is None
 
         reaped = await hist.reap_stale(
-            older_than=timedelta(minutes=15), error="进程重启中断/超时兜底"
+            older_than=STALE_JOB_REAP_AFTER, error="进程重启中断/超时兜底"
         )
         assert reaped == 1  # 只扫僵尸那一行
 
@@ -518,8 +560,8 @@ def test_reaper_sweeps_stale_in_progress_only() -> None:
         assert stale is not None and stale.status == "失败"
         assert stale.error is not None and "超时兜底" in stale.error
         assert stale.completed_at is not None  # 补终态时间，SSE/前端不再转圈
-        fresh = await query.get_job(job_id="fresh", user_id="u1")
-        assert fresh is not None and fresh.status == "生成中"  # 新鲜单不误杀
+        long_running = await query.get_job(job_id="long-running", user_id="u1")
+        assert long_running is not None and long_running.status == "生成中"
         done = await query.get_job(job_id="done", user_id="u1")
         assert done is not None and done.status == "完成"  # 终态不改
 
@@ -530,9 +572,13 @@ def test_reaper_noop_when_nothing_stale() -> None:
     async def _impl() -> None:
         hist, _, _ = await _fresh_stack()
         await hist.start(_start(job_id="fresh", n=1))  # 刚建、未超龄
-        assert await hist.reap_stale(older_than=timedelta(minutes=15), error="x") == 0
+        assert await hist.reap_stale(older_than=STALE_JOB_REAP_AFTER, error="x") == 0
 
     asyncio.run(_impl())
+
+
+def test_startup_reaper_threshold_covers_maximum_4k_batch() -> None:
+    assert STALE_JOB_REAP_AFTER >= timedelta(minutes=45)
 
 
 # ── resolve_edit_source：失败哨兵（image_key=''）不可被当编辑源解析（Q-δ 状态闸）──

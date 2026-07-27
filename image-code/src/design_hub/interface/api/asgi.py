@@ -64,6 +64,8 @@ from design_hub.interface.api.routes import (
     users,
 )
 
+STALE_JOB_REAP_AFTER = timedelta(minutes=45)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -107,11 +109,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.listing_history = SqlAlchemyListingHistory(session_factory)
     # 启动扫尾（Finding B）：单进程 asyncio 出图，进程崩/部署撞在飞任务会杀掉未终态的
     # create_task，留永久「生成中」僵尸行（SSE 永久转圈、霸占最近一单）。单进程下启动扫
-    # 一次即够（此刻 queue 空、无在飞任务竞争，不需定时任务）。阈值 15 分钟为宽松安全值：
-    # 远超 gpt-image edit 实测 ~187s + 套图并发批次余量，绝不误杀滚动部署时旧进程仍在
-    # 收尾的真实任务；纯现列 UPDATE，无迁移。
+    # 一次即够（此刻 queue 空、无在飞任务竞争，不需定时任务）。45 分钟覆盖最长 4K
+    # 三张批次及余量，避免误杀滚动部署时旧进程仍在收尾的真实任务；代价是进程崩溃后
+    # 僵尸单最长会比旧阈值更晚约 30 分钟恢复。纯现列 UPDATE，无迁移。
     await app.state.listing_history.reap_stale(
-        older_than=timedelta(minutes=15), error="进程重启中断/超时兜底（Finding B）"
+        older_than=STALE_JOB_REAP_AFTER,
+        error="进程重启中断/超时兜底（Finding B）",
     )
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)
     # 历史/SSE 图 url 签名器（TOS 私有→预签名；本地→/img 静态，ISSUE-0029）

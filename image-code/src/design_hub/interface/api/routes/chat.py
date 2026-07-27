@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -16,6 +17,7 @@ from design_hub.interface.chat_schemas import (
 from design_hub.ports.chat_repository import ChatSessionRepository
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+_CHAT_HEARTBEAT_SECONDS = 20.0
 
 
 def _orchestrator(request: Request) -> ChatOrchestrator:
@@ -34,6 +36,45 @@ def _sse(event: ChatEvent) -> str:
     return f"event: {event.type}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
 
 
+async def _next_chat_event(iterator: AsyncIterator[ChatEvent]) -> ChatEvent:
+    return await iterator.__anext__()
+
+
+async def _stream_chat_events(
+    events: AsyncIterator[ChatEvent],
+    *,
+    heartbeat_seconds: float = _CHAT_HEARTBEAT_SECONDS,
+) -> AsyncIterator[str]:
+    """Keep the upstream iterator alive while emitting proxy-safe SSE comments."""
+    iterator = aiter(events)
+    pending: asyncio.Task[ChatEvent] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.create_task(_next_chat_event(iterator))
+            done, _ = await asyncio.wait({pending}, timeout=heartbeat_seconds)
+            if not done:
+                yield ": keep-alive\n\n"
+                continue
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                pending = None
+                return
+            pending = None
+            yield _sse(event)
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            try:
+                await pending
+            except asyncio.CancelledError:
+                pass
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            await close()
+
+
 @router.post("/messages")
 async def chat_messages(
     req: ChatMessageRequest, request: Request, user: CurrentUserDep
@@ -45,17 +86,16 @@ async def chat_messages(
     """
     orch = _orchestrator(request)
 
-    async def generator() -> AsyncIterator[str]:
-        async for event in orch.handle_message(
-            user,
-            req.session_id,
-            req.message,
-            req.upload_ids,
-            edit_source_image_key=req.edit_source_image_key,
-        ):
-            yield _sse(event)
-
-    return StreamingResponse(generator(), media_type="text/event-stream")
+    events = orch.handle_message(
+        user,
+        req.session_id,
+        req.message,
+        req.upload_ids,
+        edit_source_image_key=req.edit_source_image_key,
+    )
+    return StreamingResponse(
+        _stream_chat_events(events), media_type="text/event-stream"
+    )
 
 
 @router.post("/confirm")
@@ -65,13 +105,12 @@ async def chat_confirm(
     """费用确认的显式用户动作。confirm→启 job 流式回传 job_event；cancel→作废 token。"""
     orch = _orchestrator(request)
 
-    async def generator() -> AsyncIterator[str]:
-        async for event in orch.handle_confirm(
-            user, req.session_id, req.confirm_token, req.action
-        ):
-            yield _sse(event)
-
-    return StreamingResponse(generator(), media_type="text/event-stream")
+    events = orch.handle_confirm(
+        user, req.session_id, req.confirm_token, req.action
+    )
+    return StreamingResponse(
+        _stream_chat_events(events), media_type="text/event-stream"
+    )
 
 
 # ── 对话历史回显（ISSUE-0051）：复用 Bearer 鉴权 + owner 隔离（越权 404 anti-enum）──

@@ -10,7 +10,9 @@ import pytest
 
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
+from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.model_provider import ProviderError, ProviderTimeout
 
@@ -49,23 +51,35 @@ class _ScriptedClient:
     """POST→submit 响应并记 payload；GET→按 URL 路由（download_url 走下载、否则弹轮询序列）。"""
 
     def __init__(
-        self, *, submit: httpx.Response, polls: list[httpx.Response], download: httpx.Response
+        self,
+        *,
+        submit: httpx.Response | list[httpx.Response],
+        polls: list[object],
+        download: httpx.Response,
     ) -> None:
-        self._submit = submit
+        self._submit = list(submit) if isinstance(submit, list) else [submit]
         self._polls = list(polls)
         self._download = download
         self.post_payloads: list[Any] = []
+        self.post_headers: list[dict[str, str]] = []
         self.get_headers: list[Any] = []
+        self.get_urls: list[str] = []
 
     async def post(self, url: str, **kw: Any) -> httpx.Response:
         self.post_payloads.append(kw.get("json"))
-        return self._submit
+        self.post_headers.append(kw.get("headers", {}))
+        return self._submit.pop(0)
 
     async def get(self, url: str, **kw: Any) -> httpx.Response:
+        self.get_urls.append(url)
         self.get_headers.append(kw.get("headers"))
         if "cdnimage" in url:
             return self._download
-        return self._polls.pop(0)
+        outcome = self._polls.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        assert isinstance(outcome, httpx.Response)
+        return outcome
 
 
 class _AlwaysQueued:
@@ -81,21 +95,31 @@ def _provider(client: object, **kw: Any) -> AsyncImageTasksProvider:
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://api.example/v1",
-        api_keys=["k"],
+        key_pool=kw.pop("key_pool", ApiKeyPool(("k",))),
         model="gpt-image-2",
         image_store=kw.pop("image_store", _FakeImageStore()),
         input_fidelity=kw.pop("input_fidelity", "high"),
         client=client,  # type: ignore[arg-type]
         poll_interval=0.001,
         poll_max_elapsed=kw.pop("poll_max_elapsed", 5.0),
+        submit_max_retries=kw.pop("submit_max_retries", 0),
+        submit_backoff=kw.pop("submit_backoff", 0.0),
+        submit_max_sleep=kw.pop("submit_max_sleep", 0.0),
     )
 
 
 async def _gen(
-    provider: AsyncImageTasksProvider, refs: list[ReferenceImage]
+    provider: AsyncImageTasksProvider,
+    refs: list[ReferenceImage],
+    *,
+    negative_prompt: str = "",
 ) -> list:
     return await provider.generate(
-        prompt="p", negative_prompt="", reference_images=refs, size=(1536, 1024), n=1
+        prompt="生成红色水杯",
+        negative_prompt=negative_prompt,
+        reference_images=refs,
+        size=(1536, 1024),
+        n=1,
     )
 
 
@@ -136,6 +160,34 @@ def test_failed_task_raises_provider_error_fail_closed() -> None:
         asyncio.run(_gen(_provider(client), [ReferenceImage(url="https://sig/u1.png")]))
 
 
+def test_submit_without_task_id_does_not_expose_upstream_secret() -> None:
+    secret = "upstream-echoed-authorization"
+    client = _ScriptedClient(
+        submit=httpx.Response(200, json={"authorization": f"Bearer {secret}"}),
+        polls=[],
+        download=_download(),
+    )
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(_gen(_provider(client), []))
+
+    assert secret not in str(error.value)
+
+
+def test_failed_task_error_message_does_not_expose_upstream_secret() -> None:
+    secret = "upstream-echoed-authorization"
+    client = _ScriptedClient(
+        submit=_submit_ok(),
+        polls=[httpx.Response(200, json={"status": "failed", "error": {"message": secret}})],
+        download=_download(),
+    )
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(_gen(_provider(client), []))
+
+    assert secret not in str(error.value)
+
+
 def test_poll_wall_clock_exhausts_to_timeout() -> None:
     # 永远 queued → 墙钟穷尽 ProviderTimeout（不无限轮询）
     with pytest.raises(ProviderTimeout):
@@ -150,6 +202,155 @@ def test_generations_omits_images_key_when_no_refs() -> None:
     )
     asyncio.run(_gen(_provider(client), []))
     assert "images" not in client.post_payloads[0]
+
+
+def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
+    """若 Provider 仍维护独立游标，两次首发都会使用 key-a。"""
+    pool = ApiKeyPool(("key-a", "key-b"))
+    normal_client = _NormalSuccessClient()
+    task_client = _ScriptedClient(
+        submit=_submit_ok(), polls=[_poll("completed", [_CDN])], download=_download()
+    )
+    normal = OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2,
+        unit_cost=Decimal("0.40"),
+        base_url="https://api.example/v1",
+        key_pool=pool,
+        model="gpt-image-2",
+        client=normal_client,  # type: ignore[arg-type]
+    )
+    tasks = _provider(task_client, key_pool=pool)
+
+    async def run() -> None:
+        await normal.generate(
+            prompt="normal request",
+            negative_prompt="",
+            reference_images=[],
+            size=(1024, 1024),
+            n=1,
+        )
+        await _gen(tasks, [])
+
+    asyncio.run(run())
+
+    assert normal_client.headers == [{"Authorization": "Bearer key-a"}]
+    assert task_client.post_headers == [{"Authorization": "Bearer key-b"}]
+    assert task_client.get_headers == [
+        {"Authorization": "Bearer key-b"},
+        {},
+    ]
+
+
+def test_submit_retry_successful_key_becomes_poll_start_without_advancing_pool() -> None:
+    """submit A 失败、B 成功后，轮询必须从 B 开始，且不推进共享全局游标。"""
+    pool = ApiKeyPool(("key-a", "key-b"))
+    client = _ScriptedClient(
+        submit=[httpx.Response(429, text="busy"), _submit_ok()],
+        polls=[_poll("completed", [_CDN])],
+        download=_download(),
+    )
+    provider = _provider(
+        client,
+        key_pool=pool,
+        submit_max_retries=1,
+    )
+
+    asyncio.run(_gen(provider, []))
+
+    assert client.post_headers == [
+        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
+    ]
+    assert client.get_headers == [
+        {"Authorization": "Bearer key-b"},
+        {},
+    ]
+    next_request = pool.reserve()
+    assert pool.key_for(next_request, 0) == "key-b"
+
+
+@pytest.mark.parametrize(
+    "retryable",
+    [httpx.Response(500, text="busy"), httpx.ConnectError("transport")],
+    ids=["server-error", "transport-error"],
+)
+def test_poll_retry_rotates_only_local_key_offset(retryable: object) -> None:
+    pool = ApiKeyPool(("key-a", "key-b", "key-c"))
+    client = _ScriptedClient(
+        submit=_submit_ok(),
+        polls=[retryable, _poll("completed", [_CDN])],
+        download=_download(),
+    )
+
+    asyncio.run(_gen(_provider(client, key_pool=pool), []))
+
+    assert client.post_headers == [{"Authorization": "Bearer key-a"}]
+    assert client.get_headers == [
+        {"Authorization": "Bearer key-a"},
+        {"Authorization": "Bearer key-b"},
+        {},
+    ]
+    next_request = pool.reserve()
+    assert pool.key_for(next_request, 0) == "key-b"
+
+
+def test_rejects_unsafe_task_id_without_using_or_exposing_it() -> None:
+    unsafe_task_id = "../private-upstream-task"
+    client = _ScriptedClient(
+        submit=_submit_ok(unsafe_task_id),
+        polls=[],
+        download=_download(),
+    )
+
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(_gen(_provider(client), []))
+
+    assert unsafe_task_id not in str(error.value)
+    assert client.get_urls == []
+
+
+def test_poll_timeout_does_not_expose_valid_upstream_task_id() -> None:
+    task_id = "private-task-token"
+
+    class _AlwaysQueuedTask:
+        async def post(self, url: str, **kw: Any) -> httpx.Response:
+            return _submit_ok(task_id)
+
+        async def get(self, url: str, **kw: Any) -> httpx.Response:
+            return _poll("queued")
+
+    with pytest.raises(ProviderTimeout) as error:
+        asyncio.run(
+            _gen(_provider(_AlwaysQueuedTask(), poll_max_elapsed=0.01), [])
+        )
+
+    assert task_id not in str(error.value)
+
+
+class _NormalSuccessClient:
+    def __init__(self) -> None:
+        self.headers: list[dict[str, str]] = []
+
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.headers.append(kwargs["headers"])
+        return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+
+
+@pytest.mark.parametrize("refs", [[], [ReferenceImage(url="https://sig/u1.png")]])
+def test_submit_payload_injects_policy_once_before_task_and_negative(
+    refs: list[ReferenceImage],
+) -> None:
+    client = _ScriptedClient(
+        submit=_submit_ok(), polls=[_poll("completed", [_CDN])], download=_download()
+    )
+
+    asyncio.run(_gen(_provider(client), refs, negative_prompt="不要水印"))
+
+    prompt = str(client.post_payloads[0]["prompt"])
+    assert prompt.count("【全局真实性与细节质量约束】") == 1
+    assert prompt.count("生成红色水杯") == 1
+    assert prompt.index("生成红色水杯") < prompt.index("【需要避免】")
+    assert prompt.endswith("不要水印")
 
 
 def test_require_url_fails_fast_on_bytes_only_ref() -> None:

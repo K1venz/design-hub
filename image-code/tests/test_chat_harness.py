@@ -93,6 +93,20 @@ def test_system_prompt_separates_design_discussion_from_generation_intent() -> N
         assert required in prompt
 
 
+def test_system_prompt_explains_current_turn_only_4k_rules_without_internal_model_name() -> None:
+    prompt = default_system_prompt()
+    for required in (
+        "本轮明确写出",
+        "4K",
+        "16:9",
+        "高清",
+        "完整生图/改图需求",
+        "直接进入生成流程",
+    ):
+        assert required in prompt
+    assert "gpt-image-2-4k" not in prompt
+
+
 def test_current_ratio_and_edit_source_are_added_only_to_latest_user_message() -> None:
     transcript = _transcript(3)
     out = _to_llm_messages(

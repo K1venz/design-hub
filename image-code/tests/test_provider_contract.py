@@ -9,6 +9,7 @@ import pytest
 
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
+from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_provider import ProviderError
 
@@ -18,7 +19,7 @@ def _provider() -> OpenAICompatImageProvider:
         name=ModelName.GPT_IMAGE_2,
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
-        api_keys=["k"],
+        key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
     )
 
@@ -52,7 +53,7 @@ class _Concurrent429Client:
 
     async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         payload = kwargs.get("json") or kwargs.get("data")
-        prompt = str(payload["prompt"])
+        prompt = str(payload["prompt"]).split("【本次生图要求】\n\n", 1)[1]
         authorization = str(kwargs["headers"]["Authorization"])
         attempts = self.headers_by_prompt.setdefault(prompt, [])
         attempts.append(authorization)
@@ -69,11 +70,25 @@ class _Concurrent429Client:
 
 
 def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
-    api_keys = kw.pop("api_keys", ["k"])
+    key_pool = kw.pop("key_pool", ApiKeyPool(("k",)))
     return OpenAICompatImageProvider(
         name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
-        base_url="https://example.invalid/v1", api_keys=api_keys, model="gpt-image-2",
+        base_url="https://example.invalid/v1", key_pool=key_pool, model="gpt-image-2",
         client=client, **kw,  # type: ignore[arg-type]
+    )
+
+
+def _four_k_provider(client: object) -> OpenAICompatImageProvider:
+    return OpenAICompatImageProvider(
+        name=ModelName.GPT_IMAGE_2_4K,
+        unit_cost=Decimal("0.18"),
+        base_url="https://example.invalid/v1",
+        key_pool=ApiKeyPool(("k",)),
+        model="gpt-image-2-4k",
+        client=client,  # type: ignore[arg-type]
+        required_size=(3840, 2160),
+        required_quality="high",
+        required_count=1,
     )
 
 
@@ -82,15 +97,61 @@ async def _run(provider: OpenAICompatImageProvider, *, refs: list[bytes]) -> Non
 
 
 async def _run_prompt(
-    provider: OpenAICompatImageProvider, *, prompt: str, refs: list[bytes]
+    provider: OpenAICompatImageProvider,
+    *,
+    prompt: str,
+    refs: list[bytes],
+    negative_prompt: str = "",
 ) -> None:
     await provider.generate(
-        prompt=prompt, negative_prompt="",
+        prompt=prompt, negative_prompt=negative_prompt,
         reference_images=[ReferenceImage(data=b) for b in refs], size=(1024, 1024), n=1,
     )
 
 
+async def _run_four_k(
+    provider: OpenAICompatImageProvider,
+    *,
+    refs: list[bytes],
+    size: tuple[int, int] = (3840, 2160),
+    n: int = 1,
+) -> None:
+    await provider.generate(
+        prompt="p",
+        negative_prompt="",
+        reference_images=[ReferenceImage(data=data) for data in refs],
+        size=size,
+        n=n,
+    )
+
+
 # ── 出图协议增强（apinebula 文档，coordinator #1092）：input_fidelity + response_format ──
+
+
+@pytest.mark.parametrize("refs", [[], [b"product"]])
+def test_fixed_4k_provider_sends_immutable_generation_and_edit_contract(refs: list[bytes]) -> None:
+    client = _CapturingClient()
+
+    asyncio.run(_run_four_k(_four_k_provider(client), refs=refs))
+
+    payload = client.data_payload if refs else client.json_payload
+    assert payload is not None
+    assert payload["model"] == "gpt-image-2-4k"
+    assert payload["size"] == "3840x2160"
+    assert payload["quality"] == "high"
+    assert payload["n"] == 1
+
+
+@pytest.mark.parametrize("size,n", [((1024, 1024), 1), ((3840, 2160), 2)])
+def test_fixed_4k_provider_rejects_wrong_size_or_count_before_http(
+    size: tuple[int, int], n: int,
+) -> None:
+    client = _CapturingClient()
+
+    with pytest.raises(ValueError):
+        asyncio.run(_run_four_k(_four_k_provider(client), refs=[], size=size, n=n))
+
+    assert client.urls == []
 
 
 def test_edits_sends_input_fidelity_and_response_format() -> None:
@@ -124,9 +185,34 @@ def test_generations_sends_response_format_but_not_input_fidelity() -> None:
     assert "input_fidelity" not in client.json_payload
 
 
+@pytest.mark.parametrize("refs", [[], [b"product"]])
+def test_final_image_payload_injects_policy_once_before_task_and_negative(
+    refs: list[bytes],
+) -> None:
+    client = _CapturingClient()
+    provider = _provider_with(client)
+
+    asyncio.run(
+        _run_prompt(
+            provider,
+            prompt="生成红色水杯",
+            negative_prompt="不要水印",
+            refs=refs,
+        )
+    )
+
+    payload = client.data_payload if refs else client.json_payload
+    assert payload is not None
+    prompt = str(payload["prompt"])
+    assert prompt.count("【全局真实性与细节质量约束】") == 1
+    assert prompt.count("生成红色水杯") == 1
+    assert prompt.index("生成红色水杯") < prompt.index("【需要避免】")
+    assert prompt.endswith("不要水印")
+
+
 def test_requests_round_robin_across_configured_api_keys() -> None:
     client = _CapturingClient()
-    provider = _provider_with(client, api_keys=["first-key", "second-key"])
+    provider = _provider_with(client, key_pool=ApiKeyPool(("first-key", "second-key")))
 
     asyncio.run(_run(provider, refs=[]))
     asyncio.run(_run(provider, refs=[]))
@@ -141,7 +227,7 @@ def test_retry_switches_to_next_api_key() -> None:
     client = _CapturingClient([429, 200])
     provider = _provider_with(
         client,
-        api_keys=["first-key", "second-key"],
+        key_pool=ApiKeyPool(("first-key", "second-key")),
         max_retries=1,
         retry_backoff=0.0,
         retry_max_sleep=0.0,
@@ -159,7 +245,7 @@ def test_concurrent_retries_each_switch_away_from_its_starting_key() -> None:
     client = _Concurrent429Client()
     provider = _provider_with(
         client,
-        api_keys=["first-key", "second-key"],
+        key_pool=ApiKeyPool(("first-key", "second-key")),
         max_retries=1,
         retry_backoff=0.0,
         retry_max_sleep=0.0,
@@ -177,6 +263,30 @@ def test_concurrent_retries_each_switch_away_from_its_starting_key() -> None:
         "request-a": ["Bearer first-key", "Bearer second-key"],
         "request-b": ["Bearer second-key", "Bearer first-key"],
     }
+
+
+def test_shared_pool_distributes_new_requests_across_providers() -> None:
+    """共享池游标错误地留在各 Provider 内部时，此用例会失败。"""
+    pool = ApiKeyPool(("key-a", "key-b", "key-c"))
+
+    first = pool.reserve()
+    second = pool.reserve()
+
+    assert pool.key_for(first, 0) == "key-a"
+    assert pool.key_for(second, 0) == "key-b"
+    assert pool.key_for(first, 1) == "key-b"
+
+
+def test_api_key_pool_rejects_empty_keys() -> None:
+    with pytest.raises(ValueError, match="API key"):
+        ApiKeyPool(())
+
+
+def test_api_key_pool_repr_does_not_expose_secrets() -> None:
+    pool = ApiKeyPool(("secret-a", "secret-b"))
+
+    assert "secret-a" not in repr(pool)
+    assert "secret-b" not in repr(pool)
 
 
 def test_empty_config_sends_neither_param() -> None:

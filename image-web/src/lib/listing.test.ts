@@ -354,6 +354,6 @@ describe('parseListingEvent', () => {
 
 describe('estimateCost', () => {
   it('multiplies n by unit cost', () => {
-    expect(estimateCost(1)).toBeCloseTo(0.4, 2)
+    expect(estimateCost(1)).toBeCloseTo(0.05, 2)
   })
 })

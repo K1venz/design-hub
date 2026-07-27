@@ -1,4 +1,4 @@
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # 总重试墙钟预算（秒，ISSUE-0055 (i)）：封顶整个重试窗口，持久 5xx 超此即穷尽落「失败」，
     # 不让用户干等 max_retries×退避（实测上游持续 500 曾拖 ~8 分钟）。只 gate 重试、不砍成功请求。
     gpt_image_retry_max_elapsed: float = 90.0
+    # Single-request timeout and total retry wall-clock budget for the 4K Images API.
+    gpt_image_4k_timeout: float = Field(default=1800.0, gt=0)
     # 异步任务出图 provider（ISSUE-0065，provider_type=apinebula_async_image）：轮询节奏 + 总墙钟。
     # 异步排队可能比同步 90s 长，故独立更宽默认；超墙钟=穷尽 fail-closed（同 0055 (i) 语义）。
     gpt_image_async_poll_interval: float = 6.0

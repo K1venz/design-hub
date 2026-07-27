@@ -39,10 +39,9 @@ describe('new chat capability card', () => {
   it('shows only for an idle empty session and describes unrestricted visual scope', () => {
     const empty = initialChatState()
     expect(shouldShowChatWelcome(empty)).toBe(true)
-    expect(CHAT_WELCOME_COPY).toContain('任意品类')
-    expect(CHAT_WELCOME_COPY).toContain('至少 1 张图片')
-    expect(CHAT_WELCOME_COPY).toContain('Logo')
-    expect(CHAT_WELCOME_COPY).not.toContain('食品、服装、美妆、鞋类、数码')
+    expect(CHAT_WELCOME_COPY).toBe(
+      '我可以基于你上传的图片制作全品类主图、场景图、卖点图、海报、Logo/品牌视觉，也支持爆款复刻和连续编辑。普通出图支持多种比例；如需 4K，请在需求中明确写出“4K”，4K 当前仅支持 16:9 横版。上传至少 1 张图片，再告诉我想做什么即可。',
+    )
 
     expect(shouldShowChatWelcome(pushUserMessage(empty, '做一张海报'))).toBe(false)
     expect(shouldShowChatWelcome({ ...empty, streaming: true })).toBe(false)
