@@ -4,8 +4,7 @@ import { MailIcon, MessageCircleIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import logoUrl from '@/assets/hero/shipu-logo.png'
 
-// 全站公共 Footer（单一事实源）：品牌行 + 联系方式（占位）→ 分隔线 → 版权 + ICP 备案
-// （法定挂载：真值/工信部链接/显著可读）| 主链接行 + 法务链接行。
+// 全站公共 Footer（单一事实源）：品牌行 + 联系方式（占位）→ 站内链接 → 独立备案底栏。
 // 宿主差异（Index 全宽 vs AppShell 内滚窄容器）由 className 传水平 padding/背景/边距。
 const MAIN_LINKS = [
   { label: '首页', to: '/home' },
@@ -49,22 +48,7 @@ export function SiteFooter({ className }: { className?: string }) {
       </div>
 
       <div className="mt-10 border-t border-neutral-200 pt-10">
-        <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between">
-          <div className="text-[13.5px] leading-relaxed text-neutral-500">
-            <p>© 2026 实朴</p>
-            {/* ICP 备案号：法定挂载——链接工信部备案系统、显著可读（备案管理办法要求） */}
-            <p className="mt-1">
-              <a
-                href="https://beian.miit.gov.cn"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-neutral-700 underline-offset-4 transition-colors hover:text-neutral-950 hover:underline"
-              >
-                浙ICP备2026024031号-1
-              </a>
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 md:items-end">
+        <div className="flex flex-col gap-3 md:items-end">
             <nav className="flex flex-wrap gap-x-6 gap-y-2 text-[14px] font-medium">
               {MAIN_LINKS.map((l) => (
                 <Link key={l.to} to={l.to} className="text-neutral-950 transition-colors hover:text-wb-brand">
@@ -79,8 +63,19 @@ export function SiteFooter({ className }: { className?: string }) {
                 </Link>
               ))}
             </nav>
-          </div>
         </div>
+
+        <p className="mt-8 border-t border-neutral-200 pt-6 text-center text-[13.5px] leading-relaxed text-neutral-500">
+          <a
+            href="https://beian.miit.gov.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-neutral-700 underline-offset-4 transition-colors hover:text-neutral-950 hover:underline"
+          >
+            浙ICP备2026024031号-1
+          </a>
+          {' · Copyright © 2026 浙江实朴数据科技有限公司'}
+        </p>
       </div>
     </footer>
   )
