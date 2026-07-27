@@ -12,7 +12,7 @@ import tos
 
 from design_hub.config.settings import Settings
 from design_hub.domain.errors import NotFoundError
-from design_hub.ports.image_store import ImageStore
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.upload_store import UploadReadError, UploadStore, upload_ns
 
@@ -49,17 +49,17 @@ class TosMediaUrlSigner(MediaUrlSigner):
 
 
 class TosImageStore(ImageStore):
-    """出图结果落 generate 桶；save 返回签名 url（供 SSE 即时显示）。"""
+    """出图结果落 generate 桶；save 返回稳定 key 与签名 url。"""
 
     def __init__(self, client: Any, bucket: str, signer: MediaUrlSigner) -> None:
         self._client = client
         self._bucket = bucket
         self._signer = signer
 
-    async def save(self, data: bytes, *, suffix: str = ".png") -> str:
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
         key = hashlib.sha256(data).hexdigest()[:16] + suffix
         await asyncio.to_thread(self._client.put_object, self._bucket, key, content=data)
-        return self._signer.generated_url(key)
+        return StoredImage(key=key, url=self._signer.generated_url(key))
 
     async def load(self, image_key: str) -> bytes:
         # 二次编辑源图读回（ISSUE-0040）：generate 桶 get_object，缺对象→404 同 uploads 口径
@@ -103,4 +103,3 @@ class TosUploadStore(UploadStore):
         except tos.exceptions.TosClientError as exc:
             raise UploadReadError(f"读取上传图失败：{upload_id}") from exc
         return data, content_type
-

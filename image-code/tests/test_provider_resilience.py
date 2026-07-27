@@ -7,6 +7,7 @@ taotu_concurrency_verify.py 多遍压并发）。此处锁两条契约：
 """
 
 import asyncio
+import base64
 from decimal import Decimal
 
 import httpx
@@ -27,6 +28,7 @@ from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
+from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_provider import ProviderTimeout
 
 # --------------------------------------------------------------------------- #
@@ -54,6 +56,14 @@ class _SequencedClient:
         return outcome
 
 
+class _FakeImageStore(ImageStore):
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
+        return StoredImage(key=f"stored{suffix}", url=f"https://owned.example/stored{suffix}")
+
+    async def load(self, image_key: str) -> bytes:
+        raise NotImplementedError
+
+
 def _provider(
     client: _SequencedClient,
     *,
@@ -68,6 +78,7 @@ def _provider(
         base_url="https://example.invalid",
         key_pool=key_pool or ApiKeyPool(("k",)),
         model="gpt-image-2",
+        image_store=_FakeImageStore(),
         client=client,  # type: ignore[arg-type]
         max_retries=max_retries,
         retry_backoff=0.001,
@@ -77,7 +88,8 @@ def _provider(
 
 
 def _ok() -> httpx.Response:
-    return httpx.Response(200, json={"data": [{"url": "https://x/1.png"}]})
+    encoded = base64.b64encode(b"PNG").decode()
+    return httpx.Response(200, json={"data": [{"b64_json": encoded}]})
 
 
 def _429() -> httpx.Response:
@@ -135,6 +147,7 @@ def test_retry_budget_does_not_cut_off_a_successful_initial_request() -> None:
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
+        image_store=_FakeImageStore(),
         client=client,  # type: ignore[arg-type]
         timeout=0.05,
         max_retries=1,
@@ -173,6 +186,7 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
+        image_store=_FakeImageStore(),
         client=client,  # type: ignore[arg-type]
         timeout=1800.0,
         max_retries=5,
@@ -226,6 +240,7 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
+        image_store=_FakeImageStore(),
         client=client,  # type: ignore[arg-type]
         timeout=1800.0,
         max_retries=1,
@@ -284,6 +299,7 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
+        image_store=_FakeImageStore(),
         client=client,  # type: ignore[arg-type]
         timeout=3600.0,
         max_retries=0,
@@ -332,6 +348,7 @@ def test_absolute_deadline_interrupts_an_active_http_await(
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
+        image_store=_FakeImageStore(),
         client=client,  # type: ignore[arg-type]
         timeout=0.015,
         max_retries=0,
@@ -403,6 +420,7 @@ def test_retry_sleep_exponential_bounded_and_jittered() -> None:
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
+        image_store=_FakeImageStore(),
         retry_backoff=2.0,
         retry_max_sleep=30.0,
     )
@@ -452,6 +470,7 @@ class _ConcurrencyProbeProvider:
             self.inflight -= 1
         return [
             GeneratedImage(
+                image_key=f"{seed}.png",
                 url=f"mock://{seed}.png", seed=seed or 0, latency_ms=1, cost=self.unit_cost
             )
         ]
