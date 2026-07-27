@@ -268,7 +268,7 @@
 
 /* ── Style 4 玻璃质感（毛玻璃面板 / 顶栏 pill / 浮卡） ──
    性能约定：真 backdrop-filter 只用在「背后内容基本静止」的少数大件
-   （SideNav / 顶栏 / Hero 聊天框 / chat 输入坞）。跟随内容滚动、或会随
+   （顶部导航 / Hero 聊天框 / chat 输入坞）。跟随内容滚动、或会随
    会话无限增多的面（聊天气泡等）用下面的 glass-lite —— 底色近乎纯色时
    blur 采样结果与半透明白无异，观感等价、GPU 零重滤。 */
 @utility glass-panel {
