@@ -5,6 +5,7 @@ from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderError,
     ProviderTimeout,
+    ReferenceMode,
 )
 from design_hub.ports.provider_execution import (
     ImmediateResult,
@@ -19,6 +20,10 @@ from design_hub.ports.provider_execution import (
 @dataclass(frozen=True)
 class ProviderExecutionAdapter:
     provider: AbstractModelProvider
+
+    @property
+    def reference_mode(self) -> ReferenceMode:
+        return self.provider.reference_mode
 
     async def submit(
         self, request: ProviderRequest, *, operation_id: str

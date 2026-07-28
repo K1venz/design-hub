@@ -1,26 +1,56 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DataInvariantError
-from design_hub.domain.tasking import GenerationItemStatus, TaskMessage
+from design_hub.domain.models import GeneratedImage
+from design_hub.domain.tasking import (
+    GenerationItemSpec,
+    GenerationItemStatus,
+    OperationType,
+    ReferenceSnapshot,
+    ReferenceSource,
+    RenderTier,
+    TaskMessage,
+    is_terminal,
+)
 from design_hub.infrastructure.db.models import (
     AppUser,
     CostLedgerEntry,
     GenerationItemRow,
+    ListingImageRow,
     ListingJobInputRow,
     ListingJobRow,
     OutboxEventRow,
 )
 from design_hub.ports.generation_work import (
+    ConcurrentTaskMutation,
+    GenerationWorkItem,
     IdempotencyConflict,
     JobSubmission,
     OutboxRecord,
     SubmitResult,
 )
+
+_ACTIVE_STATUSES = (
+    GenerationItemStatus.CLAIMED.value,
+    GenerationItemStatus.SUBMITTING.value,
+    GenerationItemStatus.SUBMITTED.value,
+    GenerationItemStatus.PROCESSING.value,
+    GenerationItemStatus.STORING.value,
+)
+_OWNED_FAILURE_STATUSES = (
+    GenerationItemStatus.CLAIMED.value,
+    GenerationItemStatus.SUBMITTING.value,
+    GenerationItemStatus.SUBMITTED.value,
+    GenerationItemStatus.PROCESSING.value,
+    GenerationItemStatus.STORING.value,
+)
+_SAFE_ERROR_LIMIT = 500
 
 
 class SqlAlchemyGenerationWorkRepository:
@@ -152,6 +182,603 @@ class SqlAlchemyGenerationWorkRepository:
             row.publish_attempts += 1
             row.last_error = error[:1000]
             await session.commit()
+
+    async def load_item(self, item_id: str) -> GenerationWorkItem:
+        async with self._session_factory() as session:
+            result = (
+                await session.execute(
+                    select(GenerationItemRow, ListingJobRow.user_id)
+                    .join(ListingJobRow, ListingJobRow.id == GenerationItemRow.job_id)
+                    .where(GenerationItemRow.id == item_id)
+                )
+            ).one_or_none()
+            if result is None:
+                raise DataInvariantError(f"generation item {item_id} does not exist")
+            row, user_id = result
+            return self._to_work_item(row, user_id)
+
+    async def claim(
+        self, item_id: str, worker_id: str, lease_seconds: int
+    ) -> None:
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await session.get(GenerationItemRow, item_id)
+                if row is None:
+                    raise ConcurrentTaskMutation(
+                        f"generation item {item_id} does not exist"
+                    )
+                status = GenerationItemStatus(row.status)
+                reclaimable = {
+                    GenerationItemStatus.CLAIMED,
+                    GenerationItemStatus.SUBMITTING,
+                    GenerationItemStatus.SUBMITTED,
+                    GenerationItemStatus.PROCESSING,
+                }
+                if status is GenerationItemStatus.QUEUED:
+                    await self._require_user_capacity(session, row.job_id)
+                    target_status = GenerationItemStatus.CLAIMED.value
+                elif status in reclaimable and self._lease_is_expired(
+                    row.lease_expires_at, now
+                ):
+                    target_status = row.status
+                else:
+                    raise ConcurrentTaskMutation(
+                        f"generation item {item_id} cannot be claimed from {status}"
+                    )
+                result = await session.execute(
+                    update(GenerationItemRow)
+                    .where(
+                        GenerationItemRow.id == item_id,
+                        GenerationItemRow.status == row.status,
+                        GenerationItemRow.worker_id == row.worker_id,
+                    )
+                    .values(
+                        status=target_status,
+                        worker_id=worker_id,
+                        lease_expires_at=now + timedelta(seconds=lease_seconds),
+                        heartbeat_at=now,
+                        attempt_count=GenerationItemRow.attempt_count + 1,
+                    )
+                )
+                self._require_one(
+                    getattr(result, "rowcount", None), item_id, "claim"
+                )
+
+    async def mark_submitting(
+        self, item_id: str, worker_id: str
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    (GenerationItemStatus.CLAIMED,),
+                    GenerationItemStatus.SUBMITTING,
+                )
+
+    async def mark_submitted(
+        self, item_id: str, worker_id: str, provider_task_id: str
+    ) -> None:
+        if not provider_task_id:
+            raise ValueError("provider_task_id must not be empty")
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    (GenerationItemStatus.SUBMITTING,),
+                    GenerationItemStatus.SUBMITTED,
+                    provider_task_id=provider_task_id,
+                )
+                await session.flush()
+                await self._release_next_item(session, row.job_id)
+
+    async def mark_processing(
+        self, item_id: str, worker_id: str
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    (GenerationItemStatus.SUBMITTED,),
+                    GenerationItemStatus.PROCESSING,
+                )
+
+    async def mark_storing(
+        self, item_id: str, worker_id: str
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    (
+                        GenerationItemStatus.SUBMITTING,
+                        GenerationItemStatus.PROCESSING,
+                    ),
+                    GenerationItemStatus.STORING,
+                )
+
+    async def complete_item(
+        self,
+        item_id: str,
+        worker_id: str,
+        image: GeneratedImage,
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    (GenerationItemStatus.STORING,),
+                    GenerationItemStatus.GENERATED,
+                    worker_id=None,
+                    lease_expires_at=None,
+                    heartbeat_at=None,
+                    error_code=None,
+                    error_detail=None,
+                )
+                job = await session.get(ListingJobRow, row.job_id)
+                if job is None:
+                    raise DataInvariantError(
+                        f"listing job {row.job_id} does not exist"
+                    )
+                session.add(
+                    ListingImageRow(
+                        job_id=row.job_id,
+                        image_key=image.image_key,
+                        image_type=image.image_type or row.image_type,
+                        seed=image.seed,
+                        cost=image.cost,
+                        status="成功",
+                    )
+                )
+                await self._append_ledger(
+                    session,
+                    operation_id=f"reconcile:{row.id}",
+                    user_id=job.user_id,
+                    amount=image.cost - row.reserved_cost,
+                )
+                await session.flush()
+                await self._release_next_item(session, row.job_id)
+                await self._aggregate_job(session, row.job_id)
+
+    async def fail_item(
+        self,
+        item_id: str,
+        worker_id: str,
+        error_code: str,
+        error_detail: str,
+    ) -> None:
+        safe_code = error_code[:64]
+        safe_detail = error_detail[:_SAFE_ERROR_LIMIT]
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    tuple(
+                        GenerationItemStatus(status)
+                        for status in _OWNED_FAILURE_STATUSES
+                    ),
+                    GenerationItemStatus.FAILED,
+                    worker_id=None,
+                    lease_expires_at=None,
+                    heartbeat_at=None,
+                    error_code=safe_code,
+                    error_detail=safe_detail,
+                )
+                job = await session.get(ListingJobRow, row.job_id)
+                if job is None:
+                    raise DataInvariantError(
+                        f"listing job {row.job_id} does not exist"
+                    )
+                await self._append_ledger(
+                    session,
+                    operation_id=f"refund:{row.id}",
+                    user_id=job.user_id,
+                    amount=-row.reserved_cost,
+                )
+                await session.flush()
+                await self._release_next_item(session, row.job_id)
+                await self._aggregate_job(session, row.job_id)
+
+    async def mark_submission_uncertain(
+        self, item_id: str, worker_id: str, error_detail: str
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await self._owned_transition(
+                    session,
+                    item_id,
+                    worker_id,
+                    (GenerationItemStatus.SUBMITTING,),
+                    GenerationItemStatus.SUBMISSION_UNCERTAIN,
+                    worker_id=None,
+                    lease_expires_at=None,
+                    heartbeat_at=None,
+                    error_code="submission_uncertain",
+                    error_detail=error_detail[:_SAFE_ERROR_LIMIT],
+                )
+                await session.flush()
+                await self._release_next_item(session, row.job_id)
+                await self._aggregate_job(session, row.job_id)
+
+    async def heartbeat(
+        self, item_id: str, worker_id: str, lease_seconds: int
+    ) -> None:
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(GenerationItemRow)
+                .where(
+                    GenerationItemRow.id == item_id,
+                    GenerationItemRow.worker_id == worker_id,
+                    GenerationItemRow.status.in_(_ACTIVE_STATUSES),
+                )
+                .values(
+                    heartbeat_at=now,
+                    lease_expires_at=now + timedelta(seconds=lease_seconds),
+                )
+            )
+            self._require_one(
+                getattr(result, "rowcount", None), item_id, "heartbeat"
+            )
+            await session.commit()
+
+    async def cancel_item(self, item_id: str, user_id: str) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = (
+                    await session.execute(
+                        select(GenerationItemRow, ListingJobRow)
+                        .join(ListingJobRow, ListingJobRow.id == GenerationItemRow.job_id)
+                        .where(GenerationItemRow.id == item_id)
+                    )
+                ).one_or_none()
+                if result is None:
+                    raise ConcurrentTaskMutation(
+                        f"generation item {item_id} does not exist"
+                    )
+                row, job = result
+                if job.user_id != user_id:
+                    raise ConcurrentTaskMutation(
+                        f"generation item {item_id} is not owned by user {user_id}"
+                    )
+                mutation = await session.execute(
+                    update(GenerationItemRow)
+                    .where(
+                        GenerationItemRow.id == item_id,
+                        GenerationItemRow.status.in_(
+                            (
+                                GenerationItemStatus.WAITING.value,
+                                GenerationItemStatus.QUEUED.value,
+                            )
+                        ),
+                    )
+                    .values(
+                        status=GenerationItemStatus.CANCELLED.value,
+                        error_code="cancelled",
+                        error_detail="Cancelled before provider submission",
+                    )
+                )
+                self._require_one(
+                    getattr(mutation, "rowcount", None), item_id, "cancel"
+                )
+                await self._append_ledger(
+                    session,
+                    operation_id=f"refund:{row.id}",
+                    user_id=job.user_id,
+                    amount=-row.reserved_cost,
+                )
+                await session.flush()
+                await self._release_next_item(session, row.job_id)
+                await self._aggregate_job(session, row.job_id)
+
+    @staticmethod
+    def _to_work_item(
+        row: GenerationItemRow, user_id: str
+    ) -> GenerationWorkItem:
+        size_parts = row.size.split("x", maxsplit=1)
+        if len(size_parts) != 2:
+            raise DataInvariantError(
+                f"generation item {row.id} has invalid size snapshot"
+            )
+        try:
+            references = tuple(
+                ReferenceSnapshot(
+                    source=ReferenceSource(value["source"]),
+                    object_key=value["object_key"],
+                    role=value["role"],
+                    order=int(value["order"]),
+                )
+                for value in row.reference_snapshot
+            )
+            size = (int(size_parts[0]), int(size_parts[1]))
+            spec = GenerationItemSpec(
+                item_id=row.id,
+                operation_id=row.operation_id,
+                sequence=row.sequence,
+                image_type=row.image_type,
+                operation_type=OperationType(row.operation_type),
+                render_tier=RenderTier(row.render_tier),
+                final_prompt=row.final_prompt,
+                model=ModelName(row.model),
+                ratio=row.ratio,
+                size=size,
+                quality=row.quality,
+                seed=row.seed,
+                references=references,
+                reserved_cost=row.reserved_cost,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DataInvariantError(
+                f"generation item {row.id} has an invalid immutable snapshot"
+            ) from exc
+        return GenerationWorkItem(
+            job_id=row.job_id,
+            user_id=user_id,
+            spec=spec,
+            status=GenerationItemStatus(row.status),
+            provider_task_id=row.provider_task_id,
+            worker_id=row.worker_id,
+            lease_expires_at=row.lease_expires_at,
+        )
+
+    @staticmethod
+    def _lease_is_expired(
+        lease_expires_at: datetime | None, now: datetime
+    ) -> bool:
+        if lease_expires_at is None:
+            return True
+        if lease_expires_at.tzinfo is None:
+            lease_expires_at = lease_expires_at.replace(tzinfo=UTC)
+        return lease_expires_at <= now
+
+    async def _require_user_capacity(
+        self, session: AsyncSession, job_id: str
+    ) -> None:
+        job = await session.get(ListingJobRow, job_id)
+        if job is None:
+            raise DataInvariantError(f"listing job {job_id} does not exist")
+        await self._lock_user(session, job.user_id)
+        active_count = await session.scalar(
+            select(func.count())
+            .select_from(GenerationItemRow)
+            .join(ListingJobRow, ListingJobRow.id == GenerationItemRow.job_id)
+            .where(
+                ListingJobRow.user_id == job.user_id,
+                GenerationItemRow.status.in_(_ACTIVE_STATUSES),
+            )
+        )
+        if active_count is not None and active_count >= 2:
+            raise ConcurrentTaskMutation(
+                f"user {job.user_id} already has two in-flight generation items"
+            )
+
+    async def _owned_transition(
+        self,
+        session: AsyncSession,
+        item_id: str,
+        owner_id: str,
+        expected: tuple[GenerationItemStatus, ...],
+        target: GenerationItemStatus,
+        **values: object,
+    ) -> GenerationItemRow:
+        row = await session.get(GenerationItemRow, item_id)
+        if row is None or GenerationItemStatus(row.status) not in expected:
+            current = None if row is None else row.status
+            raise ConcurrentTaskMutation(
+                f"generation item {item_id} cannot transition from {current} to {target}"
+            )
+        mutation = await session.execute(
+            update(GenerationItemRow)
+            .where(
+                GenerationItemRow.id == item_id,
+                GenerationItemRow.status == row.status,
+                GenerationItemRow.worker_id == owner_id,
+            )
+            .values(status=target.value, **values)
+        )
+        self._require_one(
+            getattr(mutation, "rowcount", None), item_id, target.value
+        )
+        for name, value in values.items():
+            setattr(row, name, value)
+        row.status = target.value
+        return row
+
+    @staticmethod
+    def _require_one(
+        rowcount: int | None, item_id: str, operation: str
+    ) -> None:
+        if rowcount != 1:
+            raise ConcurrentTaskMutation(
+                f"generation item {item_id} lost compare-and-set during {operation}"
+            )
+
+    async def _release_next_item(
+        self, session: AsyncSession, job_id: str
+    ) -> None:
+        queued_count = await session.scalar(
+            select(func.count())
+            .select_from(GenerationItemRow)
+            .where(
+                GenerationItemRow.job_id == job_id,
+                GenerationItemRow.status == GenerationItemStatus.QUEUED.value,
+            )
+        )
+        if queued_count:
+            return
+        job = await session.get(ListingJobRow, job_id)
+        if job is None:
+            raise DataInvariantError(f"listing job {job_id} does not exist")
+        active_count = await session.scalar(
+            select(func.count())
+            .select_from(GenerationItemRow)
+            .join(ListingJobRow, ListingJobRow.id == GenerationItemRow.job_id)
+            .where(
+                ListingJobRow.user_id == job.user_id,
+                GenerationItemRow.status.in_(_ACTIVE_STATUSES),
+            )
+        )
+        if active_count is not None and active_count >= 2:
+            return
+        next_item = await session.scalar(
+            select(GenerationItemRow)
+            .where(
+                GenerationItemRow.job_id == job_id,
+                GenerationItemRow.status == GenerationItemStatus.WAITING.value,
+            )
+            .order_by(GenerationItemRow.sequence)
+            .limit(1)
+            .with_for_update()
+        )
+        if next_item is None:
+            return
+        mutation = await session.execute(
+            update(GenerationItemRow)
+            .where(
+                GenerationItemRow.id == next_item.id,
+                GenerationItemRow.status == GenerationItemStatus.WAITING.value,
+            )
+            .values(status=GenerationItemStatus.QUEUED.value)
+        )
+        self._require_one(
+            getattr(mutation, "rowcount", None), next_item.id, "release"
+        )
+        context = await self._job_message_context(session, job_id)
+        message = TaskMessage(
+            schema_version=1,
+            message_id=uuid4().hex,
+            trace_id=context["trace_id"],
+            request_id=context["request_id"],
+            job_id=job_id,
+            item_id=next_item.id,
+            operation_id=next_item.operation_id,
+            operation_type=OperationType(next_item.operation_type),
+            user_id=job.user_id,
+            created_at=datetime.now(UTC),
+        )
+        session.add(
+            OutboxEventRow(
+                id=uuid4().hex,
+                aggregate_type="generation_item",
+                aggregate_id=next_item.id,
+                event_type="generation_item.queued",
+                payload=message.to_redis_fields(),
+                publish_attempts=0,
+            )
+        )
+
+    @staticmethod
+    async def _job_message_context(
+        session: AsyncSession, job_id: str
+    ) -> dict[str, str]:
+        payload = await session.scalar(
+            select(OutboxEventRow.payload)
+            .join(
+                GenerationItemRow,
+                GenerationItemRow.id == OutboxEventRow.aggregate_id,
+            )
+            .where(GenerationItemRow.job_id == job_id)
+            .order_by(OutboxEventRow.created_at, OutboxEventRow.id)
+            .limit(1)
+        )
+        if payload is None:
+            raise DataInvariantError(
+                f"listing job {job_id} has no task message context"
+            )
+        trace_id = payload.get("trace_id")
+        request_id = payload.get("request_id")
+        if not isinstance(trace_id, str) or not isinstance(request_id, str):
+            raise DataInvariantError(
+                f"listing job {job_id} has invalid task message context"
+            )
+        return {"trace_id": trace_id, "request_id": request_id}
+
+    @staticmethod
+    async def _append_ledger(
+        session: AsyncSession,
+        *,
+        operation_id: str,
+        user_id: str,
+        amount: Decimal,
+    ) -> None:
+        existing = await session.scalar(
+            select(CostLedgerEntry).where(
+                CostLedgerEntry.operation_id == operation_id
+            )
+        )
+        if existing is not None:
+            if existing.user_id != user_id or existing.amount != amount:
+                raise DataInvariantError(
+                    f"ledger operation {operation_id} conflicts with persisted entry"
+                )
+            return
+        session.add(
+            CostLedgerEntry(
+                operation_id=operation_id,
+                user_id=user_id,
+                amount=amount,
+            )
+        )
+
+    @staticmethod
+    async def _aggregate_job(session: AsyncSession, job_id: str) -> None:
+        rows = (
+            await session.execute(
+                select(GenerationItemRow).where(
+                    GenerationItemRow.job_id == job_id
+                )
+            )
+        ).scalars().all()
+        if not rows or any(
+            not is_terminal(GenerationItemStatus(row.status)) for row in rows
+        ):
+            return
+        generated_count = sum(
+            row.status == GenerationItemStatus.GENERATED.value for row in rows
+        )
+        if generated_count == len(rows):
+            status = "完成"
+        elif generated_count:
+            status = "部分完成"
+        else:
+            status = "失败"
+        total_cost = await session.scalar(
+            select(func.coalesce(func.sum(ListingImageRow.cost), 0)).where(
+                ListingImageRow.job_id == job_id,
+                ListingImageRow.status == "成功",
+            )
+        )
+        error = next(
+            (
+                row.error_detail
+                for row in rows
+                if row.error_detail is not None
+            ),
+            None,
+        )
+        job = await session.get(ListingJobRow, job_id)
+        if job is None:
+            raise DataInvariantError(f"listing job {job_id} does not exist")
+        job.status = status
+        job.total_cost = Decimal(str(total_cost))
+        job.error = error
+        job.completed_at = datetime.now(UTC)
 
     @staticmethod
     async def _lock_user(session: AsyncSession, user_id: str) -> None:
