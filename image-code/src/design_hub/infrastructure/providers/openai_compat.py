@@ -102,7 +102,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     ) -> list[GeneratedImage]:
         self._validate_request(size=size, n=n)
         composed = compose_image_api_prompt(prompt, negative_prompt)
-        # 模态解引用（ISSUE-0065）：同步走字节；launcher 按 reference_mode 已物化 data，缺=装配错。
+        # 模态解引用（ISSUE-0065）：同步走字节；worker 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
         quality = self._required_quality or quality
@@ -387,7 +387,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
 
     @staticmethod
     def _require_bytes(ref: ReferenceImage) -> bytes:
-        # 装配契约：bytes 模态 provider 收到的 ReferenceImage 必带 data；缺=launcher/模态装配错。
+        # 装配契约：bytes 模态 provider 收到的 ReferenceImage 必带 data；缺=worker/模态装配错。
         if ref.data is None:
             raise ProviderError("同步 provider 收到无字节的参考图（reference_mode 装配错）")
         return ref.data

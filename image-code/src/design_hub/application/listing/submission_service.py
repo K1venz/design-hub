@@ -4,11 +4,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import uuid4
 
+from design_hub.application.listing.listing_service import build_listing_prompts
+from design_hub.application.listing.prompt_composer import (
+    compose_clone_prompt,
+)
 from design_hub.application.listing.requests import (
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
 )
+from design_hub.application.listing.sizing import generation_size
 from design_hub.application.listing.task_planner import ListingTaskPlanner
 from design_hub.application.tasking.health import (
     AdmissionResult,
@@ -62,7 +67,7 @@ class ListingSubmissionService:
         model: ModelName = ModelName.GPT_IMAGE_2,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        self._require_owned_uploads(user_id, tuple(request.upload_ids))
+        self.validate(user_id, request, model=model)
         admission = await self._admit()
         submission = self.planner.plan_generate(
             user_id=user_id,
@@ -93,13 +98,7 @@ class ListingSubmissionService:
         model: ModelName = ModelName.GPT_IMAGE_2,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        self._require_owned_uploads(
-            user_id,
-            (
-                *request.product_upload_ids,
-                *request.reference_upload_ids,
-            ),
-        )
+        self.validate(user_id, request, model=model)
         admission = await self._admit()
         submission = self.planner.plan_clone(
             user_id=user_id,
@@ -130,15 +129,14 @@ class ListingSubmissionService:
         model: ModelName = ModelName.GPT_IMAGE_2,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        admission = await self._admit()
+        self.validate(user_id, request, model=model)
         source = await self.query.resolve_edit_source(
             source_image_key=request.source_image_key,
             user_id=user_id,
         )
         if source is None:
-            raise NotFoundError(
-                f"source image does not exist or is not owned: {request.source_image_key}"
-            )
+            raise NotFoundError("源图不存在或无权访问，请重新选择后再试")
+        admission = await self._admit()
         submission = self.planner.plan_edit(
             user_id=user_id,
             request=request,
@@ -158,6 +156,67 @@ class ListingSubmissionService:
             replayed=result.replayed,
         )
 
+    def validate(
+        self,
+        user_id: str,
+        request: ListingGenerateRequest | CloneRequest | EditRequest,
+        *,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> None:
+        if isinstance(request, ListingGenerateRequest):
+            if not 1 <= len(request.upload_ids) <= 3:
+                raise ValueError(
+                    f"请上传 1–3 张图片（当前 {len(request.upload_ids)} 张）"
+                )
+            self._require_owned_uploads(user_id, tuple(request.upload_ids))
+            generation_size(model, request.ratio)
+            build_listing_prompts(
+                request.prompt,
+                request.modifiers,
+                self.planner.modifier_registry,
+                self.planner.card_registry,
+                self.planner.type_registry,
+                category=request.category,
+                n=request.n,
+                plan=request.plan,
+                overlay_texts=tuple(request.overlay_texts or ()),
+            )
+            return
+        if isinstance(request, CloneRequest):
+            if len(request.product_upload_ids) != 1:
+                raise ValueError(
+                    f"复刻需要 1 张产品图（当前 {len(request.product_upload_ids)} 张）"
+                )
+            if not 1 <= len(request.reference_upload_ids) <= 2:
+                raise ValueError(
+                    f"请上传 1–2 张爆款参考图（当前 {len(request.reference_upload_ids)} 张）"
+                )
+            self._require_owned_uploads(
+                user_id,
+                (
+                    *request.product_upload_ids,
+                    *request.reference_upload_ids,
+                ),
+            )
+            generation_size(model, request.ratio)
+            compose_clone_prompt(
+                request.prompt,
+                request.modifiers,
+                self.planner.modifier_registry,
+                category=request.category,
+                card_registry=self.planner.card_registry,
+                clone_registry=self.planner.clone_registry,
+                clone_mode=request.clone_mode,
+            )
+            return
+        self.planner.edit_registry.block(request.edit_mode)
+        if request.edit_mode == "delta" and request.ratio is not None:
+            raise ValueError(
+                "微调会沿用原图比例，如需修改比例请改用「重做」"
+            )
+        if request.ratio is not None:
+            generation_size(model, request.ratio)
+
     async def _admit(self) -> AdmissionResult:
         self.redis_health.require_available(now=self.clock())
         snapshot = await self.queue_snapshots.snapshot()
@@ -175,7 +234,7 @@ class ListingSubmissionService:
     @staticmethod
     def _require_owned_uploads(user_id: str, upload_keys: tuple[str, ...]) -> None:
         if any(not owns(key, user_id) for key in upload_keys):
-            raise NotFoundError("an input image does not exist or is not owned")
+            raise NotFoundError("有图片找不到或无权访问，请重新上传后再试")
 
     @staticmethod
     def _log_submission(

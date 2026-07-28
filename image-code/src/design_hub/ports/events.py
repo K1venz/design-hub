@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,14 +10,6 @@ class EventPublisher(ABC):
 
     @abstractmethod
     async def publish(self, event: TaskEvent) -> str | None:
-        ...
-
-
-class EventStream(ABC):
-    """订阅某任务的事件流（SSE 侧）。ISP：与发布分离。"""
-
-    @abstractmethod
-    def subscribe(self, job_id: str) -> AsyncIterator[TaskEvent]:
         ...
 
 

@@ -1,25 +1,21 @@
-"""生产 ASGI 应用：lifespan 装配真实基础设施（MySQL；listing 异步出图+SSE 单进程，无 Redis）。
+"""Production API process: admission, durable submission, query, and SSE only.
 
-运行：`uv run uvicorn design_hub.interface.api.asgi:app`（需 DB_URL 指向真实 MySQL）。
-2026-06-12 世界 A（客户/接单流）整体移除（ISSUE-0046，纯 toC 自助出图）：
-仅保留 listing 一键出图主线 + 模型配置/用户管理 + 认证。
+Provider execution belongs exclusively to ``design_hub.interface.worker``.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from typing import cast
 
 from fastapi import Depends, FastAPI
+from redis.asyncio import Redis
 
 from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
-from design_hub.application.cost.budget import BudgetPolicy
-from design_hub.application.cost.guard import CostGuard
-from design_hub.application.listing.job_launcher import ListingJobLauncher
-from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
@@ -27,13 +23,19 @@ from design_hub.application.listing.prompt_composer import (
     ImageTypeRegistry,
     PromptModifierRegistry,
 )
+from design_hub.application.listing.submission_service import (
+    ListingSubmissionService,
+)
+from design_hub.application.listing.task_planner import ListingTaskPlanner
 from design_hub.application.listing.upload_service import UploadService
-from design_hub.application.rate_limit import UserRateLimiter
+from design_hub.application.tasking.health import (
+    QueueAdmissionController,
+    RedisHealthState,
+)
 from design_hub.composition import (
-    build_image_store,
     build_media_signer,
+    build_mock_registry,
     build_password_cipher,
-    build_registry,
     build_text_llm,
     build_upload_store,
     default_model_configs,
@@ -43,19 +45,28 @@ from design_hub.domain.enums import Role
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
 from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
-from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
+from design_hub.infrastructure.db.generation_work_repo import (
+    SqlAlchemyGenerationWorkRepository,
+)
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
-from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
 from design_hub.infrastructure.monitoring.logging import (
     configure_logging,
     install_request_context,
 )
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
-from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
+from design_hub.infrastructure.queue.redis_health import (
+    RedisHealthClient,
+    RedisHealthMonitor,
+    RedisQueueSnapshotReader,
+)
+from design_hub.infrastructure.queue.redis_streams import (
+    RedisJobEventStream,
+    RedisStreamClient,
+)
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import require_role
 from design_hub.interface.api.routes import (
@@ -68,8 +79,6 @@ from design_hub.interface.api.routes import (
     users,
 )
 
-STALE_JOB_REAP_AFTER = timedelta(minutes=45)
-
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -77,98 +86,89 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = create_engine(settings.db_url)
     session_factory = create_session_factory(db)
     ledger = SqlAlchemyLedgerRepository(session_factory)
-    # WP-H 模型配置后台：seed 默认模型(仅插缺失) + 读 DB 真实单价注入 registry(缺失回落 Mock)
     model_config_repo = SqlAlchemyModelConfigRepository(session_factory)
     model_config_service = ModelConfigService(repo=model_config_repo)
     await model_config_service.seed_defaults(default_model_configs())
-    unit_costs = await model_config_service.unit_cost_map()
-    # 配置大模型（ISSUE-0057）：默认出图模型的连接驱动真实 provider（管理员切默认=备用渠道切换、
-    # 治 0056 单点；启动快照口径同 0042，切换后重启生效）。无默认/连接空 → 回落 .env GPT_IMAGE_*。
-    _configs = await model_config_service.list()
-    _default_config = next((c for c in _configs if c.is_default and c.enabled), None)
-    # GPT_IMAGE_2 走真实中转 Provider；REAL_GPT_IMAGE=false（本地/联调）→ 全 Mock、零 API 成本。
-    registry = build_registry(
-        settings, real_gpt_image=settings.real_gpt_image, unit_costs=unit_costs,
-        default_config=_default_config,
+    pricing_registry = build_mock_registry(
+        await model_config_service.unit_cost_map()
     )
-    guard = CostGuard(ledger=ledger, policy=BudgetPolicy())
-    # 单进程异步（去 Redis/arq）：同一 InMemoryEventBus 既给 runner 发布、又给 /events 订阅
-    app.state.task_queue = InProcessTaskQueue()
-    # 计费端点 per-user 频控（安全加固 A-4：5 单/分 + ≤2 in-flight，in-memory 零 Redis）
-    app.state.rate_limiter = UserRateLimiter()
-    app.state.event_stream = InMemoryEventBus()
-    # listing 一键出图主线：纯 prompt 直出 + 品类保真卡，复用 guard/queue/event_bus
-    app.state.listing_service = ListingGenerationService(
-        registry=registry,
-        guard=guard,
+    planner = ListingTaskPlanner(
+        registry=pricing_registry,
         modifier_registry=PromptModifierRegistry(),
         card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(),
         clone_registry=CloneModeRegistry(),
         edit_registry=EditModeRegistry(),
-        concurrency=settings.listing_concurrency,  # ISSUE-0047 保守降档，settings 可覆盖
-    )
-    # 二次编辑源图读回（ISSUE-0040）：generate 桶/本地 generated/ 的读取面
-    app.state.image_store = build_image_store(settings)
-    app.state.listing_history = SqlAlchemyListingHistory(session_factory)
-    # 启动扫尾（Finding B）：单进程 asyncio 出图，进程崩/部署撞在飞任务会杀掉未终态的
-    # create_task，留永久「生成中」僵尸行（SSE 永久转圈、霸占最近一单）。单进程下启动扫
-    # 一次即够（此刻 queue 空、无在飞任务竞争，不需定时任务）。45 分钟覆盖最长 4K
-    # 三张批次及余量，避免误杀滚动部署时旧进程仍在收尾的真实任务；代价是进程崩溃后
-    # 僵尸单最长会比旧阈值更晚约 30 分钟恢复。纯现列 UPDATE，无迁移。
-    await app.state.listing_history.reap_stale(
-        older_than=STALE_JOB_REAP_AFTER,
-        error="进程重启中断/超时兜底（Finding B）",
     )
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)
-    # 历史/SSE 图 url 签名器（TOS 私有→预签名；本地→/img 静态，ISSUE-0029）
     app.state.media_signer = build_media_signer(settings)
-    # 图片上传两步流（ISSUE-0026）：上传图落本地 assets/，预览经 GET /uploads/{id} 代理
-    app.state.upload_service = UploadService(store=build_upload_store(settings))
-    # 出图启动器（#884⑤ 单一事实源）：listing 路由与 chat orchestrator 共调，
-    # 频控/owner 隔离/成本守卫/卡链全在此链内继承。
-    app.state.job_launcher = ListingJobLauncher(
-        service=app.state.listing_service,
-        uploads=app.state.upload_service,
-        rate_limiter=app.state.rate_limiter,
-        events=app.state.event_stream,
-        history=app.state.listing_history,
-        queue=app.state.task_queue,
-        query=app.state.listing_query,
-        image_store=app.state.image_store,
-        media_signer=app.state.media_signer,  # 参考图现签 URL（异步 provider 模态，ISSUE-0065）
+    app.state.upload_service = UploadService(
+        store=build_upload_store(settings)
     )
-    # 「帮我设计」Agent 对话（方案 C）：复用 job_launcher（频控/owner/成本/卡链全继承）+
-    # 同一 event_stream 转发 job 事件 + registry 读 unit_cost（费用确认与工作台同源）。
-    # 转录持久化（ISSUE-0051）走 chat_repo（DB）；confirm_token 过程态留内存（PendingStore）。
+
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis_health = RedisHealthState(
+        stale_after_seconds=settings.redis_health_stale_seconds
+    )
+    health_client = cast(RedisHealthClient, redis)
+    stream_client = cast(RedisStreamClient, redis)
+    health_monitor = RedisHealthMonitor(
+        client=health_client,
+        state=redis_health,
+        interval_seconds=settings.redis_health_interval_seconds,
+    )
+    await health_monitor.check_once()
+    health_stop = asyncio.Event()
+    health_task = asyncio.create_task(health_monitor.run(health_stop))
+    app.state.event_stream = RedisJobEventStream(stream_client)
+    app.state.listing_submission = ListingSubmissionService(
+        planner=planner,
+        repository=SqlAlchemyGenerationWorkRepository(session_factory),
+        query=app.state.listing_query,
+        redis_health=redis_health,
+        queue_snapshots=RedisQueueSnapshotReader(
+            client=health_client,
+            rolling_item_seconds=settings.queue_rolling_item_seconds,
+            available_slots=(
+                settings.provider_standard_concurrency
+                + settings.provider_4k_concurrency
+            ),
+        ),
+        admission=QueueAdmissionController(
+            soft_wait_seconds=settings.queue_soft_wait_seconds,
+            confirm_wait_seconds=settings.queue_confirm_wait_seconds,
+            hard_depth=settings.queue_hard_depth,
+        ),
+    )
+
     app.state.chat_repo = SqlAlchemyChatSessionRepository(session_factory)
     app.state.chat_orchestrator = ChatOrchestrator(
         text_llm=build_text_llm(settings),
-        launcher=app.state.job_launcher,
+        submission=app.state.listing_submission,
         event_stream=app.state.event_stream,
-        registry=registry,
+        uploads=app.state.upload_service,
+        registry=pricing_registry,
         chat_repo=app.state.chat_repo,
         pending=PendingStore(),
-        query=app.state.listing_query,  # 读工具：出图历史/配方（owner-scoped，ISSUE-0059 A3）
-        ledger=ledger,  # 读工具：额度真数据
-        model_config=model_config_repo,  # 读工具：价格/启用模型实时值（波动信息走工具）
+        query=app.state.listing_query,
+        ledger=ledger,
+        model_config=model_config_repo,
         max_session_jobs=settings.chat_session_max_jobs,
     )
     app.state.model_config_service = model_config_service
-    # 鉴权（WP-G/ISSUE-0015）：JWT 令牌服务 + 自建邮箱密码认证
     token_service = PyJwtTokenService(
         secret=settings.jwt_secret.get_secret_value(),
         ttl_hours=settings.jwt_ttl_hours,
-        renew_after_hours=settings.jwt_renew_after_hours,  # 滑动续期半衰期（ISSUE-0058）
+        renew_after_hours=settings.jwt_renew_after_hours,
     )
     app.state.token_service = token_service
-    # 密码传输公钥加密（ISSUE-0058）：私钥留服务端、GET /auth/pubkey 出公钥、登录/注册路由解密
     app.state.password_cipher = build_password_cipher(settings)
     user_repo = SqlAlchemyUserRepository(session_factory)
     account_service = AccountService(
-        users=user_repo, passwords=BcryptPasswordHasher(), tokens=token_service
+        users=user_repo,
+        passwords=BcryptPasswordHasher(),
+        tokens=token_service,
     )
-    # 启动幂等 seed 管理员（邮箱/密码走 .env，未配则不 seed）
     if settings.seed_admin_email and settings.seed_admin_password.get_secret_value():
         await account_service.seed_admin(
             email=settings.seed_admin_email,
@@ -179,6 +179,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        health_stop.set()
+        await health_task
+        await redis.aclose()
         await db.dispose()
 
 

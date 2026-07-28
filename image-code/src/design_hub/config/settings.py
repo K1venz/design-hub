@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     provider_4k_concurrency: int = Field(default=1, gt=0)
     provider_slot_lease_seconds: int = Field(default=30, gt=0)
     provider_slot_refresh_seconds: int = Field(default=10, gt=0)
+    worker_read_count: int = Field(default=8, gt=0, le=100)
+    worker_read_block_ms: int = Field(default=1000, gt=0, le=30_000)
+    worker_reclaim_idle_ms: int = Field(default=30_000, gt=0)
+    worker_dispatch_interval_seconds: float = Field(default=0.2, gt=0)
+    worker_shutdown_timeout_seconds: float = Field(default=30, gt=0, le=120)
+    queue_rolling_item_seconds: float = Field(default=60, gt=0)
 
     # gpt-image-2 中转站（apinebula/诗云），走 OpenAI 兼容协议
     gpt_image_base_url: str = ""
