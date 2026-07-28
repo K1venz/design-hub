@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -41,6 +41,7 @@ async def _database() -> tuple[
 ]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
+        await connection.execute(text("PRAGMA foreign_keys=ON"))
         await connection.run_sync(Base.metadata.create_all)
         await connection.execute(
             AppUser.__table__.insert().values(
@@ -75,8 +76,8 @@ def test_generation_item_and_outbox_snapshot_roundtrip() -> None:
         session_factory, engine = await _database()
         try:
             async with session_factory() as session:
-                session.add(_job())
-                session.add(
+                job = _job()
+                job.generation_items.append(
                     GenerationItemRow(
                         id="item-1",
                         job_id="job-1",
@@ -111,6 +112,7 @@ def test_generation_item_and_outbox_snapshot_roundtrip() -> None:
                         error_detail=None,
                     )
                 )
+                session.add(job)
                 session.add(
                     OutboxEventRow(
                         id="event-1",
