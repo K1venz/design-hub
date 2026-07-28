@@ -84,3 +84,50 @@ uv run mypy src
 uv run ruff check src tests scripts
 uv run alembic check
 ```
+
+## Capacity harness
+
+Prepare a JSON array with at least 200 test users. Every entry needs `token`;
+the first 40 also need an `upload_id` owned by that token. Keep this credential
+file outside Git.
+
+```json
+[
+  {"token": "<jwt-1>", "upload_id": "<owned-upload-1>"},
+  {"token": "<jwt-2>", "upload_id": "<owned-upload-2>"},
+  {"token": "<jwt-for-read-only-session>"}
+]
+```
+
+Run the default Mock gate:
+
+```bash
+uv run python scripts/load_test_stage_a.py \
+  --base-url https://stage-a.example.internal \
+  --users-file /secure/path/stage-a-users.json \
+  --sessions 200 \
+  --writers 40 \
+  --images-per-job 5 \
+  --output /secure/path/stage-a-report.json
+```
+
+The harness bounds open connections and coroutines, runs 200 authenticated
+history reads while 40 users each submit a five-image job, follows all 40 SSE
+streams, and reports API/read/queue/completion P50/P95, completion count,
+duplicate image events, selected Prometheus samples, and maximum estimated
+cost. It never prints JWTs.
+
+Real Provider traffic is blocked unless both flags are explicit:
+
+```bash
+uv run python scripts/load_test_stage_a.py \
+  --users-file /secure/path/stage-a-users.json \
+  --provider real \
+  --allow-real-provider \
+  --unit-cost 0.05
+```
+
+Review the printed maximum cost before proceeding. Do not raise production
+Provider slots from the default 3 standard / 1 4K values until the staged
+`3 → 10 → 20 → 40 → approved ceiling` QA gate in ISSUE-0067 passes and the
+upstream quota owner confirms the matching limit.
