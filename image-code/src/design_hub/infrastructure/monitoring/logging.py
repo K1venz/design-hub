@@ -140,6 +140,10 @@ def configure_logging(
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logger = logging.getLogger(logger_name)
+        logger.handlers.clear()
+        logger.propagate = True
 
 
 def install_request_context(app: FastAPI) -> None:
