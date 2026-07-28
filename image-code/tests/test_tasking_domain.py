@@ -112,6 +112,7 @@ def test_terminal_states_cannot_transition(status: GenerationItemStatus) -> None
 def test_execution_snapshot_keeps_object_keys_not_urls_or_bytes() -> None:
     spec = GenerationItemSpec(
         item_id="item-1",
+        operation_id="operation-1",
         sequence=1,
         image_type="白底",
         operation_type=OperationType.GENERATE_IMAGE,
@@ -152,6 +153,7 @@ def test_execution_snapshot_rejects_invalid_boundaries(
     with pytest.raises(ValueError):
         GenerationItemSpec(
             item_id="item-1",
+            operation_id="operation-1",
             sequence=sequence,
             image_type=None,
             operation_type=OperationType.GENERATE_IMAGE,
