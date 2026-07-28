@@ -176,6 +176,10 @@ echo "==> 等待 API 与 Worker 健康检查..."
 wait_healthy design-hub-api api
 wait_healthy design-hub-worker worker
 
+echo "==> 校验并平滑重载 nginx（刷新 API 容器地址）"
+docker exec design-hub-nginx nginx -t
+docker exec design-hub-nginx nginx -s reload
+
 echo "==> 容器状态:"
 docker compose ps
 echo "==> DEPLOY_DONE"

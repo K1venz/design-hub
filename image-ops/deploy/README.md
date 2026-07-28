@@ -47,8 +47,9 @@ bash image-ops/deploy/scripts/push.sh        # 可用 DEPLOY_KEY/DEPLOY_HOST 覆
 cd /opt/docker/design-hub && bash scripts/deploy.sh
 ```
 > 注意：源码 rsync 用 `--delete` 时务必排除 `Dockerfile`/`.dockerignore`（它们来自 image-ops，不在 image-code 源码里），否则会被删导致 build 失败——push.sh 已处理。
-脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 生成/校验 Redis 密钥 → 建库 → 构建 → 启动并探测 Redis → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查。
+脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 生成/校验 Redis 密钥 → 建库 → 构建 → 启动并探测 Redis → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查 → 平滑重载 nginx。
 迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
+nginx 访问日志只记录 `$uri`，不记录查询串和 Referer；重载会刷新重建后 API 容器的 Docker 内网地址。
 
 ## 访问
 - `https://203.0.113.10/`（前端 UI；自签证书，浏览器会告警；有域名可换 Let's Encrypt）
