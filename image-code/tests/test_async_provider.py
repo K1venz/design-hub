@@ -15,6 +15,7 @@ from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksP
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_provider import ProviderError, ProviderTimeout
+from design_hub.ports.provider_execution import ProviderRequest
 
 
 class _FakeImageStore(ImageStore):
@@ -126,6 +127,34 @@ async def _gen(
 
 def test_reference_mode_is_url() -> None:
     assert AsyncImageTasksProvider.reference_mode == "url"
+
+
+def test_submit_task_returns_id_before_poll_and_resume_never_resubmits() -> None:
+    client = _ScriptedClient(
+        submit=_submit_ok("persist-me"),
+        polls=[_poll("completed", [_CDN])],
+        download=_download(),
+    )
+    provider = _provider(client)
+    request = ProviderRequest(
+        prompt="生成红色水杯",
+        reference_images=(ReferenceImage(url="https://sig/u1.png"),),
+        size=(1536, 1024),
+        seed=0,
+        quality=None,
+    )
+
+    async def run() -> None:
+        task_id = await provider.submit_task(request, operation_id="operation-1")
+        assert task_id == "persist-me"
+        assert client.get_urls == []
+        image = await provider.resume_task(task_id, request)
+        assert image.image_key == "1.png"
+
+    asyncio.run(run())
+
+    assert len(client.post_payloads) == 1
+    assert "operation_id" not in client.post_payloads[0]
 
 
 def test_submit_shape_then_completed_downloads_and_stores() -> None:
