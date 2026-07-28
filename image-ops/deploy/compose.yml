@@ -26,6 +26,38 @@ services:
       retries: 5
       start_period: 40s
 
+  worker:
+    image: design-hub-api:latest
+    container_name: design-hub-worker
+    restart: unless-stopped
+    command: ["python", "-m", "design_hub.interface.worker"]
+    stop_grace_period: 45s
+    env_file:
+      - .env
+    volumes:
+      - /data/docker/design-hub/generated:/app/generated
+      - /data/docker/design-hub/assets:/app/assets
+      - /data/docker/design-hub/exports:/app/exports
+    networks:
+      - default
+      - mysql_default
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os,socket;
+          from redis import Redis;
+          r=Redis.from_url(os.environ["REDIS_URL"],decode_responses=True,socket_connect_timeout=3,socket_timeout=3);
+          consumers=r.xinfo_consumers("design-hub:generation:v1","generation-workers-v1");
+          assert any(str(c["name"]).startswith(socket.gethostname()) for c in consumers);
+          r.close()
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
   nginx:
     image: nginx:1.27-alpine
     container_name: design-hub-nginx

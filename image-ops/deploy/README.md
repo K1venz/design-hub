@@ -1,8 +1,8 @@
 # design-hub 部署（运维）
 
-首发形态：**前端 SPA(image-web/dist) + API(FastAPI/uvicorn) + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
+当前形态：**前端 SPA + API + 独立 Generation Worker + 外部托管 Redis + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
 nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics` 直达后端。
-监控（Prometheus/Grafana）、备份、CI/CD 暂未做（首发范围决策见下）。
+API 只负责接单、查询和 SSE；Provider 调用只允许 Worker 执行。
 
 ## 目标服务器
 - `14.103.51.191`（Ubuntu 24.04，2C/3.8G，docker 数据盘 `/data` 37G 可用）
@@ -17,8 +17,8 @@ nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics`
 ## 服务器目录布局
 ```
 /opt/docker/design-hub/
-├── compose.yml                  # api + nginx
-├── .env                         # 部署时生成，gitignored，不入库（含 DB_URL/JWT/seed 管理员）
+├── compose.yml                  # api + worker + nginx
+├── .env                         # 部署时生成，gitignored，不入库（含 DB_URL/REDIS_URL/JWT）
 ├── app/                         # rsync 的 image-code 源码 = 构建上下文
 │   ├── Dockerfile
 │   └── .dockerignore
@@ -31,7 +31,9 @@ nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics`
 
 ## 网络与连库
 - api 容器接入两张网：项目网（与 nginx 通）+ 外部 `mysql_default`
+- worker 容器复用 API 镜像并接入相同两张网，但运行独立进程
 - 连库 host = `mysql:3306`（现有容器名/别名），DB_URL 走 aiomysql
+- Redis 必须使用独立托管实例；在服务器 `.env` 配置 `REDIS_URL`，禁止指向 localhost
 
 ## 推送 + 部署
 本地推送（源码 + 部署产物 + 前端 dist；自动保护服务器 .env/certs/web）：
@@ -43,7 +45,7 @@ bash image-ops/deploy/scripts/push.sh        # 可用 DEPLOY_KEY/DEPLOY_HOST 覆
 cd /opt/docker/design-hub && bash scripts/deploy.sh
 ```
 > 注意：源码 rsync 用 `--delete` 时务必排除 `Dockerfile`/`.dockerignore`（它们来自 image-ops，不在 image-code 源码里），否则会被删导致 build 失败——push.sh 已处理。
-脚本幂等：建目录 → 自签证书 → 生成 .env（已存在则保留）→ 建库 → 构建 → 迁移建表 → up → 健康检查。
+脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 校验并探测 Redis → 建库 → 构建 → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查。
 迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
 
 ## 访问
