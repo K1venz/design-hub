@@ -55,3 +55,5 @@ Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机需要严格限�
 - 2026-07-28 [运维] 生产验收发现 nginx 缓存重建前 API 地址并在默认日志记录 query；补齐部署后平滑 reload 和无查询串访问日志，状态=修复中，owner=运维
 - 2026-07-28 [运维] 生产 MySQL 已备份至 `/root/db-backup-20260728-180020.sql`（107929 bytes）并迁移到 `a7b8c9d0e1f2 (head)`；Redis 8.8.1、API、Worker 均 healthy，Consumer Group 已创建，状态=修复中，owner=运维
 - 2026-07-28 [运维] 生产临时 Stream 验证 Pending 从 consumer-a 被 consumer-b XAUTOCLAIM、ACK 后归零；前端幂等键、Prometheus 队列指标及 nginx/API 日志无原始 token 均通过，状态=修复中，owner=运维
+- 2026-07-28 [开发] 真实出图验收发现 MySQL 1452：generation_item 在 listing_job 前插入；补 ORM 父子关系并启用 SQLite FK 回归，另补安全异常类型/栈帧日志，状态=修复中，owner=运维
+- 2026-07-28 [运维] 生产任务 `21d061fc039f4e43a0a8f00edd2ec11d` 验证 202、幂等重放同 job、Worker 完成、图片 URL 200 image/png（1105378 bytes，成本 0.0500），状态=修复中，owner=运维
