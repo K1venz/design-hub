@@ -55,12 +55,13 @@ export function useUploadImage() {
   })
 }
 
-async function postJson(path: string, body: unknown): Promise<{ job_id: string }> {
+export async function postJson(path: string, body: unknown): Promise<{ job_id: string }> {
   const token = useAuthStore.getState().token
   const res = await fetch(`/api${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
