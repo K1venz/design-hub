@@ -15,8 +15,8 @@ related:
 
 ## 现象
 
-Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机不满足 200 人上线拓扑；
-未完成托管 Redis、API/Worker/MySQL 分离和监控接入前不得放量。
+Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机需要严格限制 Redis 与 Provider 并发；
+未完成 Redis 持久化、API/Worker 进程分离和监控验收前不得放量。
 
 ## 复现步骤
 
@@ -33,8 +33,9 @@ Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机不满足 200 人
 
 生产门禁：
 
-- Redis 使用托管实例，不与 2C/3.8GB API 主机同机。
-- API、Worker、MySQL、Redis 故障域分离；API 不持有 Provider 执行职责。
+- Redis 按当前上线规模使用同机独立 Docker 容器，不发布宿主机端口，启用 AOF everysec、
+  256MB maxmemory、384MB 容器上限及 noeviction；规模增长后再迁移托管 Redis。
+- API 与 Worker 独立进程；API 不持有 Provider 执行职责。
 - 迁移前完成 MySQL 备份和恢复演练，记录迁移前 revision。
 - API 与 Worker 输出 JSON 日志，集中采集且可按
   `request_id/trace_id/job_id/item_id/operation_id` 检索。
@@ -50,3 +51,4 @@ Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机不满足 200 人
 
 - 2026-07-28 [开发] 创建部署门禁，状态=已确认，owner=运维
 - 2026-07-28 [运维] Compose 增加独立 Worker、托管 Redis 预检和双进程健康门禁，状态=修复中，owner=运维
+- 2026-07-28 [运维] 按用户确认改为同机 Docker Redis，补齐 AOF、资源上限、noeviction、强随机密钥与启动健康门禁，状态=修复中，owner=运维
