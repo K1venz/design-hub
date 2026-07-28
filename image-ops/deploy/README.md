@@ -1,6 +1,6 @@
 # design-hub 部署（运维）
 
-当前形态：**前端 SPA + API + 独立 Generation Worker + 外部托管 Redis + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
+当前形态：**前端 SPA + API + 独立 Generation Worker + Docker Redis + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
 nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics` 直达后端。
 API 只负责接单、查询和 SSE；Provider 调用只允许 Worker 执行。
 
@@ -17,8 +17,8 @@ API 只负责接单、查询和 SSE；Provider 调用只允许 Worker 执行。
 ## 服务器目录布局
 ```
 /opt/docker/design-hub/
-├── compose.yml                  # api + worker + nginx
-├── .env                         # 部署时生成，gitignored，不入库（含 DB_URL/REDIS_URL/JWT）
+├── compose.yml                  # redis + api + worker + nginx
+├── .env                         # 部署时生成，gitignored，不入库（含 Redis 密钥/DB_URL/JWT）
 ├── app/                         # rsync 的 image-code 源码 = 构建上下文
 │   ├── Dockerfile
 │   └── .dockerignore
@@ -26,14 +26,16 @@ API 只负责接单、查询和 SSE；Provider 调用只允许 Worker 执行。
 │   ├── conf.d/design-hub.conf
 │   └── certs/                   # 自签证书（deploy.sh 生成）
 └── scripts/deploy.sh
-/data/docker/design-hub/{generated,assets,exports}   # 持久卷
+/data/docker/design-hub/{redis,generated,assets,exports}   # 持久卷
 ```
 
 ## 网络与连库
 - api 容器接入两张网：项目网（与 nginx 通）+ 外部 `mysql_default`
 - worker 容器复用 API 镜像并接入相同两张网，但运行独立进程
 - 连库 host = `mysql:3306`（现有容器名/别名），DB_URL 走 aiomysql
-- Redis 必须使用独立托管实例；在服务器 `.env` 配置 `REDIS_URL`，禁止指向 localhost
+- Redis 只接入项目默认 Docker 网络，不映射宿主机端口；API/Worker 通过 `redis:6379` 访问
+- deploy.sh 首次运行生成 64 位十六进制 Redis 密钥及内部 `REDIS_URL`，不会打印敏感值
+- Redis 开启 AOF `everysec`，内存上限 256MB、容器上限 384MB，满载采用 `noeviction`，防止静默淘汰队列任务
 
 ## 推送 + 部署
 本地推送（源码 + 部署产物 + 前端 dist；自动保护服务器 .env/certs/web）：
@@ -45,7 +47,7 @@ bash image-ops/deploy/scripts/push.sh        # 可用 DEPLOY_KEY/DEPLOY_HOST 覆
 cd /opt/docker/design-hub && bash scripts/deploy.sh
 ```
 > 注意：源码 rsync 用 `--delete` 时务必排除 `Dockerfile`/`.dockerignore`（它们来自 image-ops，不在 image-code 源码里），否则会被删导致 build 失败——push.sh 已处理。
-脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 校验并探测 Redis → 建库 → 构建 → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查。
+脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 生成/校验 Redis 密钥 → 建库 → 构建 → 启动并探测 Redis → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查。
 迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
 
 ## 访问
