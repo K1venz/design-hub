@@ -14,6 +14,20 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+_MIGRATION_SUPPORT_TABLES = frozenset(
+    {"gpt_image_connection_migration_f3a4b5c6d7e8"}
+)
+
+
+def _include_object(
+    object_: object,
+    name: str | None,
+    type_: str,
+    reflected: bool,
+    compare_to: object | None,
+) -> bool:
+    del object_, reflected, compare_to
+    return not (type_ == "table" and name in _MIGRATION_SUPPORT_TABLES)
 
 
 def _db_url() -> str:
@@ -26,13 +40,18 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def _do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=_include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

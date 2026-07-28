@@ -59,7 +59,7 @@ class AppUser(Base):
     __tablename__ = "app_user"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)  # 登录标识
+    email: Mapped[str] = mapped_column(String(255), unique=True)  # Unique constraint indexes.
     password_hash: Mapped[str] = mapped_column(String(255))  # bcrypt
     name: Mapped[str] = mapped_column(String(128))
     role: Mapped[str] = mapped_column(String(16), default="设计师")  # 设计师 | 管理者

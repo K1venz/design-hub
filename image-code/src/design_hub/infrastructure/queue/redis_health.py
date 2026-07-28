@@ -45,17 +45,15 @@ class RedisQueueSnapshotReader(QueueSnapshotReader):
             None,
         )
         if group is None:
-            depth = 0
-            pending = 0
-        else:
-            pending = self._non_negative_int(group.get("pending"), "pending")
-            lag_value = group.get("lag")
-            lag = (
-                0
-                if lag_value is None
-                else self._non_negative_int(lag_value, "lag")
+            raise RedisUnavailable(
+                "generation queue consumer group is unavailable"
             )
-            depth = pending + lag
+        pending = self._non_negative_int(group.get("pending"), "pending")
+        lag_value = group.get("lag")
+        if lag_value is None:
+            raise RedisUnavailable("generation queue lag is unavailable")
+        lag = self._non_negative_int(lag_value, "lag")
+        depth = pending + lag
         task_metrics.set_stream(depth=depth, pending=pending)
         return QueueSnapshot(
             depth=depth,

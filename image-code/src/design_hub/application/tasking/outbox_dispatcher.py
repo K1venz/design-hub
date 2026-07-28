@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -29,6 +31,7 @@ class OutboxDispatcher:
     broker: TaskBroker
     events: EventPublisher
     batch_size: int = 100
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
@@ -87,7 +90,9 @@ class OutboxDispatcher:
                     record.event_id, str(exc)[:_MAX_ERROR_LENGTH]
                 )
                 failed += 1
-                continue
+                exponent = min(record.publish_attempts, 4)
+                await self.sleep(min(5.0, 0.5 * (2**exponent)))
+                break
             await self.repository.mark_outbox_published(record.event_id, redis_id)
             logger.info("generation_outbox_published", extra=log_context)
             published += 1

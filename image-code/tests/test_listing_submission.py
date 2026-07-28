@@ -504,4 +504,19 @@ def test_submission_service_rejects_before_database_write_when_unavailable() -> 
             )
         assert repository.calls == 0
 
+        confirmation_required = _submission_service(
+            repository,
+            healthy,
+            _Snapshots(depth=46),
+        )
+        with pytest.raises(AdmissionRejected, match="explicit confirmation"):
+            await confirmation_required.submit_generate(
+                user_id="1",
+                request=request,
+                idempotency_key="request-3",
+                trace_id="trace-3",
+                request_id="request-3",
+            )
+        assert repository.calls == 0
+
     asyncio.run(run())
