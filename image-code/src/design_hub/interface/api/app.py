@@ -2,6 +2,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from design_hub.application.rate_limit import RateLimited
+from design_hub.application.tasking.health import (
+    AdmissionRejected,
+    RedisUnavailable,
+)
 from design_hub.domain.errors import (
     AuthenticationError,
     BudgetExceeded,
@@ -9,6 +13,7 @@ from design_hub.domain.errors import (
     NotFoundError,
     PermissionDenied,
 )
+from design_hub.ports.generation_work import IdempotencyConflict
 from design_hub.ports.model_provider import ProviderError
 
 
@@ -20,6 +25,27 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=409, content={"error": "budget_exceeded", "detail": exc.reason}
         )
+
+    @app.exception_handler(IdempotencyConflict)
+    async def _on_idempotency_conflict(
+        request: Request, exc: IdempotencyConflict
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "idempotency_conflict", "detail": str(exc)},
+        )
+
+    async def _generation_unavailable(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "generation_unavailable", "detail": str(exc)},
+            headers={"Retry-After": "30"},
+        )
+
+    app.add_exception_handler(RedisUnavailable, _generation_unavailable)
+    app.add_exception_handler(AdmissionRejected, _generation_unavailable)
 
     @app.exception_handler(ProviderError)
     async def _on_provider(request: Request, exc: ProviderError) -> JSONResponse:

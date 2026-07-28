@@ -582,7 +582,11 @@ def test_repository_pipelines_two_items_and_releases_next_atomically() -> None:
                 assert third.status == "queued"
                 events = (
                     await session.execute(
-                        select(OutboxEventRow).order_by(OutboxEventRow.created_at)
+                        select(OutboxEventRow)
+                        .where(
+                            OutboxEventRow.aggregate_type == "generation_item"
+                        )
+                        .order_by(OutboxEventRow.created_at)
                     )
                 ).scalars().all()
                 assert [event.aggregate_id for event in events] == [
@@ -638,6 +642,22 @@ def test_cost_reconcile_refund_and_job_terminal_aggregation_are_idempotent() -> 
                 assert job.status == "部分完成"
                 assert job.total_cost == Decimal("0.0700")
                 assert job.completed_at is not None
+
+                job_events = (
+                    await session.execute(
+                        select(OutboxEventRow).where(
+                            OutboxEventRow.aggregate_type
+                            == "listing_job_event"
+                        )
+                    )
+                ).scalars().all()
+                terminal = [
+                    event
+                    for event in job_events
+                    if event.payload["event_type"]
+                    in {"task_completed", "task_failed"}
+                ]
+                assert len(terminal) == 1
 
             with pytest.raises(ConcurrentTaskMutation):
                 await repository.fail_item(

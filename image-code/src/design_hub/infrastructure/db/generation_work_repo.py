@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from design_hub.domain.enums import ModelName
+from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.models import GeneratedImage
 from design_hub.domain.tasking import (
@@ -152,6 +152,8 @@ class SqlAlchemyGenerationWorkRepository:
                     payload=row.payload,
                     created_at=row.created_at,
                     publish_attempts=row.publish_attempts,
+                    aggregate_type=row.aggregate_type,
+                    event_type=row.event_type,
                 )
                 for row in rows
             )
@@ -246,6 +248,16 @@ class SqlAlchemyGenerationWorkRepository:
                 self._require_one(
                     getattr(result, "rowcount", None), item_id, "claim"
                 )
+                if status is GenerationItemStatus.QUEUED:
+                    self._add_job_event(
+                        session,
+                        job_id=row.job_id,
+                        event_type=TaskEventType.TASK_STARTED,
+                        data={
+                            "item_id": row.id,
+                            "status": GenerationItemStatus.CLAIMED.value,
+                        },
+                    )
 
     async def mark_submitting(
         self, item_id: str, worker_id: str
@@ -348,9 +360,25 @@ class SqlAlchemyGenerationWorkRepository:
                     user_id=job.user_id,
                     amount=image.cost - row.reserved_cost,
                 )
+                self._add_job_event(
+                    session,
+                    job_id=row.job_id,
+                    event_type=TaskEventType.IMAGE_GENERATED,
+                    data={
+                        "item_id": row.id,
+                        "image_key": image.image_key,
+                        "image_type": image.image_type or row.image_type,
+                        "seed": image.seed,
+                        "cost": str(image.cost),
+                    },
+                )
                 await session.flush()
                 await self._release_next_item(session, row.job_id)
-                await self._aggregate_job(session, row.job_id)
+                job_status = await self._aggregate_job(session, row.job_id)
+                if job_status is not None:
+                    self._add_terminal_job_event(
+                        session, row.job_id, job_status
+                    )
 
     async def fail_item(
         self,
@@ -389,9 +417,24 @@ class SqlAlchemyGenerationWorkRepository:
                     user_id=job.user_id,
                     amount=-row.reserved_cost,
                 )
+                self._add_job_event(
+                    session,
+                    job_id=row.job_id,
+                    event_type=TaskEventType.IMAGE_FAILED,
+                    data={
+                        "item_id": row.id,
+                        "image_type": row.image_type,
+                        "error_code": safe_code,
+                        "error": safe_detail,
+                    },
+                )
                 await session.flush()
                 await self._release_next_item(session, row.job_id)
-                await self._aggregate_job(session, row.job_id)
+                job_status = await self._aggregate_job(session, row.job_id)
+                if job_status is not None:
+                    self._add_terminal_job_event(
+                        session, row.job_id, job_status
+                    )
 
     async def mark_submission_uncertain(
         self, item_id: str, worker_id: str, error_detail: str
@@ -410,9 +453,24 @@ class SqlAlchemyGenerationWorkRepository:
                     error_code="submission_uncertain",
                     error_detail=error_detail[:_SAFE_ERROR_LIMIT],
                 )
+                self._add_job_event(
+                    session,
+                    job_id=row.job_id,
+                    event_type=TaskEventType.IMAGE_FAILED,
+                    data={
+                        "item_id": row.id,
+                        "image_type": row.image_type,
+                        "error_code": "submission_uncertain",
+                        "error": "Provider submission outcome requires manual review",
+                    },
+                )
                 await session.flush()
                 await self._release_next_item(session, row.job_id)
-                await self._aggregate_job(session, row.job_id)
+                job_status = await self._aggregate_job(session, row.job_id)
+                if job_status is not None:
+                    self._add_terminal_job_event(
+                        session, row.job_id, job_status
+                    )
 
     async def heartbeat(
         self, item_id: str, worker_id: str, lease_seconds: int
@@ -483,9 +541,24 @@ class SqlAlchemyGenerationWorkRepository:
                     user_id=job.user_id,
                     amount=-row.reserved_cost,
                 )
+                self._add_job_event(
+                    session,
+                    job_id=row.job_id,
+                    event_type=TaskEventType.IMAGE_FAILED,
+                    data={
+                        "item_id": row.id,
+                        "image_type": row.image_type,
+                        "error_code": "cancelled",
+                        "error": "Cancelled before provider submission",
+                    },
+                )
                 await session.flush()
                 await self._release_next_item(session, row.job_id)
-                await self._aggregate_job(session, row.job_id)
+                job_status = await self._aggregate_job(session, row.job_id)
+                if job_status is not None:
+                    self._add_terminal_job_event(
+                        session, row.job_id, job_status
+                    )
 
     @staticmethod
     def _to_work_item(
@@ -737,7 +810,51 @@ class SqlAlchemyGenerationWorkRepository:
         )
 
     @staticmethod
-    async def _aggregate_job(session: AsyncSession, job_id: str) -> None:
+    def _add_job_event(
+        session: AsyncSession,
+        *,
+        job_id: str,
+        event_type: TaskEventType,
+        data: dict[str, object],
+    ) -> None:
+        session.add(
+            OutboxEventRow(
+                id=uuid4().hex,
+                aggregate_type="listing_job_event",
+                aggregate_id=job_id,
+                event_type=f"listing_job.{event_type.value}",
+                payload={
+                    "job_id": job_id,
+                    "event_type": event_type.value,
+                    "data": data,
+                },
+                publish_attempts=0,
+            )
+        )
+
+    @classmethod
+    def _add_terminal_job_event(
+        cls,
+        session: AsyncSession,
+        job_id: str,
+        job_status: str,
+    ) -> None:
+        event_type = (
+            TaskEventType.TASK_FAILED
+            if job_status == "失败"
+            else TaskEventType.TASK_COMPLETED
+        )
+        cls._add_job_event(
+            session,
+            job_id=job_id,
+            event_type=event_type,
+            data={"status": job_status},
+        )
+
+    @staticmethod
+    async def _aggregate_job(
+        session: AsyncSession, job_id: str
+    ) -> str | None:
         rows = (
             await session.execute(
                 select(GenerationItemRow).where(
@@ -748,7 +865,7 @@ class SqlAlchemyGenerationWorkRepository:
         if not rows or any(
             not is_terminal(GenerationItemStatus(row.status)) for row in rows
         ):
-            return
+            return None
         generated_count = sum(
             row.status == GenerationItemStatus.GENERATED.value for row in rows
         )
@@ -779,6 +896,7 @@ class SqlAlchemyGenerationWorkRepository:
         job.total_cost = Decimal(str(total_cost))
         job.error = error
         job.completed_at = datetime.now(UTC)
+        return status
 
     @staticmethod
     async def _lock_user(session: AsyncSession, user_id: str) -> None:

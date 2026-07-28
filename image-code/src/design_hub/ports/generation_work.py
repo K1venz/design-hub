@@ -35,9 +35,11 @@ class SubmitResult:
 @dataclass(frozen=True)
 class OutboxRecord:
     event_id: str
-    payload: Mapping[str, str]
+    payload: Mapping[str, object]
     created_at: datetime
     publish_attempts: int
+    aggregate_type: str = "generation_item"
+    event_type: str = "generation_item.queued"
 
 
 @dataclass(frozen=True)

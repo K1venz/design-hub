@@ -1,6 +1,5 @@
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from typing import Any, Protocol
 
 from redis.exceptions import ResponseError
@@ -8,6 +7,7 @@ from redis.exceptions import ResponseError
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.models import TaskEvent
 from design_hub.domain.tasking import TaskMessage
+from design_hub.ports.events import ReplayableEvent
 from design_hub.ports.task_broker import Delivery
 
 _GENERATION_STREAM = "design-hub:generation:v1"
@@ -136,12 +136,6 @@ class RedisTaskBroker:
         )
 
 
-@dataclass(frozen=True)
-class JobEventDelivery:
-    redis_id: str
-    event: TaskEvent
-
-
 class RedisJobEventStream:
     def __init__(self, client: RedisStreamClient) -> None:
         self._client = client
@@ -162,7 +156,7 @@ class RedisJobEventStream:
 
     async def read(
         self, *, job_id: str, after_id: str, block_ms: int
-    ) -> tuple[JobEventDelivery, ...]:
+    ) -> tuple[ReplayableEvent, ...]:
         key = self._key(job_id)
         response = await self._client.xread(
             {key: after_id},
@@ -170,7 +164,7 @@ class RedisJobEventStream:
             block=block_ms,
         )
         return tuple(
-            JobEventDelivery(
+            ReplayableEvent(
                 redis_id=redis_id,
                 event=TaskEvent(
                     job_id=job_id,

@@ -12,6 +12,8 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.application.tasking.outbox_dispatcher import OutboxDispatcher
+from design_hub.domain.enums import TaskEventType
+from design_hub.domain.models import TaskEvent
 from design_hub.domain.tasking import OperationType, TaskMessage
 from design_hub.ports.generation_work import OutboxRecord
 
@@ -63,6 +65,15 @@ class _Broker:
         return "20-0"
 
 
+class _Events:
+    def __init__(self) -> None:
+        self.events: list[TaskEvent] = []
+
+    async def publish(self, event: TaskEvent) -> str:
+        self.events.append(event)
+        return "30-0"
+
+
 def _record() -> OutboxRecord:
     return OutboxRecord(
         event_id="event-1",
@@ -76,7 +87,12 @@ def test_dispatcher_publishes_before_marking_database_row() -> None:
     async def run() -> None:
         repository = _OutboxRepository((_record(),))
         broker = _Broker()
-        dispatcher = OutboxDispatcher(repository=repository, broker=broker, batch_size=100)
+        dispatcher = OutboxDispatcher(
+            repository=repository,
+            broker=broker,
+            events=_Events(),
+            batch_size=100,
+        )
 
         result = await dispatcher.dispatch_once()
 
@@ -95,7 +111,12 @@ def test_crash_after_publish_republishes_same_message_id() -> None:
         repository = _OutboxRepository((_record(),))
         broker = _Broker()
         repository.mark_error = RuntimeError("database disconnected")
-        dispatcher = OutboxDispatcher(repository=repository, broker=broker, batch_size=10)
+        dispatcher = OutboxDispatcher(
+            repository=repository,
+            broker=broker,
+            events=_Events(),
+            batch_size=10,
+        )
 
         with pytest.raises(RuntimeError, match="database disconnected"):
             await dispatcher.dispatch_once()
@@ -115,7 +136,12 @@ def test_redis_failure_is_recorded_with_bounded_detail() -> None:
         repository = _OutboxRepository((_record(),))
         broker = _Broker()
         broker.error = RedisConnectionError("x" * 5000)
-        dispatcher = OutboxDispatcher(repository=repository, broker=broker, batch_size=10)
+        dispatcher = OutboxDispatcher(
+            repository=repository,
+            broker=broker,
+            events=_Events(),
+            batch_size=10,
+        )
 
         result = await dispatcher.dispatch_once()
 
@@ -123,6 +149,46 @@ def test_redis_failure_is_recorded_with_bounded_detail() -> None:
         action = repository.actions[-1]
         assert action[:2] == ("failure", "event-1")
         assert action[2] is not None and len(action[2]) == 1000
+
+    asyncio.run(run())
+
+
+def test_dispatcher_routes_job_event_outbox_to_replayable_stream() -> None:
+    async def run() -> None:
+        record = OutboxRecord(
+            event_id="event-2",
+            payload={
+                "job_id": "job-1",
+                "event_type": "image_generated",
+                "data": {"item_id": "item-1", "image_key": "result.png"},
+            },
+            created_at=datetime(2026, 7, 28, tzinfo=UTC),
+            publish_attempts=0,
+            aggregate_type="listing_job_event",
+            event_type="listing_job.image_generated",
+        )
+        repository = _OutboxRepository((record,))
+        broker = _Broker()
+        events = _Events()
+        dispatcher = OutboxDispatcher(
+            repository=repository,
+            broker=broker,
+            events=events,
+            batch_size=10,
+        )
+
+        result = await dispatcher.dispatch_once()
+
+        assert result.published == 1
+        assert broker.messages == []
+        assert events.events == [
+            TaskEvent(
+                job_id="job-1",
+                type=TaskEventType.IMAGE_GENERATED,
+                data={"item_id": "item-1", "image_key": "result.png"},
+            )
+        ]
+        assert repository.actions[-1] == ("mark", "event-2", "30-0")
 
     asyncio.run(run())
 
