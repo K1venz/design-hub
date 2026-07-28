@@ -234,6 +234,7 @@ class SqlAlchemyGenerationWorkRepository:
                     GenerationItemStatus.SUBMITTING,
                     GenerationItemStatus.SUBMITTED,
                     GenerationItemStatus.PROCESSING,
+                    GenerationItemStatus.STORING,
                 }
                 if status is GenerationItemStatus.QUEUED:
                     await self._require_user_capacity(session, row.job_id)

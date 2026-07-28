@@ -397,6 +397,31 @@ def test_persisted_provider_task_resumes_without_resubmission() -> None:
     asyncio.run(run())
 
 
+def test_stale_storing_item_fails_closed_without_second_provider_call() -> None:
+    async def run() -> None:
+        work = replace(
+            _work(GenerationItemStatus.STORING),
+            worker_id="dead-worker",
+        )
+        repository = _Repository(work)
+        executor = _Executor()
+        worker, broker, slots = _worker(repository, executor)
+
+        await worker.process(_delivery())
+
+        assert repository.actions == [
+            "load",
+            "claim",
+            "failed:storage_commit_uncertain",
+        ]
+        assert executor.submits == 0
+        assert executor.resumes == 0
+        assert slots.actions == []
+        assert broker.acks == ["10-0"]
+
+    asyncio.run(run())
+
+
 def test_long_provider_submit_refreshes_database_and_slot_leases() -> None:
     async def run() -> None:
         repository = _Repository(_work())
@@ -538,6 +563,32 @@ def test_repository_claim_is_cas_and_expired_lease_can_be_taken_over() -> None:
                 row = await session.get(GenerationItemRow, "item-1")
                 assert row is not None
                 assert row.attempt_count == 2
+        finally:
+            await engine.dispose()  # type: ignore[attr-defined]
+
+    asyncio.run(run())
+
+
+def test_repository_allows_expired_storing_lease_to_be_taken_over() -> None:
+    async def run() -> None:
+        session_factory, engine = await _database()
+        repository = SqlAlchemyGenerationWorkRepository(session_factory)
+        try:
+            await repository.submit(_submission(1))
+            await repository.claim("item-1", "worker-a", 30)
+            await repository.mark_submitting("item-1", "worker-a")
+            await repository.mark_storing("item-1", "worker-a")
+            async with session_factory() as session:
+                row = await session.get(GenerationItemRow, "item-1")
+                assert row is not None
+                row.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+                await session.commit()
+
+            await repository.claim("item-1", "worker-b", 30)
+
+            work = await repository.load_item("item-1")
+            assert work.status is GenerationItemStatus.STORING
+            assert work.worker_id == "worker-b"
         finally:
             await engine.dispose()  # type: ignore[attr-defined]
 
