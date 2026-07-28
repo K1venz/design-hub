@@ -2,14 +2,15 @@
 
 覆盖：ChatOrchestrator 事件序 / 费用闸(cost_confirm 暂停不出图) / confirm 启 job+job_event 转发 /
 confirm_token 一次性·跨用户·cancel·过期 / 会话级闸(DB 派生) / 占位 ratio→转澄清 / 澄清轮无工具;
-ListingJobLauncher.validate 纯校验; PendingStore token 语义; ChatSessionRepository 持久化(刷新
+ListingSubmissionService.validate 纯校验; PendingStore token 语义; ChatSessionRepository 持久化(刷新
 不丢/owner 404/CASCADE 删/job_count) + 转录落库(user 消息+assistant 答复+job_id,过程态不落)。
 
-真出图链走 mock 图像 provider(零成本)+ 真 InMemoryEventBus/InProcessTaskQueue + sqlite。
+出图提交与 Redis 事件流使用针对新端口的轻量 fake，持久化使用 sqlite。
 文本 LLM 用确定性 Stub(真 provider 流式/工具解析在 test_text_llm_adapter.py 覆盖)。
 """
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from decimal import Decimal
@@ -22,10 +23,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
 from design_hub.application.chat.ratio_intent import decide_chat_ratio
-from design_hub.application.cost.budget import BudgetPolicy
-from design_hub.application.cost.guard import CostGuard
-from design_hub.application.listing.job_launcher import ListingJobLauncher
-from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
@@ -38,23 +35,36 @@ from design_hub.application.listing.requests import (
     EditRequest,
     ListingGenerateRequest,
 )
+from design_hub.application.listing.submission_service import (
+    ListingSubmissionService,
+    SubmissionReceipt,
+)
+from design_hub.application.listing.task_planner import ListingTaskPlanner
 from design_hub.application.listing.upload_service import UploadService
-from design_hub.application.rate_limit import UserRateLimiter
 from design_hub.application.registry import ProviderRegistry
+from design_hub.application.tasking.health import (
+    QueueAdmissionController,
+    QueueSnapshot,
+    RedisHealthState,
+)
 from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import ModelName, Role
+from design_hub.domain.enums import ModelName, Role, TaskEventType
 from design_hub.domain.errors import NotFoundError
-from design_hub.domain.models import AuthUser, BudgetSnapshot
+from design_hub.domain.models import (
+    AuthUser,
+    BudgetSnapshot,
+    ListingJobImage,
+    TaskEvent,
+)
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
-from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
-from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
-from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.ports.chat_repository import ChatSessionRepository
+from design_hub.ports.events import ReplayableEvent
+from design_hub.ports.generation_work import JobSubmission, SubmitResult
 from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 from design_hub.ports.text_llm import (
@@ -146,6 +156,205 @@ class _FakeModelConfig(ModelConfigRepository):
 
     async def seed_defaults(self, defaults) -> None:  # type: ignore[no-untyped-def]
         raise NotImplementedError
+
+
+class _NeverSubmitRepository:
+    async def submit(self, submission: JobSubmission) -> SubmitResult:
+        raise AssertionError("validation-only repository must not submit")
+
+
+class _ZeroQueue:
+    async def snapshot(self) -> QueueSnapshot:
+        return QueueSnapshot(
+            depth=0,
+            rolling_item_seconds=60,
+            available_slots=4,
+        )
+
+
+class _ReplayEvents:
+    def __init__(self) -> None:
+        self._events: dict[str, list[ReplayableEvent]] = {}
+
+    def add(self, job_id: str, event_type: TaskEventType, data: dict) -> None:
+        events = self._events.setdefault(job_id, [])
+        events.append(
+            ReplayableEvent(
+                redis_id=f"{len(events) + 1}-0",
+                event=TaskEvent(job_id=job_id, type=event_type, data=data),
+            )
+        )
+
+    async def read(
+        self, *, job_id: str, after_id: str, block_ms: int
+    ) -> tuple[ReplayableEvent, ...]:
+        del block_ms
+        sequence = int(after_id.split("-", maxsplit=1)[0])
+        return tuple(self._events.get(job_id, [])[sequence:])
+
+
+class _FakeSubmission:
+    def __init__(
+        self,
+        *,
+        planner: ListingTaskPlanner,
+        history: SqlAlchemyListingHistory,
+        query: SqlAlchemyListingHistoryQuery,
+        events: _ReplayEvents,
+    ) -> None:
+        health = RedisHealthState(stale_after_seconds=60)
+        health.mark_healthy(now=0)
+        self._validator = ListingSubmissionService(
+            planner=planner,
+            repository=_NeverSubmitRepository(),  # type: ignore[arg-type]
+            query=query,
+            redis_health=health,
+            queue_snapshots=_ZeroQueue(),
+            admission=QueueAdmissionController(
+                soft_wait_seconds=300,
+                confirm_wait_seconds=900,
+                hard_depth=2000,
+            ),
+            clock=lambda: 0,
+        )
+        self._planner = planner
+        self._history = history
+        self._query = query
+        self._events = events
+        self.calls: list[ModelName] = []
+
+    def validate(
+        self,
+        user_id: str,
+        request: ListingGenerateRequest | CloneRequest | EditRequest,
+        *,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> None:
+        self._validator.validate(user_id, request, model=model)
+
+    async def submit_generate(
+        self,
+        *,
+        user_id: str,
+        request: ListingGenerateRequest,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> SubmissionReceipt:
+        submission = self._planner.plan_generate(
+            user_id=user_id,
+            request=request,
+            job_id=uuid.uuid4().hex,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            model=model,
+        )
+        return await self._complete(submission, model)
+
+    async def submit_clone(
+        self,
+        *,
+        user_id: str,
+        request: CloneRequest,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> SubmissionReceipt:
+        submission = self._planner.plan_clone(
+            user_id=user_id,
+            request=request,
+            job_id=uuid.uuid4().hex,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            model=model,
+        )
+        return await self._complete(submission, model)
+
+    async def submit_edit(
+        self,
+        *,
+        user_id: str,
+        request: EditRequest,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> SubmissionReceipt:
+        source = await self._query.resolve_edit_source(
+            source_image_key=request.source_image_key,
+            user_id=user_id,
+        )
+        if source is None:
+            raise NotFoundError("源图不存在或无权访问，请重新选择后再试")
+        submission = self._planner.plan_edit(
+            user_id=user_id,
+            request=request,
+            source=source,
+            job_id=uuid.uuid4().hex,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            model=model,
+        )
+        return await self._complete(submission, model)
+
+    async def _complete(
+        self,
+        submission: JobSubmission,
+        model: ModelName,
+    ) -> SubmissionReceipt:
+        self.calls.append(model)
+        await self._history.start(submission.job)
+        images = tuple(
+            ListingJobImage(
+                image_key=f"{submission.job.job_id}-{item.sequence}.png",
+                seed=item.seed,
+                cost=item.reserved_cost,
+                status="成功",
+                image_type=item.image_type,
+            )
+            for item in submission.items
+        )
+        await self._history.add_images(submission.job.job_id, images)
+        total_cost = sum(
+            (image.cost for image in images),
+            start=Decimal("0"),
+        )
+        await self._history.finalize(
+            submission.job.job_id,
+            status="完成",
+            total_cost=total_cost,
+            error=None,
+        )
+        self._events.add(
+            submission.job.job_id,
+            TaskEventType.TASK_STARTED,
+            {},
+        )
+        for image in images:
+            self._events.add(
+                submission.job.job_id,
+                TaskEventType.IMAGE_GENERATED,
+                {
+                    "image_key": image.image_key,
+                    "image_type": image.image_type,
+                },
+            )
+        self._events.add(
+            submission.job.job_id,
+            TaskEventType.TASK_COMPLETED,
+            {"total_cost": str(total_cost)},
+        )
+        return SubmissionReceipt(
+            job_id=submission.job.job_id,
+            queue_state="normal",
+            estimated_wait_seconds=0,
+            replayed=False,
+        )
 
 
 class StubTextLLM(TextLLMPort):
@@ -354,10 +563,10 @@ def test_logo_request_uses_enhanced_prompt_without_category_clarification(tmp_pa
 
 @dataclass
 class Infra:
-    launcher: ListingJobLauncher
+    submission: _FakeSubmission
     uploads: UploadService
     registry: ProviderRegistry
-    events: InMemoryEventBus
+    events: _ReplayEvents
     chat_repo: ChatSessionRepository
     pending: PendingStore
     query: SqlAlchemyListingHistoryQuery
@@ -367,8 +576,13 @@ class Infra:
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
         return ChatOrchestrator(
-            text_llm=text_llm, launcher=self.launcher, event_stream=self.events,
-            registry=self.registry, chat_repo=self.chat_repo, pending=self.pending,
+            text_llm=text_llm,
+            submission=self.submission,  # type: ignore[arg-type]
+            event_stream=self.events,
+            uploads=self.uploads,
+            registry=self.registry,
+            chat_repo=self.chat_repo,
+            pending=self.pending,
             query=self.query, ledger=self.ledger, model_config=self.model_config,
             max_session_jobs=self.max_session_jobs,
         )
@@ -394,24 +608,24 @@ async def _infra(
             ModelName.GPT_IMAGE_2_4K: Decimal("0.1800"),
         }
     )
-    service = ListingGenerationService(
-        registry=registry, guard=CostGuard(ledger=_FakeLedger(), policy=BudgetPolicy()),
+    planner = ListingTaskPlanner(
+        registry=registry,
         modifier_registry=PromptModifierRegistry(), card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(), clone_registry=CloneModeRegistry(),
-        edit_registry=EditModeRegistry(), concurrency=3,
+        edit_registry=EditModeRegistry(),
     )
-    events = InMemoryEventBus()
+    events = _ReplayEvents()
     uploads = UploadService(store=LocalUploadStore(tmp))
     query = SqlAlchemyListingHistoryQuery(sf)
     ledger = _FakeLedger()
-    launcher = ListingJobLauncher(
-        service=service, uploads=uploads, rate_limiter=UserRateLimiter(), events=events,
-        history=SqlAlchemyListingHistory(sf), queue=InProcessTaskQueue(),
-        query=query, image_store=LocalImageStore(tmp),
-        media_signer=LocalMediaUrlSigner(""),
+    submission = _FakeSubmission(
+        planner=planner,
+        history=SqlAlchemyListingHistory(sf),
+        query=query,
+        events=events,
     )
     return Infra(
-        launcher, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
+        submission, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
         PendingStore(), query, ledger,
         _FakeModelConfig(
             standard_enabled=standard_enabled,
@@ -775,7 +989,7 @@ def test_auto_ratio_falls_back_when_first_upload_cannot_be_loaded(tmp_path) -> N
 def test_auto_ratio_falls_back_when_upload_store_read_fails(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
-        inf.launcher.uploads.store = _ReadFailureUploadStore()
+        inf.uploads.store = _ReadFailureUploadStore()
         upload_id = f"{upload_ns(USER.user_id)}/0000000000000000.png"
         llm = CapturingTextLLM()
 
@@ -936,19 +1150,6 @@ def test_4k_confirm_launches_with_pending_model_snapshot(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
-        launched_models: list[ModelName] = []
-        original_launch = inf.launcher.launch_generate
-
-        async def _record_launch(
-            user: AuthUser,
-            req: ListingGenerateRequest,
-            *,
-            model: ModelName = ModelName.GPT_IMAGE_2,
-        ) -> str:
-            launched_models.append(model)
-            return await original_launch(user, req, model=model)
-
-        inf.launcher.launch_generate = _record_launch  # type: ignore[method-assign]
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
         planned = await _drain(
             orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
@@ -960,7 +1161,7 @@ def test_4k_confirm_launches_with_pending_model_snapshot(tmp_path) -> None:
             orch.handle_confirm(USER, session_id, token, "confirm")
         )
 
-        assert launched_models == [ModelName.GPT_IMAGE_2_4K]
+        assert inf.submission.calls == [ModelName.GPT_IMAGE_2_4K]
         assert "job_started" in [event_type for event_type, _data in confirmed]
 
     asyncio.run(_impl())
@@ -970,20 +1171,6 @@ def test_confirm_rechecks_model_disabled_after_cost_card(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
-        launch_calls = 0
-        original_launch = inf.launcher.launch_generate
-
-        async def _record_launch(
-            user: AuthUser,
-            req: ListingGenerateRequest,
-            *,
-            model: ModelName = ModelName.GPT_IMAGE_2,
-        ) -> str:
-            nonlocal launch_calls
-            launch_calls += 1
-            return await original_launch(user, req, model=model)
-
-        inf.launcher.launch_generate = _record_launch  # type: ignore[method-assign]
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
         planned = await _drain(
             orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
@@ -997,7 +1184,7 @@ def test_confirm_rechecks_model_disabled_after_cost_card(tmp_path) -> None:
         )
 
         assert _first(confirmed, "error")["code"] == "model_unavailable"
-        assert launch_calls == 0
+        assert inf.submission.calls == []
         assert await inf.chat_repo.job_count(session_id) == 0
 
     asyncio.run(_impl())
@@ -1110,20 +1297,6 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
-        launch_calls = 0
-        original_launch = inf.launcher.launch_generate
-
-        async def _record_launch(
-            user: AuthUser,
-            req: ListingGenerateRequest,
-            *,
-            model: ModelName = ModelName.GPT_IMAGE_2,
-        ) -> str:
-            nonlocal launch_calls
-            launch_calls += 1
-            return await original_launch(user, req, model=model)
-
-        inf.launcher.launch_generate = _record_launch  # type: ignore[method-assign]
         msg = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         sid = _first(msg, "session")["session_id"]
         tok = _first(msg, "cost_confirm")["confirm_token"]
@@ -1132,7 +1305,7 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         assert canc[-1] == ("assistant_end", {"status": "complete"})
         after = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         assert any(t == "error" and d["code"] == "invalid_confirm_token" for t, d in after)
-        assert launch_calls == 0
+        assert inf.submission.calls == []
 
     asyncio.run(_impl())
 
@@ -1242,7 +1415,7 @@ def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
         sid = _first(msg, "session")["session_id"]
         # 新 orchestrator + 全新 PendingStore(内存态丢失)，共享同一 DB
         inf2 = Infra(
-            inf.launcher, inf.uploads, inf.registry, inf.events, inf.chat_repo,
+            inf.submission, inf.uploads, inf.registry, inf.events, inf.chat_repo,
             PendingStore(), inf.query, inf.ledger, inf.model_config, inf.max_session_jobs,
         )
         t = await inf2.chat_repo.get_transcript(sid, USER.user_id)
@@ -1284,7 +1457,7 @@ def test_delete_session_cascade_and_owner(tmp_path) -> None:
     asyncio.run(_impl())
 
 
-# ── ListingJobLauncher.validate 纯校验(#884⑤ 与出图同一校验源) ─────────────────
+# ── ListingSubmissionService.validate 纯校验(#884⑤ 与出图同一校验源) ─────────
 
 
 def test_validate_rejects_bad_ratio(tmp_path) -> None:
@@ -1293,7 +1466,7 @@ def test_validate_rejects_bad_ratio(tmp_path) -> None:
         uid = await _stage(inf)
         req = ListingGenerateRequest(upload_ids=[uid], prompt="p", ratio="2:3", n=1)
         with pytest.raises(ValueError):
-            inf.launcher.validate(USER, req)
+            inf.submission.validate(USER.user_id, req)
 
     asyncio.run(_impl())
 
@@ -1305,7 +1478,7 @@ def test_validate_rejects_non_owned_upload(tmp_path) -> None:
             upload_ids=["deadbeef0000/x.png"], prompt="p", ratio="1:1", n=1
         )
         with pytest.raises(NotFoundError):
-            inf.launcher.validate(USER, req)
+            inf.submission.validate(USER.user_id, req)
 
     asyncio.run(_impl())
 
@@ -1317,7 +1490,7 @@ def test_validate_clone_requires_one_product(tmp_path) -> None:
             product_upload_ids=[], reference_upload_ids=["a"], clone_mode="参考风格", ratio="1:1"
         )
         with pytest.raises(ValueError):
-            inf.launcher.validate(USER, req)
+            inf.submission.validate(USER.user_id, req)
 
     asyncio.run(_impl())
 
@@ -1327,7 +1500,7 @@ def test_validate_edit_delta_rejects_ratio(tmp_path) -> None:
         inf = await _infra(str(tmp_path))
         req = EditRequest(source_image_key="k", prompt="改暖色", edit_mode="delta", ratio="1:1")
         with pytest.raises(ValueError):
-            inf.launcher.validate(USER, req)
+            inf.submission.validate(USER.user_id, req)
 
     asyncio.run(_impl())
 

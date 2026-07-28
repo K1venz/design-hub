@@ -98,7 +98,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         quality: str | None = None,
     ) -> list[GeneratedImage]:
         composed = compose_image_api_prompt(prompt, negative_prompt)
-        # 模态解引用（ISSUE-0065）：异步走现签 URL；launcher 按 reference_mode 物化 url，缺=装配错。
+        # 模态解引用（ISSUE-0065）：异步走现签 URL；worker 按 reference_mode 物化 url，缺=装配错。
         image_urls = [self._require_url(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
         start = time.perf_counter()
@@ -279,7 +279,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
 
     @staticmethod
     def _require_url(ref: ReferenceImage) -> str:
-        # 装配契约：url 模态 provider 收到的 ReferenceImage 必带 url；缺=launcher/模态装配错。
+        # 装配契约：url 模态 provider 收到的 ReferenceImage 必带 url；缺=worker/模态装配错。
         if not ref.url:
             raise ProviderError("异步 provider 收到无 URL 的参考图（reference_mode 装配错）")
         return ref.url

@@ -125,7 +125,7 @@ class ListingGenerationService:
             raise ValueError(f"concurrency 需 ≥1，实际 {self.concurrency}")
 
     def reference_mode(self, model: ModelName) -> ReferenceMode:
-        """当前出图 provider 的参考图模态（ISSUE-0065）：launcher 据此只物化 bytes 或 URL。"""
+        """当前出图 provider 的参考图模态（ISSUE-0065）：执行侧据此只物化 bytes 或 URL。"""
         return self.registry.get(model).reference_mode
 
     async def execute_item(

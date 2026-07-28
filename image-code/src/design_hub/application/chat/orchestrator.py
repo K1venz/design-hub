@@ -1,8 +1,8 @@
 """ChatOrchestrator（方案 C 零框架 tool-use 循环 + 对话历史持久化 ISSUE-0051）。
 
 多轮澄清 → LLM 产结构化 tool_call（= /listing 请求体字段，绝不直出图像 prompt，铁律①）
-→ 费用确认闸（暂停）→ 用户确认 → 经 ListingJobLauncher 走同一出图链（频控/owner/
-成本守卫/卡链全继承，#884⑤）→ 转发 job SSE（包一层 job_event）→ 收尾话术。
+→ 费用确认闸（暂停）→ 用户确认 → 经 ListingSubmissionService 走同一可靠任务链
+→ 转发 job SSE（包一层 job_event）→ 收尾话术。
 
 转录持久化（取舍①）：user 消息 + assistant 最终答复(+job_id) 落 ChatSessionRepository；
 过程态（流式吐字/步骤/费用卡/tool_call）不落库。LLM 多轮上下文每轮从 DB 转录重建（刷新/
@@ -15,6 +15,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
+
+from structlog.contextvars import get_contextvars
 
 from design_hub.application.chat.image_ratio import detect_supported_ratio
 from design_hub.application.chat.pending_store import PendingAction, PendingStore
@@ -33,19 +35,26 @@ from design_hub.application.chat.tool_requests import (
     ChatEditRequest,
     ChatGenerateRequest,
 )
-from design_hub.application.listing.job_launcher import ListingJobLauncher
 from design_hub.application.listing.requests import (
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
 )
-from design_hub.application.rate_limit import RateLimited
+from design_hub.application.listing.submission_service import (
+    ListingSubmissionService,
+)
+from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.registry import ProviderRegistry
+from design_hub.application.tasking.health import (
+    AdmissionRejected,
+    RedisUnavailable,
+)
 from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.errors import BudgetExceeded, NotFoundError
 from design_hub.domain.models import AuthUser, ChatTranscript
 from design_hub.ports.chat_repository import ChatSessionRepository
-from design_hub.ports.events import EventStream
+from design_hub.ports.events import ReplayableEventStream
+from design_hub.ports.generation_work import IdempotencyConflict
 from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.listing_query import ListingHistoryQuery
 from design_hub.ports.model_config_repository import ModelConfigRepository
@@ -95,7 +104,7 @@ _MAX_TOOL_ITERS = 5  # 读工具回喂循环上限（防 LLM 无限调工具）
 
 
 def _tool_specs() -> list[ToolSpec]:
-    # 工具参数 schema 直接取自请求 DTO（单一事实源，与 launcher 校验同源）。
+    # 工具参数 schema 直接取自请求 DTO（单一事实源，与提交服务校验同源）。
     # description 强调「信息齐全才调用、缺必填先追问、别把占位问句填进参数」（A3 降残余风险）。
     return [
         ToolSpec(
@@ -206,8 +215,9 @@ def _to_llm_messages(
 @dataclass
 class ChatOrchestrator:
     text_llm: TextLLMPort
-    launcher: ListingJobLauncher
-    event_stream: EventStream
+    submission: ListingSubmissionService
+    event_stream: ReplayableEventStream
+    uploads: UploadService
     registry: ProviderRegistry
     chat_repo: ChatSessionRepository
     pending: PendingStore
@@ -223,7 +233,7 @@ class ChatOrchestrator:
         if not upload_ids or not owns(upload_ids[0], user.user_id):
             return "1:1"
         try:
-            data, _content_type = await self.launcher.uploads.load(upload_ids[0])
+            data, _content_type = await self.uploads.load(upload_ids[0])
         except (ValueError, NotFoundError, UploadReadError):
             return "1:1"
         return detect_supported_ratio(data)
@@ -378,7 +388,11 @@ class ChatOrchestrator:
                 return
             try:
                 # 与出图同一校验源（#884⑤/护栏②）：非法参数进费用闸前拦下转澄清；文案已是用户话术。
-                self.launcher.validate(user, req)
+                self.submission.validate(
+                    user.user_id,
+                    req,
+                    model=rendering.model,
+                )
             except (ValueError, NotFoundError) as exc:
                 clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
                 yield ChatEvent("assistant_delta", {"text": clar})
@@ -486,7 +500,14 @@ class ChatOrchestrator:
 
         try:
             job_id = await self._launch(user, pending)
-        except (ValueError, NotFoundError, RateLimited, BudgetExceeded) as exc:
+        except (
+            ValueError,
+            NotFoundError,
+            BudgetExceeded,
+            AdmissionRejected,
+            RedisUnavailable,
+            IdempotencyConflict,
+        ) as exc:
             yield ChatEvent("error", {"code": self._err_code(exc), "message": str(exc)})
             yield ChatEvent("assistant_end", {"status": "error"})
             return
@@ -497,12 +518,30 @@ class ChatOrchestrator:
         )
 
         completed = False
-        async for event in self.event_stream.subscribe(job_id):
-            yield ChatEvent(
-                "job_event", {"job_id": job_id, "type": event.type.value, "data": event.data}
+        cursor = "0-0"
+        terminal = False
+        while not terminal:
+            deliveries = await self.event_stream.read(
+                job_id=job_id,
+                after_id=cursor,
+                block_ms=15_000,
             )
-            if event.type == TaskEventType.TASK_COMPLETED:
-                completed = True
+            for delivery in deliveries:
+                cursor = delivery.redis_id
+                event = delivery.event
+                yield ChatEvent(
+                    "job_event",
+                    {
+                        "job_id": job_id,
+                        "type": event.type.value,
+                        "data": event.data,
+                    },
+                )
+                if event.type == TaskEventType.TASK_COMPLETED:
+                    completed = True
+                    terminal = True
+                elif event.type == TaskEventType.TASK_FAILED:
+                    terminal = True
 
         # 收尾轮：从 DB 转录重建上下文 + 系统提示出图结果 → LLM 产自然收尾语（无工具）
         summary = "出图完成" if completed else "出图失败或部分失败"
@@ -530,12 +569,43 @@ class ChatOrchestrator:
 
     async def _launch(self, user: AuthUser, pending: PendingAction) -> str:
         req = pending.req
+        context = get_contextvars()
+        request_id = context.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            request_id = uuid.uuid4().hex
+        trace_id = context.get("trace_id")
+        if not isinstance(trace_id, str) or not trace_id:
+            trace_id = request_id
         if pending.tool == "generate" and isinstance(req, ListingGenerateRequest):
-            return await self.launcher.launch_generate(user, req, model=pending.model)
+            receipt = await self.submission.submit_generate(
+                user_id=user.user_id,
+                request=req,
+                idempotency_key=pending.confirm_token,
+                trace_id=trace_id,
+                request_id=request_id,
+                model=pending.model,
+            )
+            return receipt.job_id
         if pending.tool == "clone" and isinstance(req, CloneRequest):
-            return await self.launcher.launch_clone(user, req, model=pending.model)
+            receipt = await self.submission.submit_clone(
+                user_id=user.user_id,
+                request=req,
+                idempotency_key=pending.confirm_token,
+                trace_id=trace_id,
+                request_id=request_id,
+                model=pending.model,
+            )
+            return receipt.job_id
         if pending.tool == "edit" and isinstance(req, EditRequest):
-            return await self.launcher.launch_edit(user, req, model=pending.model)
+            receipt = await self.submission.submit_edit(
+                user_id=user.user_id,
+                request=req,
+                idempotency_key=pending.confirm_token,
+                trace_id=trace_id,
+                request_id=request_id,
+                model=pending.model,
+            )
+            return receipt.job_id
         raise ValueError(f"未知工具：{pending.tool}")
 
     async def _model_available(self, model: ModelName) -> bool:
@@ -680,8 +750,10 @@ class ChatOrchestrator:
 
     @staticmethod
     def _err_code(exc: Exception) -> str:
-        if isinstance(exc, RateLimited):
-            return "rate_limited"
+        if isinstance(exc, (AdmissionRejected, RedisUnavailable)):
+            return "generation_unavailable"
+        if isinstance(exc, IdempotencyConflict):
+            return "idempotency_conflict"
         if isinstance(exc, BudgetExceeded):
             return "budget_exceeded"
         return "bad_request"  # ValueError / NotFoundError

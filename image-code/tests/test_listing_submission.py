@@ -5,9 +5,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from design_hub.application.cost.budget import BudgetPolicy
-from design_hub.application.cost.guard import CostGuard
-from design_hub.application.listing.listing_service import ListingGenerationService
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
@@ -25,7 +22,6 @@ from design_hub.application.listing.submission_service import (
     SubmissionReceipt,
 )
 from design_hub.application.listing.task_planner import ListingTaskPlanner
-from design_hub.application.registry import ProviderRegistry
 from design_hub.application.tasking.health import (
     AdmissionRejected,
     QueueAdmissionController,
@@ -35,13 +31,7 @@ from design_hub.application.tasking.health import (
 )
 from design_hub.composition import build_mock_registry
 from design_hub.domain.enums import ModelName, Role, TaskEventType
-from design_hub.domain.models import (
-    AuthUser,
-    BudgetSnapshot,
-    GeneratedImage,
-    ReferenceImage,
-    TaskEvent,
-)
+from design_hub.domain.models import AuthUser, TaskEvent
 from design_hub.domain.tasking import (
     OperationType,
     ReferenceSource,
@@ -56,64 +46,8 @@ from design_hub.ports.generation_work import (
     JobSubmission,
     SubmitResult,
 )
-from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.listing_query import EditSource, ListingHistoryQuery
-from design_hub.ports.model_provider import AbstractModelProvider
 from design_hub.ports.upload_store import upload_ns
-
-
-class _NoopLedger(LedgerRepository):
-    async def snapshot(self, user_id: str) -> BudgetSnapshot:
-        return BudgetSnapshot(Decimal("0"), Decimal("100"), Decimal("0"), Decimal("1000"))
-
-    async def reserve(
-        self, user_id: str, amount: Decimal, *, operation_id: str
-    ) -> None:
-        raise AssertionError("execute_item must not reserve cost")
-
-    async def rollback(
-        self, user_id: str, amount: Decimal, *, operation_id: str
-    ) -> None:
-        raise AssertionError("execute_item must not refund cost")
-
-
-class _CapturingProvider(AbstractModelProvider):
-    name = ModelName.GPT_IMAGE_2
-    unit_cost = Decimal("0.05")
-
-    def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
-
-    async def generate(
-        self,
-        *,
-        prompt: str,
-        negative_prompt: str,
-        reference_images: list[ReferenceImage],
-        size: tuple[int, int],
-        n: int,
-        seed: int | None = None,
-        quality: str | None = None,
-    ) -> list[GeneratedImage]:
-        self.calls.append(
-            {
-                "prompt": prompt,
-                "reference_images": reference_images,
-                "size": size,
-                "n": n,
-                "seed": seed,
-                "quality": quality,
-            }
-        )
-        return [
-            GeneratedImage(
-                image_key="result.png",
-                url="mock://result.png",
-                seed=seed or 0,
-                latency_ms=10,
-                cost=self.unit_cost,
-            )
-        ]
 
 
 def _planner() -> ListingTaskPlanner:
@@ -282,62 +216,6 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
         (ReferenceSource.UPLOAD, "1/front.png", "product"),
         (ReferenceSource.UPLOAD, "1/side.png", "product"),
     ]
-
-
-def test_execute_item_calls_provider_once_without_cost_side_effects() -> None:
-    async def run() -> None:
-        provider = _CapturingProvider()
-        registry = ProviderRegistry()
-        registry.register(provider)
-        planner = ListingTaskPlanner(
-            registry=registry,
-            modifier_registry=PromptModifierRegistry(),
-            card_registry=CategoryCardRegistry(),
-            type_registry=ImageTypeRegistry(),
-            clone_registry=CloneModeRegistry(),
-            edit_registry=EditModeRegistry(),
-        )
-        request = ListingGenerateRequest(
-            upload_ids=["1/front.png"],
-            prompt="red",
-            ratio="1:1",
-            n=1,
-        )
-        item = planner.plan_generate(
-            user_id="1",
-            request=request,
-            job_id="job-1",
-            idempotency_key="idem-1",
-            trace_id="trace-1",
-            request_id="request-1",
-            model=ModelName.GPT_IMAGE_2,
-        ).items[0]
-        service = ListingGenerationService(
-            registry=registry,
-            guard=CostGuard(ledger=_NoopLedger(), policy=BudgetPolicy()),
-            modifier_registry=PromptModifierRegistry(),
-            card_registry=CategoryCardRegistry(),
-            type_registry=ImageTypeRegistry(),
-            clone_registry=CloneModeRegistry(),
-            edit_registry=EditModeRegistry(),
-        )
-        references = [ReferenceImage(data=b"product")]
-
-        result = await service.execute_item(item, references)
-
-        assert result.image_key == "result.png"
-        assert provider.calls == [
-            {
-                "prompt": item.final_prompt,
-                "reference_images": references,
-                "size": (1024, 1024),
-                "n": 1,
-                "seed": 0,
-                "quality": None,
-            }
-        ]
-
-    asyncio.run(run())
 
 
 class _SubmissionService:

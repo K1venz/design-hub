@@ -1,7 +1,7 @@
 """listing 出图请求 DTO（application 层命令契约）。
 
 路由（interface）与 ChatOrchestrator（application）共用同一组 pydantic 请求模型，
-经 ListingJobLauncher 走同一条校验链（#884⑤）。放 application 层使
+经 ListingSubmissionService 走同一条校验链（#884⑤）。放 application 层使
 orchestrator 可直接用它把 LLM tool args 解析出来（extra=forbid 等约束原样生效），
 不违反依赖内指（interface→application→domain）。
 """
@@ -18,8 +18,9 @@ Category = Literal["FOOD", "FASHION", "BEAUTY", "SHOES", "DIGITAL"]
 class ListingGenerateRequest(BaseModel):
     """listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。
 
-    数量/范围/比例/下拉的具体边界在 launcher 同步 fail-fast 校验（统一 400），不靠 Pydantic 约束
-    （避免 422 与 spec 的 400 口径不一致，ISSUE-0024）。
+    数量/范围/比例/下拉的具体边界在 submission service 同步 fail-fast
+    校验（统一 400），不靠 Pydantic 约束（避免 422 与 spec 的 400
+    口径不一致，ISSUE-0024）。
     """
 
     upload_ids: list[str]
@@ -41,7 +42,7 @@ class CloneRequest(BaseModel):
 
     双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序
     「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。
-    边界仍走 launcher fail-fast 统一 400（ISSUE-0024 口径）。
+    边界仍走 submission service fail-fast 统一 400（ISSUE-0024 口径）。
     """
 
     product_upload_ids: list[str]
@@ -59,7 +60,7 @@ class EditRequest(BaseModel):
     生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。
     不收 category（R2：编辑组装无品类块、库无列，死参数不收）。
     prompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；
-    edit_mode/ratio 仍走 launcher fail-fast 400（域值校验，单一事实源在卡/映射表）。
+    edit_mode/ratio 仍走 submission service fail-fast 400（域值校验，单一事实源在卡/映射表）。
     """
 
     model_config = ConfigDict(extra="forbid")
