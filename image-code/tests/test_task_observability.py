@@ -137,6 +137,32 @@ def test_configure_logging_routes_uvicorn_access_logs_through_redaction() -> Non
     assert bypass_stream.getvalue() == ""
 
 
+def test_exception_logs_keep_safe_type_and_frames_without_message_or_locals() -> None:
+    stream = io.StringIO()
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    try:
+        configure_logging(stream=stream)
+        private_prompt = "private-product-prompt"
+        try:
+            raise RuntimeError(f"database rejected {private_prompt}")
+        except RuntimeError:
+            logging.getLogger("uvicorn.error").exception(
+                "Exception in ASGI application"
+            )
+    finally:
+        root.handlers.clear()
+        root.handlers.extend(original_handlers)
+        root.setLevel(original_level)
+
+    record = json.loads(stream.getvalue())
+    assert record["error_type"] == "RuntimeError"
+    assert "test_task_observability.py:" in record["error_summary"]
+    assert "private-product-prompt" not in stream.getvalue()
+    assert "database rejected" not in stream.getvalue()
+
+
 def test_request_context_accepts_valid_id_generates_invalid_id_and_clears() -> None:
     app = FastAPI()
     install_request_context(app)

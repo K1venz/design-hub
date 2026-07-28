@@ -1,6 +1,7 @@
 import logging
 import re
 import sys
+import traceback
 from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any, TextIO, cast
 from uuid import uuid4
@@ -103,6 +104,34 @@ def sanitize_event(
     return sanitized
 
 
+def add_safe_exception_context(
+    logger: WrappedLogger,
+    method_name: str,
+    event_dict: EventDict,
+) -> EventDict:
+    del logger, method_name
+    exc_info = event_dict.pop("exc_info", None)
+    record = event_dict.get("_record")
+    if exc_info is None and isinstance(record, logging.LogRecord):
+        exc_info = record.exc_info
+    if exc_info is True:
+        exc_info = sys.exc_info()
+    if not isinstance(exc_info, tuple) or len(exc_info) != 3:
+        return event_dict
+
+    exception_type, _exception, exception_traceback = exc_info
+    type_name = getattr(exception_type, "__name__", None)
+    if isinstance(type_name, str):
+        event_dict["error_type"] = type_name
+    if exception_traceback is not None:
+        frames = traceback.extract_tb(exception_traceback)[-8:]
+        event_dict["error_summary"] = " > ".join(
+            f"{frame.filename.rsplit('/', 1)[-1]}:{frame.lineno}:{frame.name}"
+            for frame in frames
+        )
+    return event_dict
+
+
 def configure_logging(
     *,
     level: int = logging.INFO,
@@ -129,6 +158,7 @@ def configure_logging(
             *shared,
         ],
         processors=[
+            add_safe_exception_context,
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             sanitize_event,
             structlog.processors.JSONRenderer(ensure_ascii=False),
