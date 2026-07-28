@@ -4,11 +4,15 @@ from datetime import datetime
 from typing import Protocol
 
 from design_hub.domain.errors import DomainError
-from design_hub.domain.models import ListingJobStart
-from design_hub.domain.tasking import GenerationItemSpec
+from design_hub.domain.models import GeneratedImage, ListingJobStart
+from design_hub.domain.tasking import GenerationItemSpec, GenerationItemStatus
 
 
 class IdempotencyConflict(DomainError):
+    pass
+
+
+class ConcurrentTaskMutation(DomainError):
     pass
 
 
@@ -36,6 +40,17 @@ class OutboxRecord:
     publish_attempts: int
 
 
+@dataclass(frozen=True)
+class GenerationWorkItem:
+    job_id: str
+    user_id: str
+    spec: GenerationItemSpec
+    status: GenerationItemStatus
+    provider_task_id: str | None
+    worker_id: str | None
+    lease_expires_at: datetime | None = None
+
+
 class GenerationWorkRepository(Protocol):
     async def submit(self, submission: JobSubmission) -> SubmitResult: ...
 
@@ -50,3 +65,47 @@ class GenerationWorkRepository(Protocol):
     async def record_outbox_failure(
         self, event_id: str, error: str
     ) -> None: ...
+
+    async def load_item(self, item_id: str) -> GenerationWorkItem: ...
+
+    async def claim(
+        self, item_id: str, worker_id: str, lease_seconds: int
+    ) -> None: ...
+
+    async def mark_submitting(
+        self, item_id: str, worker_id: str
+    ) -> None: ...
+
+    async def mark_submitted(
+        self, item_id: str, worker_id: str, provider_task_id: str
+    ) -> None: ...
+
+    async def mark_processing(
+        self, item_id: str, worker_id: str
+    ) -> None: ...
+
+    async def mark_storing(
+        self, item_id: str, worker_id: str
+    ) -> None: ...
+
+    async def complete_item(
+        self, item_id: str, worker_id: str, image: GeneratedImage
+    ) -> None: ...
+
+    async def fail_item(
+        self,
+        item_id: str,
+        worker_id: str,
+        error_code: str,
+        error_detail: str,
+    ) -> None: ...
+
+    async def mark_submission_uncertain(
+        self, item_id: str, worker_id: str, error_detail: str
+    ) -> None: ...
+
+    async def heartbeat(
+        self, item_id: str, worker_id: str, lease_seconds: int
+    ) -> None: ...
+
+    async def cancel_item(self, item_id: str, user_id: str) -> None: ...

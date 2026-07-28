@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.ports.model_provider import ReferenceMode
 
 
 class SubmissionUncertain(RuntimeError):
@@ -43,6 +44,9 @@ class RecoverableTaskProvider(Protocol):
 
 
 class ProviderExecutor(Protocol):
+    @property
+    def reference_mode(self) -> ReferenceMode: ...
+
     async def submit(
         self, request: ProviderRequest, *, operation_id: str
     ) -> SubmittedTask | ImmediateResult: ...
