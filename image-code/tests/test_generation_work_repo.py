@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from design_hub.domain.enums import ModelName
-from design_hub.domain.errors import DataInvariantError
+from design_hub.domain.errors import BudgetExceeded, DataInvariantError
 from design_hub.domain.models import ListingJobStart
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -333,6 +333,53 @@ def test_submit_atomically_creates_job_items_reserves_and_first_outbox() -> None
                 assert len(outboxes) == 1
                 assert outboxes[0].aggregate_id == "item-1"
                 assert outboxes[0].payload["item_id"] == "item-1"
+        finally:
+            await engine.dispose()  # type: ignore[attr-defined]
+
+    asyncio.run(run())
+
+
+def test_submit_enforces_budget_before_creating_any_generation_rows() -> None:
+    async def run() -> None:
+        session_factory, engine = await _database()
+        repo = SqlAlchemyGenerationWorkRepository(session_factory)
+        try:
+            async with session_factory() as session:
+                session.add(
+                    CostLedgerEntry(
+                        operation_id="existing-monthly-spend",
+                        user_id="1",
+                        amount=Decimal("200"),
+                    )
+                )
+                await session.commit()
+
+            with pytest.raises(BudgetExceeded, match="用户本月配额"):
+                await repo.submit(_submission())
+
+            async with session_factory() as session:
+                assert (
+                    await session.scalar(
+                        select(func.count()).select_from(ListingJobRow)
+                    )
+                    == 0
+                )
+                assert (
+                    await session.scalar(
+                        select(func.count()).select_from(GenerationItemRow)
+                    )
+                    == 0
+                )
+                assert (
+                    await session.scalar(
+                        select(func.count()).select_from(OutboxEventRow)
+                    )
+                    == 0
+                )
+                ledger_count = await session.scalar(
+                    select(func.count()).select_from(CostLedgerEntry)
+                )
+                assert ledger_count == 1
         finally:
             await engine.dispose()  # type: ignore[attr-defined]
 

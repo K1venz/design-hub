@@ -16,6 +16,7 @@ from design_hub.application.listing.requests import (
 from design_hub.application.listing.sizing import generation_size
 from design_hub.application.listing.task_planner import ListingTaskPlanner
 from design_hub.application.tasking.health import (
+    AdmissionRejected,
     AdmissionResult,
     QueueAdmissionController,
     QueueSnapshotReader,
@@ -220,11 +221,16 @@ class ListingSubmissionService:
     async def _admit(self) -> AdmissionResult:
         self.redis_health.require_available(now=self.clock())
         snapshot = await self.queue_snapshots.snapshot()
-        return self.admission.evaluate(
+        result = self.admission.evaluate(
             queue_depth=snapshot.depth,
             rolling_item_seconds=snapshot.rolling_item_seconds,
             available_slots=snapshot.available_slots,
         )
+        if result.state == "confirmation_required":
+            raise AdmissionRejected(
+                "generation wait exceeds 15 minutes and requires explicit confirmation"
+            )
+        return result
 
     @staticmethod
     def _require_idempotency_key(value: str) -> None:

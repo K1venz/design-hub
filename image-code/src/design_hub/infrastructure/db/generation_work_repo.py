@@ -5,9 +5,10 @@ from uuid import uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.errors import DataInvariantError
-from design_hub.domain.models import GeneratedImage
+from design_hub.domain.models import BudgetSnapshot, GeneratedImage
 from design_hub.domain.tasking import (
     GenerationItemSpec,
     GenerationItemStatus,
@@ -27,6 +28,7 @@ from design_hub.infrastructure.db.models import (
     ListingJobRow,
     OutboxEventRow,
 )
+from design_hub.infrastructure.ledger.sqlalchemy_ledger import month_start_utc
 from design_hub.ports.generation_work import (
     ConcurrentTaskMutation,
     GenerationWorkItem,
@@ -55,8 +57,18 @@ _SAFE_ERROR_LIMIT = 500
 
 
 class SqlAlchemyGenerationWorkRepository:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        user_quota: Decimal = Decimal("200"),
+        company_budget: Decimal = Decimal("800"),
+        budget_policy: BudgetPolicy | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._user_quota = user_quota
+        self._company_budget = company_budget
+        self._budget_policy = budget_policy or BudgetPolicy()
 
     async def submit(self, submission: JobSubmission) -> SubmitResult:
         if not submission.items:
@@ -77,6 +89,7 @@ class SqlAlchemyGenerationWorkRepository:
                     return SubmitResult(job_id=existing.id, replayed=True)
 
                 await self._lock_user(session, submission.job.user_id)
+                await self._require_budget(session, submission)
                 active_count = await session.scalar(
                     select(func.count())
                     .select_from(ListingJobRow)
@@ -926,6 +939,42 @@ class SqlAlchemyGenerationWorkRepository:
         )
         if user is None:
             raise ValueError(f"authenticated user {user_id} does not exist")
+
+    async def _require_budget(
+        self,
+        session: AsyncSession,
+        submission: JobSubmission,
+    ) -> None:
+        start = month_start_utc()
+        await session.execute(
+            select(CostLedgerEntry.id)
+            .where(CostLedgerEntry.created_at >= start)
+            .order_by(CostLedgerEntry.id)
+            .with_for_update()
+        )
+        total = func.coalesce(func.sum(CostLedgerEntry.amount), 0)
+        user_used = await session.scalar(
+            select(total).where(
+                CostLedgerEntry.user_id == submission.job.user_id,
+                CostLedgerEntry.created_at >= start,
+            )
+        )
+        company_used = await session.scalar(
+            select(total).where(CostLedgerEntry.created_at >= start)
+        )
+        estimate = sum(
+            (item.reserved_cost for item in submission.items),
+            start=Decimal("0"),
+        )
+        self._budget_policy.check(
+            estimate,
+            BudgetSnapshot(
+                user_month_used=Decimal(str(user_used)),
+                user_monthly_quota=self._user_quota,
+                company_month_used=Decimal(str(company_used)),
+                company_monthly_budget=self._company_budget,
+            ),
+        )
 
     @staticmethod
     def _job_row(submission: JobSubmission) -> ListingJobRow:

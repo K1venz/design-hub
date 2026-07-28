@@ -143,11 +143,17 @@ def test_redis_failure_is_recorded_with_bounded_detail() -> None:
         repository = _OutboxRepository((_record(),))
         broker = _Broker()
         broker.error = RedisConnectionError("x" * 5000)
+        sleeps: list[float] = []
+
+        async def record_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
         dispatcher = OutboxDispatcher(
             repository=repository,
             broker=broker,
             events=_Events(),
             batch_size=10,
+            sleep=record_sleep,
         )
 
         result = await dispatcher.dispatch_once()
@@ -156,6 +162,37 @@ def test_redis_failure_is_recorded_with_bounded_detail() -> None:
         action = repository.actions[-1]
         assert action[:2] == ("failure", "event-1")
         assert action[2] is not None and len(action[2]) == 1000
+        assert sleeps == [0.5]
+
+    asyncio.run(run())
+
+
+def test_redis_failure_backoff_is_capped_at_five_seconds() -> None:
+    async def run() -> None:
+        record = _record()
+        record = OutboxRecord(
+            event_id=record.event_id,
+            payload=record.payload,
+            created_at=record.created_at,
+            publish_attempts=20,
+        )
+        repository = _OutboxRepository((record,))
+        broker = _Broker()
+        broker.error = RedisConnectionError("offline")
+        sleeps: list[float] = []
+
+        async def record_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        result = await OutboxDispatcher(
+            repository=repository,
+            broker=broker,
+            events=_Events(),
+            sleep=record_sleep,
+        ).dispatch_once()
+
+        assert result.failed == 1
+        assert sleeps == [5.0]
 
     asyncio.run(run())
 

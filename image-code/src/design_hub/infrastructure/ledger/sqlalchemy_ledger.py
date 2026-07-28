@@ -11,7 +11,7 @@ from design_hub.infrastructure.db.models import CostLedgerEntry
 from design_hub.ports.ledger import LedgerRepository
 
 
-def _month_start() -> datetime:
+def month_start_utc() -> datetime:
     # 当月起点（朴素 UTC，与 MySQL/sqlite 的朴素 DATETIME 存储对齐）
     now = datetime.now(UTC).replace(tzinfo=None)
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -36,7 +36,7 @@ class SqlAlchemyLedgerRepository(LedgerRepository):
         self._company_budget = company_budget
 
     async def snapshot(self, user_id: str) -> BudgetSnapshot:
-        start = _month_start()
+        start = month_start_utc()
         total = func.coalesce(func.sum(CostLedgerEntry.amount), 0)
         async with self._session_factory() as session:
             user_used = (

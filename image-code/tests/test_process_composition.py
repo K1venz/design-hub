@@ -200,6 +200,34 @@ def test_queue_metadata_failure_is_fail_closed() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    "groups",
+    [
+        [],
+        [
+            {
+                "name": "generation-workers-v1",
+                "pending": 1,
+                "lag": None,
+            }
+        ],
+    ],
+)
+def test_missing_or_unknown_consumer_depth_is_fail_closed(
+    groups: list[dict[str, object]],
+) -> None:
+    async def run() -> None:
+        reader = RedisQueueSnapshotReader(
+            client=_RedisHealthClient(groups=groups),
+            rolling_item_seconds=10,
+            available_slots=2,
+        )
+        with pytest.raises(RedisUnavailable, match="queue"):
+            await reader.snapshot()
+
+    asyncio.run(run())
+
+
 def test_health_monitor_records_error_type_without_connection_detail() -> None:
     async def run() -> None:
         state = RedisHealthState(stale_after_seconds=30)
