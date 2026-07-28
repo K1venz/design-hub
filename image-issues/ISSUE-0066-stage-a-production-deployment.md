@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0066
 title: Stage A 生产拓扑部署与可观测性验收
-status: 已确认
+status: 修复中
 severity: P1
 reporter: 开发
 owner: 运维
@@ -49,3 +49,4 @@ Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机不满足 200 人
 ## 处理记录
 
 - 2026-07-28 [开发] 创建部署门禁，状态=已确认，owner=运维
+- 2026-07-28 [运维] Compose 增加独立 Worker、托管 Redis 预检和双进程健康门禁，状态=修复中，owner=运维
