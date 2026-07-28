@@ -139,6 +139,7 @@ class ReferenceSnapshot:
 @dataclass(frozen=True)
 class GenerationItemSpec:
     item_id: str
+    operation_id: str
     sequence: int
     image_type: str | None
     operation_type: OperationType
@@ -155,6 +156,8 @@ class GenerationItemSpec:
     def __post_init__(self) -> None:
         if not self.item_id:
             raise ValueError("item_id must not be empty")
+        if not self.operation_id:
+            raise ValueError("operation_id must not be empty")
         if self.sequence < 1:
             raise ValueError("sequence must be positive")
         if not self.final_prompt:

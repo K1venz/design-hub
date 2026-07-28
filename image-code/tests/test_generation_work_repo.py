@@ -7,15 +7,32 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DataInvariantError
+from design_hub.domain.models import ListingJobStart
+from design_hub.domain.tasking import (
+    GenerationItemSpec,
+    OperationType,
+    ReferenceSnapshot,
+    ReferenceSource,
+    RenderTier,
+)
 from design_hub.infrastructure.db.base import Base
+from design_hub.infrastructure.db.generation_work_repo import (
+    SqlAlchemyGenerationWorkRepository,
+)
 from design_hub.infrastructure.db.models import (
+    AppUser,
     CostLedgerEntry,
     GenerationItemRow,
     ListingJobRow,
     OutboxEventRow,
 )
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
+from design_hub.ports.generation_work import (
+    IdempotencyConflict,
+    JobSubmission,
+)
 
 
 async def _database() -> tuple[
@@ -25,13 +42,22 @@ async def _database() -> tuple[
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            AppUser.__table__.insert().values(
+                id=1,
+                email="user@example.com",
+                password_hash="hash",
+                name="User",
+                role="设计师",
+            )
+        )
     return async_sessionmaker(engine, expire_on_commit=False), engine
 
 
 def _job(*, job_id: str = "job-1", idempotency_key: str = "request-1") -> ListingJobRow:
     return ListingJobRow(
         id=job_id,
-        user_id="user-1",
+        user_id="1",
         idempotency_key=idempotency_key,
         request_fingerprint=f"fingerprint:{job_id}",
         prompt="red package",
@@ -215,6 +241,146 @@ def test_ledger_rows_keep_operation_timestamp_and_amount() -> None:
                 assert row.amount == Decimal("-0.0500")
                 assert isinstance(row.created_at, datetime)
                 assert row.created_at.replace(tzinfo=UTC).tzinfo is UTC
+        finally:
+            await engine.dispose()  # type: ignore[attr-defined]
+
+    asyncio.run(run())
+
+
+def _submission(
+    *,
+    job_id: str = "job-submit-1",
+    idempotency_key: str = "idem-1",
+    request_fingerprint: str = "a" * 64,
+    operation_ids: tuple[str, ...] = ("operation-1", "operation-2"),
+) -> JobSubmission:
+    job = ListingJobStart(
+        job_id=job_id,
+        user_id="1",
+        prompt="red package",
+        modifiers={},
+        ratio="1:1",
+        size="1024x1024",
+        n=len(operation_ids),
+        upload_keys=("user-1/product.png",),
+    )
+    references = (
+        ReferenceSnapshot(
+            source=ReferenceSource.UPLOAD,
+            object_key="user-1/product.png",
+            role="product",
+            order=0,
+        ),
+    )
+    items = tuple(
+        GenerationItemSpec(
+            item_id=f"item-{index}",
+            operation_id=operation_id,
+            sequence=index,
+            image_type=None,
+            operation_type=OperationType.GENERATE_IMAGE,
+            render_tier=RenderTier.STANDARD,
+            final_prompt=f"prompt {index}",
+            model=ModelName.GPT_IMAGE_2,
+            ratio="1:1",
+            size=(1024, 1024),
+            quality=None,
+            seed=index - 1,
+            references=references,
+            reserved_cost=Decimal("0.05"),
+        )
+        for index, operation_id in enumerate(operation_ids, start=1)
+    )
+    return JobSubmission(
+        job=job,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+        items=items,
+        trace_id="trace-1",
+        request_id="request-1",
+    )
+
+
+def test_submit_atomically_creates_job_items_reserves_and_first_outbox() -> None:
+    async def run() -> None:
+        session_factory, engine = await _database()
+        repo = SqlAlchemyGenerationWorkRepository(session_factory)
+        try:
+            result = await repo.submit(_submission())
+            assert result.job_id == "job-submit-1"
+            assert result.replayed is False
+            async with session_factory() as session:
+                items = (
+                    await session.execute(
+                        select(GenerationItemRow).order_by(GenerationItemRow.sequence)
+                    )
+                ).scalars().all()
+                assert [item.status for item in items] == ["queued", "waiting"]
+                assert [item.operation_id for item in items] == [
+                    "operation-1",
+                    "operation-2",
+                ]
+                reserves = (
+                    await session.execute(
+                        select(CostLedgerEntry).order_by(CostLedgerEntry.operation_id)
+                    )
+                ).scalars().all()
+                assert [row.operation_id for row in reserves] == [
+                    "reserve:operation-1",
+                    "reserve:operation-2",
+                ]
+                outboxes = (await session.execute(select(OutboxEventRow))).scalars().all()
+                assert len(outboxes) == 1
+                assert outboxes[0].aggregate_id == "item-1"
+                assert outboxes[0].payload["item_id"] == "item-1"
+        finally:
+            await engine.dispose()  # type: ignore[attr-defined]
+
+    asyncio.run(run())
+
+
+def test_submit_replays_same_request_and_rejects_changed_fingerprint() -> None:
+    async def run() -> None:
+        session_factory, engine = await _database()
+        repo = SqlAlchemyGenerationWorkRepository(session_factory)
+        try:
+            first = await repo.submit(_submission())
+            replay = await repo.submit(_submission(job_id="job-submit-2"))
+            assert replay.job_id == first.job_id
+            assert replay.replayed is True
+            with pytest.raises(IdempotencyConflict):
+                await repo.submit(
+                    _submission(
+                        job_id="job-submit-3",
+                        request_fingerprint="b" * 64,
+                    )
+                )
+        finally:
+            await engine.dispose()  # type: ignore[attr-defined]
+
+    asyncio.run(run())
+
+
+def test_submit_rolls_back_every_row_when_item_insert_fails() -> None:
+    async def run() -> None:
+        session_factory, engine = await _database()
+        repo = SqlAlchemyGenerationWorkRepository(session_factory)
+        try:
+            with pytest.raises(IntegrityError):
+                await repo.submit(
+                    _submission(operation_ids=("duplicate", "duplicate"))
+                )
+            async with session_factory() as session:
+                assert await session.scalar(select(func.count()).select_from(ListingJobRow)) == 0
+                assert (
+                    await session.scalar(select(func.count()).select_from(GenerationItemRow))
+                    == 0
+                )
+                assert (
+                    await session.scalar(select(func.count()).select_from(CostLedgerEntry))
+                    == 0
+                )
+                assert await session.scalar(select(func.count()).select_from(OutboxEventRow)) == 0
         finally:
             await engine.dispose()  # type: ignore[attr-defined]
 
