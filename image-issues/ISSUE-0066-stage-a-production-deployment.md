@@ -53,3 +53,5 @@ Stage A 可靠队列代码已完成，但当前 2C/3.8GB 单机需要严格限�
 - 2026-07-28 [运维] Compose 增加独立 Worker、托管 Redis 预检和双进程健康门禁，状态=修复中，owner=运维
 - 2026-07-28 [运维] 按用户确认改为同机 Docker Redis，补齐 AOF、资源上限、noeviction、强随机密钥与启动健康门禁，状态=修复中，owner=运维
 - 2026-07-28 [运维] 生产验收发现 nginx 缓存重建前 API 地址并在默认日志记录 query；补齐部署后平滑 reload 和无查询串访问日志，状态=修复中，owner=运维
+- 2026-07-28 [运维] 生产 MySQL 已备份至 `/root/db-backup-20260728-180020.sql`（107929 bytes）并迁移到 `a7b8c9d0e1f2 (head)`；Redis 8.8.1、API、Worker 均 healthy，Consumer Group 已创建，状态=修复中，owner=运维
+- 2026-07-28 [运维] 生产临时 Stream 验证 Pending 从 consumer-a 被 consumer-b XAUTOCLAIM、ACK 后归零；前端幂等键、Prometheus 队列指标及 nginx/API 日志无原始 token 均通过，状态=修复中，owner=运维
