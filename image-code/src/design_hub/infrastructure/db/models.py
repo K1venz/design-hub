@@ -17,6 +17,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -44,6 +45,7 @@ class CostLedgerEntry(Base):
     __tablename__ = "cost_ledger"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    operation_id: Mapped[str] = mapped_column(String(128), unique=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 4))  # +预扣 / -回滚（append-only）
     created_at: Mapped[datetime] = mapped_column(
@@ -71,9 +73,16 @@ class ListingJobRow(Base):
     """一次 listing 出图任务（与 generation_job 无关，独立专表）。"""
 
     __tablename__ = "listing_job"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_listing_job_user_idempotency"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
     prompt: Mapped[str] = mapped_column(Text)  # 用户自由文本（卖点&要求）
     modifiers: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     platform: Mapped[str | None] = mapped_column(String(32), index=True, default=None)  # 冗余,筛选
@@ -103,6 +112,69 @@ class ListingJobRow(Base):
     inputs: Mapped[list["ListingJobInputRow"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+
+
+class GenerationItemRow(Base):
+    __tablename__ = "generation_item"
+    __table_args__ = (
+        UniqueConstraint("job_id", "sequence", name="uq_generation_item_job_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("listing_job.id", ondelete="CASCADE"), index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    image_type: Mapped[str | None] = mapped_column(String(16), default=None)
+    render_tier: Mapped[str] = mapped_column(String(16))
+    operation_type: Mapped[str] = mapped_column(String(32))
+    final_prompt: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(64))
+    ratio: Mapped[str] = mapped_column(String(16))
+    size: Mapped[str] = mapped_column(String(16))
+    quality: Mapped[str | None] = mapped_column(String(16), default=None)
+    seed: Mapped[int] = mapped_column(Integer)
+    reference_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    reserved_cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    operation_id: Mapped[str] = mapped_column(String(64), unique=True)
+    worker_id: Mapped[str | None] = mapped_column(String(128), default=None)
+    provider: Mapped[str | None] = mapped_column(String(64), default=None)
+    provider_task_id: Mapped[str | None] = mapped_column(String(128), default=None)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, default=None
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(64), default=None)
+    error_detail: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OutboxEventRow(Base):
+    __tablename__ = "outbox_event"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    aggregate_type: Mapped[str] = mapped_column(String(32))
+    aggregate_id: Mapped[str] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, default=None
+    )
+    redis_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    publish_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, default=None)
 
 
 class ListingImageRow(Base):

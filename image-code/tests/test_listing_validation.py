@@ -171,9 +171,13 @@ class _NoopLedger(LedgerRepository):
     async def snapshot(self, user_id: str) -> BudgetSnapshot:
         return BudgetSnapshot(Decimal("0"), Decimal("100"), Decimal("0"), Decimal("1000"))
 
-    async def reserve(self, user_id: str, amount: Decimal) -> None: ...
+    async def reserve(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None: ...
 
-    async def rollback(self, user_id: str, amount: Decimal) -> None: ...
+    async def rollback(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None: ...
 
 
 class _ModeProvider(AbstractModelProvider):
