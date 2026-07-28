@@ -90,6 +90,7 @@ class GenerationWorker:
             GenerationItemStatus.SUBMITTING,
             GenerationItemStatus.SUBMITTED,
             GenerationItemStatus.PROCESSING,
+            GenerationItemStatus.STORING,
         }
         if work.status not in recoverable:
             raise DataInvariantError(
@@ -101,6 +102,20 @@ class GenerationWorker:
             self._worker_id,
             self._lease_seconds,
         )
+        if work.status is GenerationItemStatus.STORING:
+            await self._repository.fail_item(
+                work.spec.item_id,
+                self._worker_id,
+                "storage_commit_uncertain",
+                "Worker lease expired while committing the generated image",
+            )
+            logger.error(
+                "generation_stale_storage_failed_closed",
+                extra=self._log_context(delivery, work),
+            )
+            task_metrics.record_failure("storage_commit_uncertain")
+            await self._broker.ack(delivery.redis_id)
+            return
         if work.status is GenerationItemStatus.SUBMITTING:
             await self._repository.mark_submission_uncertain(
                 work.spec.item_id,
