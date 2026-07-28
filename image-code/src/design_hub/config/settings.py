@@ -10,6 +10,13 @@ class Settings(BaseSettings):
 
     # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
     db_url: str = "sqlite+aiosqlite:///./design_hub.db"
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    redis_health_interval_seconds: float = Field(default=2.0, gt=0)
+    redis_health_stale_seconds: float = Field(default=6.0, gt=0)
+    outbox_batch_size: int = Field(default=100, gt=0, le=1000)
+    queue_soft_wait_seconds: int = Field(default=300, gt=0)
+    queue_confirm_wait_seconds: int = Field(default=900, gt=0)
+    queue_hard_depth: int = Field(default=2000, gt=0)
 
     # gpt-image-2 中转站（apinebula/诗云），走 OpenAI 兼容协议
     gpt_image_base_url: str = ""

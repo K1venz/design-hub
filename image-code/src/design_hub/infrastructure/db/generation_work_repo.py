@@ -5,6 +5,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.tasking import GenerationItemStatus, TaskMessage
 from design_hub.infrastructure.db.models import (
     AppUser,
@@ -17,6 +18,7 @@ from design_hub.infrastructure.db.models import (
 from design_hub.ports.generation_work import (
     IdempotencyConflict,
     JobSubmission,
+    OutboxRecord,
     SubmitResult,
 )
 
@@ -99,6 +101,57 @@ class SqlAlchemyGenerationWorkRepository:
                     )
                 session.add(self._first_outbox(submission))
             return SubmitResult(job_id=submission.job.job_id, replayed=False)
+
+    async def fetch_outbox_batch(
+        self, *, limit: int
+    ) -> tuple[OutboxRecord, ...]:
+        if limit <= 0:
+            raise ValueError("outbox batch limit must be positive")
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(OutboxEventRow)
+                    .where(OutboxEventRow.published_at.is_(None))
+                    .order_by(OutboxEventRow.created_at, OutboxEventRow.id)
+                    .limit(limit)
+                )
+            ).scalars()
+            return tuple(
+                OutboxRecord(
+                    event_id=row.id,
+                    payload=row.payload,
+                    created_at=row.created_at,
+                    publish_attempts=row.publish_attempts,
+                )
+                for row in rows
+            )
+
+    async def mark_outbox_published(
+        self, event_id: str, redis_id: str
+    ) -> None:
+        async with self._session_factory() as session:
+            row = await session.get(OutboxEventRow, event_id)
+            if row is None:
+                raise DataInvariantError(f"outbox event {event_id} does not exist")
+            if row.published_at is not None:
+                if row.redis_id != redis_id:
+                    raise DataInvariantError(
+                        f"outbox event {event_id} already has Redis id {row.redis_id}"
+                    )
+                return
+            row.redis_id = redis_id
+            row.published_at = datetime.now(UTC)
+            row.last_error = None
+            await session.commit()
+
+    async def record_outbox_failure(self, event_id: str, error: str) -> None:
+        async with self._session_factory() as session:
+            row = await session.get(OutboxEventRow, event_id)
+            if row is None:
+                raise DataInvariantError(f"outbox event {event_id} does not exist")
+            row.publish_attempts += 1
+            row.last_error = error[:1000]
+            await session.commit()
 
     @staticmethod
     async def _lock_user(session: AsyncSession, user_id: str) -> None:
