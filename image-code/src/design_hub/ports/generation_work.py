@@ -43,6 +43,12 @@ class OutboxRecord:
 
 
 @dataclass(frozen=True)
+class OutboxStats:
+    pending: int
+    oldest_created_at: datetime | None
+
+
+@dataclass(frozen=True)
 class GenerationWorkItem:
     job_id: str
     user_id: str
@@ -59,6 +65,8 @@ class GenerationWorkRepository(Protocol):
     async def fetch_outbox_batch(
         self, *, limit: int
     ) -> tuple[OutboxRecord, ...]: ...
+
+    async def outbox_stats(self) -> OutboxStats: ...
 
     async def mark_outbox_published(
         self, event_id: str, redis_id: str

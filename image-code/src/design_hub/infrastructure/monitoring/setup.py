@@ -9,6 +9,8 @@ import sentry_sdk
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from design_hub.infrastructure.monitoring.logging import scrub_sentry_event
+
 
 def instrument_app(app: FastAPI) -> None:
     Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
@@ -16,4 +18,8 @@ def instrument_app(app: FastAPI) -> None:
 
 def init_sentry(dsn: str) -> None:
     if dsn:
-        sentry_sdk.init(dsn=dsn, traces_sample_rate=0.0)
+        sentry_sdk.init(
+            dsn=dsn,
+            traces_sample_rate=0.0,
+            before_send=scrub_sentry_event,
+        )

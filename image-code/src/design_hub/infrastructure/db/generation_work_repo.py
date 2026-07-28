@@ -33,6 +33,7 @@ from design_hub.ports.generation_work import (
     IdempotencyConflict,
     JobSubmission,
     OutboxRecord,
+    OutboxStats,
     SubmitResult,
 )
 
@@ -156,6 +157,21 @@ class SqlAlchemyGenerationWorkRepository:
                     event_type=row.event_type,
                 )
                 for row in rows
+            )
+
+    async def outbox_stats(self) -> OutboxStats:
+        async with self._session_factory() as session:
+            pending, oldest = (
+                await session.execute(
+                    select(
+                        func.count(OutboxEventRow.id),
+                        func.min(OutboxEventRow.created_at),
+                    ).where(OutboxEventRow.published_at.is_(None))
+                )
+            ).one()
+            return OutboxStats(
+                pending=int(pending),
+                oldest_created_at=oldest,
             )
 
     async def mark_outbox_published(

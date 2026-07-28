@@ -1,4 +1,6 @@
+import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from redis.exceptions import RedisError
 
@@ -6,11 +8,13 @@ from design_hub.domain.enums import TaskEventType
 from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.models import TaskEvent
 from design_hub.domain.tasking import TaskMessage
+from design_hub.infrastructure.monitoring.task_metrics import task_metrics
 from design_hub.ports.events import EventPublisher
 from design_hub.ports.generation_work import GenerationWorkRepository
 from design_hub.ports.task_broker import TaskBroker
 
 _MAX_ERROR_LENGTH = 1000
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,19 @@ class OutboxDispatcher:
             raise ValueError("batch_size must be positive")
 
     async def dispatch_once(self) -> DispatchResult:
+        stats = await self.repository.outbox_stats()
+        oldest = stats.oldest_created_at
+        if oldest is not None and oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=UTC)
+        oldest_age = (
+            max((datetime.now(UTC) - oldest).total_seconds(), 0)
+            if oldest is not None
+            else 0
+        )
+        task_metrics.set_outbox(
+            pending=stats.pending,
+            oldest_age_seconds=oldest_age,
+        )
         records = await self.repository.fetch_outbox_batch(limit=self.batch_size)
         published = 0
         failed = 0
@@ -40,6 +57,15 @@ class OutboxDispatcher:
                     fields = self._task_fields(record.payload)
                     message = TaskMessage.from_redis_fields(fields)
                     redis_id = await self.broker.publish(message)
+                    log_context = {
+                        "request_id": message.request_id,
+                        "trace_id": message.trace_id,
+                        "message_id": message.message_id,
+                        "job_id": message.job_id,
+                        "item_id": message.item_id,
+                        "operation_id": message.operation_id,
+                        "redis_id": redis_id,
+                    }
                 elif record.aggregate_type == "listing_job_event":
                     event = self._job_event(record.payload)
                     published_id = await self.events.publish(event)
@@ -48,6 +74,10 @@ class OutboxDispatcher:
                             "durable event publisher did not return a Redis id"
                         )
                     redis_id = published_id
+                    log_context = {
+                        "job_id": event.job_id,
+                        "redis_id": redis_id,
+                    }
                 else:
                     raise DataInvariantError(
                         f"unsupported outbox aggregate type: {record.aggregate_type}"
@@ -59,6 +89,7 @@ class OutboxDispatcher:
                 failed += 1
                 continue
             await self.repository.mark_outbox_published(record.event_id, redis_id)
+            logger.info("generation_outbox_published", extra=log_context)
             published += 1
         return DispatchResult(published=published, failed=failed)
 
