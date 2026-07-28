@@ -1,7 +1,7 @@
 ---
 id: ISSUE-0068
 title: 前端出图请求缺少 Idempotency-Key
-status: 待验证
+status: 已关闭
 severity: P1
 reporter: 开发
 owner: QA
@@ -44,3 +44,4 @@ Stage A 后端要求所有 `/listing/generate`、`/listing/clone`、`/listing/ed
 
 - 2026-07-28 [开发] 本地端到端验收确认，状态=已确认，owner=PM
 - 2026-07-28 [开发] 前端提交函数补充 UUID `Idempotency-Key` 并新增 HTTP 边界回归测试，状态=待验证，owner=QA
+- 2026-07-28 [QA] 浏览器页面提交 5 张 Mock 套图成功，任务 `a9dbe24a0251434fb8dc8a5ad85af996` 完成，状态=已关闭，owner=QA
