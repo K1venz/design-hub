@@ -2,6 +2,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from functools import wraps
+from uuid import uuid4
 
 from design_hub.application.cost.budget import BudgetPolicy
 from design_hub.ports.ledger import LedgerRepository
@@ -15,10 +16,14 @@ class CostGuard:
     async def precheck_and_reserve(self, user_id: str, estimate: Decimal) -> None:
         snapshot = await self.ledger.snapshot(user_id)
         self.policy.check(estimate, snapshot)  # raises BudgetExceeded
-        await self.ledger.reserve(user_id, estimate)
+        await self.ledger.reserve(
+            user_id, estimate, operation_id=f"legacy:reserve:{uuid4().hex}"
+        )
 
     async def rollback(self, user_id: str, estimate: Decimal) -> None:
-        await self.ledger.rollback(user_id, estimate)
+        await self.ledger.rollback(
+            user_id, estimate, operation_id=f"legacy:refund:{uuid4().hex}"
+        )
 
     async def reconcile(self, user_id: str, *, reserved: Decimal, actual: Decimal) -> None:
         """把预扣额度回正到实际成本（PRD §3.9，append-only 补差额）。
@@ -28,9 +33,13 @@ class CostGuard:
         """
         delta = actual - reserved
         if delta > 0:
-            await self.ledger.reserve(user_id, delta)
+            await self.ledger.reserve(
+                user_id, delta, operation_id=f"legacy:reconcile:{uuid4().hex}"
+            )
         elif delta < 0:
-            await self.ledger.rollback(user_id, -delta)
+            await self.ledger.rollback(
+                user_id, -delta, operation_id=f"legacy:reconcile:{uuid4().hex}"
+            )
 
 
 @dataclass

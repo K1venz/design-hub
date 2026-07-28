@@ -20,3 +20,7 @@ class BudgetExceeded(DomainError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class DataInvariantError(DomainError):
+    """Persisted data conflicts with an idempotent operation contract."""
