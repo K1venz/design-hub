@@ -99,6 +99,44 @@ def test_stdlib_pipeline_logs_keep_one_correlation_chain() -> None:
     assert "must not be logged" not in stream.getvalue()
 
 
+def test_configure_logging_routes_uvicorn_access_logs_through_redaction() -> None:
+    safe_stream = io.StringIO()
+    bypass_stream = io.StringIO()
+    root = logging.getLogger()
+    access = logging.getLogger("uvicorn.access")
+    original_root_handlers = list(root.handlers)
+    original_root_level = root.level
+    original_access_handlers = list(access.handlers)
+    original_access_level = access.level
+    original_access_propagate = access.propagate
+    try:
+        access.handlers = [logging.StreamHandler(bypass_stream)]
+        access.setLevel(logging.INFO)
+        access.propagate = False
+
+        configure_logging(stream=safe_stream)
+        access.info(
+            '%s - "%s %s HTTP/%s" %d',
+            "127.0.0.1:12345",
+            "GET",
+            "/listing/job-1/events?access_token=secret-jwt",
+            "1.1",
+            200,
+        )
+    finally:
+        root.handlers.clear()
+        root.handlers.extend(original_root_handlers)
+        root.setLevel(original_root_level)
+        access.handlers = original_access_handlers
+        access.setLevel(original_access_level)
+        access.propagate = original_access_propagate
+
+    rendered = safe_stream.getvalue() + bypass_stream.getvalue()
+    assert "secret-jwt" not in rendered
+    assert "access_token=[REDACTED]" in safe_stream.getvalue()
+    assert bypass_stream.getvalue() == ""
+
+
 def test_request_context_accepts_valid_id_generates_invalid_id_and_clears() -> None:
     app = FastAPI()
     install_request_context(app)
