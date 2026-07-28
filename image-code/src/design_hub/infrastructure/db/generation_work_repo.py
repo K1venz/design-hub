@@ -101,9 +101,9 @@ class SqlAlchemyGenerationWorkRepository:
                 if active_count:
                     raise ValueError("user already has an active generation job")
 
-                session.add(self._job_row(submission))
+                job_row = self._job_row(submission)
                 for index, item in enumerate(submission.items):
-                    session.add(
+                    job_row.generation_items.append(
                         GenerationItemRow(
                             id=item.item_id,
                             job_id=submission.job.job_id,
@@ -143,6 +143,7 @@ class SqlAlchemyGenerationWorkRepository:
                             amount=item.reserved_cost,
                         )
                     )
+                session.add(job_row)
                 session.add(self._first_outbox(submission))
             return SubmitResult(job_id=submission.job.job_id, replayed=False)
 

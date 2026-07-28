@@ -109,6 +109,9 @@ class ListingJobRow(Base):
     images: Mapped[list["ListingImageRow"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+    generation_items: Mapped[list["GenerationItemRow"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
     inputs: Mapped[list["ListingJobInputRow"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
@@ -156,6 +159,8 @@ class GenerationItemRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    job: Mapped["ListingJobRow"] = relationship(back_populates="generation_items")
 
 
 class OutboxEventRow(Base):
