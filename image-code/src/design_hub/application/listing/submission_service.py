@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -17,9 +18,14 @@ from design_hub.application.tasking.health import (
 )
 from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import NotFoundError
-from design_hub.ports.generation_work import GenerationWorkRepository
+from design_hub.ports.generation_work import (
+    GenerationWorkRepository,
+    JobSubmission,
+)
 from design_hub.ports.listing_query import ListingHistoryQuery
 from design_hub.ports.upload_store import owns
+
+logger = logging.getLogger(__name__)
 
 
 def _new_id() -> str:
@@ -68,6 +74,7 @@ class ListingSubmissionService:
             model=model,
         )
         result = await self.repository.submit(submission)
+        self._log_submission(submission, result.replayed)
         return SubmissionReceipt(
             job_id=result.job_id,
             queue_state=admission.state,
@@ -104,6 +111,7 @@ class ListingSubmissionService:
             model=model,
         )
         result = await self.repository.submit(submission)
+        self._log_submission(submission, result.replayed)
         return SubmissionReceipt(
             job_id=result.job_id,
             queue_state=admission.state,
@@ -142,6 +150,7 @@ class ListingSubmissionService:
             model=model,
         )
         result = await self.repository.submit(submission)
+        self._log_submission(submission, result.replayed)
         return SubmissionReceipt(
             job_id=result.job_id,
             queue_state=admission.state,
@@ -167,3 +176,20 @@ class ListingSubmissionService:
     def _require_owned_uploads(user_id: str, upload_keys: tuple[str, ...]) -> None:
         if any(not owns(key, user_id) for key in upload_keys):
             raise NotFoundError("an input image does not exist or is not owned")
+
+    @staticmethod
+    def _log_submission(
+        submission: JobSubmission, replayed: bool
+    ) -> None:
+        first = submission.items[0]
+        logger.info(
+            "generation_submission_accepted",
+            extra={
+                "request_id": submission.request_id,
+                "trace_id": submission.trace_id,
+                "job_id": submission.job.job_id,
+                "item_id": first.item_id,
+                "operation_id": first.operation_id,
+                "status": "replayed" if replayed else "accepted",
+            },
+        )

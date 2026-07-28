@@ -15,7 +15,7 @@ from design_hub.application.tasking.outbox_dispatcher import OutboxDispatcher
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.models import TaskEvent
 from design_hub.domain.tasking import OperationType, TaskMessage
-from design_hub.ports.generation_work import OutboxRecord
+from design_hub.ports.generation_work import OutboxRecord, OutboxStats
 
 
 def _message() -> TaskMessage:
@@ -38,6 +38,13 @@ class _OutboxRepository:
         self.records = records
         self.actions: list[tuple[str, str, str | None]] = []
         self.mark_error: Exception | None = None
+
+    async def outbox_stats(self) -> OutboxStats:
+        oldest = min(
+            (record.created_at for record in self.records),
+            default=None,
+        )
+        return OutboxStats(pending=len(self.records), oldest_created_at=oldest)
 
     async def fetch_outbox_batch(self, *, limit: int) -> tuple[OutboxRecord, ...]:
         self.actions.append(("fetch", str(limit), None))

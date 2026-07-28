@@ -1,0 +1,239 @@
+import io
+import json
+import logging
+
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+from prometheus_client import CollectorRegistry, generate_latest
+from structlog.contextvars import (
+    bind_contextvars,
+    clear_contextvars,
+    get_contextvars,
+)
+
+from design_hub.infrastructure.monitoring.logging import (
+    configure_logging,
+    install_request_context,
+    sanitize_event,
+    scrub_sentry_event,
+    set_sentry_task_context,
+)
+from design_hub.infrastructure.monitoring.task_metrics import TaskMetrics
+
+
+def test_log_allowlist_keeps_correlation_and_removes_sensitive_payloads() -> None:
+    event = sanitize_event(
+        None,
+        "error",
+        {
+            "event": "generation_provider_failed",
+            "request_id": "request-1",
+            "trace_id": "trace-1",
+            "job_id": "job-1",
+            "item_id": "item-1",
+            "operation_id": "operation-1",
+            "authorization": "Bearer secret-token",
+            "api_key": "sk-secret",
+            "prompt": "full private prompt",
+            "image_bytes": b"private-image",
+            "signed_url": "https://cdn.example/a.png?signature=secret",
+            "redis_url": "redis://user:password@redis:6379/0",
+            "error_summary": (
+                "upstream https://cdn.example/a.png?signature=secret "
+                "Bearer secret-token sk-secret"
+            ),
+        },
+    )
+    rendered = json.dumps(event)
+
+    assert event["request_id"] == "request-1"
+    assert event["trace_id"] == "trace-1"
+    assert event["job_id"] == "job-1"
+    assert event["item_id"] == "item-1"
+    assert event["operation_id"] == "operation-1"
+    for secret in (
+        "secret-token",
+        "sk-secret",
+        "full private prompt",
+        "private-image",
+        "signature=secret",
+        "password",
+    ):
+        assert secret not in rendered
+
+
+def test_stdlib_pipeline_logs_keep_one_correlation_chain() -> None:
+    stream = io.StringIO()
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    try:
+        configure_logging(stream=stream)
+        bind_contextvars(request_id="request-1", trace_id="trace-1")
+        context = {
+            "job_id": "job-1",
+            "item_id": "item-1",
+            "operation_id": "operation-1",
+            "prompt": "must not be logged",
+        }
+        for logger_name, event in (
+            ("submission", "generation_submission_accepted"),
+            ("outbox", "generation_outbox_published"),
+            ("worker", "generation_item_claimed"),
+            ("provider", "generation_provider_submit_started"),
+        ):
+            logging.getLogger(logger_name).info(event, extra=context)
+    finally:
+        clear_contextvars()
+        root.handlers.clear()
+        root.handlers.extend(original_handlers)
+        root.setLevel(original_level)
+
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert len(records) == 4
+    assert {record["request_id"] for record in records} == {"request-1"}
+    assert {record["trace_id"] for record in records} == {"trace-1"}
+    assert {record["job_id"] for record in records} == {"job-1"}
+    assert {record["item_id"] for record in records} == {"item-1"}
+    assert {record["operation_id"] for record in records} == {"operation-1"}
+    assert "must not be logged" not in stream.getvalue()
+
+
+def test_request_context_accepts_valid_id_generates_invalid_id_and_clears() -> None:
+    app = FastAPI()
+    install_request_context(app)
+
+    @app.get("/context")
+    async def context(request: Request) -> dict[str, str]:
+        bound = get_contextvars()
+        return {
+            "request_id": request.state.request_id,
+            "trace_id": request.state.trace_id,
+            "bound_request_id": str(bound["request_id"]),
+        }
+
+    client = TestClient(app)
+    accepted = client.get("/context", headers={"X-Request-ID": "client-123"})
+    generated = client.get(
+        "/context",
+        headers={"X-Request-ID": "Bearer invalid value"},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.headers["X-Request-ID"] == "client-123"
+    assert accepted.json() == {
+        "request_id": "client-123",
+        "trace_id": "client-123",
+        "bound_request_id": "client-123",
+    }
+    generated_id = generated.headers["X-Request-ID"]
+    assert generated_id != "Bearer invalid value"
+    assert generated.json()["request_id"] == generated_id
+    assert get_contextvars() == {}
+
+
+def test_sentry_scrubber_removes_request_secrets_and_keeps_safe_tags() -> None:
+    event = {
+        "request": {
+            "headers": {
+                "Authorization": "Bearer secret",
+                "Cookie": "session=secret",
+                "User-Agent": "test",
+            },
+            "query_string": "access_token=secret",
+            "data": {"prompt": "full private prompt"},
+        },
+        "extra": {
+            "request_id": "request-1",
+            "prompt": "full private prompt",
+            "signed_url": "https://cdn/a?signature=secret",
+        },
+        "exception": {
+            "values": [
+                {
+                    "type": "ProviderError",
+                    "value": "sk-secret full private prompt",
+                }
+            ]
+        },
+    }
+
+    scrubbed = scrub_sentry_event(event, {})
+    rendered = json.dumps(scrubbed)
+
+    assert scrubbed is not None
+    assert scrubbed["request"]["headers"] == {"User-Agent": "test"}
+    assert scrubbed["extra"] == {"request_id": "request-1"}
+    assert scrubbed["exception"]["values"][0]["value"] == "ProviderError"
+    for secret in (
+        "Bearer secret",
+        "session=secret",
+        "access_token",
+        "sk-secret",
+        "full private prompt",
+    ):
+        assert secret not in rendered
+
+
+def test_sentry_context_only_sets_low_cardinality_diagnostic_tags(
+    monkeypatch,
+) -> None:
+    tags: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "design_hub.infrastructure.monitoring.logging.sentry_sdk.set_tag",
+        lambda key, value: tags.append((key, value)),
+    )
+
+    set_sentry_task_context(
+        request_id="request-1",
+        job_id="job-1",
+        item_id="item-1",
+        provider="gpt-image-2",
+        error_code="timeout",
+    )
+
+    assert tags == [
+        ("request_id", "request-1"),
+        ("job_id", "job-1"),
+        ("item_id", "item-1"),
+        ("provider", "gpt-image-2"),
+        ("error_code", "timeout"),
+    ]
+
+
+def test_task_metrics_cover_queue_provider_failures_duration_and_sse() -> None:
+    registry = CollectorRegistry()
+    metrics = TaskMetrics(registry=registry)
+
+    metrics.set_outbox(pending=4, oldest_age_seconds=12.5)
+    metrics.set_stream(depth=20, pending=3)
+    metrics.set_item_state("processing", 2)
+    metrics.provider_started("gpt-image-2", "standard")
+    metrics.provider_finished("gpt-image-2", "standard")
+    metrics.observe_item_duration("generated", 8.2)
+    metrics.record_uncertain("gpt-image-2")
+    metrics.record_failure("provider_timeout")
+    metrics.sse_opened()
+    metrics.sse_closed()
+
+    output = generate_latest(registry).decode()
+    assert 'design_hub_generation_outbox_pending 4.0' in output
+    assert 'design_hub_generation_stream_depth 20.0' in output
+    assert 'design_hub_generation_stream_pending 3.0' in output
+    assert (
+        'design_hub_generation_item_state{status="processing"} 2.0'
+        in output
+    )
+    assert (
+        'design_hub_generation_provider_in_flight{provider="gpt-image-2",tier="standard"} 0.0'
+        in output
+    )
+    assert (
+        'design_hub_generation_submission_uncertain_total{provider="gpt-image-2"} 1.0'
+        in output
+    )
+    assert (
+        'design_hub_generation_failures_total{error_code="provider_timeout"} 1.0'
+        in output
+    )
+    assert "design_hub_generation_sse_connections 0.0" in output

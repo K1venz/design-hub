@@ -50,6 +50,10 @@ from design_hub.infrastructure.db.session import create_engine, create_session_f
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
 from design_hub.infrastructure.events.memory import InMemoryEventBus
 from design_hub.infrastructure.ledger.sqlalchemy_ledger import SqlAlchemyLedgerRepository
+from design_hub.infrastructure.monitoring.logging import (
+    configure_logging,
+    install_request_context,
+)
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.queue.in_process import InProcessTaskQueue
 from design_hub.interface.api.app import register_error_handlers
@@ -180,6 +184,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_production_app() -> FastAPI:
     settings = Settings()
+    configure_logging()
     app = FastAPI(
         title="设计中台 · 图生图引擎(async)",
         version="0.1.0",
@@ -194,6 +199,7 @@ def create_production_app() -> FastAPI:
     # /metrics 不做 app 层开关：内网抓取直连容器 8000，公网由 nginx 两族 404 收口。
     init_sentry(settings.sentry_dsn)
     instrument_app(app)
+    install_request_context(app)
     # WP-G 角色矩阵：在 include 级统一挂依赖；/auth 公开；listing/uploads 自带逐路由鉴权
     manager_only = [Depends(require_role(Role.MANAGER))]  # 仅管理者
     app.include_router(auth.router)  # 公开：/auth/register、/auth/login；/me 自带 current_user

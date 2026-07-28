@@ -11,6 +11,10 @@ from design_hub.domain.tasking import (
     RenderTier,
     is_terminal,
 )
+from design_hub.infrastructure.monitoring.logging import (
+    capture_task_exception,
+)
+from design_hub.infrastructure.monitoring.task_metrics import task_metrics
 from design_hub.ports.generation_work import (
     GenerationWorkItem,
     GenerationWorkRepository,
@@ -107,6 +111,7 @@ class GenerationWorker:
                 "generation_stale_submission_marked_uncertain",
                 extra=self._log_context(delivery, work),
             )
+            task_metrics.record_uncertain(work.spec.model.value)
             await self._broker.ack(delivery.redis_id)
             return
 
@@ -169,14 +174,24 @@ class GenerationWorker:
                 extra=self._log_context(delivery, work),
             )
             try:
-                outcome = await self._guard_operation(
-                    executor.submit(
-                        request,
-                        operation_id=work.spec.operation_id,
-                    ),
-                    work,
-                    slots=slots,
+                task_metrics.provider_started(
+                    work.spec.model.value,
+                    work.spec.render_tier.value,
                 )
+                try:
+                    outcome = await self._guard_operation(
+                        executor.submit(
+                            request,
+                            operation_id=work.spec.operation_id,
+                        ),
+                        work,
+                        slots=slots,
+                    )
+                finally:
+                    task_metrics.provider_finished(
+                        work.spec.model.value,
+                        work.spec.render_tier.value,
+                    )
             except SubmissionUncertain as exc:
                 await self._repository.mark_submission_uncertain(
                     work.spec.item_id,
@@ -187,6 +202,15 @@ class GenerationWorker:
                     "generation_provider_submission_uncertain",
                     extra=self._log_context(delivery, work),
                     exc_info=True,
+                )
+                task_metrics.record_uncertain(work.spec.model.value)
+                capture_task_exception(
+                    exc,
+                    request_id=delivery.message.request_id,
+                    job_id=work.job_id,
+                    item_id=work.spec.item_id,
+                    provider=work.spec.model.value,
+                    error_code="submission_uncertain",
                 )
                 await self._broker.ack(delivery.redis_id)
                 return
@@ -303,6 +327,16 @@ class GenerationWorker:
             type(error).__name__,
             str(error),
         )
+        error_code = type(error).__name__
+        task_metrics.record_failure(error_code)
+        capture_task_exception(
+            error,
+            request_id=delivery.message.request_id,
+            job_id=work.job_id,
+            item_id=work.spec.item_id,
+            provider=work.spec.model.value,
+            error_code=error_code,
+        )
         logger.warning(
             "generation_provider_failed",
             extra=self._log_context(delivery, work),
@@ -328,6 +362,10 @@ class GenerationWorker:
         logger.info(
             "generation_item_completed",
             extra=self._log_context(delivery, work),
+        )
+        task_metrics.observe_item_duration(
+            "generated",
+            max(image.latency_ms, 0) / 1000,
         )
         await self._broker.ack(delivery.redis_id)
 

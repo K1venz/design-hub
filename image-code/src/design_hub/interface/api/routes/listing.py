@@ -18,6 +18,7 @@ from design_hub.application.listing.submission_service import (
 )
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.errors import NotFoundError
+from design_hub.infrastructure.monitoring.task_metrics import task_metrics
 from design_hub.interface.api.deps import CurrentUserDep, CurrentUserSseDep
 from design_hub.interface.listing_history_schemas import (
     ListingJobDetailOut,
@@ -202,20 +203,24 @@ async def listing_events(
 
     async def generator() -> AsyncIterator[str]:
         cursor = last_event_id or "0-0"
-        while True:
-            events = await stream.read(
-                job_id=job_id,
-                after_id=cursor,
-                block_ms=15_000,
-            )
-            if not events:
-                yield ": keep-alive\n\n"
-                continue
-            for event in events:
-                cursor = event.redis_id
-                yield _sse(event)
-                if event.event.type in _TERMINAL_EVENTS:
-                    return
+        task_metrics.sse_opened()
+        try:
+            while True:
+                events = await stream.read(
+                    job_id=job_id,
+                    after_id=cursor,
+                    block_ms=15_000,
+                )
+                if not events:
+                    yield ": keep-alive\n\n"
+                    continue
+                for event in events:
+                    cursor = event.redis_id
+                    yield _sse(event)
+                    if event.event.type in _TERMINAL_EVENTS:
+                        return
+        finally:
+            task_metrics.sse_closed()
 
     return StreamingResponse(
         generator(),
