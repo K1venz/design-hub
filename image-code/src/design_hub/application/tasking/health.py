@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Protocol
 
 
 class RedisUnavailable(RuntimeError):
@@ -7,6 +8,17 @@ class RedisUnavailable(RuntimeError):
 
 class AdmissionRejected(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class QueueSnapshot:
+    depth: int
+    rolling_item_seconds: float
+    available_slots: int
+
+
+class QueueSnapshotReader(Protocol):
+    async def snapshot(self) -> QueueSnapshot: ...
 
 
 @dataclass

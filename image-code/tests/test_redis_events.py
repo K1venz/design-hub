@@ -5,6 +5,7 @@ from typing import Any
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.models import TaskEvent
 from design_hub.infrastructure.queue.redis_streams import RedisJobEventStream
+from design_hub.ports.events import ReplayableEvent
 
 
 class _FakeRedis:
@@ -52,8 +53,7 @@ def test_job_event_is_bounded_expires_and_replays_after_event_id() -> None:
         ]
         replay = await events.read(job_id="job-1", after_id="14-0", block_ms=1000)
 
-        assert replay[0].redis_id == "15-0"
-        assert replay[0].event == event
+        assert replay == (ReplayableEvent(redis_id="15-0", event=event),)
         assert redis.calls == [
             (
                 "xadd",

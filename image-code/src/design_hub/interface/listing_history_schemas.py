@@ -39,6 +39,12 @@ class ListingJobSummaryOut(BaseModel):
         )
 
 
+class ListingSubmissionOut(BaseModel):
+    job_id: str
+    queue_state: str
+    estimated_wait_seconds: int
+
+
 class ListingImageOut(BaseModel):
     url: str
     # 可寻址 handle（ISSUE-0040 E-δ：二次编辑唯一身份源；SSE 不下发、读模型独有）
