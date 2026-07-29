@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 
 describe('ChatResultBlock', () => {
-  it('offers preview, edit, and download for a stable result image', () => {
+  it('offers preview, edit, background replacement, prompt reversal, and download for a stable result image', () => {
     const html = renderToStaticMarkup(
       createElement(ChatResultBlock, {
         slots: [{
@@ -17,11 +17,15 @@ describe('ChatResultBlock', () => {
         total: 1,
         onPreview: () => undefined,
         onEdit: () => undefined,
+        onBackground: () => undefined,
+        onReversePrompt: () => undefined,
       }),
     )
 
     expect(html).toContain('预览第 1 张图片')
     expect(html).toContain('继续编辑')
+    expect(html).toContain('换背景')
+    expect(html).toContain('反推提示词')
     expect(html).toContain('下载')
   })
 
@@ -33,11 +37,15 @@ describe('ChatResultBlock', () => {
         total: 1,
         onPreview: () => undefined,
         onEdit: () => undefined,
+        onBackground: () => undefined,
+        onReversePrompt: () => undefined,
       }),
     )
 
     expect(html).toContain('预览第 1 张图片')
     expect(html).not.toContain('继续编辑')
+    expect(html).not.toContain('换背景')
+    expect(html).not.toContain('反推提示词')
     expect(html).toContain('下载')
   })
 })

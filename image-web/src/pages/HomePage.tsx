@@ -102,7 +102,7 @@ function ToolSection() {
         ))}
       </div>
 
-      <div className="mt-3 grid gap-3 min-[900px]:grid-cols-3">
+      <div className="mt-3 grid gap-3 min-[900px]:grid-cols-4">
         {TOOL_TILES.map((t) => (
           <Link
             key={t.key}

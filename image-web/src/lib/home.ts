@@ -1,7 +1,8 @@
 // Static data for real Home tool destinations.
 
 import {
-  ImageIcon, LayersIcon, FlameIcon, SquarePenIcon, HistoryIcon, type LucideIcon,
+  ImageIcon, LayersIcon, FlameIcon, SquarePenIcon, HistoryIcon, WallpaperIcon,
+  type LucideIcon,
 } from 'lucide-react'
 
 import { estimateCost } from './listing'
@@ -40,5 +41,6 @@ export const TOOL_TILES: ToolTile[] = [
     icon: ImageIcon,
   },
   { key: 'edit', to: '/history', label: '二次编辑', desc: '从历史选一张再改', icon: SquarePenIcon },
+  { key: 'background', to: '/background', label: '换背景', desc: '文字描述或参考背景图', icon: WallpaperIcon },
   { key: 'history', to: '/history', label: '出图历史', desc: '回看与重新下载', icon: HistoryIcon },
 ]

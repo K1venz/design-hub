@@ -169,6 +169,22 @@
         "operationId": "generate_listing_listing_generate_post",
         "parameters": [
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -196,16 +212,12 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Generate Listing Listing Generate Post"
+                  "$ref": "#/components/schemas/ListingSubmissionOut"
                 }
               }
             }
@@ -232,6 +244,22 @@
         "description": "爆款图复刻（PRD §3.13）：产品图==1 + 爆款参考图 1..2，两档复刻，异步返回 job_id。",
         "operationId": "clone_listing_listing_clone_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -260,16 +288,12 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Clone Listing Listing Clone Post"
+                  "$ref": "#/components/schemas/ListingSubmissionOut"
                 }
               }
             }
@@ -296,6 +320,22 @@
         "description": "二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。",
         "operationId": "edit_listing_listing_edit_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -324,16 +364,87 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Edit Listing Listing Edit Post"
+                  "$ref": "#/components/schemas/ListingSubmissionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/listing/background-replace": {
+      "post": {
+        "tags": [
+          "listing"
+        ],
+        "summary": "Replace Listing Background",
+        "operationId": "replace_listing_background_listing_background_replace_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackgroundReplaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingSubmissionOut"
                 }
               }
             }
@@ -534,6 +645,22 @@
             }
           },
           {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -556,6 +683,65 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/image-prompts/reverse": {
+      "post": {
+        "tags": [
+          "image-prompts"
+        ],
+        "summary": "Reverse Image Prompt",
+        "operationId": "reverse_image_prompt_image_prompts_reverse_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReversePromptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReversePromptResult"
+                }
               }
             }
           },
@@ -1443,6 +1629,54 @@
   },
   "components": {
     "schemas": {
+      "BackgroundReplaceRequest": {
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UploadImageSource"
+              },
+              {
+                "$ref": "#/components/schemas/GeneratedImageSourceRequest"
+              }
+            ],
+            "title": "Source",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "generated": "#/components/schemas/GeneratedImageSourceRequest",
+                "upload": "#/components/schemas/UploadImageSource"
+              }
+            }
+          },
+          "background": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DescriptionBackground"
+              },
+              {
+                "$ref": "#/components/schemas/ReferenceBackground"
+              }
+            ],
+            "title": "Background",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "description": "#/components/schemas/DescriptionBackground",
+                "reference": "#/components/schemas/ReferenceBackground"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "background"
+        ],
+        "title": "BackgroundReplaceRequest",
+        "description": "Dedicated background replacement without exposing provider controls."
+      },
       "Body_upload_image_uploads_post": {
         "properties": {
           "file": {
@@ -1686,7 +1920,28 @@
           "ratio"
         ],
         "title": "CloneRequest",
-        "description": "爆款图复刻入参（PRD §3.13，POST /listing/clone）。\n\n双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序\n「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。\n边界仍走 launcher fail-fast 统一 400（ISSUE-0024 口径）。"
+        "description": "爆款图复刻入参（PRD §3.13，POST /listing/clone）。\n\n双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序\n「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。\n边界仍走 submission service fail-fast 统一 400（ISSUE-0024 口径）。"
+      },
+      "DescriptionBackground": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "description",
+            "title": "Kind"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "description"
+        ],
+        "title": "DescriptionBackground"
       },
       "EditRequest": {
         "properties": {
@@ -1730,7 +1985,28 @@
           "prompt"
         ],
         "title": "EditRequest",
-        "description": "二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。\n\n生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。\n不收 category（R2：编辑组装无品类块、库无列，死参数不收）。\nprompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；\nedit_mode/ratio 仍走 launcher fail-fast 400（域值校验，单一事实源在卡/映射表）。"
+        "description": "二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。\n\n生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。\n不收 category（R2：编辑组装无品类块、库无列，死参数不收）。\nprompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；\nedit_mode/ratio 仍走 submission service fail-fast 400（域值校验，单一事实源在卡/映射表）。"
+      },
+      "GeneratedImageSourceRequest": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "generated",
+            "title": "Kind"
+          },
+          "image_key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Image Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "image_key"
+        ],
+        "title": "GeneratedImageSourceRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1834,7 +2110,7 @@
           "ratio"
         ],
         "title": "ListingGenerateRequest",
-        "description": "listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。\n\n数量/范围/比例/下拉的具体边界在 launcher 同步 fail-fast 校验（统一 400），不靠 Pydantic 约束\n（避免 422 与 spec 的 400 口径不一致，ISSUE-0024）。"
+        "description": "listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。\n\n数量/范围/比例/下拉的具体边界在 submission service 同步 fail-fast\n校验（统一 400），不靠 Pydantic 约束（避免 422 与 spec 的 400\n口径不一致，ISSUE-0024）。"
       },
       "ListingImageOut": {
         "properties": {
@@ -2064,6 +2340,17 @@
               }
             ],
             "title": "Chain Cost"
+          },
+          "operation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Type"
           }
         },
         "type": "object",
@@ -2160,6 +2447,17 @@
               }
             ],
             "title": "Category"
+          },
+          "operation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Type"
           }
         },
         "type": "object",
@@ -2175,6 +2473,29 @@
           "image_count"
         ],
         "title": "ListingJobSummaryOut"
+      },
+      "ListingSubmissionOut": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "queue_state": {
+            "type": "string",
+            "title": "Queue State"
+          },
+          "estimated_wait_seconds": {
+            "type": "integer",
+            "title": "Estimated Wait Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "queue_state",
+          "estimated_wait_seconds"
+        ],
+        "title": "ListingSubmissionOut"
       },
       "LoginRequest": {
         "properties": {
@@ -2506,6 +2827,32 @@
         "title": "RecipeOut",
         "description": "做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。\n\n仅用户可复用输入；**不含内部卡 prompt、overlay_texts、uploads**（口径铁律）。"
       },
+      "ReferenceBackground": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "reference",
+            "title": "Kind"
+          },
+          "upload_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Upload Id"
+          },
+          "instruction": {
+            "type": "string",
+            "title": "Instruction",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "upload_id"
+        ],
+        "title": "ReferenceBackground"
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -2531,6 +2878,133 @@
           "name"
         ],
         "title": "RegisterRequest"
+      },
+      "ReversePromptRequest": {
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UploadImageSource"
+              },
+              {
+                "$ref": "#/components/schemas/GeneratedImageSourceRequest"
+              }
+            ],
+            "title": "Source",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "generated": "#/components/schemas/GeneratedImageSourceRequest",
+                "upload": "#/components/schemas/UploadImageSource"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "ReversePromptRequest"
+      },
+      "ReversePromptResult": {
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Summary"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Subject"
+          },
+          "scene": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Scene"
+          },
+          "composition": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Composition"
+          },
+          "camera": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Camera"
+          },
+          "lighting": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Lighting"
+          },
+          "colors": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Colors"
+          },
+          "style": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Style"
+          },
+          "visible_text": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Visible Text"
+          },
+          "constraints": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Constraints"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Uncertainties"
+          },
+          "prompt_zh": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Prompt Zh"
+          },
+          "prompt_en": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Prompt En"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "summary",
+          "subject",
+          "scene",
+          "composition",
+          "camera",
+          "lighting",
+          "colors",
+          "style",
+          "visible_text",
+          "constraints",
+          "uncertainties",
+          "prompt_zh",
+          "prompt_en"
+        ],
+        "title": "ReversePromptResult"
       },
       "Role": {
         "type": "string",
@@ -2580,6 +3054,27 @@
         ],
         "title": "ShowcaseItemOut",
         "description": "GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。"
+      },
+      "UploadImageSource": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "upload",
+            "title": "Kind"
+          },
+          "upload_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Upload Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "upload_id"
+        ],
+        "title": "UploadImageSource"
       },
       "UploadResponse": {
         "properties": {

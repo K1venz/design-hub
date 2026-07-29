@@ -6,6 +6,7 @@ import {
   SlidersHorizontalIcon,
   UsersRoundIcon,
   WandSparklesIcon,
+  WallpaperIcon,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -23,6 +24,7 @@ export const PRIMARY_NAV_ITEMS: readonly NavigationItem[] = [
   { to: '/chat', label: '帮我设计', icon: WandSparklesIcon },
   { to: '/set', label: '商品套图', icon: LayersIcon },
   { to: '/clone', label: '爆款复刻', icon: FlameIcon },
+  { to: '/background', label: '换背景', icon: WallpaperIcon },
   { to: '/history', label: '历史', icon: HistoryIcon },
 ]
 
