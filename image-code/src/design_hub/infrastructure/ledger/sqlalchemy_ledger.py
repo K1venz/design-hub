@@ -2,14 +2,16 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.models import BudgetSnapshot
 from design_hub.infrastructure.db.models import CostLedgerEntry
 from design_hub.ports.ledger import LedgerRepository
 
 
-def _month_start() -> datetime:
+def month_start_utc() -> datetime:
     # 当月起点（朴素 UTC，与 MySQL/sqlite 的朴素 DATETIME 存储对齐）
     now = datetime.now(UTC).replace(tzinfo=None)
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -34,7 +36,7 @@ class SqlAlchemyLedgerRepository(LedgerRepository):
         self._company_budget = company_budget
 
     async def snapshot(self, user_id: str) -> BudgetSnapshot:
-        start = _month_start()
+        start = month_start_utc()
         total = func.coalesce(func.sum(CostLedgerEntry.amount), 0)
         async with self._session_factory() as session:
             user_used = (
@@ -57,12 +59,39 @@ class SqlAlchemyLedgerRepository(LedgerRepository):
             company_monthly_budget=self._company_budget,
         )
 
-    async def reserve(self, user_id: str, amount: Decimal) -> None:
-        async with self._session_factory() as session:
-            session.add(CostLedgerEntry(user_id=user_id, amount=amount))
-            await session.commit()
+    async def reserve(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None:
+        await self._append(user_id, amount, operation_id=operation_id)
 
-    async def rollback(self, user_id: str, amount: Decimal) -> None:
+    async def rollback(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None:
+        await self._append(user_id, -amount, operation_id=operation_id)
+
+    async def _append(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None:
         async with self._session_factory() as session:
-            session.add(CostLedgerEntry(user_id=user_id, amount=-amount))
-            await session.commit()
+            session.add(
+                CostLedgerEntry(
+                    operation_id=operation_id,
+                    user_id=user_id,
+                    amount=amount,
+                )
+            )
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                existing = await session.scalar(
+                    select(CostLedgerEntry).where(
+                        CostLedgerEntry.operation_id == operation_id
+                    )
+                )
+                if existing is None:
+                    raise
+                if existing.user_id != user_id or existing.amount != amount:
+                    raise DataInvariantError(
+                        f"ledger operation {operation_id} conflicts with persisted data"
+                    ) from exc

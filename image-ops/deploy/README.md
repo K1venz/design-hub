@@ -1,8 +1,8 @@
 # design-hub 部署（运维）
 
-首发形态：**前端 SPA(image-web/dist) + API(FastAPI/uvicorn) + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
+当前形态：**前端 SPA + API + 独立 Generation Worker + Docker Redis + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
 nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics` 直达后端。
-监控（Prometheus/Grafana）、备份、CI/CD 暂未做（首发范围决策见下）。
+API 只负责接单、查询和 SSE；Provider 调用只允许 Worker 执行。
 
 ## 目标服务器
 - `14.103.51.191`（Ubuntu 24.04，2C/3.8G，docker 数据盘 `/data` 37G 可用）
@@ -17,8 +17,8 @@ nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics`
 ## 服务器目录布局
 ```
 /opt/docker/design-hub/
-├── compose.yml                  # api + nginx
-├── .env                         # 部署时生成，gitignored，不入库（含 DB_URL/JWT/seed 管理员）
+├── compose.yml                  # redis + api + worker + nginx
+├── .env                         # 部署时生成，gitignored，不入库（含 Redis 密钥/DB_URL/JWT）
 ├── app/                         # rsync 的 image-code 源码 = 构建上下文
 │   ├── Dockerfile
 │   └── .dockerignore
@@ -26,12 +26,16 @@ nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics`
 │   ├── conf.d/design-hub.conf
 │   └── certs/                   # 自签证书（deploy.sh 生成）
 └── scripts/deploy.sh
-/data/docker/design-hub/{generated,assets,exports}   # 持久卷
+/data/docker/design-hub/{redis,generated,assets,exports}   # 持久卷
 ```
 
 ## 网络与连库
 - api 容器接入两张网：项目网（与 nginx 通）+ 外部 `mysql_default`
+- worker 容器复用 API 镜像并接入相同两张网，但运行独立进程
 - 连库 host = `mysql:3306`（现有容器名/别名），DB_URL 走 aiomysql
+- Redis 只接入项目默认 Docker 网络，不映射宿主机端口；API/Worker 通过 `redis:6379` 访问
+- deploy.sh 首次运行生成 64 位十六进制 Redis 密钥及内部 `REDIS_URL`，不会打印敏感值
+- Redis 开启 AOF `everysec`，内存上限 256MB、容器上限 384MB，满载采用 `noeviction`，防止静默淘汰队列任务
 
 ## 推送 + 部署
 本地推送（源码 + 部署产物 + 前端 dist；自动保护服务器 .env/certs/web）：
@@ -43,8 +47,9 @@ bash image-ops/deploy/scripts/push.sh        # 可用 DEPLOY_KEY/DEPLOY_HOST 覆
 cd /opt/docker/design-hub && bash scripts/deploy.sh
 ```
 > 注意：源码 rsync 用 `--delete` 时务必排除 `Dockerfile`/`.dockerignore`（它们来自 image-ops，不在 image-code 源码里），否则会被删导致 build 失败——push.sh 已处理。
-脚本幂等：建目录 → 自签证书 → 生成 .env（已存在则保留）→ 建库 → 构建 → 迁移建表 → up → 健康检查。
+脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 生成/校验 Redis 密钥 → 建库 → 构建 → 启动并探测 Redis → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查 → 平滑重载 nginx。
 迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
+nginx 访问日志只记录 `$uri`，不记录查询串和 Referer；重载会刷新重建后 API 容器的 Docker 内网地址。
 
 ## 访问
 - `https://14.103.51.191/`（前端 UI；自签证书，浏览器会告警；有域名可换 Let's Encrypt）

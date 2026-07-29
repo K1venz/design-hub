@@ -1,7 +1,44 @@
 name: design-hub
 
-# 复用现有 MySQL(/opt/docker/mysql, 网络 mysql_default)；首发 nginx+TLS 反代。
+# 复用现有 MySQL(/opt/docker/mysql, 网络 mysql_default)；Redis 仅在项目内网提供队列服务。
 services:
+  redis:
+    image: redis:8-alpine
+    container_name: design-hub-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --aof-use-rdb-preamble
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - /data/docker/design-hub/redis:/data
+    networks:
+      - default
+    expose:
+      - "6379"
+    mem_limit: 384m
+    cpus: "0.50"
+    pids_limit: 128
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: ./app
@@ -17,10 +54,48 @@ services:
     networks:
       - default        # 与 nginx 同网
       - mysql_default   # 连现有 MySQL（host=mysql:3306）
+    depends_on:
+      redis:
+        condition: service_healthy
     expose:
       - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/metrics',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  worker:
+    image: design-hub-api:latest
+    container_name: design-hub-worker
+    restart: unless-stopped
+    command: ["python", "-m", "design_hub.interface.worker"]
+    stop_grace_period: 45s
+    env_file:
+      - .env
+    volumes:
+      - /data/docker/design-hub/generated:/app/generated
+      - /data/docker/design-hub/assets:/app/assets
+      - /data/docker/design-hub/exports:/app/exports
+    networks:
+      - default
+      - mysql_default
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os,socket;
+          from redis import Redis;
+          r=Redis.from_url(os.environ["REDIS_URL"],decode_responses=True,socket_connect_timeout=3,socket_timeout=3);
+          consumers=r.xinfo_consumers("design-hub:generation:v1","generation-workers-v1");
+          assert any(str(c["name"]).startswith(socket.gethostname()) for c in consumers);
+          r.close()
       interval: 30s
       timeout: 5s
       retries: 5

@@ -12,9 +12,13 @@ class LedgerRepository(ABC):
         ...
 
     @abstractmethod
-    async def reserve(self, user_id: str, amount: Decimal) -> None:
+    async def reserve(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None:
         ...
 
     @abstractmethod
-    async def rollback(self, user_id: str, amount: Decimal) -> None:
+    async def rollback(
+        self, user_id: str, amount: Decimal, *, operation_id: str
+    ) -> None:
         ...

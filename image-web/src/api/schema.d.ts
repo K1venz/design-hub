@@ -138,6 +138,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listing/background-replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace Listing Background */
+        post: operations["replace_listing_background_listing_background_replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/listing/jobs": {
         parameters: {
             query?: never;
@@ -189,6 +206,23 @@ export interface paths {
         get: operations["listing_events_listing__job_id__events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/image-prompts/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reverse Image Prompt */
+        post: operations["reverse_image_prompt_image_prompts_reverse_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -439,6 +473,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * BackgroundReplaceRequest
+         * @description Dedicated background replacement without exposing provider controls.
+         */
+        BackgroundReplaceRequest: {
+            /** Source */
+            source: components["schemas"]["UploadImageSource"] | components["schemas"]["GeneratedImageSourceRequest"];
+            /** Background */
+            background: components["schemas"]["DescriptionBackground"] | components["schemas"]["ReferenceBackground"];
+        };
         /** Body_upload_image_uploads_post */
         Body_upload_image_uploads_post: {
             /** File */
@@ -524,7 +568,7 @@ export interface components {
          *
          *     双角色显式双字段（产品图==1 + 爆款参考图 1..2、合计 ≤3 自动满足）；喂图保序
          *     「产品前·参考后」=角色指认契约。统一要求 prompt **选填**（与单图/套图必填不同）。
-         *     边界仍走 launcher fail-fast 统一 400（ISSUE-0024 口径）。
+         *     边界仍走 submission service fail-fast 统一 400（ISSUE-0024 口径）。
          */
         CloneRequest: {
             /** Product Upload Ids */
@@ -547,6 +591,16 @@ export interface components {
             /** Category */
             category?: ("FOOD" | "FASHION" | "BEAUTY" | "SHOES" | "DIGITAL") | null;
         };
+        /** DescriptionBackground */
+        DescriptionBackground: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "description";
+            /** Description */
+            description: string;
+        };
         /**
          * EditRequest
          * @description 二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。
@@ -554,7 +608,7 @@ export interface components {
          *     生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。
          *     不收 category（R2：编辑组装无品类块、库无列，死参数不收）。
          *     prompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；
-         *     edit_mode/ratio 仍走 launcher fail-fast 400（域值校验，单一事实源在卡/映射表）。
+         *     edit_mode/ratio 仍走 submission service fail-fast 400（域值校验，单一事实源在卡/映射表）。
          */
         EditRequest: {
             /** Source Image Key */
@@ -573,6 +627,16 @@ export interface components {
             /** Ratio */
             ratio?: string | null;
         };
+        /** GeneratedImageSourceRequest */
+        GeneratedImageSourceRequest: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "generated";
+            /** Image Key */
+            image_key: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -582,8 +646,9 @@ export interface components {
          * ListingGenerateRequest
          * @description listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。
          *
-         *     数量/范围/比例/下拉的具体边界在 launcher 同步 fail-fast 校验（统一 400），不靠 Pydantic 约束
-         *     （避免 422 与 spec 的 400 口径不一致，ISSUE-0024）。
+         *     数量/范围/比例/下拉的具体边界在 submission service 同步 fail-fast
+         *     校验（统一 400），不靠 Pydantic 约束（避免 422 与 spec 的 400
+         *     口径不一致，ISSUE-0024）。
          */
         ListingGenerateRequest: {
             /** Upload Ids */
@@ -676,6 +741,8 @@ export interface components {
             source_image_type?: string | null;
             /** Chain Cost */
             chain_cost?: string | null;
+            /** Operation Type */
+            operation_type?: string | null;
         };
         /** ListingJobSummaryOut */
         ListingJobSummaryOut: {
@@ -704,6 +771,17 @@ export interface components {
             edit_mode?: string | null;
             /** Category */
             category?: string | null;
+            /** Operation Type */
+            operation_type?: string | null;
+        };
+        /** ListingSubmissionOut */
+        ListingSubmissionOut: {
+            /** Job Id */
+            job_id: string;
+            /** Queue State */
+            queue_state: string;
+            /** Estimated Wait Seconds */
+            estimated_wait_seconds: number;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -846,6 +924,21 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** ReferenceBackground */
+        ReferenceBackground: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reference";
+            /** Upload Id */
+            upload_id: string;
+            /**
+             * Instruction
+             * @default
+             */
+            instruction: string;
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /**
@@ -857,6 +950,40 @@ export interface components {
             password: string;
             /** Name */
             name: string;
+        };
+        /** ReversePromptRequest */
+        ReversePromptRequest: {
+            /** Source */
+            source: components["schemas"]["UploadImageSource"] | components["schemas"]["GeneratedImageSourceRequest"];
+        };
+        /** ReversePromptResult */
+        ReversePromptResult: {
+            /** Summary */
+            summary: string;
+            /** Subject */
+            subject: string;
+            /** Scene */
+            scene: string;
+            /** Composition */
+            composition: string;
+            /** Camera */
+            camera: string;
+            /** Lighting */
+            lighting: string;
+            /** Colors */
+            colors: string[];
+            /** Style */
+            style: string;
+            /** Visible Text */
+            visible_text: string[];
+            /** Constraints */
+            constraints: string[];
+            /** Uncertainties */
+            uncertainties: string[];
+            /** Prompt Zh */
+            prompt_zh: string;
+            /** Prompt En */
+            prompt_en: string;
         };
         /**
          * Role
@@ -880,6 +1007,16 @@ export interface components {
             /** Caption */
             caption: string;
             recipe: components["schemas"]["RecipeOut"];
+        };
+        /** UploadImageSource */
+        UploadImageSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "upload";
+            /** Upload Id */
+            upload_id: string;
         };
         /**
          * UploadResponse
@@ -1052,6 +1189,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "Idempotency-Key"?: string | null;
                 authorization?: string | null;
             };
             path?: never;
@@ -1064,14 +1202,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ListingSubmissionOut"];
                 };
             };
             /** @description Validation Error */
@@ -1089,6 +1225,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "Idempotency-Key"?: string | null;
                 authorization?: string | null;
             };
             path?: never;
@@ -1101,14 +1238,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ListingSubmissionOut"];
                 };
             };
             /** @description Validation Error */
@@ -1126,6 +1261,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "Idempotency-Key"?: string | null;
                 authorization?: string | null;
             };
             path?: never;
@@ -1138,14 +1274,48 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ListingSubmissionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_listing_background_listing_background_replace_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackgroundReplaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingSubmissionOut"];
                 };
             };
             /** @description Validation Error */
@@ -1233,6 +1403,7 @@ export interface operations {
                 access_token?: string | null;
             };
             header?: {
+                "Last-Event-ID"?: string | null;
                 authorization?: string | null;
             };
             path: {
@@ -1249,6 +1420,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reverse_image_prompt_image_prompts_reverse_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReversePromptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReversePromptResult"];
                 };
             };
             /** @description Validation Error */

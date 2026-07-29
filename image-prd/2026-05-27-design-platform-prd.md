@@ -16,7 +16,7 @@
 
 V2 押后清单见 §5.5，V1 不实现。
 
-> **⚠️ 定性修订（2026-06-12 用户拍板 · 世界 A 移除，ISSUE-0046）**：实朴 = **纯 toC 自助出图产品**——卖家与普通人是同一种用户：「上传自己的东西 → 给自己出图」，**零第三方甲方、无接单交付关系**。原 V1「设计中台」框架（客户/项目/需求单/改稿/交付 =「世界 A」）**整体废止并从代码与数据库移除**：DROP 8 表（children-first：generated_image→generation_job→deliverable→revision→asset→brief→project→customer，**用户亲签** #774）+ 后端/前端整删（实现权威 = dev 蓝图 `image-code/docs/世界A移除蓝图-dev调研.md` `56a2083`；设计稿 `docs/superpowers/specs/2026-06-12-remove-world-a-toc-only-design.md`）。受影响章节就地挂 ❌ 标记存档（不删史）：§2.3 一单一档 / §3.3 需求单 / §3.11 成本仪表盘（**案 A 整删**：旧看板 5 维聚合查 0 行老表=空壳）/ §4 全章 / §5.1 ER 中 8 表；§1-§2 的「设计师/客户/接单」表述一律按本修订理解。**角色文案档 a**（用户拍）：UI 字面「设计师」→「用户」，`app_user.role` DB 枚举不动。**backlog（owner=PM）**：toC 成本看板——按 listing 表 + cost_ledger 重设计。**保留不碰**：model_config / cost_ledger / app_user / listing×3 六表、provider `generate()`（已是 toC-only 签名）、guard 预扣链。**✅ 已落地（2026-06-12 当日闭环，ISSUE-0046 已关闭）**：dev `cdb6be0`（−2650 行、迁移 `a1f7c3d9e5b2`）+ 前端 `3702483`/`a2ce62a`（−1993 行、recharts 卸载）→ QA 4-prong gate + prod 公网复核 15/15 双网全绿 → ops 部署（带标签备份 test-restore 验证、SHOW TABLES 15→7、zhaokai toC 数据逐项不变；customer 表内 1 行测试录入经 STOP-and-ask 用户拍删）。
+> **⚠️ 定性修订（2026-06-12 用户拍板 · 世界 A 移除，ISSUE-0046）**：实朴 = **纯 toC 自助出图产品**——卖家与普通人是同一种用户：「上传自己的东西 → 给自己出图」，**零第三方甲方、无接单交付关系**。原 V1「设计中台」框架（客户/项目/需求单/改稿/交付 =「世界 A」）**整体废止并从代码与数据库移除**：DROP 8 表（children-first：generated_image→generation_job→deliverable→revision→asset→brief→project→customer，**用户亲签** #774）+ 后端/前端整删（实现提交 = `56a2083`）。受影响章节就地挂 ❌ 标记存档（不删史）：§2.3 一单一档 / §3.3 需求单 / §3.11 成本仪表盘（**案 A 整删**：旧看板 5 维聚合查 0 行老表=空壳）/ §4 全章 / §5.1 ER 中 8 表；§1-§2 的「设计师/客户/接单」表述一律按本修订理解。**角色文案档 a**（用户拍）：UI 字面「设计师」→「用户」，`app_user.role` DB 枚举不动。**backlog（owner=PM）**：toC 成本看板——按 listing 表 + cost_ledger 重设计。**保留不碰**：model_config / cost_ledger / app_user / listing×3 六表、provider `generate()`（已是 toC-only 签名）、guard 预扣链。**✅ 已落地（2026-06-12 当日闭环，ISSUE-0046 已关闭）**：dev `cdb6be0`（−2650 行、迁移 `a1f7c3d9e5b2`）+ 前端 `3702483`/`a2ce62a`（−1993 行、recharts 卸载）→ QA 4-prong gate + prod 公网复核 15/15 双网全绿 → ops 部署（带标签备份 test-restore 验证、SHOW TABLES 15→7、zhaokai toC 数据逐项不变；customer 表内 1 行测试录入经 STOP-and-ask 用户拍删）。
 
 ---
 
@@ -435,7 +435,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 
 ### 3.12 电商 listing 一键出图（轻量链路）
 
-> 来源：用户 2026-06-04 拍板新增；后端 spec `docs/superpowers/specs/2026-06-04-listing-image-generation-design.md`。
+> 来源：用户 2026-06-04 拍板新增；实现以现行 `/listing` 路由与服务为准。
 > 落地 ISSUE-0021；依赖 ISSUE-0025（上游字段对齐）、ISSUE-0020（前端）、ISSUE-0022（下拉话术）。
 
 #### 3.12.1 形态与定位
@@ -613,7 +613,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **✅ Q-β 裁定（prompt #645、coordinator affirm #646）**：**两档都不带父 prompt 进组装**——源图本身=父 prompt 的执行结果（视觉锚＞文本二传）；父文本带入必与本轮指令打架、稀释遵循度（宪章 §2.5）；full 被替换的正是它。
 - **✅ 第六类卡 = 编辑模式卡**（`image-prompt/edit-mode-cards/编辑.md`，prompt `d9d4f21`）：delta/full 两档纯静态物化块（零槽位）——delta 全锚定+点改（「未点名一概不动」防外溢、「不被当前画面产品失真带偏」=链根锚块内落点）、full 链根 100% 保真+源图仅方向参考；**不注入品类保真块/图型卡/风格卡/父 prompt**（编辑块自含保真）；`EditModeRegistry{delta, full}` 卡↔code 逐字核对照旧（pytest 自动闸扩至 9 物化块）。
 - **✅ PM 补拍两点（QA 骨架 E-⑤/⑥，#647）**：① **edit prompt 必填（非空）**——编辑的诉求只能由文本承载（clone 的 prompt 选填是因参考图承载诉求，编辑无此替代载体）；空 prompt = 花钱重抽一张，那是「重抽」语义非编辑（要做是单独需求，YAGNI），空 → fail-fast 422；② **新路由生而 `extra=forbid`**——overlay_texts 等多余字段显式 422 拒（新代码零兼容包袱不忍受静默忽略；存量路由统一仍归 ISSUE-0044 backlog）。
-- **✅ dev 技术方案定案（`b37e109`，image-code/docs/二次编辑-技术方案-0040.md）**：入口 handle = **`source_image_key` 单一不透明 handle**（sha 文件名构造性防枚举、与已签列零翻译；owner/失败张/多行收敛 = 服务端一条谓词查询、无行=404 anti-enum）；喂图 = 源图 1 + 链根锚 1..3 = 2..4 张（4 张联调首单冒烟实证，回退=锚取根首张不破 D2）；clone 链根锚通路一致 ✅（`role='product' OR NULL` 统一谓词）；读模型 = DetailOut 带 `parent_job_id`/`edit_mode`/源图回显+`source_image_type`、SummaryOut 带 `edit_mode`、`chain_cost` 服务端聚合；**零新迁移/零新表/SSE 冻结**。三方对终局就绪。
+- **✅ dev 技术方案定案（`b37e109`）**：入口 handle = **`source_image_key` 单一不透明 handle**（sha 文件名构造性防枚举、与已签列零翻译；owner/失败张/多行收敛 = 服务端一条谓词查询、无行=404 anti-enum）；喂图 = 源图 1 + 链根锚 1..3 = 2..4 张（4 张联调首单冒烟实证，回退=锚取根首张不破 D2）；clone 链根锚通路一致 ✅（`role='product' OR NULL` 统一谓词）；读模型 = DetailOut 带 `parent_job_id`/`edit_mode`/源图回显+`source_image_type`、SummaryOut 带 `edit_mode`、`chain_cost` 服务端聚合；**零新迁移/零新表/SSE 冻结**。三方对终局就绪。
 
 **✅ 交互模型（用户已拍 2026-06-09 / coordinator #413：delta + full 两种都要）→ prompt 编辑模式两分支：**
 - **delta（微调，默认）**：用户给增量改动指令（「背景换厨房 / 花生再多点 / 光更暖」）→ prompt 组装 = 锁产品本体+品牌文字不变 + **沿用上一版构图基底** + 只 apply delta（外科式、最 protect 保真、最省 token）。**ratio 继承父 job**（换比例=重构图≠编辑；显式传 → 400）、prompt/modifiers 叠新。
@@ -676,7 +676,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 ### 3.13 爆款图复刻（需求 #2 · 2026-06-10）✅ 已上线（2026-06-10 prod 部署 + smoke 全绿）
 > **上线记录**：五方设计互锁（PRD/卡/两案/交互/骨架，HTTP 形态用户拍 (b) `POST /listing/clone` + 签 2 列）→ dev `d8e74bb`（17 路由、CloneModeRegistry 逐字核对 PASS、迁移 `e4a9b2c61f73`）→ QA 回归（边界 13/13 + 真出图 API 20/20 + **三命门视觉核 4/4 双向双档**：花生↔润喉糖零交叉泄漏、包装文字两档 verbatim、无糊文案——含历史最危险配置「花生模板×润喉糖产品·高度复刻」零花生漏入）→ frontend e2e（rail 最左/双上传/档位卡/详情徽标+角色标注）→ prod 部署 + smoke 5/5（job 41a132be，cost=0.40 reconcile）。衍生：ISSUE-0044（请求体统一 extra=forbid，P3 backlog）。
 
-> **🔄 改版：「高度复刻」→「完全复刻」（2026-06-15 · 用户已签设计，🏁 **2026-07-13 用户拍板上改版·实现波开工**·ISSUE-0062）**。Spec=`docs/superpowers/specs/2026-06-15-clone-full-replicate-redesign-design.md`。**HOLD 解除**：20 天 HOLD 后，用户看 dev A/B 判决图（版式主导参考下 A 高度复刻自起一张、**B 完全复刻整张版式迁移**=价值坐实）**拍板上改版**。实现波=卡物化落 main（逐字闸红归零）+ **存量行 data migration `clone_mode '高度复刻'→'完全复刻'`（纯 UPDATE 零 DDL·须用户签字·coordinator 已递）** + overlay 双块（dev 评估随波/拆）+ 前端标签/tooltip + 知识库参考图引导。**本波首跑 CI 门禁**（push dev→PR dev→main→ruff+pytest+gitleaks 绿→合并→prod）。详见 ISSUE-0062 实现 scope+验收。**动因**（QA admin 实测坐实 #842）：原「高度复刻」两个不足——① 风格贴不彻底 ② 参考图文案被**整体排除**、给不了爆款大字卖点角标。新档「完全复刻」= **三贴一隔**：① 画面风格完全复制（构图/光影/配色全贴参考图）② **文字样式复刻**（图上字按参考图的字体/排版样式呈现）③ 文案走**用户 overlay_texts**（verbatim、选填、复用卖点图机制原样 2 条×12 字，用户拍死不放宽 #844）④ 参考图原文案**零泄漏**（绝不照抄、无 overlay 不自编、留空只复刻画面不上字）⑤ 产品保真不变。
+> **🔄 改版：「高度复刻」→「完全复刻」（2026-06-15 · 用户已签设计，🏁 **2026-07-13 用户拍板上改版·实现波开工**·ISSUE-0062）**。实现提交=`daa3bd8`、`60bdbe3`。**HOLD 解除**：20 天 HOLD 后，用户看 dev A/B 判决图（版式主导参考下 A 高度复刻自起一张、**B 完全复刻整张版式迁移**=价值坐实）**拍板上改版**。实现波=卡物化落 main（逐字闸红归零）+ **存量行 data migration `clone_mode '高度复刻'→'完全复刻'`（纯 UPDATE 零 DDL·须用户签字·coordinator 已递）** + overlay 双块（dev 评估随波/拆）+ 前端标签/tooltip + 知识库参考图引导。**本波首跑 CI 门禁**（push dev→PR dev→main→ruff+pytest+gitleaks 绿→合并→prod）。详见 ISSUE-0062 实现 scope+验收。**动因**（QA admin 实测坐实 #842）：原「高度复刻」两个不足——① 风格贴不彻底 ② 参考图文案被**整体排除**、给不了爆款大字卖点角标。新档「完全复刻」= **三贴一隔**：① 画面风格完全复制（构图/光影/配色全贴参考图）② **文字样式复刻**（图上字按参考图的字体/排版样式呈现）③ 文案走**用户 overlay_texts**（verbatim、选填、复用卖点图机制原样 2 条×12 字，用户拍死不放宽 #844）④ 参考图原文案**零泄漏**（绝不照抄、无 overlay 不自编、留空只复刻画面不上字）⑤ 产品保真不变。
 > **设计定案（均已锁，无悬念）**：· overlay 沿卖点图同口径 2×12 不放宽（#844）· 参考风格档带 overlay → **显式 400 拒**（沿套图「带 captions 无卖点图→400」先例，fail-fast）+ 前端只在完全复刻档给输入（双层兜，#847/#848）· `clone_mode` 值「高度复刻」→「完全复刻」——存量迁移 dev 评估（spec 预计 prod 复刻历史已清=cosmetic 无迁移；**若需迁移=动 DB→用户签字铁律**，dev STOP 上报）· quality=high 仅完全复刻有字版（图上文字，宪章 §2.1）。
 > **卡（prompt `d0b9d66`，单一事实源 `clone-mode-cards/复刻.md`）**：复刻物化块 **2→3**（参考风格不动 + 完全复刻·无字版 + 完全复刻·有字模板），`CloneModeRegistry` 选块升级为「档位 + 有无 overlay → 块」（mirror 卖点图无字/有字选块），pytest 卡↔code 逐字核对闸 **9→10 物化块**。⚠️**复用边界（prompt #854 钉死）**：复用的是卖点图的**机制**（槽+verbatim 注入格式+2×12 常量+无字/有字双块选块），**不是**把 registry 指向卖点图块——完全复刻有字模板字样=按参考图同款、卖点图=固定中性无衬线，语义相反、块**不可共用**（共用=字样贴层失效=改版白做）。
 > **验收（QA 视觉核五条 · spec §六，脚本 `admin_full_clone_test.py` 53d8665 + 边界 `clone_full_boundary_regression.py` b2cba4d 已预写）**：风格贴 / 字样贴 / 竞品文案零泄漏 / 用户文案 verbatim / 无糊字。**owner=prompt(卡,主战场)+dev(clone 加 overlay_texts·改名·物化块同步)+frontend-b(TagInput 复用·档标签·codegen)+QA(视觉 admin 2 测+边界 qa)**。落地后回填上线记录。
@@ -723,7 +723,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 > 落地分工（coordinator #535 棒次）：PM 本节（第一棒）→ prompt 两档指令草案 + dev 技术方案（入口形态两案权衡 + 双角色传参 + DB 变更点单独列）+ frontend-b 表单（双上传区/两档/导航挪最左）三方并行 → QA 用例骨架 → 三方对（入口形态用户拍）→ 实现 → QA 回归 + prod smoke → 上线。
 
 ### 3.14 实朴新公开首页 + 「帮我设计」Agent 对话入口（需求 · 2026-07-02）✅ 已上线 prod（2026-07-02·内测灰度·待用户复核）
-> **状态=已上线 prod（2026-07-02 当日 kickoff→prod 闭环），ISSUE-0048 待用户复核关账**。实现权威 = `docs/superpowers/specs/2026-07-02-public-home-agent-chat-design.md` + 调研 `调研-DeerFlow式对话创作入口-2026-07.md`（方案 C）。
+> **状态=已上线 prod（2026-07-02 当日 kickoff→prod 闭环），ISSUE-0048 待用户复核关账**。实现以当前 `/chat` API 与前端 chat 域为准（方案 C）。
 > **上线记录（当日闭环）**：PM PRD/ISSUE-0048 → dev 文本 LLM 探明命中 STOP（apinebula 现有 key 仅图像权限→报用户）→ 用户给**火山 ARK 豆包 2.0-pro 接入点**（thinking 模型，adapter 过滤 `reasoning_content`、默认关 thinking 提速 13.8s→3.5s）→ dev 方案 C 后端（`fdfc99e` 抽 **ListingJobLauncher** 单一事实源不绕 interface 校验 + `7abc5b4` TextLLMPort/openai_compat_text/InMemorySessionStore/ChatOrchestrator/`POST /chat/messages`+`/chat/confirm` 契约冻结 `ad14a8a`：confirm_token 一次性+绑 session/user+TTL10min、会话级出图闸 `chat_session_max_jobs=5` 可配）+ frontend 新公开首页（`efc5019`：`/`→公开首页、套图挪 `/set`、登录墙回跳、Footer 真协议页）+ `/chat` 真流式页（`0bccc88`，复用 `parseListingEvent` 落槽零第二条流）→ mock 全链 e2e → **qa 真豆包+真 gpt+真 TOS 流式实拍**（job e3a01e97，5/5 真图产品保真跨图一致）→ **QA 0048 验收 8/8 全 PASS**（`36dc626`，真花费 ¥2.0）→ prod 部署（.env 接豆包+备份回滚镜像 `rollback-20260702-154541`+迁移 no-op）→ prod smoke 全绿（公开首页/协议页/chat 路由/401 闸/docs 404/真豆包澄清轮 prod 实测/老工作台零回归）。**衍生 backlog**：ISSUE-0049（chat pytest 测试债 P2）、ISSUE-0050（job 时区口径 P3）、暖场 nudge（可选）、上传预览 URL 坑已修（`8958cf6`）。**放量边界**：内测灰度、**非公众全量**（§7.B 内容安全 + §7.A 域名备案仍前置）。
 > **一句话**：把当前「登录后即工作台」升级为「**公开落地页首页**（未登录可浏览、动作才登录墙）+ 一个**真 Agent 对话入口**『帮我设计』」——对话入口接**方案 C 零框架 tool-use 循环**，把现有三条出图链路（generate/clone/edit）当工具，**复用成本守卫/频控/owner 隔离、不绕卡体系、不造新出图链路**，借 DeerFlow 的「形」（流式+步骤可见）不借它的「体」（多服务 harness）。
 
@@ -809,16 +809,16 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 - **仍内测灰度**（7.B/7.A 前置不变）；**待用户 prod 复核后 PM 终关 ISSUE-0051**。
 
 #### 3.14.2 「帮我设计」边界三环 + 知识库 + harness 工具化（需求 · 2026-07-08，ISSUE-0059）✅ 已上线 prod（2026-07-08 A/B 波，QA 11/11+4/4 全绿·prod 实弹绿·待告知用户终关）
-> **背景**：用户 2026-07-08「chat 聊得**大胆**一些、知识库=平台所有功能且随功能更新同步、harness 优化」。spec 定稿 `docs/superpowers/specs/2026-07-08-chat-knowledge-categories-design.md`（A 线，coordinator `97c4978`）。**方案 C 零框架零依赖不变**。
+> **背景**：用户 2026-07-08「chat 聊得**大胆**一些、知识库=平台所有功能且随功能更新同步、harness 优化」。实现提交 `8f307c7`、`a71e183`（A 线）。**方案 C 零框架零依赖不变**。
 
 - **① 边界三环（「大胆」的精确含义）**：**核心环（不变）**出图参数→费用确认→出图，卡链/费用闸/频控铁律全不动；**知识环（新增）**答平台任何功能怎么用/多少钱/在哪点（依据知识库、没有的明说「暂不支持」不编造）；**顾问环（新增=大胆）**电商出图/营销视觉通用建议 + 自然聊用户产品生意；**安全地板不松**（违法违规/涉政涉黄/无关敏感仍拒，7.B 公众全量硬前置不变、现内测+登录墙）。
-- **② 知识库机制（随功能同步·关键）**：单一事实源 `image-code config/chat_knowledge.md`（功能地图：每功能干什么/入口/限制、**≤1500 token 预算**、每消息注入、启动加载缓存）；orchestrator 组 system prompt 时读入。**✅ 首版内容 PM 已起草** `image-prd/chat-knowledge-base-v1-draft.md` → 交 dev 落文件（PM 不写 image-code）。**⚠️ 同步流程入 DoD（PM 长期承诺）**：功能上线记录必勾「chat 知识库同步」+ QA 模板加「chat 能答新功能」。**⚠️ 波动性信息原则（用户拍板）=「知识库管稳定、工具管波动」**：管理员可改的波动值（价格/额度/模型配置）**绝不写死进知识库**、一律走 `get_pricing_quota` 工具**读 model_config 实时值**（知识库删了所有价格数字、改「以实时查询为准」；0057 上线后自动多模型/渠道视图）。
+- **② 知识库机制（随功能同步·关键）**：单一事实源 `image-code config/chat_knowledge.md`（功能地图：每功能干什么/入口/限制、**≤1500 token 预算**、每消息注入、启动加载缓存）；orchestrator 组 system prompt 时读入。现行内容源为 `image-code/src/design_hub/config/chat_knowledge.md`。**⚠️ 同步流程入 DoD（PM 长期承诺）**：功能上线记录必勾「chat 知识库同步」+ QA 模板加「chat 能答新功能」。**⚠️ 波动性信息原则（用户拍板）=「知识库管稳定、工具管波动」**：管理员可改的波动值（价格/额度/模型配置）**绝不写死进知识库**、一律走 `get_pricing_quota` 工具**读 model_config 实时值**（知识库删了所有价格数字、改「以实时查询为准」；0057 上线后自动多模型/渠道视图）。
 - **③ harness 工具化架构（⚠️ 用户 07-08 升级拍板，spec `1821994` §A3，dev）**：从「单套图工具+知识文本」升格为**平台工具注册表**——功能点=工具、chat 经 tool-call 编排；知识库仍留 system prompt（管「知道」，工具管「动手」）。**P1 四工具**：`generate_listing`(+category)/`query_my_jobs`(历史)/`get_job_recipe`(配方查询·「用上次配置再来一套」回填仍走费用闸)/`get_pricing_quota`(价格额度真数据)；**P2** clone/edit 下波。**三护栏铁律**：写/花钱工具必过费用闸(不给 LLM 绕闸路)/全走既有 service·port 层(owner/频控/卡链继承·不自调用)/读工具 owner-scoped。配套=四段 prompt+工具 description 打磨+上下文裁剪(>20 轮带最近20+首轮·DB 转录全量不动=0051)、零框架零依赖。
 - **④ 验收（QA A①-⑥，零成本）**：知识环答对/库外不编造 · 顾问环给建议不拒 · 核心环零回归（三路径+费用闸+0051）· 安全地板仍拒 · 长会话 30+ 轮裁剪连贯 · **⑥工具环**（查历史真数据/复用配置过费用闸/越权 owner 隔离）。
 - **分工**：PM（PRD+ISSUE-0059+知识库内容 ✅+DoD）→ dev（知识注入+四段 prompt+上下文裁剪+落知识库文件）→ QA。**内测灰度不变**。
 
 #### 3.15 效果图「配方展示 + 一键复用」（需求 · 2026-07-07，ISSUE-0053）✅ 已上线 prod（2026-07-07 单日闭环，待用户复核关账）
-> **背景**：用户需求「效果图展示里做提示词复用——展示图片同时展示生成配置与提示词、可一键复用出同款」。spec 定稿入库 `docs/superpowers/specs/2026-07-07-recipe-reuse-design.md`（coordinator 派单 `ec9e80a`）。
+> **背景**：用户需求「效果图展示里做提示词复用——展示图片同时展示生成配置与提示词、可一键复用出同款」。实现提交 `7443b3d`、`398639e`。
 
 > **⚠️ 契约裁决（PM 2026-07-07，frontend-b #973 亮缺口后裁）**：`overlay_texts`（卖点文案）**未持久化**（`listing_job` 无此列、请求期输入组装后即弃、DetailOut 不回吐）→ 落点 A 取不回、落点 B 查不到。**裁决 (a)：卖点文案剔出配方复用范围（v1）**——不违「零迁移零建表」、不触 DB 签字铁律、两落点一致；配方无文案仍是可复用闭环，且卖点文案本就是用户自己产品的卖点（做同款更该自填而非抄 showcase）。**本节下文凡列「卖点文案/文案」以本裁决剔除**；overlay_texts 持久化留二期（若用户要且值一次 schema 签字再评）。spec §一/§五#1 的「文案」项以本裁决为准修正。
 
@@ -867,7 +867,7 @@ AI 全自动生成 Prompt、Prompt 优化 AI、自动版本进化、跨客户 RA
 **⑧ 分工与排队**：PM 本节（PRD+ISSUE-0057 立需求+反转 0017 记录）✅ → **用户**（① 签 DB schema ✅ 2026-07-07 已亲签；② 拍密钥存储 ✅ A1）→ **dev**（通用 provider 泛化 + model_config 扩 + 消费 enabled + 出图链去硬编码 + 请求 model 字段 + admin CRUD + alembic 迁移，**已签、待 slot**）+ **frontend-b**（admin 配置页 + 用户模型选择器）→ **QA**（验收 7 条）→ 迁移轮部署（mysqldump 备份可回滚，coordinator 编排）。**排队位=当前 P0(key 恢复)→0052/0055/0056 收口→0050 时区批 之后**（非阻断不抢档，coordinator #1009；DB 签字闸已过、待 PM 定稿+coordinator 派 slot 即可开工）。**仍内测灰度**（7.B/7.A 前置不变）。
 
 #### 3.17 登录健壮性四件套（需求 · 2026-07-08，ISSUE-0058）✅ 已上线 prod（2026-07-08 半天闭环，零建表零签字）
-> **背景**：用户 2026-07-08「先优化登录的健壮性」+ 追加拍板「密码传输公钥加密」。spec 定稿 `docs/superpowers/specs/2026-07-08-login-robustness-design.md`（coordinator 派单 `e75ddb1`）。与 key 事故无依赖、纯登录链路、插空档做。**零建表零签字**（RSA 私钥走 .env/文件不入库）→ 无 DB 铁律门。
+> **背景**：用户 2026-07-08「先优化登录的健壮性」+ 追加拍板「密码传输公钥加密」。实现提交 `98cb316`，QA 验证 `c52dd54`。与 key 事故无依赖、纯登录链路、插空档做。**零建表零签字**（RSA 私钥走 .env/文件不入库）→ 无 DB 铁律门。
 
 **① 现状缺口（读码实锤）**：a. **24h 必踢**（JWT HS256 固定 `jwt_ttl_hours=24`、无续期，活跃用户每天中途被踢、「记住我」语义半空）；b. **多标签页不同步**（登出仅清本页、无 storage 广播，别页续旧会话至撞 401）；c. **限流/网络错非人话**（nginx 429 非 JSON body、断网 fetch 异常→前端显原始错）；d. **密码明文进请求体仅靠 TLS**（prod 自签证书、用户点警告访问=TLS 实际削弱）。
 

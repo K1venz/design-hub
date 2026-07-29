@@ -1,7 +1,10 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from design_hub.application.rate_limit import RateLimited
+from design_hub.application.tasking.health import (
+    AdmissionRejected,
+    RedisUnavailable,
+)
 from design_hub.domain.errors import (
     AuthenticationError,
     BudgetExceeded,
@@ -9,7 +12,9 @@ from design_hub.domain.errors import (
     NotFoundError,
     PermissionDenied,
 )
+from design_hub.ports.generation_work import IdempotencyConflict
 from design_hub.ports.model_provider import ProviderError
+from design_hub.ports.text_llm import TextLLMError
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -21,10 +26,38 @@ def register_error_handlers(app: FastAPI) -> None:
             status_code=409, content={"error": "budget_exceeded", "detail": exc.reason}
         )
 
+    @app.exception_handler(IdempotencyConflict)
+    async def _on_idempotency_conflict(
+        request: Request, exc: IdempotencyConflict
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "idempotency_conflict", "detail": str(exc)},
+        )
+
+    async def _generation_unavailable(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "generation_unavailable", "detail": str(exc)},
+            headers={"Retry-After": "30"},
+        )
+
+    app.add_exception_handler(RedisUnavailable, _generation_unavailable)
+    app.add_exception_handler(AdmissionRejected, _generation_unavailable)
+
     @app.exception_handler(ProviderError)
     async def _on_provider(request: Request, exc: ProviderError) -> JSONResponse:
         return JSONResponse(
             status_code=502, content={"error": "provider_failed", "detail": str(exc)}
+        )
+
+    @app.exception_handler(TextLLMError)
+    async def _on_text_llm(request: Request, exc: TextLLMError) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "text_llm_failed", "detail": str(exc)},
         )
 
     # 实体不存在（项目/需求单/素材）→ 404；比通用 DomainError(409) 更具体，优先匹配
@@ -52,11 +85,6 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ValueError)
     async def _on_value(request: Request, exc: ValueError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"error": "bad_request", "detail": str(exc)})
-
-    # 频控超限（安全加固 A-4）→ 429
-    @app.exception_handler(RateLimited)
-    async def _on_rate_limited(request: Request, exc: RateLimited) -> JSONResponse:
-        return JSONResponse(status_code=429, content={"error": "rate_limited", "detail": str(exc)})
 
     @app.exception_handler(KeyError)
     async def _on_key(request: Request, exc: KeyError) -> JSONResponse:

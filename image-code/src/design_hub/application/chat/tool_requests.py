@@ -4,13 +4,15 @@ Chat 不接收、不推断品类；这里的严格 schema 是文本 LLM 可见�
 再显式转换成 Listing 应用请求。
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from design_hub.application.listing.requests import (
+    BackgroundSource,
     CloneRequest,
     EditRequest,
+    ImageSource,
     ListingGenerateRequest,
 )
 
@@ -65,3 +67,11 @@ class ChatEditRequest(BaseModel):
             **self.model_dump(),
             modifiers={},
         )
+
+
+class ChatOpenFeatureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feature: Literal["background_replace"]
+    source: ImageSource | None = None
+    background: BackgroundSource | None = None

@@ -23,7 +23,7 @@ class AbstractModelProvider(ABC):
     name: ModelName
     unit_cost: Decimal  # CNY per image
     is_live: bool = True  # 真实出图 Provider；占位/测试替身(Mock)置 False，供保真链路拒绝降级
-    # 参考图模态（ISSUE-0065）：调用方（launcher）按此只物化 ReferenceImage 所需字段——
+    # 参考图模态（ISSUE-0065）：执行侧按此只物化 ReferenceImage 所需字段——
     # bytes=载字节走 multipart（同步），url=签公网 URL 走 JSON（异步 worker 回拉）。
     reference_mode: ReferenceMode = "bytes"
 
