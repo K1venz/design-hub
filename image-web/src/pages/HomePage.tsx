@@ -10,7 +10,7 @@ import { useShowcase, type ShowcaseItem } from '@/api/showcase'
 import { cn } from '@/lib/utils'
 import { useInView } from '@/lib/use-in-view'
 import {
-  QUICK_CARDS, TOOL_BANNERS, TOOL_TILES, COMING_SOON, SHOWCASE_PLACEHOLDERS,
+  TOOL_BANNERS, TOOL_TILES, SHOWCASE_PLACEHOLDERS,
 } from '@/lib/home'
 import { showcaseRecipeToPrefill } from '@/lib/recipe'
 import { useAuthStore } from '@/stores/auth-store'
@@ -20,7 +20,7 @@ export function HomePage() {
   return (
     <AppShell>
       <main className="min-h-0 flex-1 overflow-auto pb-6 pr-3">
-        <div className="mx-auto w-full max-w-5xl px-4">
+        <div className="mx-auto w-full max-w-[1060px] px-4 sm:px-6">
           <Hero />
           <ToolSection />
           <ShowcaseSection />
@@ -31,7 +31,7 @@ export function HomePage() {
   )
 }
 
-// ── ① Hero：大聊天框 + 6 快捷卡 ──────────────────────────
+// The centered chat entry is the only primary action in the Hero.
 function Hero() {
   const navigate = useNavigate()
   const [text, setText] = useState('')
@@ -44,33 +44,28 @@ function Hero() {
   }
 
   return (
-    <section className="pt-6 sm:pt-10">
-      <div className="text-center">
-        <h1 className="font-display text-[30px] font-semibold leading-tight tracking-tight sm:text-[40px]">
-          和我聊聊，<span className="aurora-text">你想要什么设计？</span>
-        </h1>
-        <p className="mx-auto mt-3 max-w-lg text-[14px] leading-relaxed text-wb-ink-5">
-          用大白话描述你的产品和想要的效果，实朴帮你出白底、场景、卖点，一整套电商图。
-        </p>
-      </div>
+    <section className="pt-8 text-center sm:pt-12">
+      <h1 className="font-display text-[30px] font-semibold leading-[1.12] tracking-tight sm:text-[40px] lg:text-[44px]">
+        和我聊聊，<span className="aurora-text">你想要什么设计？</span>
+      </h1>
 
-      {/* 大聊天框 */}
-      <div className="glass-panel mx-auto mt-6 max-w-2xl rounded-[20px] p-3">
+      <div className="glass-panel mx-auto mt-6 flex min-h-[184px] w-full max-w-[920px] flex-col rounded-[22px] p-4 text-left sm:p-5">
         <textarea
+          aria-label="描述你的设计需求"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') askAgent(text)
           }}
-          placeholder="例如：帮我的高山七彩花生礼盒出一套电商图，早餐桌场景、暖光…"
-          className="h-[92px] w-full resize-none bg-transparent px-3 py-2 text-[14.5px] leading-relaxed text-wb-ink-2 outline-none placeholder:text-wb-faint-1"
+          placeholder={'用大白话描述你的产品和想要的效果，实朴帮你完成白底、场景、卖点等电商图片。\n例如：帮我的高山七彩花生礼盒出一套电商图，早餐桌场景、暖光…'}
+          className="min-h-[112px] w-full flex-1 resize-none bg-transparent px-1 py-1 text-[14.5px] leading-relaxed text-wb-ink-2 outline-none placeholder:text-wb-faint-1"
         />
-        <div className="flex items-center justify-between px-1 pt-1">
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4">
           <button
             onClick={() => askAgent(text)}
             className="flex items-center gap-1.5 rounded-full border border-wb-line-1 bg-white/70 px-3 py-1.5 text-[12.5px] font-medium text-wb-ink-4 transition-colors hover:border-wb-brand-soft hover:text-wb-brand-deep"
           >
-            <ImagePlusIcon className="size-4" /> 添加图片
+            <ImagePlusIcon className="size-4" /> 添加商品图
           </button>
           <button
             onClick={() => askAgent(text)}
@@ -80,36 +75,17 @@ function Hero() {
           </button>
         </div>
       </div>
-
-      {/* 6 快捷卡 */}
-      <div className="mx-auto mt-5 grid max-w-3xl grid-cols-2 gap-2.5 sm:grid-cols-3">
-        {QUICK_CARDS.map((c) => (
-          <button
-            key={c.key}
-            onClick={() => askAgent(c.intent)}
-            className="lift-card group flex items-start gap-2.5 rounded-2xl border border-white/70 bg-white/70 p-3 text-left shadow-[0_4px_18px_-12px_rgba(40,40,90,.2)]"
-          >
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-wb-tint-1 text-wb-brand-deep transition-colors group-hover:bg-wb-brand group-hover:text-white">
-              <c.icon className="size-[18px]" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13.5px] font-semibold text-wb-ink-2">{c.label}</span>
-              <span className="block truncate text-[11.5px] text-wb-ink-6">{c.desc}</span>
-            </span>
-          </button>
-        ))}
-      </div>
     </section>
   )
 }
 
-// ── ② 工具区：双 banner + 宫格 + 即将上线 ───────────────
+// Two primary tools and three real utility destinations.
 function ToolSection() {
   return (
-    <section className="mt-14">
+    <section className="mt-10 sm:mt-12">
       <SectionHead title="用实朴的工具" sub="直达每个出图工作台" />
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 min-[900px]:grid-cols-2">
         {TOOL_BANNERS.map((b) => (
           <Link
             key={b.key}
@@ -128,7 +104,7 @@ function ToolSection() {
         ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mt-3 grid gap-3 min-[900px]:grid-cols-3">
         {TOOL_TILES.map((t) => (
           <Link
             key={t.key}
@@ -141,22 +117,6 @@ function ToolSection() {
             <span className="text-[13.5px] font-semibold text-wb-ink-2">{t.label}</span>
             <span className="text-[11.5px] text-wb-ink-6">{t.desc}</span>
           </Link>
-        ))}
-        {COMING_SOON.map((c) => (
-          <div
-            key={c.key}
-            aria-disabled
-            className="pointer-events-none relative flex cursor-not-allowed flex-col gap-2 rounded-2xl border border-dashed border-wb-line-3 bg-wb-surface-2/60 p-3.5"
-          >
-            <span className="absolute right-2.5 top-2.5 rounded-full bg-wb-surface-5 px-2 py-0.5 text-[10px] font-medium text-wb-ink-6">
-              即将上线
-            </span>
-            <span className="grid size-9 place-items-center rounded-xl bg-wb-surface-4 text-wb-faint-1">
-              <c.icon className="size-[18px]" />
-            </span>
-            <span className="text-[13.5px] font-semibold text-wb-ink-5">{c.label}</span>
-            <span className="text-[11.5px] text-wb-faint-1">{c.desc}</span>
-          </div>
         ))}
       </div>
     </section>

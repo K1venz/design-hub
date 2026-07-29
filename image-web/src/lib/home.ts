@@ -1,37 +1,10 @@
-// 新公开首页内容数据（spec 2026-07-02 §三）。纯静态、无 IO；页面组件消费。
-// 快捷卡=实朴真实创作预设，点卡→预填对话意图带进 /chat（未登录先登录）。
+// Static data for real Home tool destinations.
 
 import {
-  ImageIcon, SparklesIcon, TagIcon, LayersIcon, FlameIcon, SquarePenIcon,
-  HistoryIcon, EraserIcon, ExpandIcon, type LucideIcon,
+  ImageIcon, LayersIcon, FlameIcon, SquarePenIcon, HistoryIcon, type LucideIcon,
 } from 'lucide-react'
 
 import { estimateCost } from './listing'
-
-/** Hero 6 张快捷卡：实朴真实能力，点卡预填一句对话意图进「帮我设计」。 */
-export interface QuickCard {
-  key: string
-  label: string
-  desc: string
-  icon: LucideIcon
-  /** 预填进对话的首句意图（带进 /chat）。 */
-  intent: string
-}
-
-export const QUICK_CARDS: QuickCard[] = [
-  { key: 'white', label: '白底主图', desc: '纯白底 · 平台合规主图', icon: ImageIcon,
-    intent: '帮我的产品出一张白底主图，产品居中、细节清晰。' },
-  { key: 'scene', label: '场景图', desc: '生活使用场景 · 有氛围', icon: SparklesIcon,
-    intent: '帮我的产品出一张生活使用场景图，自然光、有氛围。' },
-  { key: 'sell', label: '卖点图', desc: '核心卖点 · 细节特写', icon: TagIcon,
-    intent: '帮我的产品出一张卖点图，突出核心卖点和细节特写。' },
-  { key: 'set', label: '整套套图', desc: '白底+场景+卖点 一键成套', icon: LayersIcon,
-    intent: '给我的产品出一整套电商图，白底、场景、卖点都要。' },
-  { key: 'clone', label: '爆款复刻', desc: '照着爆款图出你的', icon: FlameIcon,
-    intent: '我有一张想参考的爆款图，帮我照它的风格出我的产品图。' },
-  { key: 'edit', label: '二次编辑', desc: '对已出的图再调整', icon: SquarePenIcon,
-    intent: '我想对之前出好的一张图再改一下。' },
-]
 
 /** 工具区大 banner（直达现有工作台）。 */
 export interface ToolBanner {
@@ -68,19 +41,6 @@ export const TOOL_TILES: ToolTile[] = [
   },
   { key: 'edit', to: '/history', label: '二次编辑', desc: '从历史选一张再改', icon: SquarePenIcon },
   { key: 'history', to: '/history', label: '出图历史', desc: '回看与重新下载', icon: HistoryIcon },
-]
-
-/** 「即将上线」预告卡（≤2，取自美图迁移调研第一波；不可点、明确标注）。 */
-export interface ComingSoonTile {
-  key: string
-  label: string
-  desc: string
-  icon: LucideIcon
-}
-
-export const COMING_SOON: ComingSoonTile[] = [
-  { key: 'erase', label: 'AI 消除', desc: '一键擦除画面里的多余物件', icon: EraserIcon },
-  { key: 'expand', label: '智能扩图', desc: '自动补全画面、改比例不裁切', icon: ExpandIcon },
 ]
 
 /** 成果展示区占位案例（首发占位内容，懒加载；后续填真实案例）。 */
