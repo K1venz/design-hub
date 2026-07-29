@@ -6,12 +6,13 @@ import {
 } from './navigation'
 
 describe('global navigation contract', () => {
-  it('exposes the five approved product destinations in order', () => {
+  it('exposes the approved product destinations in order', () => {
     expect(PRIMARY_NAV_ITEMS.map(({ label, to }) => ({ label, to }))).toEqual([
       { label: '首页', to: '/home' },
       { label: '帮我设计', to: '/chat' },
       { label: '商品套图', to: '/set' },
       { label: '爆款复刻', to: '/clone' },
+      { label: '换背景', to: '/background' },
       { label: '历史', to: '/history' },
     ])
   })

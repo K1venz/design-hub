@@ -36,11 +36,11 @@ describe('chat input keyboard', () => {
 })
 
 describe('new chat capability card', () => {
-  it('shows only for an idle empty session and describes unrestricted visual scope', () => {
+  it('shows only for an idle empty session without duplicating a stale capability list', () => {
     const empty = initialChatState()
     expect(shouldShowChatWelcome(empty)).toBe(true)
     expect(CHAT_WELCOME_COPY).toBe(
-      '我可以基于你上传的图片制作全品类主图、场景图、卖点图、海报、Logo/品牌视觉，也支持爆款复刻和连续编辑。普通出图支持多种比例；如需 4K，请在需求中明确写出“4K”，4K 当前仅支持 16:9 横版。上传至少 1 张图片，再告诉我想做什么即可。',
+      '上传图片并告诉我想完成什么即可；你也可以直接问我平台目前支持哪些功能。',
     )
 
     expect(shouldShowChatWelcome(pushUserMessage(empty, '做一张海报'))).toBe(false)
@@ -134,6 +134,36 @@ describe('parseChatEvent', () => {
     })
   })
 
+  it('maps a background workbench action card without flattening its prefill', () => {
+    expect(
+      parseChatEvent(
+        'action_card',
+        JSON.stringify({
+          feature: 'background_replace',
+          label: '打开换背景工作台',
+          prefill: {
+            source_kind: 'upload',
+            source_id: 'u/product.png',
+            background_kind: 'description',
+            background_description: '极简摄影棚',
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: 'action_card',
+      action: {
+        feature: 'background_replace',
+        label: '打开换背景工作台',
+        prefill: {
+          source_kind: 'upload',
+          source_id: 'u/product.png',
+          background_kind: 'description',
+          background_description: '极简摄影棚',
+        },
+      },
+    })
+  })
+
   it('unwraps job_event → inner listing event via parseListingEvent', () => {
     const e = parseChatEvent(
       'job_event',
@@ -222,6 +252,24 @@ describe('applyChatEvent reducer', () => {
     s = applyChatEvent(s, { kind: 'error', code: 'session_job_limit', message: '本次对话出图已达上限' })
     expect(s.streaming).toBe(false)
     expect(s.error).toEqual({ code: 'session_job_limit', message: '本次对话出图已达上限' })
+  })
+
+  it('attaches an action card to the current assistant bubble', () => {
+    let state = pushUserMessage(initialChatState(), '打开换背景页面')
+    state = applyChatEvent(state, {
+      kind: 'action_card',
+      action: {
+        feature: 'background_replace',
+        label: '打开换背景工作台',
+        prefill: { source_kind: 'upload', source_id: 'u/product.png' },
+      },
+    })
+
+    expect(state.bubbles[1].action).toEqual({
+      feature: 'background_replace',
+      label: '打开换背景工作台',
+      prefill: { source_kind: 'upload', source_id: 'u/product.png' },
+    })
   })
 })
 

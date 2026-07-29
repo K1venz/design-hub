@@ -1,7 +1,9 @@
 import {
   DownloadIcon,
   Loader2Icon,
+  ScanSearchIcon,
   SquarePenIcon,
+  WallpaperIcon,
 } from 'lucide-react'
 
 import type { ResultSlot } from '@/components/listing/ResultGallery'
@@ -19,12 +21,16 @@ export function ChatResultBlock({
   total,
   onPreview,
   onEdit,
+  onBackground,
+  onReversePrompt,
 }: {
   slots: ResultSlot[]
   done: number
   total: number
   onPreview: (image: ChatPreviewImage) => void
   onEdit: (source: ChatEditSource) => void
+  onBackground: (source: ChatEditSource) => void
+  onReversePrompt: (source: ChatEditSource) => void
 }) {
   const generating = done < total && slots.some((slot) => !slot.url && !slot.error)
 
@@ -54,16 +60,34 @@ export function ChatResultBlock({
                 >
                   <img src={slot.url} alt="" className="size-full object-cover" />
                 </button>
-                <div className="absolute inset-x-1.5 bottom-1.5 flex justify-between gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+                <div className="absolute inset-x-1.5 bottom-1.5 flex flex-wrap justify-end gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
                   {editSource ? (
-                    <button
-                      type="button"
-                      onClick={() => onEdit(editSource)}
-                      className="rounded-lg bg-wb-brand/95 px-2 py-1 text-[11px] text-white"
-                    >
-                      <SquarePenIcon className="mr-1 inline size-3" />
-                      继续编辑
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onEdit(editSource)}
+                        className="rounded-lg bg-wb-brand/95 px-2 py-1 text-[11px] text-white"
+                      >
+                        <SquarePenIcon className="mr-1 inline size-3" />
+                        继续编辑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onBackground(editSource)}
+                        className="rounded-lg bg-wb-brand/95 px-2 py-1 text-[11px] text-white"
+                      >
+                        <WallpaperIcon className="mr-1 inline size-3" />
+                        换背景
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onReversePrompt(editSource)}
+                        className="rounded-lg bg-wb-brand/95 px-2 py-1 text-[11px] text-white"
+                      >
+                        <ScanSearchIcon className="mr-1 inline size-3" />
+                        反推提示词
+                      </button>
+                    </>
                   ) : <span />}
                   <button
                     type="button"

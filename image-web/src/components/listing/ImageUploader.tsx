@@ -39,14 +39,23 @@ interface ImageUploaderProps {
  */
 export function ImageUploader({ onChange, max = 3 }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const onChangeRef = useRef(onChange)
   const [items, setItems] = useState<UploadItem[]>([])
   const upload = useUploadImage()
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
 
   // 把"已成功上传"的集合上报父组件 —— 放 effect、不在 setState 更新函数里调父组件 setState
   // （否则 React 报 "Cannot update WorkbenchPage while rendering ImageUploader"）。
   useEffect(() => {
-    onChange(items.filter((i) => i.status === 'done' && i.uploaded).map((i) => i.uploaded!))
-  }, [items, onChange])
+    onChangeRef.current(
+      items
+        .filter((item) => item.status === 'done' && item.uploaded)
+        .map((item) => item.uploaded!),
+    )
+  }, [items])
 
   function patch(key: string, p: Partial<UploadItem>) {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...p } : i)))

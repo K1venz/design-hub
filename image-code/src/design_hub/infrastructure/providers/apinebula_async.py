@@ -35,6 +35,7 @@ from design_hub.ports.model_provider import (
     ProviderTimeout,
     ReferenceMode,
 )
+from design_hub.ports.provider_execution import ProviderRequest
 
 _STATUS_OK = "completed"
 _STATUS_FAIL = "failed"
@@ -97,7 +98,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         quality: str | None = None,
     ) -> list[GeneratedImage]:
         composed = compose_image_api_prompt(prompt, negative_prompt)
-        # 模态解引用（ISSUE-0065）：异步走现签 URL；launcher 按 reference_mode 物化 url，缺=装配错。
+        # 模态解引用（ISSUE-0065）：异步走现签 URL；worker 按 reference_mode 物化 url，缺=装配错。
         image_urls = [self._require_url(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
         start = time.perf_counter()
@@ -113,6 +114,46 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         )
         latency_ms = int((time.perf_counter() - start) * 1000)
         return await self._parse(body, seed, latency_ms, expected_n=n)
+
+    async def submit_task(
+        self, request: ProviderRequest, *, operation_id: str
+    ) -> str:
+        """Submit one task and return its durable upstream identifier before polling."""
+        composed = compose_image_api_prompt(request.prompt, "")
+        image_urls = [self._require_url(ref) for ref in request.reference_images]
+        size = f"{request.size[0]}x{request.size[1]}"
+        start_key_index = self._key_pool.reserve()
+        task_id, _key_offset = await self._submit(
+            composed,
+            image_urls,
+            size,
+            request.quality,
+            start_key_index=start_key_index,
+        )
+        return task_id
+
+    async def resume_task(
+        self, provider_task_id: str, request: ProviderRequest
+    ) -> GeneratedImage:
+        """Poll an already-submitted task without issuing another submit request."""
+        if _SAFE_TASK_ID.fullmatch(provider_task_id) is None:
+            raise ProviderError("invalid persisted provider task id")
+        started_at = time.perf_counter()
+        start_key_index = self._key_pool.reserve()
+        body = await self._poll(
+            provider_task_id,
+            started_at,
+            start_key_index=start_key_index,
+            start_key_offset=0,
+        )
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        images = await self._parse(
+            body,
+            request.seed,
+            latency_ms,
+            expected_n=1,
+        )
+        return images[0]
 
     async def _submit(
         self,
@@ -238,7 +279,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
 
     @staticmethod
     def _require_url(ref: ReferenceImage) -> str:
-        # 装配契约：url 模态 provider 收到的 ReferenceImage 必带 url；缺=launcher/模态装配错。
+        # 装配契约：url 模态 provider 收到的 ReferenceImage 必带 url；缺=worker/模态装配错。
         if not ref.url:
             raise ProviderError("异步 provider 收到无 URL 的参考图（reference_mode 装配错）")
         return ref.url

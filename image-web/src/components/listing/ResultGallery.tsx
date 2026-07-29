@@ -1,10 +1,18 @@
-import type { ReactNode } from 'react'
-import { DownloadIcon, SquarePenIcon, XIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import {
+  DownloadIcon,
+  ScanSearchIcon,
+  SquarePenIcon,
+  WallpaperIcon,
+  XIcon,
+} from 'lucide-react'
 import { motion } from 'motion/react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
+import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialog'
 import { PipelineBeam } from '@/components/listing/PipelineBeam'
 import { downloadImage } from '@/lib/download'
+import type { ImageToolSource } from '@/lib/image-tools'
 import { IMAGE_TYPE_FIELDS } from '@/lib/listing'
 
 export interface ResultSlot {
@@ -37,6 +45,9 @@ export function ResultGallery({
   emptyHint = '上传产品图、写下卖点，点「开始出图」',
   resultLabel, editJobId, headerAction,
 }: ResultGalleryProps) {
+  const navigate = useNavigate()
+  const [reverseSource, setReverseSource] =
+    useState<ImageToolSource | null>(null)
   const ready = slots.filter((s) => s.url)
   // 套图流：任一槽带图型 → 按图型分组段渲染（顺序按 IMAGE_TYPE_FIELDS）。
   const grouped = slots.some((s) => s.imageType)
@@ -46,6 +57,28 @@ export function ResultGallery({
         slots: slots.filter((s) => s.imageType === f.key),
       })).filter((g) => g.slots.length > 0)
     : []
+
+  function openBackground(slot: ResultSlot) {
+    if (!slot.imageKey || !slot.url) return
+    navigate('/background', {
+      state: {
+        prefill: {
+          source_kind: 'generated',
+          source_id: slot.imageKey,
+          source_url: slot.url,
+        },
+      },
+    })
+  }
+
+  function reversePrompt(slot: ResultSlot) {
+    if (!slot.imageKey) return
+    setReverseSource({
+      kind: 'generated',
+      imageKey: slot.imageKey,
+      previewUrl: slot.url ?? undefined,
+    })
+  }
 
   return (
     <div className="min-w-0 md:flex-1 md:overflow-auto">
@@ -99,21 +132,47 @@ export function ResultGallery({
                     {gFailed > 0 && <span className="ml-1 text-wb-red">（{gFailed} 失败）</span>}
                   </span>
                 </h3>
-                <SlotGrid slots={g.slots} namePrefix={g.field.key} editJobId={editJobId} />
+                <SlotGrid
+                  slots={g.slots}
+                  namePrefix={g.field.key}
+                  editJobId={editJobId}
+                  onBackground={openBackground}
+                  onReversePrompt={reversePrompt}
+                />
               </section>
             )
           })}
         </div>
       ) : (
-        <SlotGrid slots={slots} namePrefix="listing" editJobId={editJobId} />
+        <SlotGrid
+          slots={slots}
+          namePrefix="listing"
+          editJobId={editJobId}
+          onBackground={openBackground}
+          onReversePrompt={reversePrompt}
+        />
       )}
+      <ReversePromptDialog
+        source={reverseSource}
+        onClose={() => setReverseSource(null)}
+      />
     </div>
   )
 }
 
 function SlotGrid({
-  slots, namePrefix, editJobId,
-}: { slots: ResultSlot[]; namePrefix: string; editJobId?: string }) {
+  slots,
+  namePrefix,
+  editJobId,
+  onBackground,
+  onReversePrompt,
+}: {
+  slots: ResultSlot[]
+  namePrefix: string
+  editJobId?: string
+  onBackground: (slot: ResultSlot) => void
+  onReversePrompt: (slot: ResultSlot) => void
+}) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
       {slots.map((s, i) =>
@@ -127,20 +186,52 @@ function SlotGrid({
             className="group relative aspect-square overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.14)] transition-shadow hover:shadow-[0_14px_32px_-12px_rgba(40,40,90,.22)]"
           >
             <img src={s.url} alt="" className="size-full object-cover" />
-            {editJobId && s.imageKey && (
-              <Link
-                to={`/edit/${editJobId}/${s.imageKey}`}
-                className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+            <div className="absolute inset-x-2 bottom-2 grid grid-cols-2 gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+              {editJobId && s.imageKey ? (
+                <Link
+                  to={`/edit/${editJobId}/${s.imageKey}`}
+                  className="rounded-lg bg-wb-ink-2/90 px-2 py-1.5 text-center text-[11.5px] text-white"
+                >
+                  <SquarePenIcon className="mr-1 inline size-3" /> 继续编辑
+                </Link>
+              ) : (
+                <span />
+              )}
+              {s.imageKey ? (
+                <button
+                  type="button"
+                  onClick={() => onBackground(s)}
+                  className="rounded-lg bg-wb-ink-2/90 px-2 py-1.5 text-[11.5px] text-white"
+                >
+                  <WallpaperIcon className="mr-1 inline size-3" /> 换背景
+                </button>
+              ) : (
+                <span />
+              )}
+              {s.imageKey ? (
+                <button
+                  type="button"
+                  onClick={() => onReversePrompt(s)}
+                  className="rounded-lg bg-wb-ink-2/90 px-2 py-1.5 text-[11.5px] text-white"
+                >
+                  <ScanSearchIcon className="mr-1 inline size-3" /> 反推提示词
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  void downloadImage(
+                    s.url!,
+                    `${namePrefix}-${i + 1}.png`,
+                  )
+                }
+                className="rounded-lg bg-wb-ink-2/90 px-2 py-1.5 text-[11.5px] text-white"
               >
-                <SquarePenIcon className="mr-1 inline size-3.5" /> 基于此图再编辑
-              </Link>
-            )}
-            <button
-              onClick={() => void downloadImage(s.url!, `${namePrefix}-${i + 1}.png`)}
-              className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-            >
-              <DownloadIcon className="mr-1 inline size-3.5" /> 下载
-            </button>
+                <DownloadIcon className="mr-1 inline size-3" /> 下载
+              </button>
+            </div>
           </motion.div>
         ) : s.error ? (
           // 失败槽：原因可见（SSE image_failed）；MVP 无单张重试（known-limits，整单可重出）

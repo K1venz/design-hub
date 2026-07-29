@@ -30,6 +30,8 @@ class SqlAlchemyListingHistory(ListingHistory):
             row = ListingJobRow(
                 id=job.job_id,
                 user_id=job.user_id,
+                idempotency_key=f"legacy:{job.job_id}",
+                request_fingerprint=f"legacy:{job.job_id}",
                 prompt=job.prompt,
                 modifiers=dict(job.modifiers),
                 platform=job.modifiers.get("platform"),

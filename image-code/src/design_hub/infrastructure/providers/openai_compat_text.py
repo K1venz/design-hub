@@ -5,6 +5,7 @@
 本适配器契约=标准 OpenAI 流式协议，DeepSeek 亦遵循。
 """
 
+import base64
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -73,7 +74,17 @@ class OpenAICompatTextProvider(TextLLMPort):
                 }
                 for t in tools
             ]
-            payload["tool_choice"] = "auto"
+            required = [tool for tool in tools if tool.required]
+            if len(required) > 1:
+                raise ValueError("only one required text LLM tool is supported")
+            payload["tool_choice"] = (
+                {
+                    "type": "function",
+                    "function": {"name": required[0].name},
+                }
+                if required
+                else "auto"
+            )
         headers = {"Authorization": f"Bearer {self._api_key}"}
         url = f"{self._base_url}/chat/completions"
         # index -> {"id", "name", "args"}：工具调用参数按 index 跨 chunk 拼接
@@ -166,7 +177,26 @@ class OpenAICompatTextProvider(TextLLMPort):
 
     @staticmethod
     def _to_openai_msg(m: ChatMessage) -> dict[str, Any]:
-        msg: dict[str, Any] = {"role": m.role, "content": m.content}
+        content: str | list[dict[str, Any]]
+        if m.images:
+            if m.role != "user":
+                raise ValueError("only user messages may include images")
+            content = [{"type": "text", "text": m.content}]
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": (
+                            f"data:{image.media_type};base64,"
+                            f"{base64.b64encode(image.data).decode('ascii')}"
+                        )
+                    },
+                }
+                for image in m.images
+            )
+        else:
+            content = m.content
+        msg: dict[str, Any] = {"role": m.role, "content": content}
         if m.tool_call_id:
             msg["tool_call_id"] = m.tool_call_id
         if m.tool_calls:

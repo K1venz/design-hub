@@ -27,6 +27,24 @@ _EDIT_SOURCE_RE = re.compile(r"明确选定编辑底图 source_image_key=([^\s�
 _EDIT_INTENT_WORDS = ("改", "换", "调整", "重做", "变成")
 _SUPPORTED_RATIOS = frozenset({"1:1", "3:4", "4:3", "9:16", "16:9"})
 _DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7}
+_REVERSE_PROMPT_RESULT = {
+    "summary": "一张待分析的商品图片",
+    "subject": "画面中的主要商品",
+    "scene": "简洁的商品展示场景",
+    "composition": "商品位于画面主体位置",
+    "camera": "平视角度的商品摄影",
+    "lighting": "均匀柔和的展示光线",
+    "colors": ["商品原有配色", "中性背景色"],
+    "style": "写实商业商品摄影",
+    "visible_text": [],
+    "constraints": ["保持商品主体、比例和主要外观不变"],
+    "uncertainties": ["Mock 模式不执行真实视觉识别，结果仅用于联调"],
+    "prompt_zh": "写实商业商品摄影，主体清晰，构图简洁，柔和均匀光线",
+    "prompt_en": (
+        "Realistic commercial product photography, clear subject, "
+        "clean composition, soft even lighting"
+    ),
+}
 
 
 def _latest_user_text(messages: list[ChatMessage]) -> str:
@@ -80,11 +98,60 @@ class MockTextLLMProvider(TextLLMPort):
                 yield chunk
             return
 
+        required_tools = [tool for tool in tools if tool.required]
+        if (
+            len(required_tools) == 1
+            and required_tools[0].name == "return_reverse_prompt"
+        ):
+            yield ToolCallChunk((
+                ToolCall(
+                    id="mock_reverse_prompt_result",
+                    name="return_reverse_prompt",
+                    arguments=_REVERSE_PROMPT_RESULT,
+                ),
+            ))
+            return
+
         text = _latest_user_text(messages)
         uids = _available_uploads(messages)
         ratio = _ratio_from_text(text)
         user_text = text.partition("\n\n[系统备注]")[0]
         edit_source = _EDIT_SOURCE_RE.search(text)
+
+        if "反推提示词" in user_text or "反推这张" in user_text:
+            if uids:
+                yield ToolCallChunk((
+                    ToolCall(
+                        id="mock_reverse_prompt",
+                        name="reverse_prompt",
+                        arguments={
+                            "source": {
+                                "kind": "upload",
+                                "upload_id": uids[0],
+                            }
+                        },
+                    ),
+                ))
+                return
+            async for chunk in self._stream("请先添加一张需要分析的图片。"):
+                yield chunk
+            return
+
+        if "打开换背景" in user_text or "进入换背景" in user_text:
+            arguments: dict[str, object] = {"feature": "background_replace"}
+            if uids:
+                arguments["source"] = {
+                    "kind": "upload",
+                    "upload_id": uids[0],
+                }
+            yield ToolCallChunk((
+                ToolCall(
+                    id="mock_open_background",
+                    name="open_feature",
+                    arguments=arguments,
+                ),
+            ))
+            return
 
         if edit_source and any(word in user_text for word in _EDIT_INTENT_WORDS):
             async for chunk in self._stream("好的，我会基于你选中的图片继续调整。"):
@@ -97,6 +164,40 @@ class MockTextLLMProvider(TextLLMPort):
                         "source_image_key": edit_source.group(1),
                         "prompt": user_text,
                         "edit_mode": "delta",
+                    },
+                ),
+            ))
+            return
+
+        if "换背景" in user_text or "更换背景" in user_text:
+            if not uids:
+                async for chunk in self._stream("请先添加一张需要换背景的商品图。"):
+                    yield chunk
+                return
+            background: dict[str, str]
+            if len(uids) >= 2:
+                background = {
+                    "kind": "reference",
+                    "upload_id": uids[1],
+                    "instruction": user_text,
+                }
+            else:
+                background = {
+                    "kind": "description",
+                    "description": user_text,
+                }
+            async for chunk in self._stream("好的，我来帮你更换背景。"):
+                yield chunk
+            yield ToolCallChunk((
+                ToolCall(
+                    id="mock_replace_background",
+                    name="replace_background",
+                    arguments={
+                        "source": {
+                            "kind": "upload",
+                            "upload_id": uids[0],
+                        },
+                        "background": background,
                     },
                 ),
             ))
