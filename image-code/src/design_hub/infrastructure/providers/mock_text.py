@@ -86,6 +86,41 @@ class MockTextLLMProvider(TextLLMPort):
         user_text = text.partition("\n\n[系统备注]")[0]
         edit_source = _EDIT_SOURCE_RE.search(text)
 
+        if "反推提示词" in user_text or "反推这张" in user_text:
+            if uids:
+                yield ToolCallChunk((
+                    ToolCall(
+                        id="mock_reverse_prompt",
+                        name="reverse_prompt",
+                        arguments={
+                            "source": {
+                                "kind": "upload",
+                                "upload_id": uids[0],
+                            }
+                        },
+                    ),
+                ))
+                return
+            async for chunk in self._stream("请先添加一张需要分析的图片。"):
+                yield chunk
+            return
+
+        if "打开换背景" in user_text or "进入换背景" in user_text:
+            arguments: dict[str, object] = {"feature": "background_replace"}
+            if uids:
+                arguments["source"] = {
+                    "kind": "upload",
+                    "upload_id": uids[0],
+                }
+            yield ToolCallChunk((
+                ToolCall(
+                    id="mock_open_background",
+                    name="open_feature",
+                    arguments=arguments,
+                ),
+            ))
+            return
+
         if edit_source and any(word in user_text for word in _EDIT_INTENT_WORDS):
             async for chunk in self._stream("好的，我会基于你选中的图片继续调整。"):
                 yield chunk
@@ -97,6 +132,40 @@ class MockTextLLMProvider(TextLLMPort):
                         "source_image_key": edit_source.group(1),
                         "prompt": user_text,
                         "edit_mode": "delta",
+                    },
+                ),
+            ))
+            return
+
+        if "换背景" in user_text or "更换背景" in user_text:
+            if not uids:
+                async for chunk in self._stream("请先添加一张需要换背景的商品图。"):
+                    yield chunk
+                return
+            background: dict[str, str]
+            if len(uids) >= 2:
+                background = {
+                    "kind": "reference",
+                    "upload_id": uids[1],
+                    "instruction": user_text,
+                }
+            else:
+                background = {
+                    "kind": "description",
+                    "description": user_text,
+                }
+            async for chunk in self._stream("好的，我来帮你更换背景。"):
+                yield chunk
+            yield ToolCallChunk((
+                ToolCall(
+                    id="mock_replace_background",
+                    name="replace_background",
+                    arguments={
+                        "source": {
+                            "kind": "upload",
+                            "upload_id": uids[0],
+                        },
+                        "background": background,
                     },
                 ),
             ))

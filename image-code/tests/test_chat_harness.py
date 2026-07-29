@@ -28,6 +28,28 @@ def test_load_chat_knowledge_strips_comment_and_has_features() -> None:
     kb = load_chat_knowledge()
     assert "<!--" not in kb  # 维护者注释头不注入 LLM 上下文
     assert "商品套图" in kb and "暂不支持" in kb  # 功能地图 + 防编造段
+    assert "换背景" in kb and "反推提示词" in kb
+
+
+def test_chat_knowledge_removes_stale_capability_claims() -> None:
+    knowledge = load_chat_knowledge()
+
+    for stale in (
+        "按张扣积分",
+        "右上角「内测免费」",
+        "登录一般不会中途掉线",
+        "历史图和首页案例图都能看「配方」",
+        "AI 一键消除/智能扩图（预告中未上线）",
+    ):
+        assert stale not in knowledge
+    for current in (
+        "按张计入出图额度",
+        "仅商品套图任务支持一键复用",
+        "当前工作台选择器暂未提供 4:3",
+        "暂无专用按钮、画笔、蒙版",
+        "通用自然语言生图",
+    ):
+        assert current in knowledge
 
 
 def test_build_system_prompt_has_four_segments_and_embeds_knowledge() -> None:
@@ -55,6 +77,20 @@ def test_build_system_prompt_uses_determined_ratio_without_asking() -> None:
 def test_generate_tool_uses_determined_ratio() -> None:
     generate = next(tool for tool in _tool_specs() if tool.name == "generate")
     assert "确定比例由系统备注提供" in generate.description
+
+
+def test_chat_exposes_minimal_background_reverse_and_page_tools() -> None:
+    tools = {tool.name: tool for tool in _tool_specs()}
+
+    assert {
+        "replace_background",
+        "reverse_prompt",
+        "open_feature",
+    } <= tools.keys()
+    assert "quality" not in tools["replace_background"].parameters["properties"]
+    assert tools["open_feature"].parameters["properties"]["feature"]["const"] == (
+        "background_replace"
+    )
 
 
 def test_chat_write_tool_schemas_never_expose_listing_only_fields() -> None:
@@ -92,6 +128,20 @@ def test_system_prompt_separates_design_discussion_from_generation_intent() -> N
         "不得调用 generate、clone、edit",
         "不要把上传图片本身视为生图授权",
         "意图模糊",
+    ):
+        assert required in prompt
+
+
+def test_system_prompt_prefers_direct_execution_over_page_routing() -> None:
+    prompt = default_system_prompt()
+
+    for required in (
+        "replace_background",
+        "reverse_prompt",
+        "信息完整时直接调用",
+        "只追问缺失项",
+        "open_feature",
+        "不得用页面跳转代替直接执行",
     ):
         assert required in prompt
 

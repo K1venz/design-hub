@@ -33,7 +33,10 @@ from design_hub.ports.generation_work import (
     GenerationWorkRepository,
     JobSubmission,
 )
-from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.listing_query import (
+    GeneratedImageSource,
+    ListingHistoryQuery,
+)
 from design_hub.ports.upload_store import owns
 
 logger = logging.getLogger(__name__)
@@ -174,27 +177,10 @@ class ListingSubmissionService:
         model: ModelName = ModelName.GPT_IMAGE_2,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        source = None
-        if request.source.kind == "upload":
-            source_data = await self._load_owned_upload(
-                user_id,
-                request.source.upload_id,
-            )
-            ratio = closest_supported_ratio(source_data)
-        else:
-            source = await self.query.resolve_generated_image_source(
-                source_image_key=request.source.image_key,
-                user_id=user_id,
-            )
-            if source is None:
-                raise NotFoundError("源图不存在或无权访问，请重新选择后再试")
-            ratio = source.parent_ratio
-        if request.background.kind == "reference":
-            await self._load_owned_upload(
-                user_id,
-                request.background.upload_id,
-            )
-
+        source, ratio = await self._background_replace_context(
+            user_id=user_id,
+            request=request,
+        )
         admission = await self._admit()
         submission = self.planner.plan_background_replace(
             user_id=user_id,
@@ -215,6 +201,45 @@ class ListingSubmissionService:
             estimated_wait_seconds=admission.estimated_wait_seconds,
             replayed=result.replayed,
         )
+
+    async def validate_background_replace(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+    ) -> None:
+        await self._background_replace_context(
+            user_id=user_id,
+            request=request,
+        )
+
+    async def _background_replace_context(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+    ) -> tuple[GeneratedImageSource | None, str]:
+        source: GeneratedImageSource | None = None
+        if request.source.kind == "upload":
+            source_data = await self._load_owned_upload(
+                user_id,
+                request.source.upload_id,
+            )
+            ratio = closest_supported_ratio(source_data)
+        else:
+            source = await self.query.resolve_generated_image_source(
+                source_image_key=request.source.image_key,
+                user_id=user_id,
+            )
+            if source is None:
+                raise NotFoundError("源图不存在或无权访问，请重新选择后再试")
+            ratio = source.parent_ratio
+        if request.background.kind == "reference":
+            await self._load_owned_upload(
+                user_id,
+                request.background.upload_id,
+            )
+        return source, ratio
 
     def validate(
         self,
