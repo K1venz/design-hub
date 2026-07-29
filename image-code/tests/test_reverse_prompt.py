@@ -17,6 +17,7 @@ from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import AuthUser
+from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import get_current_user
 from design_hub.interface.api.routes import image_prompts
@@ -219,6 +220,37 @@ def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema() -> No
         assert llm.tools[0].required is True
         assert llm.messages[-1].images[0].data == _png()
         assert llm.messages[-1].images[0].media_type == "image/png"
+
+    asyncio.run(run())
+
+
+def test_reverse_uploaded_image_works_with_mock_text_provider() -> None:
+    async def run() -> None:
+        upload_id = f"{upload_ns('user-1')}/product.png"
+        service = ReversePromptService(
+            text_llm=MockTextLLMProvider(),
+            uploads=UploadService(
+                _Uploads({upload_id: (_png(), "image/png")})
+            ),
+            images=_Images(),
+            query=_Query(),
+        )
+
+        result = await service.reverse(
+            user_id="user-1",
+            request=ReversePromptRequest.model_validate(
+                {
+                    "source": {
+                        "kind": "upload",
+                        "upload_id": upload_id,
+                    }
+                }
+            ),
+        )
+
+        assert result.summary == "一张待分析的商品图片"
+        assert result.prompt_zh
+        assert result.prompt_en
 
     asyncio.run(run())
 
