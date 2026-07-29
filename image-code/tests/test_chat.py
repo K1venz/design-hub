@@ -201,6 +201,7 @@ class _FakeSubmission:
         history: SqlAlchemyListingHistory,
         query: SqlAlchemyListingHistoryQuery,
         events: _ReplayEvents,
+        uploads: UploadService,
     ) -> None:
         health = RedisHealthState(stale_after_seconds=60)
         health.mark_healthy(now=0)
@@ -208,6 +209,7 @@ class _FakeSubmission:
             planner=planner,
             repository=_NeverSubmitRepository(),  # type: ignore[arg-type]
             query=query,
+            uploads=uploads,
             redis_health=health,
             queue_snapshots=_ZeroQueue(),
             admission=QueueAdmissionController(
@@ -284,7 +286,7 @@ class _FakeSubmission:
         request_id: str,
         model: ModelName = ModelName.GPT_IMAGE_2,
     ) -> SubmissionReceipt:
-        source = await self._query.resolve_edit_source(
+        source = await self._query.resolve_generated_image_source(
             source_image_key=request.source_image_key,
             user_id=user_id,
         )
@@ -623,6 +625,7 @@ async def _infra(
         history=SqlAlchemyListingHistory(sf),
         query=query,
         events=events,
+        uploads=uploads,
     )
     return Infra(
         submission, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),

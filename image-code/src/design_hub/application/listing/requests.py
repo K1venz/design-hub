@@ -73,3 +73,51 @@ class EditRequest(BaseModel):
     modifiers: dict[str, str] = Field(default_factory=dict)
     # delta：必须缺省（继承父，显式传→400 矛盾输入）；full：None=继承父、显式=覆盖
     ratio: str | None = None
+
+
+class UploadImageSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["upload"]
+    upload_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class GeneratedImageSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["generated"]
+    image_key: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class DescriptionBackground(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["description"]
+    description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class ReferenceBackground(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["reference"]
+    upload_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    instruction: Annotated[str, StringConstraints(strip_whitespace=True)] = ""
+
+
+ImageSource = Annotated[
+    UploadImageSource | GeneratedImageSourceRequest,
+    Field(discriminator="kind"),
+]
+BackgroundSource = Annotated[
+    DescriptionBackground | ReferenceBackground,
+    Field(discriminator="kind"),
+]
+
+
+class BackgroundReplaceRequest(BaseModel):
+    """Dedicated background replacement without exposing provider controls."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: ImageSource
+    background: BackgroundSource

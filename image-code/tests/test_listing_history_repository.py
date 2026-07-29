@@ -8,6 +8,7 @@ from design_hub.domain.models import ListingJobImage, ListingJobStart
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
+from design_hub.infrastructure.db.models import GenerationItemRow
 
 
 async def _repositories() -> tuple[
@@ -133,15 +134,67 @@ def test_failed_image_sentinel_cannot_be_resolved_as_edit_source() -> None:
             error="卖点：provider_failed",
         )
 
-        source = await query.resolve_edit_source(
+        source = await query.resolve_generated_image_source(
             source_image_key="success.png",
             user_id="user-1",
         )
         assert source is not None
         assert source.parent_job_id == "root"
-        assert await query.resolve_edit_source(
+        assert await query.resolve_generated_image_source(
             source_image_key="",
             user_id="user-1",
         ) is None
+
+    asyncio.run(run())
+
+
+def test_history_derives_background_replace_label_from_generation_item() -> None:
+    async def run() -> None:
+        history, query, sessions = await _repositories()
+        await history.start(
+            _job(
+                "background",
+                n=1,
+                input_roles=("product",),
+            )
+        )
+        async with sessions.begin() as session:
+            session.add(
+                GenerationItemRow(
+                    id="item-background",
+                    job_id="background",
+                    sequence=1,
+                    image_type=None,
+                    render_tier="standard",
+                    operation_type="replace_background",
+                    final_prompt="replace the background",
+                    model="gpt-image-2",
+                    ratio="1:1",
+                    size="1024x1024",
+                    quality=None,
+                    seed=0,
+                    reference_snapshot=[],
+                    reserved_cost=Decimal("0.05"),
+                    status="queued",
+                    operation_id="operation-background",
+                    attempt_count=0,
+                )
+            )
+
+        summary = (
+            await query.list_jobs(
+                user_id="user-1",
+                limit=10,
+                offset=0,
+            )
+        )[0]
+        detail = await query.get_job(
+            job_id="background",
+            user_id="user-1",
+        )
+
+        assert summary.operation_type == "replace_background"
+        assert detail is not None
+        assert detail.operation_type == "replace_background"
 
     asyncio.run(run())

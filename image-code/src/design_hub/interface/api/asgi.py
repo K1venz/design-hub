@@ -125,6 +125,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         planner=planner,
         repository=SqlAlchemyGenerationWorkRepository(session_factory),
         query=app.state.listing_query,
+        uploads=app.state.upload_service,
         redis_health=redis_health,
         queue_snapshots=RedisQueueSnapshotReader(
             client=health_client,
