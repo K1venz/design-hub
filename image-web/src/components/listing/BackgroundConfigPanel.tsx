@@ -45,7 +45,7 @@ export function BackgroundConfigPanel({
           <div>
             <h4 className="text-[13px] font-bold">商品源图</h4>
             <p className="mt-0.5 text-[11.5px] text-wb-ink-7">
-              保留商品本身，只替换背景
+              适合主体清晰、背景可分离的商品图
             </p>
           </div>
           <span className="rounded-full bg-wb-tint-1 px-2 py-0.5 text-[10.5px] font-medium text-wb-brand-deep">
@@ -69,6 +69,9 @@ export function BackgroundConfigPanel({
             onChange={(images) => onSourceUpload(images[0] ?? null)}
           />
         )}
+        <p className="mt-2.5 rounded-lg bg-wb-surface-2 px-3 py-2 text-[11px] leading-relaxed text-wb-ink-7">
+          包装文字会尽量保留；海报大段文案和复杂排版可能变化。
+        </p>
 
         <h4 className="mb-2.5 mt-5 text-[13px] font-bold">目标背景</h4>
         <div className="grid grid-cols-2 gap-2 rounded-xl bg-wb-surface-4 p-1">

@@ -136,6 +136,8 @@ def _tool_specs() -> list[ToolSpec]:
         ToolSpec(
             "replace_background",
             "专用换背景。需要一张商品源图，以及背景文字描述或背景参考图。"
+            "适合主体清晰、背景可分离的商品图；包装文字尽量保留，但不能保证像素级保真，"
+            "大面积海报文案和复杂排版可能变化。该边界不增加额外确认："
             "信息完整且用户明确要求执行时直接调用；不要改用通用 edit，也不要引导用户跳页面。",
             BackgroundReplaceRequest.model_json_schema(),
         ),
