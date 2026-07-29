@@ -1,4 +1,4 @@
-// 「帮我设计」对话域（ISSUE-0048 方案 C，契约 docs/帮我设计-chat-agent-技术契约-0048.md）。
+// 「帮我设计」对话域（ISSUE-0048 方案 C）。
 // 纯类型 + 事件解析 + 状态 reducer；无 React/IO——单测在 chat.test.ts。
 // job 出图事件 = 服务端「包一层」转发 listing TaskEvent，前端复用 parseListingEvent 渲染。
 
