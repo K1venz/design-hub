@@ -10,7 +10,7 @@ from design_hub.infrastructure.db.models import (
     ListingJobRow,
 )
 from design_hub.ports.listing_query import (
-    EditSource,
+    GeneratedImageSource,
     ListingHistoryQuery,
     ListingJobDetail,
     ListingJobImageView,
@@ -39,7 +39,10 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                 stmt.order_by(desc(ListingJobRow.created_at), desc(ListingJobRow.id))
                 .limit(limit)
                 .offset(offset)
-                .options(selectinload(ListingJobRow.images))
+                .options(
+                    selectinload(ListingJobRow.images),
+                    selectinload(ListingJobRow.generation_items),
+                )
             )
             rows = list((await session.execute(stmt)).scalars().all())
         return [
@@ -66,6 +69,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             image_count=len(successes),
             edit_mode=r.edit_mode,
             category=r.category,
+            operation_type=SqlAlchemyListingHistoryQuery._operation_type_of(r),
         )
 
     async def get_job(self, *, job_id: str, user_id: str) -> ListingJobDetail | None:
@@ -74,7 +78,9 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                 select(ListingJobRow)
                 .where(ListingJobRow.id == job_id, ListingJobRow.user_id == user_id)
                 .options(
-                    selectinload(ListingJobRow.images), selectinload(ListingJobRow.inputs)
+                    selectinload(ListingJobRow.images),
+                    selectinload(ListingJobRow.inputs),
+                    selectinload(ListingJobRow.generation_items),
                 )
             )
             row = (await session.execute(stmt)).scalar_one_or_none()
@@ -124,7 +130,21 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             source_image_key=row.source_image_key,
             source_image_type=source_image_type,
             chain_cost=chain_cost,
+            operation_type=self._operation_type_of(row),
         )
+
+    @staticmethod
+    def _operation_type_of(row: ListingJobRow) -> str | None:
+        if not row.generation_items:
+            return None
+        operation_types = {
+            item.operation_type for item in row.generation_items
+        }
+        if len(operation_types) != 1:
+            raise RuntimeError(
+                f"任务 {row.id} 包含不一致的操作类型（数据异常）"
+            )
+        return operation_types.pop()
 
     async def _chain_cost(self, session: AsyncSession, row: ListingJobRow) -> Decimal:
         """迭代链累计（R5）：路径上各编辑单 total_cost + 根单被编辑「源张」单张 cost。
@@ -161,9 +181,9 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             break
         return total
 
-    async def resolve_edit_source(
+    async def resolve_generated_image_source(
         self, *, source_image_key: str, user_id: str
-    ) -> EditSource | None:
+    ) -> GeneratedImageSource | None:
         async with self._session_factory() as session:
             # 一条谓词同时完成：owner 过滤（D1 第一核）/失败张排除（Q-δ）/内容寻址多行收敛
             stmt = (
@@ -206,7 +226,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
         if not anchors:
             # 不可能态：根 job 必有产品输入（历史写入强制）；缺=数据异常，fail-fast 500
             raise RuntimeError(f"链根 {root.id} 无产品输入（数据异常）")
-        return EditSource(
+        return GeneratedImageSource(
             parent_job_id=parent.id,
             parent_ratio=parent.ratio,
             parent_modifiers={str(k): str(v) for k, v in parent.modifiers.items()},

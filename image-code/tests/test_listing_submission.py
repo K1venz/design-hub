@@ -13,6 +13,7 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
@@ -22,6 +23,7 @@ from design_hub.application.listing.submission_service import (
     SubmissionReceipt,
 )
 from design_hub.application.listing.task_planner import ListingTaskPlanner
+from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.tasking.health import (
     AdmissionRejected,
     QueueAdmissionController,
@@ -46,8 +48,8 @@ from design_hub.ports.generation_work import (
     JobSubmission,
     SubmitResult,
 )
-from design_hub.ports.listing_query import EditSource, ListingHistoryQuery
-from design_hub.ports.upload_store import upload_ns
+from design_hub.ports.listing_query import GeneratedImageSource, ListingHistoryQuery
+from design_hub.ports.upload_store import UploadStore, upload_ns
 
 
 def _planner() -> ListingTaskPlanner:
@@ -184,7 +186,7 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
         modifiers={"language": "英文"},
         ratio="4:3",
     )
-    source = EditSource(
+    source = GeneratedImageSource(
         parent_job_id="parent-1",
         parent_ratio="1:1",
         parent_modifiers={"platform": "抖音电商", "language": "中文"},
@@ -244,6 +246,21 @@ class _SubmissionService:
             raise self.error
         return self.receipt
 
+    async def submit_background_replace(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> SubmissionReceipt:
+        self.keys.append(idempotency_key)
+        if self.error is not None:
+            raise self.error
+        return self.receipt
+
 
 class _OwnerQuery(ListingHistoryQuery):
     def __init__(self, owned: bool) -> None:
@@ -262,10 +279,18 @@ class _OwnerQuery(ListingHistoryQuery):
     async def get_job(self, *, job_id: str, user_id: str) -> object | None:
         return object() if self.owned else None
 
-    async def resolve_edit_source(
+    async def resolve_generated_image_source(
         self, *, source_image_key: str, user_id: str
-    ) -> EditSource | None:
+    ) -> GeneratedImageSource | None:
         return None
+
+
+class _UnusedUploads(UploadStore):
+    async def save(self, data: bytes, *, content_type: str, user_id: str) -> str:
+        raise AssertionError("save is not used")
+
+    async def load(self, upload_id: str) -> tuple[bytes, str]:
+        raise AssertionError("load is not used")
 
 
 class _ReplayStream(ReplayableEventStream):
@@ -336,6 +361,29 @@ def test_listing_submission_requires_idempotency_key_and_returns_202_metadata() 
         "estimated_wait_seconds": 12,
     }
     assert service.keys == ["request-1"]
+
+
+def test_background_replace_route_uses_shared_submission_contract() -> None:
+    client, service, _stream = _http_client()
+
+    response = client.post(
+        "/listing/background-replace",
+        headers={"Idempotency-Key": "background-1"},
+        json={
+            "source": {
+                "kind": "upload",
+                "upload_id": f"{upload_ns('1')}/product.png",
+            },
+            "background": {
+                "kind": "description",
+                "description": "明亮咖啡店",
+            },
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["job_id"] == "job-accepted"
+    assert service.keys == ["background-1"]
 
 
 def test_listing_submission_maps_conflict_and_capacity_failures() -> None:
@@ -423,6 +471,7 @@ def _submission_service(
         planner=_planner(),
         repository=repository,  # type: ignore[arg-type]
         query=_OwnerQuery(True),
+        uploads=UploadService(_UnusedUploads()),
         redis_health=health,
         queue_snapshots=snapshots,
         admission=QueueAdmissionController(

@@ -30,6 +30,7 @@ class ListingJobSummary:
     image_count: int
     edit_mode: str | None = None  # delta|full；None=原生单（列表 ✎ 徽标，PRD §3.12.13 B③）
     category: str | None = None  # 品类档（ISSUE-0060）；None=编辑单/旧数据
+    operation_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,11 +61,12 @@ class ListingJobDetail:
     source_image_key: str | None = None  # Out 层签 url 作「改自这张」回显
     source_image_type: str | None = None  # 源张图型（「改自·场景图」徽标）
     chain_cost: Decimal | None = None  # 迭代链累计：根计源张单张 cost（R5）+ 路径编辑单成本
+    operation_type: str | None = None
 
 
 @dataclass(frozen=True)
-class EditSource:
-    """编辑源图反解结果（ISSUE-0040 写路径校验）：一次反解出全部父上下文。"""
+class GeneratedImageSource:
+    """Owner-scoped generated image context shared by edit operations."""
 
     parent_job_id: str
     parent_ratio: str
@@ -88,10 +90,10 @@ class ListingHistoryQuery(ABC):
         ...
 
     @abstractmethod
-    async def resolve_edit_source(
+    async def resolve_generated_image_source(
         self, *, source_image_key: str, user_id: str
-    ) -> EditSource | None:
-        """二次编辑反解（E-δ）：key→源行(本人∧成功∧最新)→父 job→沿链核 owner→链根产品锚。
+    ) -> GeneratedImageSource | None:
+        """生成图反解：key→源行(本人∧成功∧最新)→父 job→沿链核 owner→链根产品锚。
 
         任一环不满足 → None（路由 404 anti-enum，不区分 不存在/他人/失败张）。
         """

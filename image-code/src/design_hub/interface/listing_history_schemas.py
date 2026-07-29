@@ -19,6 +19,7 @@ class ListingJobSummaryOut(BaseModel):
     image_count: int
     edit_mode: str | None = None  # delta|full；None=原生单（列表 ✎ 徽标，ISSUE-0040）
     category: str | None = None  # 品类档（ISSUE-0060）；None=编辑单/旧数据
+    operation_type: str | None = None
 
     @classmethod
     def of(cls, s: ListingJobSummary, signer: MediaUrlSigner) -> "ListingJobSummaryOut":
@@ -36,6 +37,7 @@ class ListingJobSummaryOut(BaseModel):
             image_count=s.image_count,
             edit_mode=s.edit_mode,
             category=s.category,
+            operation_type=s.operation_type,
         )
 
 
@@ -79,6 +81,7 @@ class ListingJobDetailOut(BaseModel):
     source_image_url: str | None = None  # 「改自这张」只读回显（签名 url）
     source_image_type: str | None = None  # 「改自·场景图」徽标
     chain_cost: Decimal | None = None  # 迭代链累计（R5：根计源张单张 cost + 路径编辑单）
+    operation_type: str | None = None
 
     @classmethod
     def of(cls, d: ListingJobDetail, signer: MediaUrlSigner) -> "ListingJobDetailOut":
@@ -118,4 +121,5 @@ class ListingJobDetailOut(BaseModel):
             ),
             source_image_type=d.source_image_type,
             chain_cost=d.chain_cost,
+            operation_type=d.operation_type,
         )

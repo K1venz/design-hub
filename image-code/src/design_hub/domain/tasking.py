@@ -12,6 +12,7 @@ class OperationType(StrEnum):
     GENERATE_IMAGE = "generate_image"
     CLONE_IMAGE = "clone_image"
     EDIT_IMAGE = "edit_image"
+    REPLACE_BACKGROUND = "replace_background"
 
 
 class RenderTier(StrEnum):

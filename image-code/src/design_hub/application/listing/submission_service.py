@@ -4,17 +4,22 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import uuid4
 
+from design_hub.application.listing.background_replacement import (
+    closest_supported_ratio,
+)
 from design_hub.application.listing.listing_service import build_listing_prompts
 from design_hub.application.listing.prompt_composer import (
     compose_clone_prompt,
 )
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
 )
 from design_hub.application.listing.sizing import generation_size
 from design_hub.application.listing.task_planner import ListingTaskPlanner
+from design_hub.application.listing.upload_service import UploadService
 from design_hub.application.tasking.health import (
     AdmissionRejected,
     AdmissionResult,
@@ -51,6 +56,7 @@ class ListingSubmissionService:
     planner: ListingTaskPlanner
     repository: GenerationWorkRepository
     query: ListingHistoryQuery
+    uploads: UploadService
     redis_health: RedisHealthState
     queue_snapshots: QueueSnapshotReader
     admission: QueueAdmissionController
@@ -131,7 +137,7 @@ class ListingSubmissionService:
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
         self.validate(user_id, request, model=model)
-        source = await self.query.resolve_edit_source(
+        source = await self.query.resolve_generated_image_source(
             source_image_key=request.source_image_key,
             user_id=user_id,
         )
@@ -142,6 +148,59 @@ class ListingSubmissionService:
             user_id=user_id,
             request=request,
             source=source,
+            job_id=self.id_factory(),
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            model=model,
+        )
+        result = await self.repository.submit(submission)
+        self._log_submission(submission, result.replayed)
+        return SubmissionReceipt(
+            job_id=result.job_id,
+            queue_state=admission.state,
+            estimated_wait_seconds=admission.estimated_wait_seconds,
+            replayed=result.replayed,
+        )
+
+    async def submit_background_replace(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> SubmissionReceipt:
+        self._require_idempotency_key(idempotency_key)
+        source = None
+        if request.source.kind == "upload":
+            source_data = await self._load_owned_upload(
+                user_id,
+                request.source.upload_id,
+            )
+            ratio = closest_supported_ratio(source_data)
+        else:
+            source = await self.query.resolve_generated_image_source(
+                source_image_key=request.source.image_key,
+                user_id=user_id,
+            )
+            if source is None:
+                raise NotFoundError("源图不存在或无权访问，请重新选择后再试")
+            ratio = source.parent_ratio
+        if request.background.kind == "reference":
+            await self._load_owned_upload(
+                user_id,
+                request.background.upload_id,
+            )
+
+        admission = await self._admit()
+        submission = self.planner.plan_background_replace(
+            user_id=user_id,
+            request=request,
+            source=source,
+            ratio=ratio,
             job_id=self.id_factory(),
             idempotency_key=idempotency_key,
             trace_id=trace_id,
@@ -241,6 +300,11 @@ class ListingSubmissionService:
     def _require_owned_uploads(user_id: str, upload_keys: tuple[str, ...]) -> None:
         if any(not owns(key, user_id) for key in upload_keys):
             raise NotFoundError("有图片找不到或无权访问，请重新上传后再试")
+
+    async def _load_owned_upload(self, user_id: str, upload_key: str) -> bytes:
+        self._require_owned_uploads(user_id, (upload_key,))
+        data, _content_type = await self.uploads.load(upload_key)
+        return data
 
     @staticmethod
     def _log_submission(

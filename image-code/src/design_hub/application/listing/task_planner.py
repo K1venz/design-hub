@@ -3,6 +3,9 @@ import json
 from dataclasses import asdict, dataclass
 from uuid import uuid4
 
+from design_hub.application.listing.background_replacement import (
+    compose_background_replace_prompt,
+)
 from design_hub.application.listing.listing_service import build_listing_prompts
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -14,6 +17,7 @@ from design_hub.application.listing.prompt_composer import (
     compose_edit_prompt,
 )
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
@@ -30,7 +34,7 @@ from design_hub.domain.tasking import (
     RenderTier,
 )
 from design_hub.ports.generation_work import JobSubmission
-from design_hub.ports.listing_query import EditSource
+from design_hub.ports.listing_query import GeneratedImageSource
 
 
 def _fingerprint(payload: dict[str, object]) -> str:
@@ -203,7 +207,7 @@ class ListingTaskPlanner:
         *,
         user_id: str,
         request: EditRequest,
-        source: EditSource,
+        source: GeneratedImageSource,
         job_id: str,
         idempotency_key: str,
         trace_id: str,
@@ -275,6 +279,108 @@ class ListingTaskPlanner:
                 "operation_type": "edit",
                 "request": request.model_dump(mode="json"),
                 "source": asdict(source),
+                "model": model.value,
+            },
+        )
+
+    def plan_background_replace(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+        source: GeneratedImageSource | None,
+        ratio: str,
+        job_id: str,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName,
+    ) -> JobSubmission:
+        upload_keys: list[str] = []
+        input_roles: list[str] = []
+        if request.source.kind == "generated":
+            if source is None:
+                raise ValueError("generated source context is required")
+            references = [
+                ReferenceSnapshot(
+                    source=ReferenceSource.GENERATED,
+                    object_key=request.source.image_key,
+                    role="source",
+                    order=0,
+                )
+            ]
+            parent_job_id = source.parent_job_id
+            source_image_key = request.source.image_key
+        else:
+            if source is not None:
+                raise ValueError("upload source must not have generated context")
+            references = [
+                ReferenceSnapshot(
+                    source=ReferenceSource.UPLOAD,
+                    object_key=request.source.upload_id,
+                    role="product",
+                    order=0,
+                )
+            ]
+            upload_keys.append(request.source.upload_id)
+            input_roles.append("product")
+            parent_job_id = None
+            source_image_key = None
+        if request.background.kind == "reference":
+            references.append(
+                ReferenceSnapshot(
+                    source=ReferenceSource.UPLOAD,
+                    object_key=request.background.upload_id,
+                    role="background",
+                    order=1,
+                )
+            )
+            upload_keys.append(request.background.upload_id)
+            input_roles.append("background")
+
+        final_prompt = compose_background_replace_prompt(request.background)
+        size = generation_size(model, ratio)
+        item = self._item(
+            sequence=1,
+            image_type=None,
+            operation_type=OperationType.REPLACE_BACKGROUND,
+            final_prompt=final_prompt,
+            model=model,
+            ratio=ratio,
+            size=size,
+            quality=None,
+            seed=0,
+            references=tuple(references),
+        )
+        user_prompt = (
+            request.background.description
+            if request.background.kind == "description"
+            else request.background.instruction
+        )
+        job = ListingJobStart(
+            job_id=job_id,
+            user_id=user_id,
+            prompt=user_prompt,
+            modifiers={},
+            ratio=ratio,
+            size=f"{size[0]}x{size[1]}",
+            n=1,
+            upload_keys=tuple(upload_keys),
+            input_roles=tuple(input_roles),
+            parent_job_id=parent_job_id,
+            source_image_key=source_image_key,
+        )
+        return self._submission(
+            job=job,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            items=(item,),
+            fingerprint_payload={
+                "operation_type": "background_replace",
+                "request": request.model_dump(mode="json"),
+                "source": asdict(source) if source is not None else None,
+                "ratio": ratio,
                 "model": model.value,
             },
         )

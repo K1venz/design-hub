@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, Request, status
 from fastapi.responses import StreamingResponse
 
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
@@ -140,6 +141,30 @@ async def edit_listing(
     """二次编辑（PRD §3.12.13/ISSUE-0040）：基于本人产出图迭代（delta 微调 / full 重做）。"""
     trace_id, request_id = _correlation_ids(request)
     receipt = await _submission_service(request).submit_edit(
+        user_id=user.user_id,
+        request=req,
+        idempotency_key=_idempotency_key(idempotency_key),
+        trace_id=trace_id,
+        request_id=request_id,
+    )
+    return _submission_out(receipt)
+
+
+@router.post(
+    "/background-replace",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ListingSubmissionOut,
+)
+async def replace_listing_background(
+    req: BackgroundReplaceRequest,
+    request: Request,
+    user: CurrentUserDep,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key")
+    ] = None,
+) -> ListingSubmissionOut:
+    trace_id, request_id = _correlation_ids(request)
+    receipt = await _submission_service(request).submit_background_replace(
         user_id=user.user_id,
         request=req,
         idempotency_key=_idempotency_key(idempotency_key),
