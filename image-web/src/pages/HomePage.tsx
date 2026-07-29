@@ -9,9 +9,7 @@ import { ShowcaseDetailDialog } from '@/components/listing/ShowcaseDetailDialog'
 import { useShowcase, type ShowcaseItem } from '@/api/showcase'
 import { cn } from '@/lib/utils'
 import { useInView } from '@/lib/use-in-view'
-import {
-  TOOL_BANNERS, TOOL_TILES, SHOWCASE_PLACEHOLDERS,
-} from '@/lib/home'
+import { TOOL_BANNERS, TOOL_TILES } from '@/lib/home'
 import { showcaseRecipeToPrefill } from '@/lib/recipe'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -123,7 +121,7 @@ function ToolSection() {
   )
 }
 
-// ── ④ 成果展示区：卡片栅格 + 纵向分批懒加载（进视口拉 /showcase；空/错回落占位）──
+// Load near the viewport, but render the section only after real items arrive.
 // 栅格列数与移动端断点一体：手机 1→2 / 平板 3 / 桌面 4。13 张分两批(7+6)，底部哨兵进视口显现下一批。
 const SHOWCASE_GRID = 'grid grid-cols-1 gap-4 min-[440px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
 const SHOWCASE_BATCH = 7
@@ -157,48 +155,31 @@ function ShowcaseSection() {
     return () => io.disconnect()
   }, [more])
 
+  if (!real) {
+    return <div ref={ref} className="h-px w-full" aria-hidden />
+  }
+
   return (
-    <section ref={ref} className="mt-14">
-      <SectionHead title="看看实朴出的图" sub="实朴真实出品 · 一键做同款" />
-      {real ? (
-        <>
-          <div className={SHOWCASE_GRID}>
-            {real.slice(0, shown).map((s, i) => (
-              <ShowcaseCard key={i} item={s} onMakeSame={() => makeSame(s.recipe)} />
-            ))}
-            {more &&
-              Array.from({ length: Math.min(SHOWCASE_BATCH, real.length - shown) }).map((_, i) => (
-                <ShowcaseSkeleton key={`sk-${i}`} />
-              ))}
-          </div>
-          {more && <div ref={sentinelRef} className="h-1 w-full" aria-hidden />}
-        </>
-      ) : (
-        // 未进视口 / 加载中 / 空 / 错 → 占位卡（不阻塞首屏）
+    <>
+      <div ref={ref} className="h-px w-full" aria-hidden />
+      <section className="mt-14">
+        <SectionHead title="看看实朴出的图" sub="实朴真实出品 · 一键做同款" />
         <div className={SHOWCASE_GRID}>
-          {SHOWCASE_PLACEHOLDERS.map((s) => (
-            <figure
-              key={s.key}
-              className="overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
-            >
-              <div className="relative aspect-[4/3] bg-wb-surface-3">
-                {inView && showcase.isLoading ? (
-                  <div className="size-full animate-pulse bg-wb-surface-4" />
-                ) : (
-                  <div className="grid size-full place-items-center bg-gradient-to-br from-wb-tint-1 to-wb-surface-3 text-[12px] font-medium text-wb-faint-1">
-                    案例即将上线
-                  </div>
-                )}
-                <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
-                  {s.tag}
-                </span>
-              </div>
-              <figcaption className="px-3 py-2.5 text-[12.5px] font-medium text-wb-ink-3">{s.title}</figcaption>
-            </figure>
+          {real.slice(0, shown).map((item, index) => (
+            <ShowcaseCard
+              key={index}
+              item={item}
+              onMakeSame={() => makeSame(item.recipe)}
+            />
           ))}
+          {more &&
+            Array.from({ length: Math.min(SHOWCASE_BATCH, real.length - shown) }).map((_, index) => (
+              <ShowcaseSkeleton key={`sk-${index}`} />
+            ))}
         </div>
-      )}
-    </section>
+        {more && <div ref={sentinelRef} className="h-1 w-full" aria-hidden />}
+      </section>
+    </>
   )
 }
 

@@ -6,6 +6,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HomePage } from './HomePage'
 
 const mockUseShowcase = vi.hoisted(() => vi.fn())
+const realShowcaseItem = {
+  url: 'https://img.example.com/peanut.png',
+  image_type: '场景',
+  caption: '花生礼盒早餐场景',
+  recipe: {
+    category: '食品',
+    ratio: '1:1',
+    plan: { scene: 1 },
+    styling: '自然暖光',
+    modifiers: {},
+  },
+}
 
 vi.mock('@/api/showcase', () => ({
   useShowcase: mockUseShowcase,
@@ -25,10 +37,19 @@ function renderHome() {
   )
 }
 
+function setShowcaseState(state: Record<string, unknown>) {
+  mockUseShowcase.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    ...state,
+  })
+}
+
 describe('HomePage', () => {
   beforeEach(() => {
     mockUseShowcase.mockReset()
-    mockUseShowcase.mockReturnValue({ data: undefined })
+    setShowcaseState({ isLoading: true })
   })
 
   it('renders one guided chat entry and only real tool destinations', () => {
@@ -48,5 +69,28 @@ describe('HomePage', () => {
     expect(html).not.toContain('生活使用场景 · 有氛围')
     expect(html).not.toContain('AI 消除')
     expect(html).not.toContain('智能扩图')
+  })
+
+  it.each([
+    ['loading', { isLoading: true }],
+    ['empty', { data: [] }],
+    ['error', { isError: true, error: new Error('showcase unavailable') }],
+  ])('hides the showcase when its state is %s', (_name, state) => {
+    setShowcaseState(state)
+
+    const html = renderHome()
+
+    expect(html).not.toContain('看看实朴出的图')
+    expect(html).not.toContain('案例即将上线')
+  })
+
+  it('renders the showcase when real content exists', () => {
+    setShowcaseState({ data: [realShowcaseItem] })
+
+    const html = renderHome()
+
+    expect(html).toContain('看看实朴出的图')
+    expect(html).toContain('花生礼盒早餐场景')
+    expect(html).not.toContain('案例即将上线')
   })
 })
