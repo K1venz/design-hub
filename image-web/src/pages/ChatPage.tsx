@@ -2,11 +2,21 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ImagePlusIcon, Loader2Icon, SendIcon, SparklesIcon, WandSparklesIcon, XIcon } from 'lucide-react'
+import {
+  ArrowRightIcon,
+  ImagePlusIcon,
+  Loader2Icon,
+  ScanSearchIcon,
+  SendIcon,
+  SparklesIcon,
+  WandSparklesIcon,
+  XIcon,
+} from 'lucide-react'
 
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
+import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialog'
 import { AppShell } from '@/components/layout/AppShell'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
 import { useListingJob, useUploadImage } from '@/api/listing'
@@ -15,33 +25,19 @@ import {
   initialChatState, pushUserMessage,
   sessionMessagesToBubbles, shouldShowChatWelcome, shouldSubmitChatInput,
   type ChatBubble, type ChatEditSource, type ChatPreviewImage, type ChatState,
-  type CostConfirm,
+  type ChatActionCard, type CostConfirm,
 } from '@/lib/chat'
+import type { ImageToolSource } from '@/lib/image-tools'
 import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
+import { uploadIdPreviewUrl, uploadPreviewUrl } from '@/lib/upload'
 import { useAuthStore } from '@/stores/auth-store'
 
 const PHASE_LABEL: Record<string, string> = {
   understood: '已理解需求',
   planning: '正在规划',
   generating: '正在出图',
+  analyzing: '正在分析图片',
   done: '完成',
-}
-
-/**
- * 上传预览 url：后端 UploadResponse.url = "/uploads/{id}"（后端相对路径），前端需经
- * 代理前缀 /api 才能到后端（同 useListingEvents 的 "/api/listing/.../events" 先例），
- * 且 /uploads 代理路由鉴权走 ?access_token=（原生 <img> 不能带 Bearer 头，ISSUE-0011）。
- * 已是完整/签名 url（http…）则原样返回。
- */
-function uploadPreviewUrl(url: string): string {
-  if (!url.startsWith('/uploads/')) return url
-  const token = useAuthStore.getState().token
-  return `/api${url}${token ? `?access_token=${encodeURIComponent(token)}` : ''}`
-}
-
-/** 回显：转录只存 attachment 的 upload id，还原成可鉴权预览 url。 */
-function uploadIdPreviewUrl(uploadId: string): string {
-  return uploadPreviewUrl(`/uploads/${uploadId}`)
 }
 
 /**
@@ -52,11 +48,14 @@ export function ChatPage() {
   const [params] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const token = useAuthStore((auth) => auth.token)
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
   const [selectedEditSource, setSelectedEditSource] = useState<ChatEditSource | null>(null)
   const [previewImage, setPreviewImage] = useState<ChatPreviewImage | null>(null)
+  const [reverseSource, setReverseSource] =
+    useState<ImageToolSource | null>(null)
   const upload = useUploadImage()
   const qc = useQueryClient()
   const abortRef = useRef<AbortController | null>(null)
@@ -79,7 +78,9 @@ export function ChatPage() {
       setState({
         ...initialChatState(),
         sessionId: detail.id,
-        bubbles: sessionMessagesToBubbles(detail.messages, uploadIdPreviewUrl),
+        bubbles: sessionMessagesToBubbles(detail.messages, (id) =>
+          uploadIdPreviewUrl(id, token),
+        ),
       }),
     onError: (e) => toast.error(e instanceof Error ? e.message : '加载会话失败'),
   })
@@ -89,6 +90,7 @@ export function ChatPage() {
     abortRef.current?.abort()
     setSelectedEditSource(null)
     setPreviewImage(null)
+    setReverseSource(null)
     loadSession.mutate(id)
   }
 
@@ -100,6 +102,7 @@ export function ChatPage() {
     setAttached([])
     setSelectedEditSource(null)
     setPreviewImage(null)
+    setReverseSource(null)
   }
 
   function selectEditSource(source: ChatEditSource) {
@@ -111,11 +114,43 @@ export function ChatPage() {
     setSelectedEditSource(source)
   }
 
+  function openBackground(source: ChatEditSource) {
+    navigate('/background', {
+      state: {
+        prefill: {
+          source_kind: 'generated',
+          source_id: source.imageKey,
+          source_url: source.url,
+        },
+      },
+    })
+  }
+
+  function openActionCard(action: ChatActionCard) {
+    navigate('/background', { state: { prefill: action.prefill } })
+  }
+
+  function reverseGeneratedImage(source: ChatEditSource) {
+    setReverseSource({
+      kind: 'generated',
+      imageKey: source.imageKey,
+      previewUrl: source.url,
+    })
+  }
+
   async function send(message: string, uploadIds?: string[]) {
     const text = message.trim()
     if (!text || stateRef.current.streaming || stateRef.current.awaiting) return
     const consumed = consumeChatEditSource(selectedEditSource)
-    setState((prev) => pushUserMessage(prev, text, uploadIds && uploadIds.length ? attached.map((a) => uploadPreviewUrl(a.url)) : undefined))
+    setState((prev) =>
+      pushUserMessage(
+        prev,
+        text,
+        uploadIds && uploadIds.length
+          ? attached.map((image) => uploadPreviewUrl(image.url, token))
+          : undefined,
+      ),
+    )
     setDraft('')
     setAttached([])
     setSelectedEditSource(consumed.nextSelection)
@@ -226,12 +261,19 @@ export function ChatPage() {
 
             {state.bubbles.map((b, i) => (
               <Fragment key={i}>
-                <Bubble bubble={b} awaiting={state.awaiting} onResolve={resolveConfirm} />
+                <Bubble
+                  bubble={b}
+                  awaiting={state.awaiting}
+                  onResolve={resolveConfirm}
+                  onOpenAction={openActionCard}
+                />
                 {b.jobId && (
                   <JobResult
                     jobId={b.jobId}
                     onPreview={setPreviewImage}
                     onEdit={selectEditSource}
+                    onBackground={openBackground}
+                    onReversePrompt={reverseGeneratedImage}
                   />
                 )}
               </Fragment>
@@ -242,6 +284,8 @@ export function ChatPage() {
                 state={state}
                 onPreview={setPreviewImage}
                 onEdit={selectEditSource}
+                onBackground={openBackground}
+                onReversePrompt={reverseGeneratedImage}
               />
             )}
 
@@ -289,7 +333,7 @@ export function ChatPage() {
               <div className="mb-1.5 flex gap-2 px-1">
                 {attached.map((a, i) => (
                   <span key={a.id} className="relative">
-                    <img src={uploadPreviewUrl(a.url)} alt="" className="size-12 rounded-lg border border-wb-line-1 object-cover" />
+                    <img src={uploadPreviewUrl(a.url, token)} alt="" className="size-12 rounded-lg border border-wb-line-1 object-cover" />
                     <button
                       onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
                       className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-wb-ink-2 text-white"
@@ -323,14 +367,28 @@ export function ChatPage() {
               className="h-[72px] w-full resize-none bg-transparent px-3 py-2 text-[14px] leading-relaxed text-wb-ink-2 outline-none placeholder:text-wb-faint-1 disabled:opacity-60"
             />
             <div className="flex items-center justify-between px-1">
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={busy || attached.length >= 3}
-                className="flex items-center gap-1.5 rounded-full border border-wb-line-1 bg-white/70 px-3 py-1.5 text-[12.5px] font-medium text-wb-ink-4 transition-colors hover:border-wb-brand-soft hover:text-wb-brand-deep disabled:opacity-50"
-              >
-                {upload.isPending ? <Loader2Icon className="size-4 animate-spin" /> : <ImagePlusIcon className="size-4" />}
-                添加图片
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  disabled={busy || attached.length >= 3}
+                  className="flex items-center gap-1.5 rounded-full border border-wb-line-1 bg-white/70 px-3 py-1.5 text-[12.5px] font-medium text-wb-ink-4 transition-colors hover:border-wb-brand-soft hover:text-wb-brand-deep disabled:opacity-50"
+                >
+                  {upload.isPending ? <Loader2Icon className="size-4 animate-spin" /> : <ImagePlusIcon className="size-4" />}
+                  添加图片
+                </button>
+                {attached.length === 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void send('反推这张图的提示词', [attached[0].id])
+                    }
+                    disabled={busy}
+                    className="flex items-center gap-1.5 rounded-full border border-wb-brand-soft bg-wb-tint-3 px-3 py-1.5 text-[12.5px] font-medium text-wb-brand-deep disabled:opacity-50"
+                  >
+                    <ScanSearchIcon className="size-4" /> 反推提示词
+                  </button>
+                )}
+              </div>
               <input
                 ref={fileRef}
                 type="file"
@@ -357,16 +415,21 @@ export function ChatPage() {
         }}
         onEdit={selectEditSource}
       />
+      <ReversePromptDialog
+        source={reverseSource}
+        onClose={() => setReverseSource(null)}
+      />
     </AppShell>
   )
 }
 
 function Bubble({
-  bubble, awaiting, onResolve,
+  bubble, awaiting, onResolve, onOpenAction,
 }: {
   bubble: ChatBubble
   awaiting: CostConfirm | null
   onResolve: (action: 'confirm' | 'cancel', c: CostConfirm) => void
+  onOpenAction: (action: ChatActionCard) => void
 }) {
   if (bubble.role === 'user') {
     return (
@@ -406,6 +469,16 @@ function Bubble({
         )}
         {bubble.text && <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-wb-ink-2">{bubble.text}</p>}
         {bubble.cost && <CostCard cost={bubble.cost} active={activeCost !== null} onResolve={onResolve} />}
+        {bubble.action && (
+          <button
+            type="button"
+            onClick={() => onOpenAction(bubble.action!)}
+            className="flex w-full items-center justify-between rounded-xl border border-wb-brand-soft bg-wb-tint-3 px-3.5 py-3 text-left text-[13px] font-semibold text-wb-brand-deep transition-colors hover:bg-wb-tint-1"
+          >
+            {bubble.action.label}
+            <ArrowRightIcon className="size-4" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -455,10 +528,14 @@ function JobResult({
   jobId,
   onPreview,
   onEdit,
+  onBackground,
+  onReversePrompt,
 }: {
   jobId: string
   onPreview: (image: ChatPreviewImage) => void
   onEdit: (source: ChatEditSource) => void
+  onBackground: (source: ChatEditSource) => void
+  onReversePrompt: (source: ChatEditSource) => void
 }) {
   const query = useListingJob(jobId)
   if (query.isLoading) {
@@ -484,6 +561,8 @@ function JobResult({
       total={slots.length}
       onPreview={onPreview}
       onEdit={onEdit}
+      onBackground={onBackground}
+      onReversePrompt={onReversePrompt}
     />
   )
 }
@@ -492,10 +571,14 @@ function CurrentJobResult({
   state,
   onPreview,
   onEdit,
+  onBackground,
+  onReversePrompt,
 }: {
   state: ChatState
   onPreview: (image: ChatPreviewImage) => void
   onEdit: (source: ChatEditSource) => void
+  onBackground: (source: ChatEditSource) => void
+  onReversePrompt: (source: ChatEditSource) => void
 }) {
   const stableJobId = !state.streaming ? state.activeJobId ?? undefined : undefined
   const job = useListingJob(stableJobId)
@@ -509,6 +592,8 @@ function CurrentJobResult({
       total={job.data ? slots.length : state.jobTotal}
       onPreview={onPreview}
       onEdit={onEdit}
+      onBackground={onBackground}
+      onReversePrompt={onReversePrompt}
     />
   )
 }

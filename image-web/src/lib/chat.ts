@@ -5,8 +5,15 @@
 import { parseListingEvent, type ListingEvent } from '@/lib/listing'
 import type { ResultSlot } from '@/components/listing/ResultGallery'
 import type { components } from '@/api/schema'
+import type { BackgroundWorkbenchPrefill } from '@/lib/image-tools'
 
-export type ChatTool = 'generate' | 'clone' | 'edit'
+export type ChatTool = 'generate' | 'clone' | 'edit' | 'replace_background'
+
+export interface ChatActionCard {
+  feature: 'background_replace'
+  label: string
+  prefill: BackgroundWorkbenchPrefill
+}
 
 export interface ChatPreviewImage {
   url: string
@@ -65,6 +72,7 @@ export type ChatEvent =
   | { kind: 'error'; code: string; message: string }
   | { kind: 'job_started'; jobId: string; tool: ChatTool; count: number }
   | { kind: 'job'; jobId: string; inner: ListingEvent; imageType?: string }
+  | { kind: 'action_card'; action: ChatActionCard }
   | { kind: 'unknown' }
 
 /**
@@ -111,6 +119,19 @@ export function parseChatEvent(type: string, rawData: string): ChatEvent {
       const inner = parseListingEvent(innerType, innerData)
       return { kind: 'job', jobId: String(d.job_id ?? ''), inner, imageType: inner.kind === 'image' ? inner.imageType : undefined }
     }
+    case 'action_card': {
+      if (d.feature !== 'background_replace') {
+        throw new Error(`未知操作卡：${String(d.feature)}`)
+      }
+      return {
+        kind: 'action_card',
+        action: {
+          feature: 'background_replace',
+          label: String(d.label ?? '打开换背景工作台'),
+          prefill: (d.prefill ?? {}) as BackgroundWorkbenchPrefill,
+        },
+      }
+    }
     default:
       return { kind: 'unknown' }
   }
@@ -125,6 +146,7 @@ export interface ChatBubble {
   tools: ChatTool[]
   /** assistant 气泡携带的费用确认卡（awaiting）；确认/取消后清。 */
   cost?: CostConfirm
+  action?: ChatActionCard
   ended?: boolean
   /** 回显专用：该 assistant 气泡对应的出图 job（转录只存 job_id，图靠 useListingJob 现签）。 */
   jobId?: string
@@ -146,7 +168,7 @@ export interface ChatState {
 }
 
 export const CHAT_WELCOME_COPY =
-  '我可以基于你上传的图片制作全品类主图、场景图、卖点图、海报、Logo/品牌视觉，也支持爆款复刻和连续编辑。普通出图支持多种比例；如需 4K，请在需求中明确写出“4K”，4K 当前仅支持 16:9 横版。上传至少 1 张图片，再告诉我想做什么即可。'
+  '上传图片并告诉我想完成什么即可；你也可以直接问我平台目前支持哪些功能。'
 
 export interface ChatInputKey {
   key: string
@@ -221,6 +243,11 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
       const { bubbles, idx } = ensureAssistant(state)
       bubbles[idx] = { ...bubbles[idx], cost: ev.confirm }
       return { ...state, bubbles, awaiting: ev.confirm }
+    }
+    case 'action_card': {
+      const { bubbles, idx } = ensureAssistant(state)
+      bubbles[idx] = { ...bubbles[idx], action: ev.action }
+      return { ...state, bubbles }
     }
     case 'assistant_end': {
       const i = lastAssistant(state.bubbles)
