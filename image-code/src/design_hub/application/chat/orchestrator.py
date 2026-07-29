@@ -34,8 +34,15 @@ from design_hub.application.chat.tool_requests import (
     ChatCloneRequest,
     ChatEditRequest,
     ChatGenerateRequest,
+    ChatOpenFeatureRequest,
+)
+from design_hub.application.image_prompts.reverse_prompt import (
+    ReversePromptRequest,
+    ReversePromptService,
+    format_reverse_prompt,
 )
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
@@ -98,7 +105,9 @@ class ChatEvent:
 
 
 # 工具化架构（A3）：写/花钱工具过费用闸（护栏①）；读工具即时执行、owner-scoped（护栏③）。
-_WRITE_TOOLS = frozenset({"generate", "clone", "edit"})
+_WRITE_TOOLS = frozenset(
+    {"generate", "clone", "edit", "replace_background"}
+)
 _READ_TOOLS = frozenset({"query_my_jobs", "get_job_recipe", "get_pricing_quota"})
 _MAX_TOOL_ITERS = 5  # 读工具回喂循环上限（防 LLM 无限调工具）
 
@@ -123,6 +132,24 @@ def _tool_specs() -> list[ToolSpec]:
             "edit",
             "二次编辑已产出的图。需 source_image_key + 编辑指令；用户未明确要改哪张/怎么改先追问。",
             ChatEditRequest.model_json_schema(),
+        ),
+        ToolSpec(
+            "replace_background",
+            "专用换背景。需要一张商品源图，以及背景文字描述或背景参考图。"
+            "信息完整且用户明确要求执行时直接调用；不要改用通用 edit，也不要引导用户跳页面。",
+            BackgroundReplaceRequest.model_json_schema(),
+        ),
+        ToolSpec(
+            "reverse_prompt",
+            "分析一张上传图或平台生成图，返回结构化画面分析和中英文重建提示词。"
+            "用户明确要求反推提示词时调用；不产生图片、不走费用确认。",
+            ReversePromptRequest.model_json_schema(),
+        ),
+        ToolSpec(
+            "open_feature",
+            "仅当用户主动要求打开页面，或明确需要在页面精细调整换背景参数时调用。"
+            "信息完整且用户要求直接换背景时不得调用。",
+            ChatOpenFeatureRequest.model_json_schema(),
         ),
         ToolSpec(
             "query_my_jobs",
@@ -224,6 +251,7 @@ class ChatOrchestrator:
     query: ListingHistoryQuery  # 读工具：出图历史/配方（owner-scoped，护栏③）
     ledger: LedgerRepository  # 读工具：额度真数据
     model_config: ModelConfigRepository  # 读工具：价格/启用模型实时值（波动信息走工具，#1043）
+    reverse_prompt: ReversePromptService
     max_session_jobs: int = 5  # 会话级出图闸（#884②）
     # 四段 system prompt（persona/知识库/工具契约/守则，A3）：启动组装缓存，可注入便于测试
     system_prompt: str = field(default_factory=default_system_prompt)
@@ -314,6 +342,83 @@ class ChatOrchestrator:
                 return
 
             call = tool_calls[0]  # MVP：一轮一工具
+            if call.name == "reverse_prompt":
+                yield ChatEvent(
+                    "step",
+                    {"phase": "analyzing", "detail": "正在分析图片"},
+                )
+                try:
+                    reverse_request = ReversePromptRequest.model_validate(
+                        call.arguments
+                    )
+                    reverse_result = await self.reverse_prompt.reverse(
+                        user_id=user.user_id,
+                        request=reverse_request,
+                    )
+                except (
+                    ValueError,
+                    NotFoundError,
+                    TextLLMError,
+                    UploadReadError,
+                ) as exc:
+                    text = f"暂时无法反推这张图：{exc}"
+                    yield ChatEvent("assistant_delta", {"text": text})
+                    await self.chat_repo.append_message(
+                        session_id=session_id,
+                        role="assistant",
+                        content=text,
+                    )
+                    yield ChatEvent(
+                        "assistant_end",
+                        {"status": "complete"},
+                    )
+                    return
+                rendered = format_reverse_prompt(reverse_result)
+                yield ChatEvent("assistant_delta", {"text": rendered})
+                await self.chat_repo.append_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=rendered,
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+
+            if call.name == "open_feature":
+                try:
+                    feature_request = ChatOpenFeatureRequest.model_validate(
+                        call.arguments
+                    )
+                    await self._validate_feature_prefill(
+                        user,
+                        feature_request,
+                    )
+                except (ValueError, NotFoundError, UploadReadError) as exc:
+                    text = f"暂时无法打开这个功能：{exc}"
+                    yield ChatEvent("assistant_delta", {"text": text})
+                    await self.chat_repo.append_message(
+                        session_id=session_id,
+                        role="assistant",
+                        content=text,
+                    )
+                    yield ChatEvent(
+                        "assistant_end",
+                        {"status": "complete"},
+                    )
+                    return
+                text = "已为你填好现有信息，可以进入换背景工作台继续调整。"
+                yield ChatEvent("assistant_delta", {"text": text})
+                yield ChatEvent(
+                    "action_card",
+                    self._feature_action_card(feature_request),
+                )
+                await self.chat_repo.append_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=text,
+                )
+                yield ChatEvent("assistant_end", {"status": "complete"})
+                return
+
             if call.name in _READ_TOOLS:  # 读工具：owner-scoped 即时执行回喂（护栏③；不落库）
                 for text in assistant_chunks:
                     yield ChatEvent("assistant_delta", {"text": text})
@@ -331,6 +436,11 @@ class ChatOrchestrator:
             yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
             try:
                 rendering = decide_chat_rendering(message, auto_ratio)
+                if (
+                    call.name == "replace_background"
+                    and rendering.model is ModelName.GPT_IMAGE_2_4K
+                ):
+                    raise ValueError("换背景当前只支持普通分辨率，不支持 4K。")
                 normalized_args = self._prepare_write_args(
                     call.name, call.arguments, rendering.ratio, edit_source_image_key
                 )
@@ -388,11 +498,17 @@ class ChatOrchestrator:
                 return
             try:
                 # 与出图同一校验源（#884⑤/护栏②）：非法参数进费用闸前拦下转澄清；文案已是用户话术。
-                self.submission.validate(
-                    user.user_id,
-                    req,
-                    model=rendering.model,
-                )
+                if isinstance(req, BackgroundReplaceRequest):
+                    await self.submission.validate_background_replace(
+                        user_id=user.user_id,
+                        request=req,
+                    )
+                else:
+                    self.submission.validate(
+                        user.user_id,
+                        req,
+                        model=rendering.model,
+                    )
             except (ValueError, NotFoundError) as exc:
                 clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
                 yield ChatEvent("assistant_delta", {"text": clar})
@@ -606,6 +722,19 @@ class ChatOrchestrator:
                 model=pending.model,
             )
             return receipt.job_id
+        if (
+            pending.tool == "replace_background"
+            and isinstance(req, BackgroundReplaceRequest)
+        ):
+            receipt = await self.submission.submit_background_replace(
+                user_id=user.user_id,
+                request=req,
+                idempotency_key=pending.confirm_token,
+                trace_id=trace_id,
+                request_id=request_id,
+                model=pending.model,
+            )
+            return receipt.job_id
         raise ValueError(f"未知工具：{pending.tool}")
 
     async def _model_available(self, model: ModelName) -> bool:
@@ -710,6 +839,8 @@ class ChatOrchestrator:
         edit_source_image_key: str | None,
     ) -> dict[str, Any]:
         normalized = dict(args)
+        if tool == "replace_background":
+            return normalized
         if tool in {"generate", "clone"}:
             normalized["ratio"] = ratio.require_supported()
             return normalized
@@ -728,18 +859,31 @@ class ChatOrchestrator:
     @staticmethod
     def _parse_req(
         tool: str, args: dict[str, Any]
-    ) -> ListingGenerateRequest | CloneRequest | EditRequest:
+    ) -> (
+        ListingGenerateRequest
+        | CloneRequest
+        | EditRequest
+        | BackgroundReplaceRequest
+    ):
         if tool == "generate":
             return ChatGenerateRequest(**args).to_listing()
         if tool == "clone":
             return ChatCloneRequest(**args).to_listing()
         if tool == "edit":
             return ChatEditRequest(**args).to_listing()
+        if tool == "replace_background":
+            return BackgroundReplaceRequest.model_validate(args)
         raise ValueError(f"未知工具：{tool}")
 
     @staticmethod
     def _count(
-        tool: str, req: ListingGenerateRequest | CloneRequest | EditRequest
+        tool: str,
+        req: (
+            ListingGenerateRequest
+            | CloneRequest
+            | EditRequest
+            | BackgroundReplaceRequest
+        ),
     ) -> int:
         if tool == "generate" and isinstance(req, ListingGenerateRequest):
             if req.n is not None:
@@ -747,6 +891,63 @@ class ChatOrchestrator:
             if req.plan is not None:
                 return sum(req.plan.values())
         return 1
+
+    async def _validate_feature_prefill(
+        self,
+        user: AuthUser,
+        request: ChatOpenFeatureRequest,
+    ) -> None:
+        if request.source is not None:
+            if request.source.kind == "upload":
+                if not owns(request.source.upload_id, user.user_id):
+                    raise NotFoundError("商品图不存在或无权访问")
+                await self.uploads.load(request.source.upload_id)
+            else:
+                source = await self.query.resolve_generated_image_source(
+                    source_image_key=request.source.image_key,
+                    user_id=user.user_id,
+                )
+                if source is None:
+                    raise NotFoundError("商品图不存在或无权访问")
+        if (
+            request.background is not None
+            and request.background.kind == "reference"
+        ):
+            if not owns(request.background.upload_id, user.user_id):
+                raise NotFoundError("背景图不存在或无权访问")
+            await self.uploads.load(request.background.upload_id)
+
+    @staticmethod
+    def _feature_action_card(
+        request: ChatOpenFeatureRequest,
+    ) -> dict[str, Any]:
+        prefill: dict[str, Any] = {}
+        if request.source is not None:
+            prefill["source_kind"] = request.source.kind
+            prefill["source_id"] = (
+                request.source.upload_id
+                if request.source.kind == "upload"
+                else request.source.image_key
+            )
+        if request.background is not None:
+            prefill["background_kind"] = request.background.kind
+            if request.background.kind == "description":
+                prefill["background_description"] = (
+                    request.background.description
+                )
+            else:
+                prefill["background_reference_id"] = (
+                    request.background.upload_id
+                )
+                if request.background.instruction:
+                    prefill["background_instruction"] = (
+                        request.background.instruction
+                    )
+        return {
+            "feature": "background_replace",
+            "label": "打开换背景工作台",
+            "prefill": prefill,
+        }
 
     @staticmethod
     def _err_code(exc: Exception) -> str:

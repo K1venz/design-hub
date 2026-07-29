@@ -10,13 +10,19 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
 )
 from design_hub.domain.enums import ModelName
 
-ListingReq = ListingGenerateRequest | CloneRequest | EditRequest
+ListingReq = (
+    ListingGenerateRequest
+    | CloneRequest
+    | EditRequest
+    | BackgroundReplaceRequest
+)
 
 
 @dataclass
@@ -24,7 +30,7 @@ class PendingAction:
     """待用户确认的出图动作（费用闸暂停态）。"""
 
     confirm_token: str
-    tool: str  # generate | clone | edit
+    tool: str  # generate | clone | edit | replace_background
     req: ListingReq
     count: int
     estimate: Decimal

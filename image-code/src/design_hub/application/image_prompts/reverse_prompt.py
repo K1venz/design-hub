@@ -130,6 +130,31 @@ class ReversePromptService:
         return await self.images.load(request.source.image_key)
 
 
+def format_reverse_prompt(result: ReversePromptResult) -> str:
+    visible_text = "、".join(result.visible_text) or "未识别到明确文字"
+    constraints = "\n".join(f"- {item}" for item in result.constraints) or "- 无"
+    uncertainties = (
+        "\n".join(f"- {item}" for item in result.uncertainties)
+        or "- 无"
+    )
+    colors = "、".join(result.colors) or "未提取"
+    return (
+        f"画面概述：{result.summary}\n"
+        f"主体：{result.subject}\n"
+        f"场景：{result.scene}\n"
+        f"构图：{result.composition}\n"
+        f"镜头：{result.camera}\n"
+        f"光线：{result.lighting}\n"
+        f"色彩：{colors}\n"
+        f"风格：{result.style}\n"
+        f"可见文字：{visible_text}\n\n"
+        f"重建约束：\n{constraints}\n\n"
+        f"不确定项：\n{uncertainties}\n\n"
+        f"中文提示词：\n{result.prompt_zh}\n\n"
+        f"English prompt:\n{result.prompt_en}"
+    )
+
+
 async def _collect_tool_calls(
     chunks: AsyncIterator[LLMChunk],
 ) -> tuple[ToolCall, ...]:

@@ -166,6 +166,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         query=app.state.listing_query,
         ledger=ledger,
         model_config=model_config_repo,
+        reverse_prompt=app.state.reverse_prompt_service,
         max_session_jobs=settings.chat_session_max_jobs,
     )
     app.state.model_config_service = model_config_service

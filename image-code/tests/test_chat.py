@@ -23,6 +23,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
 from design_hub.application.chat.ratio_intent import decide_chat_ratio
+from design_hub.application.image_prompts.reverse_prompt import (
+    ReversePromptService,
+)
+from design_hub.application.listing.background_replacement import (
+    closest_supported_ratio,
+)
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
@@ -31,6 +37,7 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.listing.requests import (
+    BackgroundReplaceRequest,
     CloneRequest,
     EditRequest,
     ListingGenerateRequest,
@@ -61,6 +68,7 @@ from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionReposito
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
+from design_hub.infrastructure.storage.local import LocalImageStore
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import ReplayableEvent
@@ -223,6 +231,7 @@ class _FakeSubmission:
         self._history = history
         self._query = query
         self._events = events
+        self._uploads = uploads
         self.calls: list[ModelName] = []
 
     def validate(
@@ -296,6 +305,54 @@ class _FakeSubmission:
             user_id=user_id,
             request=request,
             source=source,
+            job_id=uuid.uuid4().hex,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            request_id=request_id,
+            model=model,
+        )
+        return await self._complete(submission, model)
+
+    async def validate_background_replace(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+    ) -> None:
+        await self._validator.validate_background_replace(
+            user_id=user_id,
+            request=request,
+        )
+
+    async def submit_background_replace(
+        self,
+        *,
+        user_id: str,
+        request: BackgroundReplaceRequest,
+        idempotency_key: str,
+        trace_id: str,
+        request_id: str,
+        model: ModelName = ModelName.GPT_IMAGE_2,
+    ) -> SubmissionReceipt:
+        if request.source.kind == "upload":
+            data, _content_type = await self._uploads.load(
+                request.source.upload_id
+            )
+            source = None
+            ratio = closest_supported_ratio(data)
+        else:
+            source = await self._query.resolve_generated_image_source(
+                source_image_key=request.source.image_key,
+                user_id=user_id,
+            )
+            if source is None:
+                raise NotFoundError("源图不存在或无权访问，请重新选择后再试")
+            ratio = source.parent_ratio
+        submission = self._planner.plan_background_replace(
+            user_id=user_id,
+            request=request,
+            source=source,
+            ratio=ratio,
             job_id=uuid.uuid4().hex,
             idempotency_key=idempotency_key,
             trace_id=trace_id,
@@ -380,6 +437,43 @@ class StubTextLLM(TextLLMPort):
             yield TextChunk(text)
         if calls:
             yield ToolCallChunk(calls)
+
+
+_REVERSE_RESULT = {
+    "summary": "暖色咖啡店中的商品摄影",
+    "subject": "银白色无线耳机充电盒",
+    "scene": "现代咖啡店木质桌面",
+    "composition": "商品居中偏下，背景虚化",
+    "camera": "接近平视的中近景产品摄影",
+    "lighting": "左前方柔和自然光",
+    "colors": ["暖棕色", "银白色"],
+    "style": "写实商业产品摄影",
+    "visible_text": [],
+    "constraints": ["保持商品比例和金属材质"],
+    "uncertainties": ["无法仅根据图片确定真实焦段"],
+    "prompt_zh": "银白色无线耳机充电盒置于咖啡店木桌上",
+    "prompt_en": "A silver wireless earbud charging case on a cafe table",
+}
+
+
+class _ReverseTextLLM(TextLLMPort):
+    is_live = True
+
+    async def complete(
+        self,
+        *,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
+    ) -> AsyncIterator[LLMChunk]:
+        yield ToolCallChunk(
+            (
+                ToolCall(
+                    id="reverse-result",
+                    name="return_reverse_prompt",
+                    arguments=_REVERSE_RESULT,
+                ),
+            )
+        )
 
 
 class ChunkedTextLLM(TextLLMPort):
@@ -575,6 +669,7 @@ class Infra:
     ledger: LedgerRepository
     model_config: _FakeModelConfig
     max_session_jobs: int
+    reverse_prompt: ReversePromptService
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
         return ChatOrchestrator(
@@ -587,6 +682,7 @@ class Infra:
             pending=self.pending,
             query=self.query, ledger=self.ledger, model_config=self.model_config,
             max_session_jobs=self.max_session_jobs,
+            reverse_prompt=self.reverse_prompt,
         )
 
 
@@ -627,6 +723,12 @@ async def _infra(
         events=events,
         uploads=uploads,
     )
+    reverse_prompt = ReversePromptService(
+        text_llm=_ReverseTextLLM(),
+        uploads=uploads,
+        images=LocalImageStore(tmp),
+        query=query,
+    )
     return Infra(
         submission, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
         PendingStore(), query, ledger,
@@ -638,6 +740,7 @@ async def _infra(
             include_four_k=include_four_k,
         ),
         max_session_jobs,
+        reverse_prompt,
     )
 
 
@@ -678,6 +781,160 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
         assert await inf.chat_repo.job_count(sid) == 0
         t = await inf.chat_repo.get_transcript(sid, USER.user_id)
         assert t is not None and [m.role for m in t.messages] == ["user"]
+
+    asyncio.run(_impl())
+
+
+def test_background_replace_goes_directly_to_cost_confirmation(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        upload_id = await inf.uploads.save(
+            data=_image_bytes(900, 1200),
+            content_type="image/png",
+            user_id=USER.user_id,
+        )
+        call = (
+            ToolCall(
+                id="background-1",
+                name="replace_background",
+                arguments={
+                    "source": {
+                        "kind": "upload",
+                        "upload_id": upload_id,
+                    },
+                    "background": {
+                        "kind": "description",
+                        "description": "明亮的现代咖啡店",
+                    },
+                },
+            ),
+        )
+        orchestrator = inf.orch(StubTextLLM(("", call)))
+
+        planned = await _drain(
+            orchestrator.handle_message(
+                USER,
+                None,
+                "把这张商品图换成明亮咖啡店背景",
+                [upload_id],
+            )
+        )
+
+        assert _first(planned, "tool_call")["tool"] == "replace_background"
+        confirmation = _first(planned, "cost_confirm")
+        assert confirmation["count"] == 1
+        assert confirmation["unit_cost"] == "0.05"
+        assert confirmation["args"]["background"]["description"] == (
+            "明亮的现代咖啡店"
+        )
+        session_id = _first(planned, "session")["session_id"]
+        confirmed = await _drain(
+            orchestrator.handle_confirm(
+                USER,
+                session_id,
+                confirmation["confirm_token"],
+                "confirm",
+            )
+        )
+        assert _first(confirmed, "job_started")["tool"] == "replace_background"
+
+    asyncio.run(_impl())
+
+
+def test_reverse_prompt_returns_server_rendered_text_without_cost_gate(
+    tmp_path,
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        upload_id = await inf.uploads.save(
+            data=_image_bytes(1024, 1024),
+            content_type="image/png",
+            user_id=USER.user_id,
+        )
+        call = (
+            ToolCall(
+                id="reverse-1",
+                name="reverse_prompt",
+                arguments={
+                    "source": {
+                        "kind": "upload",
+                        "upload_id": upload_id,
+                    }
+                },
+            ),
+        )
+
+        events = await _drain(
+            inf.orch(StubTextLLM(("", call))).handle_message(
+                USER,
+                None,
+                "反推这张图的提示词",
+                [upload_id],
+            )
+        )
+
+        types = [event_type for event_type, _data in events]
+        assert "cost_confirm" not in types
+        assert "tool_call" not in types
+        text = "".join(
+            data.get("text", "")
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+        assert "中文提示词" in text
+        assert _REVERSE_RESULT["prompt_zh"] in text
+        assert events[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
+def test_open_feature_emits_prefilled_action_card_without_submitting(
+    tmp_path,
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        upload_id = await inf.uploads.save(
+            data=_image_bytes(1024, 1024),
+            content_type="image/png",
+            user_id=USER.user_id,
+        )
+        call = (
+            ToolCall(
+                id="open-1",
+                name="open_feature",
+                arguments={
+                    "feature": "background_replace",
+                    "source": {
+                        "kind": "upload",
+                        "upload_id": upload_id,
+                    },
+                    "background": {
+                        "kind": "description",
+                        "description": "极简摄影棚",
+                    },
+                },
+            ),
+        )
+
+        events = await _drain(
+            inf.orch(StubTextLLM(("", call))).handle_message(
+                USER,
+                None,
+                "打开换背景页面，我想仔细调整",
+                [upload_id],
+            )
+        )
+
+        card = _first(events, "action_card")
+        assert card["feature"] == "background_replace"
+        assert card["prefill"] == {
+            "source_kind": "upload",
+            "source_id": upload_id,
+            "background_kind": "description",
+            "background_description": "极简摄影棚",
+        }
+        assert "cost_confirm" not in [event_type for event_type, _ in events]
+        assert inf.submission.calls == []
 
     asyncio.run(_impl())
 
@@ -1420,6 +1677,7 @@ def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
         inf2 = Infra(
             inf.submission, inf.uploads, inf.registry, inf.events, inf.chat_repo,
             PendingStore(), inf.query, inf.ledger, inf.model_config, inf.max_session_jobs,
+            inf.reverse_prompt,
         )
         t = await inf2.chat_repo.get_transcript(sid, USER.user_id)
         assert t is not None
