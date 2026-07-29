@@ -93,6 +93,20 @@ def test_chat_exposes_minimal_background_reverse_and_page_tools() -> None:
     )
 
 
+def test_chat_describes_background_replacement_fidelity_boundary() -> None:
+    knowledge = load_chat_knowledge()
+    tool = next(item for item in _tool_specs() if item.name == "replace_background")
+
+    for required in (
+        "主体清晰、背景可分离",
+        "包装文字尽量保留",
+        "大面积文案",
+        "复杂排版",
+    ):
+        assert required in knowledge
+    assert "不能保证像素级保真" in tool.description
+
+
 def test_chat_write_tool_schemas_never_expose_listing_only_fields() -> None:
     for name in ("generate", "clone", "edit"):
         tool = next(item for item in _tool_specs() if item.name == name)
