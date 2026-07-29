@@ -42,19 +42,3 @@ export const TOOL_TILES: ToolTile[] = [
   { key: 'edit', to: '/history', label: '二次编辑', desc: '从历史选一张再改', icon: SquarePenIcon },
   { key: 'history', to: '/history', label: '出图历史', desc: '回看与重新下载', icon: HistoryIcon },
 ]
-
-/** 成果展示区占位案例（首发占位内容，懒加载；后续填真实案例）。 */
-export interface ShowcaseItem {
-  key: string
-  title: string
-  tag: string
-}
-
-export const SHOWCASE_PLACEHOLDERS: ShowcaseItem[] = [
-  { key: 's1', title: '花生礼盒 · 整套套图', tag: '套图' },
-  { key: 's2', title: '零食袋 · 爆款复刻', tag: '复刻' },
-  { key: 's3', title: '坚果罐 · 场景图', tag: '场景' },
-  { key: 's4', title: '糖果 · 白底主图', tag: '白底' },
-  { key: 's5', title: '茶饮 · 卖点图', tag: '卖点' },
-  { key: 's6', title: '干货 · 二次编辑', tag: '编辑' },
-]
