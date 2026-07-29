@@ -20,6 +20,20 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class ChatImage:
+    """Image bytes attached to a multimodal user message."""
+
+    data: bytes
+    media_type: str
+
+    def __post_init__(self) -> None:
+        if not self.data:
+            raise ValueError("chat image data must not be empty")
+        if self.media_type not in {"image/png", "image/jpeg", "image/webp"}:
+            raise ValueError(f"unsupported chat image media type: {self.media_type}")
+
+
+@dataclass(frozen=True)
 class ChatMessage:
     """对话消息（OpenAI chat 协议对齐）。tool 结果用 role='tool'+tool_call_id。"""
 
@@ -27,6 +41,7 @@ class ChatMessage:
     content: str
     tool_call_id: str | None = None
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
+    images: tuple[ChatImage, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -36,6 +51,7 @@ class ToolSpec:
     name: str
     description: str
     parameters: dict[str, Any]
+    required: bool = False
 
 
 @dataclass(frozen=True)

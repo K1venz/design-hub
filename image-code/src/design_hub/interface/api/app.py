@@ -14,6 +14,7 @@ from design_hub.domain.errors import (
 )
 from design_hub.ports.generation_work import IdempotencyConflict
 from design_hub.ports.model_provider import ProviderError
+from design_hub.ports.text_llm import TextLLMError
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -50,6 +51,13 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _on_provider(request: Request, exc: ProviderError) -> JSONResponse:
         return JSONResponse(
             status_code=502, content={"error": "provider_failed", "detail": str(exc)}
+        )
+
+    @app.exception_handler(TextLLMError)
+    async def _on_text_llm(request: Request, exc: TextLLMError) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "text_llm_failed", "detail": str(exc)},
         )
 
     # 实体不存在（项目/需求单/素材）→ 404；比通用 DomainError(409) 更具体，优先匹配
