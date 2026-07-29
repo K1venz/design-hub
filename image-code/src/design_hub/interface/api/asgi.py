@@ -16,6 +16,9 @@ from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
+from design_hub.application.image_prompts.reverse_prompt import (
+    ReversePromptService,
+)
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
     CloneModeRegistry,
@@ -33,6 +36,7 @@ from design_hub.application.tasking.health import (
     RedisHealthState,
 )
 from design_hub.composition import (
+    build_image_store,
     build_media_signer,
     build_mock_registry,
     build_password_cipher,
@@ -73,6 +77,7 @@ from design_hub.interface.api.routes import (
     admin,
     auth,
     chat,
+    image_prompts,
     listing,
     showcase,
     uploads,
@@ -104,6 +109,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.media_signer = build_media_signer(settings)
     app.state.upload_service = UploadService(
         store=build_upload_store(settings)
+    )
+    text_llm = build_text_llm(settings)
+    app.state.reverse_prompt_service = ReversePromptService(
+        text_llm=text_llm,
+        uploads=app.state.upload_service,
+        images=build_image_store(settings),
+        query=app.state.listing_query,
     )
 
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
@@ -144,7 +156,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.chat_repo = SqlAlchemyChatSessionRepository(session_factory)
     app.state.chat_orchestrator = ChatOrchestrator(
-        text_llm=build_text_llm(settings),
+        text_llm=text_llm,
         submission=app.state.listing_submission,
         event_stream=app.state.event_stream,
         uploads=app.state.upload_service,
@@ -209,6 +221,7 @@ def create_production_app() -> FastAPI:
     app.include_router(auth.router)  # 公开：/auth/register、/auth/login；/me 自带 current_user
     # listing 一键出图主线：鉴权 Bearer + SSE ?access_token=（ISSUE-0011）
     app.include_router(listing.router)
+    app.include_router(image_prompts.router)
     # 「帮我设计」Agent 对话入口（方案 C）：POST /chat/messages + /chat/confirm，Bearer 头鉴权
     app.include_router(chat.router)
     # 图片上传两步流（ISSUE-0026）：POST /uploads + GET /uploads/{id} 预览代理

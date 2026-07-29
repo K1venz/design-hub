@@ -14,7 +14,14 @@ import httpx
 import pytest
 
 from design_hub.infrastructure.providers.openai_compat_text import OpenAICompatTextProvider
-from design_hub.ports.text_llm import ChatMessage, TextChunk, TextLLMError, ToolCallChunk, ToolSpec
+from design_hub.ports.text_llm import (
+    ChatImage,
+    ChatMessage,
+    TextChunk,
+    TextLLMError,
+    ToolCallChunk,
+    ToolSpec,
+)
 
 
 def _sse(*deltas: dict) -> bytes:
@@ -112,6 +119,68 @@ def test_extra_body_merged_into_payload() -> None:
     assert captured["payload"]["stream"] is True
     assert captured["payload"]["model"] == "ep-x"
     assert captured["payload"]["tool_choice"] == "auto"
+
+
+def test_image_message_serializes_real_bytes_as_data_url() -> None:
+    captured: dict = {}
+    provider = _provider(_sse({"content": "ok"}), captured=captured)
+
+    async def run() -> None:
+        chunks = [
+            chunk
+            async for chunk in provider.complete(
+                messages=[
+                    ChatMessage(
+                        role="user",
+                        content="分析这张图片",
+                        images=(
+                            ChatImage(
+                                data=b"\x89PNG\r\n\x1a\n",
+                                media_type="image/png",
+                            ),
+                        ),
+                    )
+                ],
+                tools=[],
+            )
+        ]
+        assert chunks == [TextChunk("ok")]
+
+    asyncio.run(run())
+
+    content = captured["payload"]["messages"][0]["content"]
+    assert content == [
+        {"type": "text", "text": "分析这张图片"},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/png;base64,iVBORw0KGgo="
+            },
+        },
+    ]
+
+
+def test_required_tool_is_forced_by_name() -> None:
+    captured: dict = {}
+    provider = _provider(
+        _sse(_tc_delta(id="result", name="return_result", args="{}")),
+        captured=captured,
+    )
+    tools = [
+        ToolSpec(
+            "return_result",
+            "Return the result",
+            {"type": "object", "properties": {}},
+            required=True,
+        )
+    ]
+
+    asyncio.run(_collect(provider, tools))
+
+    assert captured["payload"]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "return_result"},
+    }
 
 
 def test_non_2xx_raises_text_llm_error() -> None:
