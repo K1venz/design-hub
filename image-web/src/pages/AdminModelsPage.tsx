@@ -42,13 +42,13 @@ export function AdminModelsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold tracking-tight text-foreground">模型配置</h2>
-          <p className="text-sm text-muted-foreground">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-wb-ink-1">模型配置</h1>
+          <p className="mt-1 max-w-3xl text-xs text-wb-ink-6">
             配置出图渠道：新增备用中转站、设为默认渠道（断供时切换即恢复）、调价与启停。
-            真实密钥仅存服务端环境变量，此处只填「密钥变量」。仅管理者可见。
+            真实密钥仅存服务端环境变量，此处只填「密钥变量」。
           </p>
         </div>
         <ModelConfigDialog
@@ -62,12 +62,16 @@ export function AdminModelsPage() {
         />
       </div>
 
-      <Card className="overflow-hidden p-0">
+      <Card className="overflow-hidden border-white/80 bg-white/82 p-0">
         {models.isLoading ? (
           <div className="space-y-3 p-5">
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-10 w-full" />
             ))}
+          </div>
+        ) : models.isError ? (
+          <div className="py-16 text-center text-sm text-wb-red">
+            模型配置加载失败，请稍后重试。
           </div>
         ) : sorted.length > 0 ? (
           <div className="overflow-x-auto">

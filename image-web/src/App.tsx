@@ -15,6 +15,10 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminOverviewPage } from '@/pages/AdminOverviewPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
+import { AdminAuditPage } from '@/pages/AdminAuditPage'
+import { AdminGenerationDetailPage } from '@/pages/AdminGenerationDetailPage'
+import { AdminGenerationsPage } from '@/pages/AdminGenerationsPage'
+import { AdminUsagePage } from '@/pages/AdminUsagePage'
 import { BackgroundWorkbenchPage } from '@/pages/BackgroundWorkbenchPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { CloneWorkbenchPage } from '@/pages/CloneWorkbenchPage'
@@ -155,7 +159,14 @@ function AppRoutes() {
         >
           <Route index element={<AdminOverviewPage />} />
           <Route path="users" element={<AdminUsersPage />} />
+          <Route path="generations" element={<AdminGenerationsPage />} />
+          <Route
+            path="generations/:jobId"
+            element={<AdminGenerationDetailPage />}
+          />
+          <Route path="usage" element={<AdminUsagePage />} />
           <Route path="models" element={<AdminModelsPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
         </Route>
       </Route>
       {import.meta.env.DEV && (

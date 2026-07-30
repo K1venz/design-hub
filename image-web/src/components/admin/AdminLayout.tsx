@@ -1,5 +1,8 @@
 import {
+  FileClockIcon,
+  ImagesIcon,
   LayoutDashboardIcon,
+  RadioTowerIcon,
   SlidersHorizontalIcon,
   UsersRoundIcon,
   type LucideIcon,
@@ -30,9 +33,24 @@ const ADMIN_NAVIGATION: readonly AdminNavigationItem[] = [
     icon: UsersRoundIcon,
   },
   {
+    to: '/admin/generations',
+    label: '出图审核',
+    icon: ImagesIcon,
+  },
+  {
+    to: '/admin/usage',
+    label: 'API 用量',
+    icon: RadioTowerIcon,
+  },
+  {
     to: '/admin/models',
     label: '模型配置',
     icon: SlidersHorizontalIcon,
+  },
+  {
+    to: '/admin/audit',
+    label: '操作记录',
+    icon: FileClockIcon,
   },
 ]
 
