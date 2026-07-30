@@ -28,7 +28,6 @@ from design_hub.application.tasking.health import (
     RedisHealthState,
 )
 from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.tasking import OperationType, ReferenceSource
 from design_hub.ports.generation_work import (
@@ -156,7 +155,7 @@ def test_plan_background_replace_upload_source_uses_only_product_reference() -> 
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
 
     item = submission.items[0]
@@ -201,7 +200,7 @@ def test_plan_background_replace_generated_source_preserves_parent_and_reference
         idempotency_key="idem-2",
         trace_id="trace-2",
         request_id="request-2",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
 
     item = submission.items[0]

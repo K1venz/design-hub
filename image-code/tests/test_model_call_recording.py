@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from design_hub.domain.admin import ModelCallStatus, ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.db.base import Base
@@ -221,7 +220,7 @@ def test_each_gpt_image_retry_is_recorded_with_upstream_usage() -> None:
             [_image_response(429), _image_response(200, usage=True)]
         )
         provider = OpenAICompatImageProvider(
-            name=ModelName.GPT_IMAGE_2,
+            name="gpt-image-2",
             unit_cost=Decimal("0.05"),
             base_url="https://example.invalid",
             key_pool=ApiKeyPool(("key-a", "key-b")),
@@ -264,7 +263,7 @@ def test_recorder_start_failure_prevents_upstream_image_request() -> None:
         recorder = RecordingModelCallRecorder(start_error=RuntimeError("database down"))
         client = _SequencedClient([_image_response(200)])
         provider = OpenAICompatImageProvider(
-            name=ModelName.GPT_IMAGE_2,
+            name="gpt-image-2",
             unit_cost=Decimal("0.05"),
             base_url="https://example.invalid",
             key_pool=ApiKeyPool(("key-a",)),

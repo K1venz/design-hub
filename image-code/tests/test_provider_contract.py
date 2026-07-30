@@ -10,7 +10,6 @@ import pytest
 from model_call_fakes import RecordingModelCallRecorder
 
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
@@ -37,7 +36,7 @@ class _RecordingImageStore(ImageStore):
 
 def _provider(image_store: ImageStore | None = None) -> OpenAICompatImageProvider:
     return OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -118,7 +117,7 @@ def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
     key_pool = kw.pop("key_pool", ApiKeyPool(("k",)))
     image_store = kw.pop("image_store", _RecordingImageStore())
     return OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2, unit_cost=Decimal("0.40"),
+        name="gpt-image-2", unit_cost=Decimal("0.40"),
         base_url="https://example.invalid/v1", key_pool=key_pool, model="gpt-image-2",
         client=client, image_store=image_store,
         recorder=RecordingModelCallRecorder(), **kw,  # type: ignore[arg-type]
@@ -127,7 +126,7 @@ def _provider_with(client: object, **kw: Any) -> OpenAICompatImageProvider:
 
 def _four_k_provider(client: object) -> OpenAICompatImageProvider:
     return OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2_4K,
+        name="gpt-image-2-4k",
         unit_cost=Decimal("0.18"),
         base_url="https://example.invalid/v1",
         key_pool=ApiKeyPool(("k",)),

@@ -4,7 +4,6 @@ from decimal import Decimal
 import pytest
 
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers.execution import ProviderExecutionAdapter
 from design_hub.ports.model_calls import ModelCallContext
@@ -46,7 +45,7 @@ def _request() -> ProviderRequest:
 
 
 class _ImmediateProvider(AbstractModelProvider):
-    name = ModelName.GPT_IMAGE_2
+    name = "gpt-image-2"
     unit_cost = Decimal("0.05")
 
     def __init__(self, *, error: Exception | None = None) -> None:

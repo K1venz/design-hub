@@ -1,7 +1,6 @@
 import asyncio
 from decimal import Decimal
 
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import AbstractModelProvider, ProviderTimeout
@@ -15,7 +14,7 @@ class MockModelProvider(AbstractModelProvider):
     def __init__(
         self,
         *,
-        name: ModelName = ModelName.SEEDREAM_5,
+        name: str = "seedream-5",
         unit_cost: Decimal = Decimal("0.20"),
         latency_ms: int = 5,
         fail: bool = False,

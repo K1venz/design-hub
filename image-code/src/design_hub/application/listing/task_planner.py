@@ -24,7 +24,6 @@ from design_hub.application.listing.requests import (
 )
 from design_hub.application.listing.sizing import generation_size
 from design_hub.application.registry import ProviderRegistry
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ListingJobStart
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -65,7 +64,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         overlay_texts = tuple(request.overlay_texts or ())
         prompts = build_listing_prompts(
@@ -79,7 +79,7 @@ class ListingTaskPlanner:
             plan=request.plan,
             overlay_texts=overlay_texts,
         )
-        size = generation_size(model, request.ratio)
+        size = generation_size(render_tier, request.ratio)
         references = tuple(
             ReferenceSnapshot(
                 source=ReferenceSource.UPLOAD,
@@ -96,6 +96,7 @@ class ListingTaskPlanner:
                 operation_type=OperationType.GENERATE_IMAGE,
                 final_prompt=final_prompt,
                 model=model,
+                render_tier=render_tier,
                 ratio=request.ratio,
                 size=size,
                 quality=(
@@ -128,7 +129,7 @@ class ListingTaskPlanner:
             fingerprint_payload={
                 "operation_type": "generate",
                 "request": request.model_dump(mode="json"),
-                "model": model.value,
+                "model": model,
             },
         )
 
@@ -141,7 +142,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         final_prompt = compose_clone_prompt(
             request.prompt,
@@ -152,7 +154,7 @@ class ListingTaskPlanner:
             clone_registry=self.clone_registry,
             clone_mode=request.clone_mode,
         )
-        size = generation_size(model, request.ratio)
+        size = generation_size(render_tier, request.ratio)
         keys = (*request.product_upload_ids, *request.reference_upload_ids)
         roles = ("product",) + ("reference",) * len(request.reference_upload_ids)
         references = tuple(
@@ -170,6 +172,7 @@ class ListingTaskPlanner:
             operation_type=OperationType.CLONE_IMAGE,
             final_prompt=final_prompt,
             model=model,
+            render_tier=render_tier,
             ratio=request.ratio,
             size=size,
             quality=None,
@@ -198,7 +201,7 @@ class ListingTaskPlanner:
             fingerprint_payload={
                 "operation_type": "clone",
                 "request": request.model_dump(mode="json"),
-                "model": model.value,
+                "model": model,
             },
         )
 
@@ -212,7 +215,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         ratio = request.ratio or source.parent_ratio
         effective_modifiers = {**source.parent_modifiers, **request.modifiers}
@@ -223,7 +227,7 @@ class ListingTaskPlanner:
             edit_registry=self.edit_registry,
             edit_mode=request.edit_mode,
         )
-        size = generation_size(model, ratio)
+        size = generation_size(render_tier, ratio)
         references = (
             ReferenceSnapshot(
                 source=ReferenceSource.GENERATED,
@@ -249,6 +253,7 @@ class ListingTaskPlanner:
             operation_type=OperationType.EDIT_IMAGE,
             final_prompt=final_prompt,
             model=model,
+            render_tier=render_tier,
             ratio=ratio,
             size=size,
             quality=None,
@@ -279,7 +284,7 @@ class ListingTaskPlanner:
                 "operation_type": "edit",
                 "request": request.model_dump(mode="json"),
                 "source": asdict(source),
-                "model": model.value,
+                "model": model,
             },
         )
 
@@ -294,7 +299,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         upload_keys: list[str] = []
         input_roles: list[str] = []
@@ -339,13 +345,14 @@ class ListingTaskPlanner:
             input_roles.append("background")
 
         final_prompt = compose_background_replace_prompt(request.background)
-        size = generation_size(model, ratio)
+        size = generation_size(render_tier, ratio)
         item = self._item(
             sequence=1,
             image_type=None,
             operation_type=OperationType.REPLACE_BACKGROUND,
             final_prompt=final_prompt,
             model=model,
+            render_tier=render_tier,
             ratio=ratio,
             size=size,
             quality=None,
@@ -381,7 +388,7 @@ class ListingTaskPlanner:
                 "request": request.model_dump(mode="json"),
                 "source": asdict(source) if source is not None else None,
                 "ratio": ratio,
-                "model": model.value,
+                "model": model,
             },
         )
 
@@ -392,7 +399,8 @@ class ListingTaskPlanner:
         image_type: str | None,
         operation_type: OperationType,
         final_prompt: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier,
         ratio: str,
         size: tuple[int, int],
         quality: str | None,
@@ -405,11 +413,7 @@ class ListingTaskPlanner:
             sequence=sequence,
             image_type=image_type,
             operation_type=operation_type,
-            render_tier=(
-                RenderTier.FOUR_K
-                if model is ModelName.GPT_IMAGE_2_4K
-                else RenderTier.STANDARD
-            ),
+            render_tier=render_tier,
             final_prompt=final_prompt,
             model=model,
             ratio=ratio,

@@ -12,7 +12,6 @@ from design_hub.composition import (
     default_model_configs,
 )
 from design_hub.config.settings import Settings
-from design_hub.domain.enums import ModelName
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.model_config_repository import ModelConfigRecord
 
@@ -32,16 +31,15 @@ def test_real_registry_uses_independent_key_pools_for_standard_and_4k() -> None:
         recorder=RecordingModelCallRecorder(),
         real_gpt_image=True,
         unit_costs={
-            ModelName.GPT_IMAGE_2: Decimal("0.40"),
-            ModelName.GPT_IMAGE_2_4K: Decimal("9.99"),
+            "gpt-image-2": Decimal("0.40"),
+            "gpt-image-2-4k": Decimal("9.99"),
         },
     )
 
-    standard = registry.get(ModelName.GPT_IMAGE_2)
-    four_k = registry.get(ModelName.GPT_IMAGE_2_4K)
+    standard = registry.get("gpt-image-2")
+    four_k = registry.get("gpt-image-2-4k")
     defaults = {record.name: record for record in default_model_configs()}
 
-    assert ModelName.GPT_IMAGE_2_4K.value == "gpt-image-2-4k"
     assert defaults["gpt-image-2"].unit_cost == Decimal("0.05")
     assert "gpt-image-2-4k" not in defaults
     assert isinstance(standard, OpenAICompatImageProvider)
@@ -108,7 +106,7 @@ def test_compatible_default_connection_cannot_override_fixed_runtime_price(
     standard, four_k = build_gpt_image_providers(
         _settings(),
         RecordingModelCallRecorder(),
-        unit_costs={ModelName.GPT_IMAGE_2: Decimal("0.40")},
+        unit_costs={"gpt-image-2": Decimal("0.40")},
         default_config=configured,
     )
 
@@ -119,13 +117,13 @@ def test_compatible_default_connection_cannot_override_fixed_runtime_price(
 def test_mock_runtime_also_ignores_stale_fixed_model_prices() -> None:
     registry = build_mock_registry(
         {
-            ModelName.GPT_IMAGE_2: Decimal("0.40"),
-            ModelName.GPT_IMAGE_2_4K: Decimal("9.99"),
+            "gpt-image-2": Decimal("0.40"),
+            "gpt-image-2-4k": Decimal("9.99"),
         }
     )
 
-    assert registry.get(ModelName.GPT_IMAGE_2).unit_cost == Decimal("0.05")
-    assert registry.get(ModelName.GPT_IMAGE_2_4K).unit_cost == Decimal("0.18")
+    assert registry.get("gpt-image-2").unit_cost == Decimal("0.05")
+    assert registry.get("gpt-image-2-4k").unit_cost == Decimal("0.18")
 
 
 def test_incompatible_default_connection_protocol_fails_fast(

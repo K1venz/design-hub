@@ -32,7 +32,7 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import ModelName, Role, TaskEventType
+from design_hub.domain.enums import Role, TaskEventType
 from design_hub.domain.models import AuthUser, TaskEvent
 from design_hub.domain.tasking import (
     OperationType,
@@ -81,7 +81,7 @@ def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
 
     assert submission.job.n == 3
@@ -121,7 +121,7 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
     replay = planner.plan_generate(
         user_id="1",
@@ -130,7 +130,7 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-2",
         request_id="request-2",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
     changed = planner.plan_generate(
         user_id="1",
@@ -139,7 +139,7 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-3",
         request_id="request-3",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
 
     assert first.request_fingerprint == replay.request_fingerprint
@@ -163,7 +163,7 @@ def test_clone_plan_preserves_product_then_reference_roles() -> None:
         idempotency_key="idem-clone",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
 
     item = submission.items[0]
@@ -201,7 +201,7 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
         idempotency_key="idem-edit",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
     )
 
     item = submission.items[0]
@@ -239,7 +239,7 @@ class _SubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
     ) -> SubmissionReceipt:
         self.keys.append(idempotency_key)
         if self.error is not None:
@@ -254,7 +254,7 @@ class _SubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
     ) -> SubmissionReceipt:
         self.keys.append(idempotency_key)
         if self.error is not None:

@@ -57,9 +57,11 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName, TaskEventType
+from design_hub.domain.enums import TaskEventType
 from design_hub.domain.errors import BudgetExceeded, NotFoundError
+from design_hub.domain.model_config import GPT_IMAGE_2
 from design_hub.domain.models import AuthUser, ChatTranscript
+from design_hub.domain.tasking import RenderTier
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import ReplayableEventStream
 from design_hub.ports.generation_work import IdempotencyConflict
@@ -449,7 +451,7 @@ class ChatOrchestrator:
                 rendering = decide_chat_rendering(message, auto_ratio)
                 if (
                     call.name == "replace_background"
-                    and rendering.model is ModelName.GPT_IMAGE_2_4K
+                    and rendering.render_tier is RenderTier.FOUR_K
                 ):
                     raise ValueError("换背景当前只支持普通分辨率，不支持 4K。")
                 normalized_args = self._prepare_write_args(
@@ -494,7 +496,7 @@ class ChatOrchestrator:
                 return
             count = self._count(call.name, req)
             if (
-                rendering.model is ModelName.GPT_IMAGE_2_4K
+                rendering.render_tier is RenderTier.FOUR_K
                 and count > _FOUR_K_MAX_COUNT
             ):
                 yield ChatEvent(
@@ -519,6 +521,7 @@ class ChatOrchestrator:
                         user.user_id,
                         req,
                         model=rendering.model,
+                        render_tier=rendering.render_tier,
                     )
             except (ValueError, NotFoundError) as exc:
                 clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
@@ -529,7 +532,7 @@ class ChatOrchestrator:
                 yield ChatEvent("assistant_end", {"status": "complete"})
                 return
             if not await self._model_available(rendering.model):
-                clar = self._model_unavailable_message(rendering.model)
+                clar = self._model_unavailable_message(rendering.render_tier)
                 yield ChatEvent("assistant_delta", {"text": clar})
                 await self.chat_repo.append_message(
                     session_id=session_id, role="assistant", content=clar
@@ -546,6 +549,7 @@ class ChatOrchestrator:
                 count=count,
                 estimate=estimate,
                 model=rendering.model,
+                render_tier=rendering.render_tier,
             )
             # assistant 最终答复（收尾语+job_id）留到 confirm 后落库；tool_call/cost_confirm 不落库
             yield ChatEvent(
@@ -607,7 +611,7 @@ class ChatOrchestrator:
                 "error",
                 {
                     "code": "model_unavailable",
-                    "message": self._model_unavailable_message(pending.model),
+                    "message": self._model_unavailable_message(pending.render_tier),
                 },
             )
             yield ChatEvent("assistant_end", {"status": "error"})
@@ -720,6 +724,7 @@ class ChatOrchestrator:
                 trace_id=trace_id,
                 request_id=request_id,
                 model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         if pending.tool == "clone" and isinstance(req, CloneRequest):
@@ -730,6 +735,7 @@ class ChatOrchestrator:
                 trace_id=trace_id,
                 request_id=request_id,
                 model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         if pending.tool == "edit" and isinstance(req, EditRequest):
@@ -740,6 +746,7 @@ class ChatOrchestrator:
                 trace_id=trace_id,
                 request_id=request_id,
                 model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         if (
@@ -753,19 +760,20 @@ class ChatOrchestrator:
                 trace_id=trace_id,
                 request_id=request_id,
                 model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         raise ValueError(f"未知工具：{pending.tool}")
 
-    async def _model_available(self, model: ModelName) -> bool:
+    async def _model_available(self, model: str) -> bool:
         if model not in self.registry:
             return False
-        config = await self.model_config.get(model.value)
+        config = await self.model_config.get(model)
         return config is None or config.enabled
 
     @staticmethod
-    def _model_unavailable_message(model: ModelName) -> str:
-        if model is ModelName.GPT_IMAGE_2_4K:
+    def _model_unavailable_message(render_tier: RenderTier) -> str:
+        if render_tier is RenderTier.FOUR_K:
             return "4K 当前不可用，请取消 4K 后使用普通出图。"
         return "普通出图当前不可用，请稍后再试。"
 
@@ -824,23 +832,23 @@ class ChatOrchestrator:
         configs = await self.model_config.list_all()
         by_name = {config.name: config for config in configs}
         capabilities: list[str] = []
-        standard_config = by_name.get(ModelName.GPT_IMAGE_2.value)
-        four_k_config = by_name.get(ModelName.GPT_IMAGE_2_4K.value)
+        standard_config = by_name.get(GPT_IMAGE_2)
+        four_k_config = by_name.get("gpt-image-2-4k")
         snap = await self.ledger.snapshot(user.user_id)
         remaining = snap.user_monthly_quota - snap.user_month_used
         if (
             (standard_config is None or standard_config.enabled)
-            and ModelName.GPT_IMAGE_2 in self.registry
+            and GPT_IMAGE_2 in self.registry
         ):
-            standard_cost = self.registry.get(ModelName.GPT_IMAGE_2).unit_cost
+            standard_cost = self.registry.get(GPT_IMAGE_2).unit_cost
             capabilities.append(
                 _pricing_capability("普通出图", standard_cost, remaining)
             )
         if (
             (four_k_config is None or four_k_config.enabled)
-            and ModelName.GPT_IMAGE_2_4K in self.registry
+            and "gpt-image-2-4k" in self.registry
         ):
-            four_k_cost = self.registry.get(ModelName.GPT_IMAGE_2_4K).unit_cost
+            four_k_cost = self.registry.get("gpt-image-2-4k").unit_cost
             capabilities.append(
                 _pricing_capability("4K 16:9", four_k_cost, remaining)
             )

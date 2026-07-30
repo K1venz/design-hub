@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from design_hub.domain.enums import ModelName, Role, TaskEventType
+from design_hub.domain.enums import Role, TaskEventType
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class ListingResult:
     """listing 轻量出图结果（出图用例返回值）。"""
 
     prompt: str
-    used_model: ModelName
+    used_model: str
     images: tuple[GeneratedImage, ...]
     total_cost: Decimal
     # 套图部分失败明细（图型, 原因摘要）；单图流恒空（失败仍走整单 TASK_FAILED 语义）

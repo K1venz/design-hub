@@ -18,8 +18,8 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.listing.sizing import generation_size
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ProviderError, ReferenceMode
 
@@ -125,7 +125,7 @@ class ListingGenerationService:
         if self.concurrency < 1:
             raise ValueError(f"concurrency 需 ≥1，实际 {self.concurrency}")
 
-    def reference_mode(self, model: ModelName) -> ReferenceMode:
+    def reference_mode(self, model: str) -> ReferenceMode:
         """当前出图 provider 的参考图模态（ISSUE-0065）：执行侧据此只物化 bytes 或 URL。"""
         return self.registry.get(model).reference_mode
 
@@ -138,7 +138,8 @@ class ListingGenerationService:
         ratio: str,
         user_id: str,
         category: str | None,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
         n: int | None = None,
         plan: dict[str, int] | None = None,
         overlay_texts: tuple[str, ...] = (),
@@ -150,7 +151,7 @@ class ListingGenerationService:
             self.type_registry,
             category=category, n=n, plan=plan, overlay_texts=overlay_texts,
         )
-        size = generation_size(model, ratio)
+        size = generation_size(render_tier, ratio)
         provider = self.registry.get(model)
         estimate = provider.unit_cost * len(tasks)
         await self.guard.precheck_and_reserve(user_id, estimate)
@@ -226,7 +227,8 @@ class ListingGenerationService:
         user_id: str,
         category: str | None,
         clone_mode: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> ListingResult:
         """爆款复刻（PRD §3.13）：单张 edit、喂图保序「产品前·参考后」（角色指认契约）。
 
@@ -240,7 +242,7 @@ class ListingGenerationService:
             category=category, card_registry=self.card_registry,
             clone_registry=self.clone_registry, clone_mode=clone_mode,
         )
-        size = generation_size(model, ratio)
+        size = generation_size(render_tier, ratio)
         provider = self.registry.get(model)
         estimate = provider.unit_cost  # 一次出 1 张
         await self.guard.precheck_and_reserve(user_id, estimate)
@@ -286,7 +288,8 @@ class ListingGenerationService:
         ratio: str,
         user_id: str,
         edit_mode: str,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> ListingResult:
         """二次编辑（PRD §3.12.13/ISSUE-0040）：单张 edit、喂序「源图第 1·链根锚其后」。
 
@@ -300,7 +303,7 @@ class ListingGenerationService:
             prompt, modifiers, self.modifier_registry,
             edit_registry=self.edit_registry, edit_mode=edit_mode,
         )
-        size = generation_size(model, ratio)
+        size = generation_size(render_tier, ratio)
         provider = self.registry.get(model)
         estimate = provider.unit_cost  # 一次出 1 张（Q-ε）
         await self.guard.precheck_and_reserve(user_id, estimate)

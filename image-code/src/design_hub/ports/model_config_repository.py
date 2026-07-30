@@ -15,7 +15,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ModelConfigRecord:
-    """模型配置读模型。name 为自由字符串主键（与 ModelName 枚举值对齐但不强绑）。
+    """模型配置读模型。name 为自由字符串主键。
 
     配置大模型（ISSUE-0057）：provider_type/base_url/model/api_key_env/is_default 描述一个
     可用出图模型的连接（A1 密钥不入库、仅存 env 名）。新字段有默认值，兼容旧构造。

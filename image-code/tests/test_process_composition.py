@@ -11,7 +11,6 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.application.tasking.runtime import GenerationWorkerRuntime
-from design_hub.domain.enums import ModelName
 from design_hub.domain.tasking import (
     GenerationItemSpec,
     GenerationItemStatus,
@@ -272,7 +271,7 @@ def _work_with_references() -> GenerationWorkItem:
         operation_type=OperationType.EDIT_IMAGE,
         render_tier=RenderTier.STANDARD,
         final_prompt="edit product",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
         ratio="1:1",
         size=(1024, 1024),
         quality=None,

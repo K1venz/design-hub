@@ -25,7 +25,6 @@ from design_hub.application.listing.prompt_composer import (
 )
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
@@ -76,7 +75,7 @@ def _provider(
 ) -> OpenAICompatImageProvider:
     # 退避设极小值，单测不真等；契约不依赖具体时长
     return OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
         key_pool=key_pool or ApiKeyPool(("k",)),
@@ -150,7 +149,7 @@ def test_retry_budget_does_not_cut_off_a_successful_initial_request() -> None:
 
     client = _SlowSuccessClient()
     provider = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.05"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -190,7 +189,7 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
     monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
     client = _SlowFailureClient()
     provider = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2_4K,
+        name="gpt-image-2-4k",
         unit_cost=Decimal("0.18"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -249,7 +248,7 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
     monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
     client = _BudgetConsumingClient()
     provider = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2_4K,
+        name="gpt-image-2-4k",
         unit_cost=Decimal("0.18"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -313,7 +312,7 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
     monkeypatch.setattr(openai_compat.time, "perf_counter", clock.now)
     client = _CapturingClient()
     provider = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2_4K,
+        name="gpt-image-2-4k",
         unit_cost=Decimal("0.18"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -367,7 +366,7 @@ def test_absolute_deadline_interrupts_an_active_http_await(
 
     client = _ActivePastDeadlineClient()
     provider = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.05"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -448,7 +447,7 @@ def test_transport_exception_does_not_expose_api_key() -> None:
 
 def test_retry_sleep_exponential_bounded_and_jittered() -> None:
     provider = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.40"),
         base_url="https://example.invalid",
         key_pool=ApiKeyPool(("k",)),
@@ -484,7 +483,7 @@ class _NoopGuard:
 class _ConcurrencyProbeProvider:
     """记录峰值在飞数的 provider 替身：出图时 sleep 撑开重叠，便于观测真实并发度。"""
 
-    name = ModelName.GPT_IMAGE_2
+    name = "gpt-image-2"
     unit_cost = Decimal("0.40")
     is_live = True
 
@@ -538,7 +537,7 @@ def test_set_generation_never_exceeds_concurrency() -> None:
     result = asyncio.run(
         service.generate(
             prompt="春节红色背景", modifiers=_MODS, images=(b"x",), ratio="1:1",
-            user_id="u1", category="FOOD", model=ModelName.GPT_IMAGE_2,
+            user_id="u1", category="FOOD", model="gpt-image-2",
             plan={"白底": 3, "场景": 4, "卖点": 3}, overlay_texts=("高山七彩花生",),
         )
     )
@@ -553,7 +552,7 @@ def test_single_image_flow_one_inflight_regardless_of_cap() -> None:
     result = asyncio.run(
         service.generate(
             prompt="干净背景主图", modifiers=_MODS, images=(b"x",), ratio="1:1",
-            user_id="u1", category="FOOD", model=ModelName.GPT_IMAGE_2, n=1,
+            user_id="u1", category="FOOD", model="gpt-image-2", n=1,
         )
     )
     assert len(result.images) == 1

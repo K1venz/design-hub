@@ -10,7 +10,6 @@ import pytest
 from model_call_fakes import RecordingModelCallRecorder
 
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
@@ -97,7 +96,7 @@ class _AlwaysQueued:
 
 def _provider(client: object, **kw: Any) -> AsyncImageTasksProvider:
     return AsyncImageTasksProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.40"),
         base_url="https://api.example/v1",
         key_pool=kw.pop("key_pool", ApiKeyPool(("k",))),
@@ -261,7 +260,7 @@ def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
         submit=_submit_ok(), polls=[_poll("completed", [_CDN])], download=_download()
     )
     normal = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
+        name="gpt-image-2",
         unit_cost=Decimal("0.40"),
         base_url="https://api.example/v1",
         key_pool=pool,
