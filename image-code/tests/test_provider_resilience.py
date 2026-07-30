@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
+from model_call_fakes import RecordingModelCallRecorder
 
 import design_hub.infrastructure.providers.openai_compat as openai_compat
 from design_hub.application.listing.listing_service import ListingGenerationService
@@ -23,12 +24,14 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.registry import ProviderRegistry
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore, StoredImage
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ProviderTimeout
 
 # --------------------------------------------------------------------------- #
@@ -79,6 +82,7 @@ def _provider(
         key_pool=key_pool or ApiKeyPool(("k",)),
         model="gpt-image-2",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=client,  # type: ignore[arg-type]
         max_retries=max_retries,
         retry_backoff=0.001,
@@ -102,6 +106,10 @@ def _500() -> httpx.Response:
 
 async def _gen(provider: OpenAICompatImageProvider) -> list[GeneratedImage]:
     return await provider.generate(
+        context=ModelCallContext(
+            user_id="7",
+            operation=ModelOperation.IMAGE_EDIT,
+        ),
         prompt="p", negative_prompt="",
         reference_images=[ReferenceImage(data=b"img")], size=(1024, 1024), n=1,
     )
@@ -148,6 +156,7 @@ def test_retry_budget_does_not_cut_off_a_successful_initial_request() -> None:
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=client,  # type: ignore[arg-type]
         timeout=0.05,
         max_retries=1,
@@ -187,6 +196,7 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=client,  # type: ignore[arg-type]
         timeout=1800.0,
         max_retries=5,
@@ -199,6 +209,10 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
     with pytest.raises(ProviderTimeout):
         asyncio.run(
             provider.generate(
+                context=ModelCallContext(
+                    user_id="7",
+                    operation=ModelOperation.IMAGE_GENERATION,
+                ),
                 prompt="p",
                 negative_prompt="",
                 reference_images=[],
@@ -241,6 +255,7 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=client,  # type: ignore[arg-type]
         timeout=1800.0,
         max_retries=1,
@@ -255,6 +270,10 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
     with pytest.raises(ProviderTimeout):
         asyncio.run(
             provider.generate(
+                context=ModelCallContext(
+                    user_id="7",
+                    operation=ModelOperation.IMAGE_GENERATION,
+                ),
                 prompt="p",
                 negative_prompt="",
                 reference_images=[],
@@ -300,6 +319,7 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2-4k",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=client,  # type: ignore[arg-type]
         timeout=3600.0,
         max_retries=0,
@@ -312,6 +332,10 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
     with pytest.raises(ProviderTimeout):
         asyncio.run(
             provider.generate(
+                context=ModelCallContext(
+                    user_id="7",
+                    operation=ModelOperation.IMAGE_GENERATION,
+                ),
                 prompt="p",
                 negative_prompt="",
                 reference_images=[],
@@ -349,6 +373,7 @@ def test_absolute_deadline_interrupts_an_active_http_await(
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=client,  # type: ignore[arg-type]
         timeout=0.015,
         max_retries=0,
@@ -358,6 +383,14 @@ def test_absolute_deadline_interrupts_an_active_http_await(
     with pytest.raises(ProviderTimeout):
         asyncio.run(
             provider.generate(
+                context=ModelCallContext(
+                    user_id="7",
+                    operation=(
+                        ModelOperation.IMAGE_EDIT
+                        if reference_images
+                        else ModelOperation.IMAGE_GENERATION
+                    ),
+                ),
                 prompt="p",
                 negative_prompt="",
                 reference_images=reference_images,
@@ -421,6 +454,7 @@ def test_retry_sleep_exponential_bounded_and_jittered() -> None:
         key_pool=ApiKeyPool(("k",)),
         model="gpt-image-2",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         retry_backoff=2.0,
         retry_max_sleep=30.0,
     )
@@ -459,9 +493,11 @@ class _ConcurrencyProbeProvider:
         self.max_inflight = 0
 
     async def generate(
-        self, *, prompt: str, negative_prompt: str, reference_images: list[ReferenceImage],
+        self, *, context: ModelCallContext, prompt: str, negative_prompt: str,
+        reference_images: list[ReferenceImage],
         size: tuple[int, int], n: int, seed: int | None = None, quality: str | None = None,
     ) -> list[GeneratedImage]:
+        del context
         self.inflight += 1
         self.max_inflight = max(self.max_inflight, self.inflight)
         try:

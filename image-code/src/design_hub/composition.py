@@ -28,6 +28,7 @@ from design_hub.infrastructure.storage.tos import (
 )
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.media_url_signer import MediaUrlSigner
+from design_hub.ports.model_calls import ModelCallRecorder
 from design_hub.ports.model_config_repository import ModelConfigRecord
 from design_hub.ports.model_provider import AbstractModelProvider
 from design_hub.ports.password_cipher import PasswordCipher
@@ -118,6 +119,7 @@ def _require_image_keys(
 
 def build_gpt_image_providers(
     settings: Settings,
+    recorder: ModelCallRecorder,
     unit_costs: Mapping[ModelName, Decimal] | None = None,
     *,
     default_config: ModelConfigRecord | None = None,
@@ -145,6 +147,7 @@ def build_gpt_image_providers(
         base_url=base_url,
         key_pool=standard_key_pool,
         model=model,
+        recorder=recorder,
         input_fidelity=settings.gpt_image_input_fidelity,
         response_format=settings.gpt_image_response_format,
         image_store=image_store,
@@ -161,6 +164,7 @@ def build_gpt_image_providers(
         base_url=base_url,
         key_pool=four_k_key_pool,
         model=ModelName.GPT_IMAGE_2_4K.value,
+        recorder=recorder,
         input_fidelity=settings.gpt_image_input_fidelity,
         response_format=settings.gpt_image_response_format,
         image_store=image_store,
@@ -253,6 +257,7 @@ def build_password_cipher(settings: Settings) -> PasswordCipher:
 def build_registry(
     settings: Settings,
     *,
+    recorder: ModelCallRecorder,
     real_gpt_image: bool = False,
     unit_costs: Mapping[ModelName, Decimal] | None = None,
     default_config: ModelConfigRecord | None = None,
@@ -265,7 +270,10 @@ def build_registry(
     registry = build_mock_registry(unit_costs)
     if real_gpt_image:
         for provider in build_gpt_image_providers(
-            settings, unit_costs, default_config=default_config
+            settings,
+            recorder,
+            unit_costs,
+            default_config=default_config,
         ):
             registry.register(provider)
     return registry

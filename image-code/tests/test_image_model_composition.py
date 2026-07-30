@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 import pytest
+from model_call_fakes import RecordingModelCallRecorder
 
 from design_hub.composition import (
     build_gpt_image_providers,
@@ -28,6 +29,7 @@ def _settings(*, four_k_key: str = "test-key-4k") -> Settings:
 def test_real_registry_uses_independent_key_pools_for_standard_and_4k() -> None:
     registry = build_registry(
         _settings(),
+        recorder=RecordingModelCallRecorder(),
         real_gpt_image=True,
         unit_costs={
             ModelName.GPT_IMAGE_2: Decimal("0.40"),
@@ -61,12 +63,18 @@ def test_real_registry_uses_independent_key_pools_for_standard_and_4k() -> None:
 
 def test_real_registry_requires_one_4k_key() -> None:
     with pytest.raises(ValueError, match="GPT_IMAGE_4K_API_KEY.*exactly one"):
-        build_gpt_image_providers(_settings(four_k_key=""))
+        build_gpt_image_providers(
+            _settings(four_k_key=""),
+            RecordingModelCallRecorder(),
+        )
 
 
 def test_real_registry_rejects_multiple_4k_keys() -> None:
     with pytest.raises(ValueError, match="GPT_IMAGE_4K_API_KEY.*exactly one"):
-        build_gpt_image_providers(_settings(four_k_key="test-key-4k-a,test-key-4k-b"))
+        build_gpt_image_providers(
+            _settings(four_k_key="test-key-4k-a,test-key-4k-b"),
+            RecordingModelCallRecorder(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -78,7 +86,7 @@ def test_real_registry_requires_exactly_two_standard_keys(standard_keys: str) ->
     settings.gpt_image_api_key = settings.gpt_image_api_key.__class__(standard_keys)
 
     with pytest.raises(ValueError, match="GPT_IMAGE_API_KEY.*exactly two"):
-        build_gpt_image_providers(settings)
+        build_gpt_image_providers(settings, RecordingModelCallRecorder())
 
 
 def test_compatible_default_connection_cannot_override_fixed_runtime_price(
@@ -99,6 +107,7 @@ def test_compatible_default_connection_cannot_override_fixed_runtime_price(
 
     standard, four_k = build_gpt_image_providers(
         _settings(),
+        RecordingModelCallRecorder(),
         unit_costs={ModelName.GPT_IMAGE_2: Decimal("0.40")},
         default_config=configured,
     )
@@ -136,4 +145,8 @@ def test_incompatible_default_connection_protocol_fails_fast(
     )
 
     with pytest.raises(ValueError, match="openai_compat_image"):
-        build_gpt_image_providers(_settings(), default_config=incompatible)
+        build_gpt_image_providers(
+            _settings(),
+            RecordingModelCallRecorder(),
+            default_config=incompatible,
+        )

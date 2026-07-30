@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Protocol, TypeVar
 
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.domain.tasking import (
@@ -19,6 +20,7 @@ from design_hub.ports.generation_work import (
     GenerationWorkItem,
     GenerationWorkRepository,
 )
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ProviderError, ReferenceMode
 from design_hub.ports.provider_execution import (
     ImmediateResult,
@@ -135,6 +137,12 @@ class GenerationWorker:
             work, executor.reference_mode
         )
         request = ProviderRequest(
+            context=ModelCallContext(
+                user_id=work.user_id,
+                operation=self._model_operation(references),
+                job_id=work.job_id,
+                generation_item_id=work.spec.item_id,
+            ),
             prompt=work.spec.final_prompt,
             reference_images=references,
             size=work.spec.size,
@@ -407,6 +415,14 @@ class GenerationWorker:
             raise DataInvariantError(
                 f"task message does not match persisted item {message.item_id}"
             )
+
+    @staticmethod
+    def _model_operation(
+        references: tuple[ReferenceImage, ...],
+    ) -> ModelOperation:
+        if references:
+            return ModelOperation.IMAGE_EDIT
+        return ModelOperation.IMAGE_GENERATION
 
     def _log_context(
         self, delivery: Delivery, work: GenerationWorkItem

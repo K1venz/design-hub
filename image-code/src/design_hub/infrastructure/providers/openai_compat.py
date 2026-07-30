@@ -9,6 +9,7 @@ import httpx
 
 from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
 from design_hub.domain.enums import ModelName
+from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
     raise_for_status,
@@ -16,6 +17,7 @@ from design_hub.infrastructure.providers._openai_common import (
 )
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.ports.image_store import ImageStore, StoredImage
+from design_hub.ports.model_calls import ModelCallContext, ModelCallRecorder, ModelUsage
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderError,
@@ -43,6 +45,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         key_pool: ApiKeyPool,
         model: str,
         image_store: ImageStore,
+        recorder: ModelCallRecorder,
         input_fidelity: str = "",
         response_format: str = "",
         client: httpx.AsyncClient | None = None,
@@ -69,6 +72,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._input_fidelity = input_fidelity
         self._response_format = response_format
         self._image_store = image_store
+        self._recorder = recorder
         self._client = client
         # One operation has an absolute wall-clock deadline. The separate retry budget only
         # decides whether another attempt may start; it must not truncate a successful request.
@@ -92,6 +96,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
@@ -112,6 +117,12 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         while True:
             start = time.perf_counter()
             api_key = self._key_pool.key_for(start_key_index, attempt)
+            call_id = await self._recorder.start(
+                context=context,
+                provider="openai_compat_image",
+                model=self._model,
+                attempt_no=attempt + 1,
+            )
             try:
                 remaining = self._remaining_operation_budget(overall_start)
                 request_timeout = self._timeout_for_request(remaining)
@@ -136,6 +147,9 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                             timeout=request_timeout,
                         )
                 raise_for_status(self.name, response)  # 4xx→DomainError；5xx/429→ProviderTimeout
+            except asyncio.CancelledError:
+                await self._recorder.interrupt(call_id)
+                raise
             except TimeoutError:
                 error: ProviderError = ProviderTimeout(f"{self.name} timeout")
             except httpx.TimeoutException:
@@ -144,15 +158,46 @@ class OpenAICompatImageProvider(AbstractModelProvider):
                 error = ProviderTimeout(f"{self.name} transport error")
             except ProviderTimeout as exc:  # _raise_for_status 的 5xx/429（如"系统繁忙"）
                 error = exc
+            except DomainError as exc:
+                await self._recorder.fail(
+                    call_id,
+                    code="provider_rejected",
+                    detail=str(exc),
+                )
+                raise
             else:
+                try:
+                    body = response.json()
+                except ValueError as exc:
+                    await self._recorder.fail(
+                        call_id,
+                        code="invalid_response",
+                        detail="upstream returned invalid JSON",
+                    )
+                    raise ProviderError(
+                        f"{self.name} returned invalid JSON"
+                    ) from exc
+                usage, diagnostic_code = self._usage_of(body)
+                await self._recorder.succeed(
+                    call_id,
+                    usage=usage,
+                    provider_request_id=self._request_id_of(response),
+                    platform_cost=self.unit_cost * n,
+                    diagnostic_code=diagnostic_code,
+                )
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 return await self._parse(
-                    response.json(),
+                    body,
                     seed,
                     latency_ms,
                     expected_n=n,
                     operation_started_at=overall_start,
                 )
+            await self._recorder.fail(
+                call_id,
+                code="provider_timeout",
+                detail=str(error),
+            )
             # 瞬时网络/服务端错误（429/超时/5xx，I/O 域）：抖动退避后重试，超上限才抛。
             # 4xx 业务错在 _raise_for_status 已抛 DomainError、不入本分支（fail-fast）。
             # 穷尽条件（ISSUE-0055 (i)）：重试次数上限 或 总重试墙钟预算耗尽——持续同错(上游持久
@@ -170,6 +215,65 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             await asyncio.sleep(sleep)
             if time.perf_counter() - overall_start >= self._retry_max_elapsed:
                 raise error
+
+    @staticmethod
+    def _request_id_of(response: httpx.Response) -> str | None:
+        value = response.headers.get("x-request-id") or response.headers.get(
+            "request-id"
+        )
+        return str(value) if value else None
+
+    @classmethod
+    def _usage_of(cls, body: Any) -> tuple[ModelUsage, str | None]:
+        if not isinstance(body, dict) or "usage" not in body:
+            return ModelUsage(), None
+        raw = body["usage"]
+        if not isinstance(raw, dict):
+            return ModelUsage(), "usage_invalid"
+        input_details = raw.get("input_tokens_details")
+        output_details = raw.get("output_tokens_details")
+        if input_details is not None and not isinstance(input_details, dict):
+            return ModelUsage(), "usage_invalid"
+        if output_details is not None and not isinstance(output_details, dict):
+            return ModelUsage(), "usage_invalid"
+        input_tokens, invalid_input = cls._token_value(raw.get("input_tokens"))
+        output_tokens, invalid_output = cls._token_value(raw.get("output_tokens"))
+        total_tokens, invalid_total = cls._token_value(raw.get("total_tokens"))
+        input_text_tokens, invalid_input_text = cls._token_value(
+            input_details.get("text_tokens") if input_details else None
+        )
+        input_image_tokens, invalid_input_image = cls._token_value(
+            input_details.get("image_tokens") if input_details else None
+        )
+        output_image_tokens, invalid_output_image = cls._token_value(
+            output_details.get("image_tokens") if output_details else None
+        )
+        diagnostic = "usage_invalid" if any(
+            (
+                invalid_input,
+                invalid_output,
+                invalid_total,
+                invalid_input_text,
+                invalid_input_image,
+                invalid_output_image,
+            )
+        ) else None
+        return ModelUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            input_text_tokens=input_text_tokens,
+            input_image_tokens=input_image_tokens,
+            output_image_tokens=output_image_tokens,
+        ), diagnostic
+
+    @staticmethod
+    def _token_value(value: object) -> tuple[int | None, bool]:
+        if value is None:
+            return None, False
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value, False
+        return None, True
 
     def _remaining_operation_budget(self, overall_start: float) -> float:
         remaining = self._operation_timeout - (time.perf_counter() - overall_start)

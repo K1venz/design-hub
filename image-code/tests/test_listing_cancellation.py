@@ -15,6 +15,7 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
+from design_hub.ports.model_calls import ModelCallContext
 
 
 class _RecordingGuard:
@@ -46,6 +47,7 @@ class _BlockingProvider:
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
@@ -54,6 +56,7 @@ class _BlockingProvider:
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
+        del context
         self.started.set()
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
