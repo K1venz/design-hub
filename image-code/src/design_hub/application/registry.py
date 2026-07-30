@@ -17,3 +17,6 @@ class ProviderRegistry:
 
     def __contains__(self, name: str) -> bool:
         return name in self._providers
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(self._providers)

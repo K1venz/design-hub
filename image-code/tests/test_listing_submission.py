@@ -147,6 +147,62 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
     assert first.items[0].operation_id != replay.items[0].operation_id
 
 
+def test_request_fingerprint_includes_render_tier_for_every_planner_operation() -> None:
+    planner = _planner()
+    generate = ListingGenerateRequest(
+        upload_ids=["1/front.png"], prompt="red", ratio="16:9", n=1
+    )
+    clone = CloneRequest(
+        product_upload_ids=["1/product.png"],
+        reference_upload_ids=["1/reference.png"],
+        clone_mode="完全复刻",
+        ratio="16:9",
+        prompt="red",
+    )
+    edit = EditRequest(
+        source_image_key="source.png",
+        prompt="red",
+        edit_mode="full",
+        ratio="16:9",
+    )
+    source = GeneratedImageSource(
+        parent_job_id="parent-1",
+        parent_ratio="16:9",
+        parent_modifiers={},
+        root_product_upload_keys=("1/product.png",),
+    )
+    background = BackgroundReplaceRequest.model_validate(
+        {
+            "source": {"kind": "upload", "upload_id": "1/product.png"},
+            "background": {"kind": "description", "description": "blue"},
+        }
+    )
+
+    plan_calls = (
+        lambda render_tier: planner.plan_generate(
+            user_id="1", request=generate, job_id="generate", idempotency_key="same",
+            trace_id="trace", request_id="request", model="gpt-image-2", render_tier=render_tier,
+        ),
+        lambda render_tier: planner.plan_clone(
+            user_id="1", request=clone, job_id="clone", idempotency_key="same",
+            trace_id="trace", request_id="request", model="gpt-image-2", render_tier=render_tier,
+        ),
+        lambda render_tier: planner.plan_edit(
+            user_id="1", request=edit, source=source, job_id="edit", idempotency_key="same",
+            trace_id="trace", request_id="request", model="gpt-image-2", render_tier=render_tier,
+        ),
+        lambda render_tier: planner.plan_background_replace(
+            user_id="1", request=background, source=None, ratio="16:9", job_id="background",
+            idempotency_key="same", trace_id="trace", request_id="request", model="gpt-image-2",
+            render_tier=render_tier,
+        ),
+    )
+    for plan in plan_calls:
+        standard = plan(RenderTier.STANDARD)
+        four_k = plan(RenderTier.FOUR_K)
+        assert standard.request_fingerprint != four_k.request_fingerprint
+
+
 def test_clone_plan_preserves_product_then_reference_roles() -> None:
     request = CloneRequest(
         product_upload_ids=["1/product.png"],
@@ -466,7 +522,7 @@ def _submission_service(
     health: RedisHealthState,
     snapshots: _Snapshots,
 ) -> ListingSubmissionService:
-    ids = iter(("job-first", "job-replay", "job-changed"))
+    ids = iter(("job-first", "job-replay", "job-tier-changed", "job-changed"))
     return ListingSubmissionService(
         planner=_planner(),
         repository=repository,  # type: ignore[arg-type]
@@ -490,7 +546,7 @@ def test_submission_service_replays_same_key_and_rejects_changed_request() -> No
         health = RedisHealthState(stale_after_seconds=6)
         health.mark_healthy(now=10)
         service = _submission_service(repository, health, _Snapshots())
-        request = ListingGenerateRequest(**_generate_payload())
+        request = ListingGenerateRequest(**(_generate_payload() | {"ratio": "16:9"}))
 
         first = await service.submit_generate(
             user_id="1",
@@ -510,6 +566,16 @@ def test_submission_service_replays_same_key_and_rejects_changed_request() -> No
         assert first.job_id == replay.job_id == "job-first"
         assert first.replayed is False
         assert replay.replayed is True
+
+        with pytest.raises(IdempotencyConflict):
+            await service.submit_generate(
+                user_id="1",
+                request=request,
+                idempotency_key="same-key",
+                trace_id="trace-3",
+                request_id="request-3",
+                render_tier=RenderTier.FOUR_K,
+            )
 
         with pytest.raises(IdempotencyConflict):
             await service.submit_generate(

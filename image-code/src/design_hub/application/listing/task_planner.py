@@ -130,6 +130,7 @@ class ListingTaskPlanner:
                 "operation_type": "generate",
                 "request": request.model_dump(mode="json"),
                 "model": model,
+                "render_tier": render_tier.value,
             },
         )
 
@@ -202,6 +203,7 @@ class ListingTaskPlanner:
                 "operation_type": "clone",
                 "request": request.model_dump(mode="json"),
                 "model": model,
+                "render_tier": render_tier.value,
             },
         )
 
@@ -285,6 +287,7 @@ class ListingTaskPlanner:
                 "request": request.model_dump(mode="json"),
                 "source": asdict(source),
                 "model": model,
+                "render_tier": render_tier.value,
             },
         )
 
@@ -389,6 +392,7 @@ class ListingTaskPlanner:
                 "source": asdict(source) if source is not None else None,
                 "ratio": ratio,
                 "model": model,
+                "render_tier": render_tier.value,
             },
         )
 
