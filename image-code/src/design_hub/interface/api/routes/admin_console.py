@@ -8,10 +8,12 @@ from design_hub.interface.admin_console_schemas import (
     AdminAuditEntryOut,
     AdminImageSummaryOut,
     AdminJobDetailOut,
+    AdminJobImageOut,
     AdminJobSummaryOut,
     AdminOverviewOut,
     AdminUserDetailOut,
     AdminUserSummaryOut,
+    ImageModerationUpdate,
     ModelCallDetailOut,
     ModelCallSummaryListOut,
     ModelCallSummaryOut,
@@ -162,6 +164,27 @@ async def list_images(
         page,
         [AdminImageSummaryOut.of(item, signer) for item in page.items],
     )
+
+
+@router.put(
+    "/images/{image_id}/moderation",
+    response_model=AdminJobImageOut,
+)
+async def set_image_moderation(
+    image_id: int,
+    body: ImageModerationUpdate,
+    manager: CurrentManagerDep,
+    service: AdminConsoleServiceDep,
+    signer: MediaSignerDep,
+) -> AdminJobImageOut:
+    image = await service.set_image_moderation(
+        actor_id=int(manager.user_id),
+        image_id=image_id,
+        status=body.status,
+        reason=body.reason,
+        note=body.note,
+    )
+    return AdminJobImageOut.of(image, signer)
 
 
 @router.get(

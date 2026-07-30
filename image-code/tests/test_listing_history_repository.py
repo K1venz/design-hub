@@ -2,13 +2,16 @@ import asyncio
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from design_hub.domain.models import ListingJobImage, ListingJobStart
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
-from design_hub.infrastructure.db.models import GenerationItemRow
+from design_hub.infrastructure.db.models import GenerationItemRow, ListingImageRow
+from design_hub.interface.listing_history_schemas import ListingJobDetailOut
+from design_hub.ports.media_url_signer import MediaUrlSigner
 
 
 async def _repositories() -> tuple[
@@ -196,5 +199,130 @@ def test_history_derives_background_replace_label_from_generation_item() -> None
         assert summary.operation_type == "replace_background"
         assert detail is not None
         assert detail.operation_type == "replace_background"
+
+    asyncio.run(run())
+
+
+class _Signer(MediaUrlSigner):
+    def generated_url(self, key: str) -> str:
+        return f"https://generated.example/{key}"
+
+    def upload_url(self, key: str) -> str:
+        return f"https://uploads.example/{key}"
+
+
+def test_blocked_image_is_unavailable_in_history_and_source_resolution() -> None:
+    async def run() -> None:
+        history, query, sessions = await _repositories()
+        await history.start(_job("blocked-job", n=1))
+        await history.add_images(
+            "blocked-job",
+            (
+                ListingJobImage(
+                    image_key="blocked.png",
+                    seed=1,
+                    cost=Decimal("0.05"),
+                    status="成功",
+                    image_type="白底",
+                ),
+            ),
+        )
+        await history.finalize(
+            "blocked-job",
+            status="完成",
+            total_cost=Decimal("0.05"),
+            error=None,
+        )
+        async with sessions.begin() as session:
+            await session.execute(
+                update(ListingImageRow)
+                .where(ListingImageRow.image_key == "blocked.png")
+                .values(
+                    moderation_status="blocked",
+                    moderation_reason="illegal",
+                    moderation_note="internal only",
+                )
+            )
+
+        summary = (
+            await query.list_jobs(
+                user_id="user-1",
+                limit=10,
+                offset=0,
+            )
+        )[0]
+        detail = await query.get_job(
+            job_id="blocked-job",
+            user_id="user-1",
+        )
+        source = await query.resolve_generated_image_source(
+            source_image_key="blocked.png",
+            user_id="user-1",
+        )
+
+        assert summary.first_image_key is None
+        assert detail is not None
+        assert detail.images[0].available is False
+        output = ListingJobDetailOut.of(detail, _Signer())
+        assert output.images[0].url is None
+        assert output.images[0].available is False
+        assert not hasattr(output.images[0], "moderation_reason")
+        assert source is None
+
+    asyncio.run(run())
+
+
+def test_blocked_edit_source_no_longer_receives_preview_url() -> None:
+    async def run() -> None:
+        history, query, sessions = await _repositories()
+        await history.start(_job("root", n=1))
+        await history.add_images(
+            "root",
+            (
+                ListingJobImage(
+                    image_key="source.png",
+                    seed=1,
+                    cost=Decimal("0.05"),
+                    status="成功",
+                ),
+            ),
+        )
+        await history.finalize(
+            "root",
+            status="完成",
+            total_cost=Decimal("0.05"),
+            error=None,
+        )
+        await history.start(
+            _job(
+                "edit",
+                n=1,
+                parent_job_id="root",
+                source_image_key="source.png",
+                edit_mode="delta",
+            )
+        )
+        async with sessions.begin() as session:
+            await session.execute(
+                update(ListingImageRow)
+                .where(
+                    ListingImageRow.job_id == "root",
+                    ListingImageRow.image_key == "source.png",
+                )
+                .values(moderation_status="blocked")
+            )
+
+        detail = await query.get_job(
+            job_id="edit",
+            user_id="user-1",
+        )
+
+        assert detail is not None
+        assert detail.source_image_key == "source.png"
+        assert detail.source_image_available is False
+        assert ListingJobDetailOut.of(
+            detail,
+            _Signer(),
+        ).source_image_url is None
 
     asyncio.run(run())

@@ -12,6 +12,7 @@ class ListingJobImageView:
     seed: int
     cost: Decimal
     status: str
+    available: bool
     image_type: str | None = None  # 白底|场景|卖点；None=单图流（PRD §3.12.14）
 
 
@@ -59,6 +60,7 @@ class ListingJobDetail:
     parent_job_id: str | None = None
     edit_mode: str | None = None
     source_image_key: str | None = None  # Out 层签 url 作「改自这张」回显
+    source_image_available: bool = False
     source_image_type: str | None = None  # 源张图型（「改自·场景图」徽标）
     chain_cost: Decimal | None = None  # 迭代链累计：根计源张单张 cost（R5）+ 路径编辑单成本
     operation_type: str | None = None
