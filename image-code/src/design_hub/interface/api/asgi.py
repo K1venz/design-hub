@@ -94,6 +94,7 @@ from design_hub.interface.api.routes import (
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
+    app.state.secret_cipher = build_secret_cipher(settings)
     db = create_engine(settings.db_url)
     session_factory = create_session_factory(db)
     model_call_recorder = SqlAlchemyModelCallRecorder(session_factory)
@@ -186,7 +187,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         renew_after_hours=settings.jwt_renew_after_hours,
     )
     app.state.token_service = token_service
-    app.state.secret_cipher = build_secret_cipher(settings)
     user_repo = SqlAlchemyUserRepository(session_factory)
     account_service = AccountService(
         users=user_repo,

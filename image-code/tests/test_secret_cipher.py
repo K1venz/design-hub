@@ -1,12 +1,18 @@
 """RSA-OAEP secret encryption boundaries."""
 
+import asyncio
+from importlib.util import find_spec
+
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 
 from design_hub.composition import build_secret_cipher
 from design_hub.config.settings import Settings
 from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
+from design_hub.interface.api.asgi import create_production_app
+from design_hub.interface.worker import run_worker
 
 _DECRYPTION_ERROR = "敏感信息解密失败，请刷新页面后重试"
 
@@ -49,3 +55,33 @@ def test_required_persistent_cipher_rejects_missing_private_key() -> None:
 
     with pytest.raises(ValueError, match="AUTH_RSA_PRIVATE_KEY_PEM"):
         build_secret_cipher(settings)
+
+
+@pytest.mark.parametrize("private_key_pem", ["", "not-a-private-key"])
+def test_worker_fails_before_io_when_persistent_cipher_is_not_usable(
+    private_key_pem: str,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        auth_rsa_private_key_pem=private_key_pem,
+        require_persistent_secret_cipher=True,
+    )
+
+    with pytest.raises(ValueError):
+        asyncio.run(run_worker(settings))
+
+
+def test_api_fails_before_io_when_persistent_cipher_key_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("REQUIRE_PERSISTENT_SECRET_CIPHER", "true")
+    monkeypatch.setenv("AUTH_RSA_PRIVATE_KEY_PEM", "")
+
+    with pytest.raises(ValueError, match="AUTH_RSA_PRIVATE_KEY_PEM"):
+        with TestClient(create_production_app()):
+            pass
+
+
+def test_password_specific_cipher_modules_are_absent() -> None:
+    assert find_spec("design_hub.ports.password_cipher") is None
+    assert find_spec("design_hub.infrastructure.auth.rsa_cipher") is None

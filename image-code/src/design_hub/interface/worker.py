@@ -17,6 +17,7 @@ from design_hub.composition import (
     build_image_store,
     build_media_signer,
     build_registry,
+    build_secret_cipher,
     build_upload_store,
 )
 from design_hub.config.settings import Settings
@@ -66,6 +67,7 @@ def _build_executors(registry: ProviderRegistry) -> dict[str, ProviderExecutor]:
 
 async def run_worker(settings: Settings | None = None) -> None:
     settings = settings or Settings()
+    build_secret_cipher(settings)
     configure_logging()
     init_sentry(settings.sentry_dsn)
     engine = create_engine(settings.db_url)
