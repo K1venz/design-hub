@@ -23,6 +23,8 @@ export interface ResultSlot {
   error?: string
   /** 完成态补拉后回填的稳定 handle（ISSUE-0040）——有值即可挂「基于此图再编辑」。 */
   imageKey?: string
+  /** 普通用户只知道图片不可用，不接收审核原因或后台状态。 */
+  unavailable?: boolean
 }
 
 interface ResultGalleryProps {
@@ -48,7 +50,7 @@ export function ResultGallery({
   const navigate = useNavigate()
   const [reverseSource, setReverseSource] =
     useState<ImageToolSource | null>(null)
-  const ready = slots.filter((s) => s.url)
+  const ready = slots.filter((s) => s.url && !s.unavailable)
   // 套图流：任一槽带图型 → 按图型分组段渲染（顺序按 IMAGE_TYPE_FIELDS）。
   const grouped = slots.some((s) => s.imageType)
   const groups = grouped
@@ -59,7 +61,7 @@ export function ResultGallery({
     : []
 
   function openBackground(slot: ResultSlot) {
-    if (!slot.imageKey || !slot.url) return
+    if (slot.unavailable || !slot.imageKey || !slot.url) return
     navigate('/background', {
       state: {
         prefill: {
@@ -72,7 +74,7 @@ export function ResultGallery({
   }
 
   function reversePrompt(slot: ResultSlot) {
-    if (!slot.imageKey) return
+    if (slot.unavailable || !slot.imageKey) return
     setReverseSource({
       kind: 'generated',
       imageKey: slot.imageKey,
@@ -89,7 +91,14 @@ export function ResultGallery({
           {ready.length > 0 && (
             <button
               onClick={() =>
-                ready.forEach((s, i) => void downloadImage(s.url!, `${s.imageType ?? 'listing'}-${i + 1}.png`))
+                ready.forEach((slot, index) => {
+                  if (slot.url) {
+                    void downloadImage(
+                      slot.url,
+                      `${slot.imageType ?? 'listing'}-${index + 1}.png`,
+                    )
+                  }
+                })
               }
               className="rounded-full bg-wb-ink-2 px-3.5 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
             >
@@ -121,7 +130,9 @@ export function ResultGallery({
       ) : grouped ? (
         <div className="space-y-6">
           {groups.map((g) => {
-            const gDone = g.slots.filter((s) => s.url).length
+            const gDone = g.slots.filter(
+              (s) => s.url || s.unavailable,
+            ).length
             const gFailed = g.slots.filter((s) => s.error).length
             return (
               <section key={g.field.key}>
@@ -176,7 +187,16 @@ function SlotGrid({
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(208px,1fr))] gap-4">
       {slots.map((s, i) =>
-        s.url ? (
+        s.unavailable ? (
+          <div
+            key={i}
+            className="grid aspect-square place-items-center rounded-2xl border border-dashed border-wb-line-3 bg-wb-surface-3 p-4"
+          >
+            <p className="text-center text-[12.5px] text-wb-ink-6">
+              该图片暂不可用
+            </p>
+          </div>
+        ) : s.url ? (
           <motion.div
             key={i}
             initial={{ opacity: 0, scale: 0.96 }}
@@ -222,10 +242,12 @@ function SlotGrid({
               <button
                 type="button"
                 onClick={() =>
-                  void downloadImage(
-                    s.url!,
-                    `${namePrefix}-${i + 1}.png`,
-                  )
+                  s.url
+                    ? void downloadImage(
+                        s.url,
+                        `${namePrefix}-${i + 1}.png`,
+                      )
+                    : undefined
                 }
                 className="rounded-lg bg-wb-ink-2/90 px-2 py-1.5 text-[11.5px] text-white"
               >

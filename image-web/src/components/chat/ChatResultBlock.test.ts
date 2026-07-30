@@ -48,4 +48,29 @@ describe('ChatResultBlock', () => {
     expect(html).not.toContain('反推提示词')
     expect(html).toContain('下载')
   })
+
+  it('shows a neutral unavailable state without image actions', () => {
+    const html = renderToStaticMarkup(
+      createElement(ChatResultBlock, {
+        slots: [{
+          url: null,
+          imageKey: 'blocked.png',
+          unavailable: true,
+        }],
+        done: 1,
+        total: 1,
+        onPreview: () => undefined,
+        onEdit: () => undefined,
+        onBackground: () => undefined,
+        onReversePrompt: () => undefined,
+      }),
+    )
+
+    expect(html).toContain('该图片暂不可用')
+    expect(html).not.toContain('预览第 1 张图片')
+    expect(html).not.toContain('继续编辑')
+    expect(html).not.toContain('换背景')
+    expect(html).not.toContain('反推提示词')
+    expect(html).not.toContain('下载')
+  })
 })

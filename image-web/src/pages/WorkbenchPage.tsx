@@ -246,7 +246,11 @@ function deriveView(args: {
   if (detail && detail.job_id === viewJobId && detail.status !== JOB_STATUS.generating) {
     // 终态权威快照：完成/部分完成/失败（含失败张失败槽）。进行中详情不在此渲染（走接回续播）。
     const slots = detailToResultSlots(detail) as ResultSlot[]
-    return { slots, done: slots.filter((s) => s.url).length, editJobId: detail.job_id }
+    return {
+      slots,
+      done: slots.filter((s) => s.url || s.unavailable).length,
+      editJobId: detail.job_id,
+    }
   }
   if (activeJobId) {
     // 本会话刚终态、详情接手前：保留已累积槽位桥接（避免闪回上一单/闪空），编辑入口待详情到达。

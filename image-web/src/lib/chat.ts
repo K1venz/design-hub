@@ -28,12 +28,12 @@ export interface ChatEditSource {
 }
 
 export function previewImageFromSlot(slot: ResultSlot): ChatPreviewImage | null {
-  if (!slot.url) return null
+  if (slot.unavailable || !slot.url) return null
   return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
 }
 
 export function editSourceFromSlot(slot: ResultSlot): ChatEditSource | null {
-  if (!slot.url || !slot.imageKey) return null
+  if (slot.unavailable || !slot.url || !slot.imageKey) return null
   return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
 }
 

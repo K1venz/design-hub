@@ -61,10 +61,14 @@ export function EditWorkbenchPage() {
 
   // 仅成功张可作源（失败张前端无入口 + 后端 404 双层，Q-δ）
   const sourceImg = d?.images.find(
-    (img) => img.image_key === imageKey && img.status === IMAGE_SUCCESS_STATUS,
+    (img) =>
+      img.image_key === imageKey &&
+      img.status === IMAGE_SUCCESS_STATUS &&
+      img.available &&
+      img.url,
   )
   const source: EditSource | null =
-    d && sourceImg
+    d && sourceImg?.url
       ? {
           url: sourceImg.url,
           imageType: sourceImg.image_type ?? undefined,

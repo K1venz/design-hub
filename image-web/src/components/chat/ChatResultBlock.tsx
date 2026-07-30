@@ -32,7 +32,11 @@ export function ChatResultBlock({
   onBackground: (source: ChatEditSource) => void
   onReversePrompt: (source: ChatEditSource) => void
 }) {
-  const generating = done < total && slots.some((slot) => !slot.url && !slot.error)
+  const generating =
+    done < total &&
+    slots.some(
+      (slot) => !slot.url && !slot.error && !slot.unavailable,
+    )
 
   return (
     <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md p-3">
@@ -44,6 +48,16 @@ export function ChatResultBlock({
       </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {slots.map((slot, index) => {
+          if (slot.unavailable) {
+            return (
+              <div
+                key={`${slot.imageKey ?? 'unavailable'}-${index}`}
+                className="grid aspect-square place-items-center rounded-xl border border-dashed border-wb-line-3 bg-wb-surface-3 p-3 text-center text-[11.5px] text-wb-ink-6"
+              >
+                该图片暂不可用
+              </div>
+            )
+          }
           if (slot.url) {
             const preview = previewImageFromSlot(slot)
             const editSource = editSourceFromSlot(slot)
@@ -91,12 +105,14 @@ export function ChatResultBlock({
                   ) : <span />}
                   <button
                     type="button"
-                    onClick={() =>
-                      void downloadImage(
-                        slot.url!,
-                        `${slot.imageType ?? 'chat'}-${index + 1}.png`,
-                      )
-                    }
+                    onClick={() => {
+                      if (slot.url) {
+                        void downloadImage(
+                          slot.url,
+                          `${slot.imageType ?? 'chat'}-${index + 1}.png`,
+                        )
+                      }
+                    }}
                     className="rounded-lg bg-wb-ink-2/90 px-2 py-1 text-[11px] text-white"
                   >
                     <DownloadIcon className="mr-1 inline size-3" />
