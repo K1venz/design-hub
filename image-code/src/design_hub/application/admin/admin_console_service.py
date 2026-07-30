@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from design_hub.domain.admin import ModerationReason, ModerationStatus
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import NotFoundError
 from design_hub.ports.admin_console import (
@@ -11,6 +12,7 @@ from design_hub.ports.admin_console import (
     AdminImageSummary,
     AdminJobDetail,
     AdminJobFilter,
+    AdminJobImage,
     AdminJobSummary,
     AdminOverview,
     AdminUserDetail,
@@ -157,6 +159,32 @@ class AdminConsoleService:
             filters,
             limit=limit,
             offset=offset,
+        )
+
+    async def set_image_moderation(
+        self,
+        *,
+        actor_id: int,
+        image_id: int,
+        status: ModerationStatus,
+        reason: ModerationReason | None,
+        note: str | None,
+    ) -> AdminJobImage:
+        if image_id < 1:
+            raise ValueError("image_id 必须为正整数")
+        normalized_note = self._text(note, max_length=500)
+        if status is ModerationStatus.BLOCKED:
+            if reason is None:
+                raise ValueError("屏蔽图片必须选择原因")
+        else:
+            reason = None
+            normalized_note = None
+        return await self.repository.set_image_moderation(
+            actor_id=actor_id,
+            image_id=image_id,
+            status=status,
+            reason=reason,
+            note=normalized_note,
         )
 
     @staticmethod

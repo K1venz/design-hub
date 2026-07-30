@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     String,
@@ -16,8 +17,15 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from design_hub.domain.admin import ModelCallStatus, ModelModality
+from design_hub.domain.admin import (
+    AdminAction,
+    ModelCallStatus,
+    ModelModality,
+    ModerationReason,
+    ModerationStatus,
+)
 from design_hub.domain.enums import ModelName, Role
+from design_hub.domain.errors import DomainError, NotFoundError
 from design_hub.infrastructure.db.models import (
     AdminAuditLogRow,
     AppUser,
@@ -706,6 +714,72 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
             limit=limit,
             offset=offset,
         )
+
+    async def set_image_moderation(
+        self,
+        *,
+        actor_id: int,
+        image_id: int,
+        status: ModerationStatus,
+        reason: ModerationReason | None,
+        note: str | None,
+    ) -> AdminJobImage:
+        async with self._session_factory() as session:
+            async with session.begin():
+                image = (
+                    await session.execute(
+                        select(ListingImageRow)
+                        .where(ListingImageRow.id == image_id)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if image is None:
+                    raise NotFoundError("图片不存在")
+                if image.moderation_status == status.value:
+                    raise DomainError("图片审核状态没有变化")
+                before: dict[str, object] = {
+                    "status": image.moderation_status
+                }
+                if image.moderation_status == ModerationStatus.BLOCKED.value:
+                    before.update(
+                        {
+                            "reason": image.moderation_reason,
+                            "note": image.moderation_note,
+                        }
+                    )
+                if status is ModerationStatus.BLOCKED:
+                    assert reason is not None
+                    image.moderation_reason = reason.value
+                    image.moderation_note = note
+                    after: dict[str, object] = {
+                        "status": status.value,
+                        "reason": reason.value,
+                        "note": note,
+                    }
+                else:
+                    image.moderation_reason = None
+                    image.moderation_note = None
+                    after = {"status": status.value}
+                image.moderation_status = status.value
+                image.moderated_by = actor_id
+                image.moderated_at = datetime.now(UTC)
+                session.add(
+                    AdminAuditLogRow(
+                        id=uuid4().hex,
+                        actor_user_id=actor_id,
+                        action=AdminAction.IMAGE_MODERATION_UPDATE.value,
+                        target_type="image",
+                        target_id=str(image_id),
+                        before=before,
+                        after=after,
+                        reason=(
+                            reason.value if reason is not None else None
+                        ),
+                    )
+                )
+                await session.flush()
+                result = self._job_image(image)
+        return result
 
     @staticmethod
     async def _count(session: AsyncSession, statement: Any) -> int:

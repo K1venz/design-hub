@@ -48,7 +48,8 @@ class ListingSubmissionOut(BaseModel):
 
 
 class ListingImageOut(BaseModel):
-    url: str
+    url: str | None
+    available: bool
     # 可寻址 handle（ISSUE-0040 E-δ：二次编辑唯一身份源；SSE 不下发、读模型独有）
     image_key: str
     seed: int
@@ -100,8 +101,12 @@ class ListingJobDetailOut(BaseModel):
             completed_at=d.completed_at,
             images=[
                 ListingImageOut(
-                    # 失败张（两阶段 ISSUE-0047）无产物、key 空：不签 url，前端据 status 展失败位
-                    url=(signer.generated_url(im.image_key) if im.status == "成功" else ""),
+                    url=(
+                        signer.generated_url(im.image_key)
+                        if im.available
+                        else None
+                    ),
+                    available=im.available,
                     image_key=im.image_key,
                     seed=im.seed,
                     cost=im.cost,
@@ -117,7 +122,9 @@ class ListingJobDetailOut(BaseModel):
             parent_job_id=d.parent_job_id,
             edit_mode=d.edit_mode,
             source_image_url=(
-                signer.generated_url(d.source_image_key) if d.source_image_key else None
+                signer.generated_url(d.source_image_key)
+                if d.source_image_key and d.source_image_available
+                else None
             ),
             source_image_type=d.source_image_type,
             chain_cost=d.chain_cost,

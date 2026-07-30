@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from design_hub.domain.admin import ModerationReason, ModerationStatus
 from design_hub.domain.enums import Role
 from design_hub.ports.admin_console import (
     AdminAuditEntry,
@@ -168,6 +169,14 @@ class AdminJobImageOut(BaseModel):
             **value.__dict__,
             url=signer.generated_url(value.image_key),
         )
+
+
+class ImageModerationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ModerationStatus
+    reason: ModerationReason | None = None
+    note: str | None = None
 
 
 class AdminGenerationItemOut(BaseModel):

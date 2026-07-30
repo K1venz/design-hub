@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from design_hub.domain.admin import ModerationReason, ModerationStatus
 from design_hub.domain.enums import Role
 
 
@@ -316,3 +317,14 @@ class AdminConsoleRepository(ABC):
         limit: int,
         offset: int,
     ) -> Page[AdminAuditEntry]: ...
+
+    @abstractmethod
+    async def set_image_moderation(
+        self,
+        *,
+        actor_id: int,
+        image_id: int,
+        status: ModerationStatus,
+        reason: ModerationReason | None,
+        note: str | None,
+    ) -> AdminJobImage: ...

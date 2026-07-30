@@ -523,3 +523,64 @@ def test_manager_console_http_contracts_and_stale_call_status() -> None:
     assert invalid_range.status_code == 400
 
     asyncio.run(engine.dispose())
+
+
+def test_image_moderation_is_audited_reversible_and_rejects_noop() -> None:
+    sessions, engine = asyncio.run(_admin_database())
+    app = FastAPI()
+    register_error_handlers(app)
+    app.state.admin_console_service = AdminConsoleService(
+        SqlAlchemyAdminConsoleRepository(sessions)
+    )
+    app.state.media_signer = _AdminSigner()
+    app.include_router(admin_console.router)
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(
+        user_id="1",
+        name="Manager",
+        role=Role.MANAGER,
+        dept=None,
+    )
+    client = TestClient(app)
+    payload = {
+        "status": "blocked",
+        "reason": "illegal",
+        "note": "manual review",
+    }
+
+    blocked = client.put("/admin/images/1/moderation", json=payload)
+    repeated = client.put("/admin/images/1/moderation", json=payload)
+    restored = client.put(
+        "/admin/images/1/moderation",
+        json={"status": "normal"},
+    )
+
+    assert blocked.status_code == 200
+    assert blocked.json()["moderation_status"] == "blocked"
+    assert blocked.json()["url"].endswith("/image-0.png")
+    assert repeated.status_code == 409
+    assert restored.status_code == 200
+    assert restored.json()["moderation_status"] == "normal"
+    assert restored.json()["moderation_reason"] is None
+    assert restored.json()["moderation_note"] is None
+
+    async def verify() -> None:
+        async with sessions() as session:
+            audits = (
+                await session.execute(
+                    select(AdminAuditLogRow).where(
+                        AdminAuditLogRow.action
+                        == "image.moderation.update"
+                    )
+                )
+            ).scalars().all()
+        assert len(audits) == 2
+        assert audits[0].before == {"status": "normal"}
+        assert audits[0].after == {
+            "status": "blocked",
+            "reason": "illegal",
+            "note": "manual review",
+        }
+        assert audits[1].after == {"status": "normal"}
+
+    asyncio.run(verify())
+    asyncio.run(engine.dispose())
