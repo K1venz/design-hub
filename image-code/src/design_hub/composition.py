@@ -221,7 +221,11 @@ def build_upload_store(settings: Settings) -> UploadStore:
     return LocalUploadStore(settings.asset_output_dir)
 
 
-def build_text_llm(settings: Settings) -> TextLLMPort:
+def build_text_llm(
+    settings: Settings,
+    *,
+    recorder: ModelCallRecorder,
+) -> TextLLMPort:
     """文本 LLM（方案 C「帮我设计」Agent）：配了 TEXT_LLM_* → 真实 OpenAI 兼容适配器；否则 Mock。
 
     ⚠️ 现有 GPT_IMAGE key 仅图像权限组（探明实测：文本模型 403 no access）；文本需用户
@@ -238,6 +242,7 @@ def build_text_llm(settings: Settings) -> TextLLMPort:
             base_url=settings.text_llm_base_url,
             api_key=key,
             model=settings.text_llm_model,
+            recorder=recorder,
             extra_body=extra_body,
         )
     return MockTextLLMProvider()

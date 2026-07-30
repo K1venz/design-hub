@@ -13,9 +13,11 @@ from pydantic import (
 
 from design_hub.application.listing.requests import ImageSource
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import NotFoundError
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.text_llm import (
     ChatImage,
     ChatMessage,
@@ -98,7 +100,14 @@ class ReversePromptService:
             required=True,
         )
         calls = await _collect_tool_calls(
-            self.text_llm.complete(messages=messages, tools=[tool])
+            self.text_llm.complete(
+                context=ModelCallContext(
+                    user_id=user_id,
+                    operation=ModelOperation.REVERSE_PROMPT,
+                ),
+                messages=messages,
+                tools=[tool],
+            )
         )
         if len(calls) != 1 or calls[0].name != _RESULT_TOOL:
             raise TextLLMError("反推提示词模型未返回唯一的结构化结果")

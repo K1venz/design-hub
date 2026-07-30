@@ -14,6 +14,7 @@ from design_hub.application.image_prompts.reverse_prompt import (
     ReversePromptService,
 )
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import AuthUser
@@ -26,6 +27,7 @@ from design_hub.ports.listing_query import (
     GeneratedImageSource,
     ListingHistoryQuery,
 )
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.text_llm import (
     ChatMessage,
     LLMChunk,
@@ -65,15 +67,18 @@ class _LLM(TextLLMPort):
 
     def __init__(self, arguments: dict | None = _RESULT) -> None:
         self.arguments = arguments
+        self.context: ModelCallContext | None = None
         self.messages: list[ChatMessage] = []
         self.tools: list[ToolSpec] = []
 
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         messages: list[ChatMessage],
         tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        self.context = context
         self.messages = messages
         self.tools = tools
         if self.arguments is not None:
@@ -220,6 +225,10 @@ def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema() -> No
         assert llm.tools[0].required is True
         assert llm.messages[-1].images[0].data == _png()
         assert llm.messages[-1].images[0].media_type == "image/png"
+        assert llm.context == ModelCallContext(
+            user_id="user-1",
+            operation=ModelOperation.REVERSE_PROMPT,
+        )
 
     asyncio.run(run())
 

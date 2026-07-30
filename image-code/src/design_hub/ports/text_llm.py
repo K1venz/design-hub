@@ -9,6 +9,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from design_hub.ports.model_calls import ModelCallContext
+
 
 @dataclass(frozen=True)
 class ToolCall:
@@ -82,7 +84,11 @@ class TextLLMPort(ABC):
 
     @abstractmethod
     def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
         """流式补全：先 yield 若干 TextChunk，若模型选择工具则末尾 yield 一个 ToolCallChunk。"""
         ...

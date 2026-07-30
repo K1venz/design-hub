@@ -55,6 +55,7 @@ from design_hub.application.tasking.health import (
     RedisHealthState,
 )
 from design_hub.composition import build_mock_registry
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelName, Role, TaskEventType
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import (
@@ -74,6 +75,7 @@ from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import ReplayableEvent
 from design_hub.ports.generation_work import JobSubmission, SubmitResult
 from design_hub.ports.ledger import LedgerRepository
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 from design_hub.ports.text_llm import (
     ChatMessage,
@@ -424,10 +426,16 @@ class StubTextLLM(TextLLMPort):
     def __init__(self, *turns: tuple[str, tuple[ToolCall, ...]]) -> None:
         self._turns = list(turns)
         self._i = 0
+        self.contexts: list[ModelCallContext] = []
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        self.contexts.append(context)
         if not tools:  # 收尾轮
             yield TextChunk("已完成，可在结果区查看。")
             return
@@ -462,9 +470,11 @@ class _ReverseTextLLM(TextLLMPort):
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         messages: list[ChatMessage],
         tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         yield ToolCallChunk(
             (
                 ToolCall(
@@ -483,8 +493,13 @@ class ChunkedTextLLM(TextLLMPort):
         self._chunks = chunks
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         for chunk in self._chunks:
             yield TextChunk(chunk)
 
@@ -496,8 +511,13 @@ class CapturingTextLLM(TextLLMPort):
         self.messages: list[ChatMessage] = []
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         self.messages = messages
         yield TextChunk("请确认设计要求。")
 
@@ -506,8 +526,13 @@ class LateFailingTextLLM(TextLLMPort):
     is_live = False
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         yield TextChunk("已收到，")
         yield TextChunk("正在处理")
         raise TextLLMError("文本服务暂时不可用")
@@ -1825,7 +1850,8 @@ def test_read_tool_loop_executes_and_feeds_back(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         tc = (ToolCall(id="q1", name="query_my_jobs", arguments={}),)
-        orch = inf.orch(StubTextLLM(("", tc), ("你最近还没出过图哦。", ())))
+        llm = StubTextLLM(("", tc), ("你最近还没出过图哦。", ()))
+        orch = inf.orch(llm)
         ev = await _drain(orch.handle_message(USER, None, "我最近出过什么图", []))
         types = [t for t, _ in ev]
         assert "cost_confirm" not in types and "tool_call" not in types  # 读工具不花钱不过闸
@@ -1833,6 +1859,19 @@ def test_read_tool_loop_executes_and_feeds_back(tmp_path) -> None:
         text = "".join(d.get("text", "") for t, d in ev if t == "assistant_delta")
         assert "还没出过图" in text  # LLM 基于工具结果收尾
         assert ev[-1] == ("assistant_end", {"status": "complete"})
+        session_id = next(data["session_id"] for event, data in ev if event == "session")
+        assert llm.contexts == [
+            ModelCallContext(
+                user_id=USER.user_id,
+                operation=ModelOperation.CHAT_COMPLETION,
+                chat_session_id=session_id,
+            ),
+            ModelCallContext(
+                user_id=USER.user_id,
+                operation=ModelOperation.CHAT_COMPLETION,
+                chat_session_id=session_id,
+            ),
+        ]
 
     asyncio.run(_impl())
 

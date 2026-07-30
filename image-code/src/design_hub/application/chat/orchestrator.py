@@ -56,6 +56,7 @@ from design_hub.application.tasking.health import (
     AdmissionRejected,
     RedisUnavailable,
 )
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelName, TaskEventType
 from design_hub.domain.errors import BudgetExceeded, NotFoundError
 from design_hub.domain.models import AuthUser, ChatTranscript
@@ -64,6 +65,7 @@ from design_hub.ports.events import ReplayableEventStream
 from design_hub.ports.generation_work import IdempotencyConflict
 from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_config_repository import ModelConfigRepository
 from design_hub.ports.text_llm import (
     ChatMessage,
@@ -306,6 +308,11 @@ class ChatOrchestrator:
                 edit_source_image_key=edit_source_image_key,
             ),
         ]
+        llm_context = ModelCallContext(
+            user_id=user.user_id,
+            operation=ModelOperation.CHAT_COMPLETION,
+            chat_session_id=session_id,
+        )
 
         # 工具化 tool-use 循环（A3）：读工具即时执行→结果回喂→再问 LLM；写工具→费用闸；纯文本→收尾。
         for _ in range(_MAX_TOOL_ITERS):
@@ -314,7 +321,9 @@ class ChatOrchestrator:
             tool_calls: tuple[ToolCall, ...] = ()
             try:
                 async for chunk in self.text_llm.complete(
-                    messages=llm_messages, tools=self._tools
+                    context=llm_context,
+                    messages=llm_messages,
+                    tools=self._tools,
                 ):
                     if isinstance(chunk, TextChunk):
                         assistant_text += chunk.text
@@ -670,9 +679,18 @@ class ChatOrchestrator:
         )
         history = _to_llm_messages(transcript) if transcript is not None else []
         llm_messages = [ChatMessage(role="system", content=self.system_prompt), *history, note]
+        llm_context = ModelCallContext(
+            user_id=user.user_id,
+            operation=ModelOperation.CHAT_COMPLETION,
+            chat_session_id=session_id,
+        )
         closing = ""
         try:
-            async for chunk in self.text_llm.complete(messages=llm_messages, tools=[]):
+            async for chunk in self.text_llm.complete(
+                context=llm_context,
+                messages=llm_messages,
+                tools=[],
+            ):
                 if isinstance(chunk, TextChunk):
                     closing += chunk.text
                     yield ChatEvent("assistant_delta", {"text": chunk.text})
