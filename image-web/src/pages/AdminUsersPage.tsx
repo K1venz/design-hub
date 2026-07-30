@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 
-import { useSetRole, useUsers, type AppUser } from '@/api/users'
+import { useSetRole, useUsers, type AdminUser } from '@/api/users'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import {
@@ -26,10 +26,10 @@ export function AdminUsersPage() {
   const users = useUsers()
   const setRole = useSetRole()
 
-  async function changeRole(u: AppUser, role: Role) {
+  async function changeRole(u: AdminUser, role: Role) {
     if (role === u.role) return
     try {
-      await setRole.mutateAsync({ id: u.id, role })
+      await setRole.mutateAsync({ id: u.user_id, role })
       toast.success(`「${u.name}」已设为${role}`)
     } catch (e) {
       // 如"最后一个管理者不可降级"→ 后端 409
@@ -51,7 +51,7 @@ export function AdminUsersPage() {
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
-        ) : users.data && users.data.length > 0 ? (
+        ) : users.data && users.data.items.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -62,12 +62,12 @@ export function AdminUsersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.data.map((u) => (
-                <TableRow key={u.id}>
+              {users.data.items.map((u) => (
+                <TableRow key={u.user_id}>
                   <TableCell className="font-mono text-sm">{u.email}</TableCell>
                   <TableCell className="font-medium">
                     {u.name}
-                    {String(u.id) === me.user_id && (
+                    {String(u.user_id) === me.user_id && (
                       <Badge variant="secondary" className="ml-2 text-[10px]">
                         你
                       </Badge>

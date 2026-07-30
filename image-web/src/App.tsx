@@ -6,12 +6,14 @@ import { toast } from 'sonner'
 import { useMe } from '@/api/auth'
 import { UNAUTHORIZED_EVENT } from '@/api/client'
 import { queryClient } from '@/api/query-client'
+import { AdminLayout } from '@/components/admin/AdminLayout'
 import { FullPageLoader } from '@/components/feedback/FullPageLoader'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
+import { AdminOverviewPage } from '@/pages/AdminOverviewPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
 import { BackgroundWorkbenchPage } from '@/pages/BackgroundWorkbenchPage'
 import { ChatPage } from '@/pages/ChatPage'
@@ -142,22 +144,18 @@ function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route path="history" element={<HistoryPage />} />
           <Route path="history/:jobId" element={<HistoryDetailPage />} />
-          <Route
-            path="admin/models"
-            element={
-              <RoleRoute allow={[ROLE_MANAGER]}>
-                <AdminModelsPage />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="admin/users"
-            element={
-              <RoleRoute allow={[ROLE_MANAGER]}>
-                <AdminUsersPage />
-              </RoleRoute>
-            }
-          />
+        </Route>
+        <Route
+          path="admin"
+          element={
+            <RoleRoute allow={[ROLE_MANAGER]}>
+              <AdminLayout />
+            </RoleRoute>
+          }
+        >
+          <Route index element={<AdminOverviewPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="models" element={<AdminModelsPage />} />
         </Route>
       </Route>
       {import.meta.env.DEV && (

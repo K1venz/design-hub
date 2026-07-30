@@ -20,8 +20,7 @@ describe('global navigation contract', () => {
   it('exposes management destinations only to managers', () => {
     expect(getAccountNavItems('设计师')).toEqual([])
     expect(getAccountNavItems('管理者').map(({ label, to }) => ({ label, to }))).toEqual([
-      { label: '模型配置', to: '/admin/models' },
-      { label: '用户管理', to: '/admin/users' },
+      { label: '管理后台', to: '/admin' },
     ])
   })
 })
