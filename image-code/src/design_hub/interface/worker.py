@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 
 from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.application.registry import ProviderRegistry
 from design_hub.application.tasking.outbox_dispatcher import OutboxDispatcher
 from design_hub.application.tasking.runtime import GenerationWorkerRuntime
 from design_hub.application.tasking.worker import GenerationWorker
@@ -56,6 +57,13 @@ def _worker_id() -> str:
     return _SAFE_WORKER_ID.sub("-", raw)[:128]
 
 
+def _build_executors(registry: ProviderRegistry) -> dict[str, ProviderExecutor]:
+    return {
+        name: ProviderExecutionAdapter(registry.get(name))
+        for name in registry.names()
+    }
+
+
 async def run_worker(settings: Settings | None = None) -> None:
     settings = settings or Settings()
     configure_logging()
@@ -91,11 +99,7 @@ async def run_worker(settings: Settings | None = None) -> None:
         images=build_image_store(settings),
         signer=build_media_signer(settings),
     )
-    executors: dict[str, ProviderExecutor] = {
-        config.name: ProviderExecutionAdapter(registry.get(config.name))
-        for config in configs
-        if config.enabled and config.name in registry
-    }
+    executors = _build_executors(registry)
     slots: dict[tuple[str, RenderTier], RedisProviderSlots] = {}
 
     def executor_for(model: object) -> ProviderExecutor:
