@@ -46,8 +46,9 @@ class ModelConfigRepository(ABC):
     @abstractmethod
     async def update(
         self,
-        name: str,
         *,
+        actor_id: int,
+        name: str,
         unit_cost: Decimal | None = None,
         enabled: bool | None = None,
         extra: Mapping[str, Any] | None = None,
@@ -61,17 +62,27 @@ class ModelConfigRepository(ABC):
         ...
 
     @abstractmethod
-    async def create(self, record: ModelConfigRecord) -> ModelConfigRecord:
+    async def create(
+        self,
+        *,
+        actor_id: int,
+        record: ModelConfigRecord,
+    ) -> ModelConfigRecord:
         """新增一行。name 已存在 → DomainError（边界映射 409）。"""
         ...
 
     @abstractmethod
-    async def delete(self, name: str) -> None:
+    async def delete(self, *, actor_id: int, name: str) -> None:
         """删一行。name 不存在 → NotFoundError（404）。"""
         ...
 
     @abstractmethod
-    async def set_default(self, name: str) -> ModelConfigRecord:
+    async def set_default(
+        self,
+        *,
+        actor_id: int,
+        name: str,
+    ) -> ModelConfigRecord:
         """设为默认出图模型（事务内清其余 is_default、置本行）。name 不存在 → NotFoundError。"""
         ...
 
