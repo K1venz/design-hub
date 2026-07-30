@@ -189,6 +189,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             password=settings.seed_admin_password.get_secret_value(),
         )
     app.state.account_service = account_service
+    app.state.user_repository = user_repo
     app.state.user_admin_service = UserAdminService(users=user_repo)
     try:
         yield

@@ -48,7 +48,11 @@ class AccountService:
         email = email.strip().lower()
         acc = await self.users.get_by_email(email)
         # 统一文案，不区分"邮箱不存在/密码错"，避免泄露账号存在性
-        if acc is None or not self.passwords.verify(password, acc.password_hash):
+        if (
+            acc is None
+            or not acc.enabled
+            or not self.passwords.verify(password, acc.password_hash)
+        ):
             raise AuthenticationError("邮箱或密码错误")  # 401
         user = _to_auth_user(acc)
         return self.tokens.issue(user), user

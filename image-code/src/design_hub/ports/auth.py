@@ -15,10 +15,10 @@ class TokenService(ABC):
         ...
 
     @abstractmethod
-    def renew_if_stale(self, token: str) -> str | None:
+    def renew_if_stale(self, token: str, current_user: AuthUser) -> str | None:
         """滑动续期（ISSUE-0058）：已验证令牌若签发已过半衰期→签新令牌返回；未过→None。
 
-        exp 已过的令牌由 verify 先拦（401，不到这）；调用方（鉴权依赖）在 verify 成功后调本方法，
-        非 None 即放响应头 X-Renewed-Token。幂等：并发多请求各自续、无害。
+        The caller supplies the current database identity so renewed claims never preserve a
+        stale role or display name from the old token.
         """
         ...
