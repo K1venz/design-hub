@@ -14,6 +14,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -30,18 +31,37 @@ from design_hub.infrastructure.db.base import Base
 
 class ModelConfig(Base):
     __tablename__ = "model_config"
+    __table_args__ = (
+        UniqueConstraint("model_type", "name", name="uq_model_config_type_name"),
+    )
 
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(128))
+    model_type: Mapped[str] = mapped_column(String(16), index=True)
+    provider_type: Mapped[str] = mapped_column(String(32))
+    base_url: Mapped[str] = mapped_column(String(255))
+    model: Mapped[str] = mapped_column(String(128))
+    credentials_ciphertext: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_fingerprint: Mapped[str | None] = mapped_column(String(64))
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    # 配置大模型（ISSUE-0057 档A 注册表制，用户亲签 schema）：每行=一个可用出图模型的连接配置。
-    provider_type: Mapped[str] = mapped_column(String(32), default="openai_compat_image")
-    base_url: Mapped[str] = mapped_column(String(255), default="")  # 中转站 endpoint
-    model: Mapped[str] = mapped_column(String(64), default="")  # 传给上游 API 的模型 id
-    # A1 密钥不入库：仅存持有真 key 的环境变量名（真 key 留 server .env、chmod600）
-    api_key_env: Mapped[str] = mapped_column(String(64), default="")
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)  # 出图默认模型（恰一 true）
+
+
+class ModelDefault(Base):
+    __tablename__ = "model_default"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["model_type", "model_name"],
+            ["model_config.model_type", "model_config.name"],
+            name="fk_model_default_same_type",
+        ),
+    )
+
+    model_type: Mapped[str] = mapped_column(String(16), primary_key=True)
+    model_name: Mapped[str] = mapped_column(String(64))
 
 
 class CostLedgerEntry(Base):
