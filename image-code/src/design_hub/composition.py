@@ -12,12 +12,12 @@ from decimal import Decimal
 from design_hub.application.registry import ProviderRegistry
 from design_hub.config.settings import Settings
 from design_hub.domain.model_config import GPT_IMAGE_2
-from design_hub.infrastructure.auth.rsa_cipher import RsaPasswordCipher
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.infrastructure.providers.openai_compat_text import OpenAICompatTextProvider
+from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
 from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
 from design_hub.infrastructure.storage.tos import (
@@ -31,7 +31,7 @@ from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.model_calls import ModelCallRecorder
 from design_hub.ports.model_config_repository import ModelConfigRecord
 from design_hub.ports.model_provider import AbstractModelProvider
-from design_hub.ports.password_cipher import PasswordCipher
+from design_hub.ports.secret_cipher import SecretCipher
 from design_hub.ports.text_llm import TextLLMPort
 from design_hub.ports.upload_store import UploadStore
 
@@ -249,15 +249,14 @@ def build_text_llm(
     return MockTextLLMProvider()
 
 
-def build_password_cipher(settings: Settings) -> PasswordCipher:
-    """密码传输加密（ISSUE-0058）：配了 AUTH_RSA_PRIVATE_KEY_PEM → 持久私钥；否则启动生成临时。
-
-    prod/qa 各自 .env 配持久私钥（不入库不入 git）；local/CI 未配则每进程临时密钥对（本机自足）。
-    """
+def build_secret_cipher(settings: Settings) -> SecretCipher:
+    """Build the RSA-OAEP cipher for all application secrets."""
     pem = settings.auth_rsa_private_key_pem.get_secret_value()
     if pem:
-        return RsaPasswordCipher.from_pem(pem)
-    return RsaPasswordCipher.generate()
+        return RsaSecretCipher.from_pem(pem)
+    if settings.require_persistent_secret_cipher:
+        raise ValueError("AUTH_RSA_PRIVATE_KEY_PEM is required for persistent secret encryption")
+    return RsaSecretCipher.generate()
 
 
 def build_registry(
