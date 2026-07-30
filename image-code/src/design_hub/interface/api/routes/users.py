@@ -8,15 +8,6 @@ from design_hub.interface.auth_schemas import RoleUpdate, UserOut, UserStatusUpd
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/users", response_model=list[UserOut])
-async def list_users(
-    manager: CurrentManagerDep,
-    svc: UserAdminServiceDep,
-) -> list[UserOut]:
-    del manager
-    return [UserOut.of(a) for a in await svc.list_users()]
-
-
 @router.put("/users/{user_id}/role", response_model=UserOut)
 async def set_user_role(
     user_id: int,

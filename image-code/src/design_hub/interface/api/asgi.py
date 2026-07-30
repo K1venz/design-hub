@@ -11,6 +11,7 @@ from typing import cast
 from fastapi import Depends, FastAPI
 from redis.asyncio import Redis
 
+from design_hub.application.admin.admin_console_service import AdminConsoleService
 from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
@@ -48,6 +49,9 @@ from design_hub.config.settings import Settings
 from design_hub.domain.enums import Role
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
+from design_hub.infrastructure.db.admin_console_repo import (
+    SqlAlchemyAdminConsoleRepository,
+)
 from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
 from design_hub.infrastructure.db.generation_work_repo import (
     SqlAlchemyGenerationWorkRepository,
@@ -76,6 +80,7 @@ from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import require_role
 from design_hub.interface.api.routes import (
     admin,
+    admin_console,
     auth,
     chat,
     image_prompts,
@@ -172,6 +177,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_session_jobs=settings.chat_session_max_jobs,
     )
     app.state.model_config_service = model_config_service
+    app.state.admin_console_service = AdminConsoleService(
+        repository=SqlAlchemyAdminConsoleRepository(session_factory)
+    )
     token_service = PyJwtTokenService(
         secret=settings.jwt_secret.get_secret_value(),
         ttl_hours=settings.jwt_ttl_hours,
@@ -234,6 +242,7 @@ def create_production_app() -> FastAPI:
     app.include_router(showcase.router)
     # 仅管理者：模型配置 + 用户管理
     app.include_router(admin.router, dependencies=manager_only)
+    app.include_router(admin_console.router, dependencies=manager_only)
     app.include_router(users.router, dependencies=manager_only)
     register_error_handlers(app)
     return app
