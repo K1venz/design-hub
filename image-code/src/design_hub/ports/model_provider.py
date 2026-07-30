@@ -4,6 +4,7 @@ from typing import Literal
 
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.ports.model_calls import ModelCallContext
 
 # 参考图输入模态（ISSUE-0065）：同步 provider 收字节走 multipart；异步 provider 收现签 URL 走 JSON。
 ReferenceMode = Literal["bytes", "url"]
@@ -31,6 +32,7 @@ class AbstractModelProvider(ABC):
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],

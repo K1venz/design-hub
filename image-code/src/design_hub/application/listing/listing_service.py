@@ -17,9 +17,10 @@ from design_hub.application.listing.prompt_composer import (
 )
 from design_hub.application.listing.sizing import generation_size
 from design_hub.application.registry import ProviderRegistry
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
-from design_hub.domain.tasking import GenerationItemSpec
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ProviderError, ReferenceMode
 
 _MAX_IMAGES = 3
@@ -128,27 +129,6 @@ class ListingGenerationService:
         """当前出图 provider 的参考图模态（ISSUE-0065）：执行侧据此只物化 bytes 或 URL。"""
         return self.registry.get(model).reference_mode
 
-    async def execute_item(
-        self,
-        item: GenerationItemSpec,
-        reference_images: list[ReferenceImage],
-    ) -> GeneratedImage:
-        """Execute one already-reserved immutable image item."""
-        generated = await self.registry.get(item.model).generate(
-            prompt=item.final_prompt,
-            negative_prompt="",
-            reference_images=reference_images,
-            size=item.size,
-            n=1,
-            seed=item.seed,
-            quality=item.quality,
-        )
-        if len(generated) != 1:
-            raise ProviderError(
-                f"single image task returned {len(generated)} images"
-            )
-        return replace(generated[0], image_type=item.image_type)
-
     async def generate(
         self,
         *,
@@ -183,6 +163,14 @@ class ListingGenerationService:
             async with sem:
                 quality = overlay_quality if image_type == "卖点" else None
                 generated = await provider.generate(
+                    context=ModelCallContext(
+                        user_id=user_id,
+                        operation=(
+                            ModelOperation.IMAGE_EDIT
+                            if ref
+                            else ModelOperation.IMAGE_GENERATION
+                        ),
+                    ),
                     prompt=final_prompt,
                     negative_prompt="",
                     reference_images=ref,
@@ -258,6 +246,10 @@ class ListingGenerationService:
         await self.guard.precheck_and_reserve(user_id, estimate)
         try:
             generated = await provider.generate(
+                context=ModelCallContext(
+                    user_id=user_id,
+                    operation=ModelOperation.IMAGE_EDIT,
+                ),
                 prompt=final_prompt,
                 negative_prompt="",
                 reference_images=[product_image, *reference_images],  # 序=角色契约
@@ -314,6 +306,10 @@ class ListingGenerationService:
         await self.guard.precheck_and_reserve(user_id, estimate)
         try:
             generated = await provider.generate(
+                context=ModelCallContext(
+                    user_id=user_id,
+                    operation=ModelOperation.IMAGE_EDIT,
+                ),
                 prompt=final_prompt,
                 negative_prompt="",
                 reference_images=[source_image, *anchor_images],  # 序=角色契约（源图第 1）

@@ -7,13 +7,16 @@ from typing import Any
 
 import httpx
 import pytest
+from model_call_fakes import RecordingModelCallRecorder
 
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import ReferenceImage
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore, StoredImage
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ProviderError, ProviderTimeout
 from design_hub.ports.provider_execution import ProviderRequest
 
@@ -100,6 +103,7 @@ def _provider(client: object, **kw: Any) -> AsyncImageTasksProvider:
         key_pool=kw.pop("key_pool", ApiKeyPool(("k",))),
         model="gpt-image-2",
         image_store=kw.pop("image_store", _FakeImageStore()),
+        recorder=kw.pop("recorder", RecordingModelCallRecorder()),
         input_fidelity=kw.pop("input_fidelity", "high"),
         client=client,  # type: ignore[arg-type]
         poll_interval=0.001,
@@ -117,6 +121,14 @@ async def _gen(
     negative_prompt: str = "",
 ) -> list:
     return await provider.generate(
+        context=ModelCallContext(
+            user_id="7",
+            operation=(
+                ModelOperation.IMAGE_EDIT
+                if refs
+                else ModelOperation.IMAGE_GENERATION
+            ),
+        ),
         prompt="生成红色水杯",
         negative_prompt=negative_prompt,
         reference_images=refs,
@@ -135,8 +147,13 @@ def test_submit_task_returns_id_before_poll_and_resume_never_resubmits() -> None
         polls=[_poll("completed", [_CDN])],
         download=_download(),
     )
-    provider = _provider(client)
+    recorder = RecordingModelCallRecorder()
+    provider = _provider(client, recorder=recorder)
     request = ProviderRequest(
+        context=ModelCallContext(
+            user_id="7",
+            operation=ModelOperation.IMAGE_EDIT,
+        ),
         prompt="生成红色水杯",
         reference_images=(ReferenceImage(url="https://sig/u1.png"),),
         size=(1536, 1024),
@@ -155,6 +172,8 @@ def test_submit_task_returns_id_before_poll_and_resume_never_resubmits() -> None
 
     assert len(client.post_payloads) == 1
     assert "operation_id" not in client.post_payloads[0]
+    assert [call.attempt_no for call in recorder.started] == [1]
+    assert [call.call_id for call in recorder.succeeded] == ["call-1"]
 
 
 def test_submit_shape_then_completed_downloads_and_stores() -> None:
@@ -248,12 +267,17 @@ def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
         key_pool=pool,
         model="gpt-image-2",
         image_store=_FakeImageStore(),
+        recorder=RecordingModelCallRecorder(),
         client=normal_client,  # type: ignore[arg-type]
     )
     tasks = _provider(task_client, key_pool=pool)
 
     async def run() -> None:
         await normal.generate(
+            context=ModelCallContext(
+                user_id="7",
+                operation=ModelOperation.IMAGE_GENERATION,
+            ),
             prompt="normal request",
             negative_prompt="",
             reference_images=[],

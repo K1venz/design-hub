@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from design_hub.application.tasking.worker import GenerationWorker
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ListingJobStart, ReferenceImage
 from design_hub.domain.tasking import (
@@ -35,6 +36,7 @@ from design_hub.ports.generation_work import (
     GenerationWorkItem,
     JobSubmission,
 )
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.provider_execution import (
     ImmediateResult,
     ProviderRequest,
@@ -202,11 +204,13 @@ class _Executor:
         self.delay_seconds = delay_seconds
         self.submits = 0
         self.resumes = 0
+        self.last_request: ProviderRequest | None = None
 
     async def submit(
         self, request: ProviderRequest, *, operation_id: str
     ) -> SubmittedTask | ImmediateResult:
         self.submits += 1
+        self.last_request = request
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
         if self.error is not None:
@@ -284,6 +288,13 @@ def test_immediate_result_commits_terminal_before_ack() -> None:
         ]
         assert broker.acks == ["10-0"]
         assert slots.actions == ["acquire", "release"]
+        assert executor.last_request is not None
+        assert executor.last_request.context == ModelCallContext(
+            user_id="1",
+            operation=ModelOperation.IMAGE_EDIT,
+            job_id="job-1",
+            generation_item_id="item-1",
+        )
 
     asyncio.run(run())
 

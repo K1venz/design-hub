@@ -24,6 +24,7 @@ from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.generation_work_repo import (
     SqlAlchemyGenerationWorkRepository,
 )
+from design_hub.infrastructure.db.model_call_repo import SqlAlchemyModelCallRecorder
 from design_hub.infrastructure.db.model_config_repo import (
     SqlAlchemyModelConfigRepository,
 )
@@ -75,6 +76,7 @@ async def run_worker(settings: Settings | None = None) -> None:
     )
     registry = build_registry(
         settings,
+        recorder=SqlAlchemyModelCallRecorder(session_factory),
         real_gpt_image=settings.real_gpt_image,
         unit_costs=unit_costs,
         default_config=default_config,
