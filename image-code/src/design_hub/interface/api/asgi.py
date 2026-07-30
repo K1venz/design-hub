@@ -40,7 +40,7 @@ from design_hub.composition import (
     build_image_store,
     build_media_signer,
     build_mock_registry,
-    build_password_cipher,
+    build_secret_cipher,
     build_text_llm,
     build_upload_store,
     default_model_configs,
@@ -186,7 +186,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         renew_after_hours=settings.jwt_renew_after_hours,
     )
     app.state.token_service = token_service
-    app.state.password_cipher = build_password_cipher(settings)
+    app.state.secret_cipher = build_secret_cipher(settings)
     user_repo = SqlAlchemyUserRepository(session_factory)
     account_service = AccountService(
         users=user_repo,

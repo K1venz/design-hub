@@ -10,7 +10,7 @@ from design_hub.domain.errors import AuthenticationError, PermissionDenied
 from design_hub.domain.models import AuthUser
 from design_hub.ports.auth import TokenService
 from design_hub.ports.media_url_signer import MediaUrlSigner
-from design_hub.ports.password_cipher import PasswordCipher
+from design_hub.ports.secret_cipher import SecretCipher
 from design_hub.ports.user_repository import UserRepository
 
 
@@ -32,9 +32,9 @@ def get_account_service(request: Request) -> AccountService:
     return svc
 
 
-def get_password_cipher(request: Request) -> PasswordCipher:
-    cipher = request.app.state.password_cipher
-    assert isinstance(cipher, PasswordCipher)
+def get_secret_cipher(request: Request) -> SecretCipher:
+    cipher = request.app.state.secret_cipher
+    assert isinstance(cipher, SecretCipher)
     return cipher
 
 
@@ -109,7 +109,7 @@ async def get_current_user_sse(
 
 
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
-PasswordCipherDep = Annotated[PasswordCipher, Depends(get_password_cipher)]
+SecretCipherDep = Annotated[SecretCipher, Depends(get_secret_cipher)]
 UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service)]
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]
 CurrentUserSseDep = Annotated[AuthUser, Depends(get_current_user_sse)]

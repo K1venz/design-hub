@@ -1,6 +1,6 @@
 """登录健壮性（ISSUE-0058）：滑动续期 + 密码传输公钥加密。
 
-单元：jwt renew_if_stale（半衰期前/后/过期）、RSA cipher 往返/垃圾/from_pem。
+单元：jwt renew_if_stale（半衰期前/后/过期）。
 集成（TestClient + 假 repo + 真 cipher/token）：/auth/pubkey、密文注册登录往返、
 解密失败 400、明文<8 → 400、/me 过半衰期回 X-Renewed-Token、fresh 无头、过期 401。
 """
@@ -20,7 +20,7 @@ from design_hub.domain.errors import AuthenticationError
 from design_hub.domain.models import AuthUser
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
-from design_hub.infrastructure.auth.rsa_cipher import RsaPasswordCipher
+from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import CurrentUserSseDep
 from design_hub.interface.api.routes import auth
@@ -61,47 +61,6 @@ def test_verify_expired_raises() -> None:
     svc = PyJwtTokenService(secret=_SECRET, renew_after_hours=12)
     with pytest.raises(AuthenticationError):
         svc.verify(_backdated_token(30))  # exp=iat+24=now-6h 已过期
-
-
-# ── 单元：RSA 密码传输加密 ────────────────────────────────────────────────
-
-
-def test_rsa_round_trip_and_pubkey_is_spki() -> None:
-    c = RsaPasswordCipher.generate()
-    assert c.decrypt(c.encrypt("hunter2secret")) == "hunter2secret"
-    assert c.public_key_pem().startswith("-----BEGIN PUBLIC KEY-----")
-
-
-def test_rsa_decrypt_garbage_raises_valueerror_human() -> None:
-    c = RsaPasswordCipher.generate()
-    with pytest.raises(ValueError) as ei:
-        c.decrypt("!!!not-base64-or-cipher!!!")
-    assert "解密失败" in str(ei.value) and "500" not in str(ei.value)
-
-
-def test_rsa_from_pem_loads_and_decrypts() -> None:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode()
-    c = RsaPasswordCipher.from_pem(pem)
-    assert c.decrypt(c.encrypt("secret123")) == "secret123"
-
-
-def test_rsa_from_pem_tolerates_escaped_newlines() -> None:
-    # docker env-file 单行 PEM（\n 字面转义）也能 load（coordinator #1024 部署前置必修）
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode()
-    single_line = pem.replace("\n", "\\n")  # 真实换行 → `\n` 字面（模拟 env 单行携带）
-    assert "\n" not in single_line.replace("\\n", "")  # 确认已无真实换行
-    c = RsaPasswordCipher.from_pem(single_line)
-    assert c.decrypt(c.encrypt("secret123")) == "secret123"
 
 
 # ── 集成：/auth 路由（假 repo + 真 cipher/token via TestClient）─────────────
@@ -157,7 +116,7 @@ class _FakeUserRepo(UserRepository):
 
 def _client() -> tuple[
     TestClient,
-    RsaPasswordCipher,
+    RsaSecretCipher,
     PyJwtTokenService,
     _FakeUserRepo,
 ]:
@@ -170,9 +129,9 @@ def _client() -> tuple[
         return {"user_id": user.user_id}
 
     token_service = PyJwtTokenService(secret=_SECRET, renew_after_hours=12)
-    cipher = RsaPasswordCipher.generate()
+    cipher = RsaSecretCipher.generate()
     app.state.token_service = token_service
-    app.state.password_cipher = cipher
+    app.state.secret_cipher = cipher
     users = _FakeUserRepo()
     users._seq = 7
     users._by_email["token-user@example.com"] = UserAccount(
@@ -194,7 +153,9 @@ def test_pubkey_returns_spki_pem() -> None:
     client, _, _, _ = _client()
     resp = client.get("/auth/pubkey")
     assert resp.status_code == 200
-    assert resp.json()["public_key"].startswith("-----BEGIN PUBLIC KEY-----")
+    pem = resp.json()["public_key"]
+    assert pem.startswith("-----BEGIN PUBLIC KEY-----")
+    assert isinstance(serialization.load_pem_public_key(pem.encode()), rsa.RSAPublicKey)
 
 
 def test_register_login_round_trip_encrypted_password() -> None:
@@ -211,10 +172,11 @@ def test_register_login_round_trip_encrypted_password() -> None:
     assert login.status_code == 200 and login.json()["jwt"]
 
 
-def test_login_garbage_ciphertext_400_no_plaintext_leak() -> None:
+def test_login_garbage_ciphertext_uses_password_specific_error() -> None:
     client, _, _, _ = _client()
     resp = client.post("/auth/login", json={"email": "a@b.com", "password": "garbage-not-cipher"})
     assert resp.status_code == 400
+    assert resp.json()["detail"] == "密码解密失败，请刷新页面后重试"
 
 
 def test_register_short_plaintext_400_checked_after_decrypt() -> None:
