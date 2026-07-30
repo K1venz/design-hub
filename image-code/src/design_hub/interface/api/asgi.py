@@ -53,6 +53,7 @@ from design_hub.infrastructure.db.generation_work_repo import (
     SqlAlchemyGenerationWorkRepository,
 )
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
+from design_hub.infrastructure.db.model_call_repo import SqlAlchemyModelCallRecorder
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
@@ -90,6 +91,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
     db = create_engine(settings.db_url)
     session_factory = create_session_factory(db)
+    model_call_recorder = SqlAlchemyModelCallRecorder(session_factory)
     ledger = SqlAlchemyLedgerRepository(session_factory)
     model_config_repo = SqlAlchemyModelConfigRepository(session_factory)
     model_config_service = ModelConfigService(repo=model_config_repo)
@@ -110,7 +112,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.upload_service = UploadService(
         store=build_upload_store(settings)
     )
-    text_llm = build_text_llm(settings)
+    text_llm = build_text_llm(settings, recorder=model_call_recorder)
     app.state.reverse_prompt_service = ReversePromptService(
         text_llm=text_llm,
         uploads=app.state.upload_service,
