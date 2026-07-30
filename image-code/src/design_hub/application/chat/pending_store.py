@@ -15,7 +15,7 @@ from design_hub.application.listing.requests import (
     EditRequest,
     ListingGenerateRequest,
 )
-from design_hub.domain.enums import ModelName
+from design_hub.domain.tasking import RenderTier
 
 ListingReq = (
     ListingGenerateRequest
@@ -34,7 +34,8 @@ class PendingAction:
     req: ListingReq
     count: int
     estimate: Decimal
-    model: ModelName
+    model: str
+    render_tier: RenderTier
     expires_at: float  # time.monotonic() 基准
 
 
@@ -53,7 +54,8 @@ class PendingStore:
         req: ListingReq,
         count: int,
         estimate: Decimal,
-        model: ModelName,
+        model: str,
+        render_tier: RenderTier,
     ) -> PendingAction:
         pending = PendingAction(
             confirm_token="ct_" + secrets.token_urlsafe(16),
@@ -62,6 +64,7 @@ class PendingStore:
             count=count,
             estimate=estimate,
             model=model,
+            render_tier=render_tier,
             expires_at=time.monotonic() + self.ttl_seconds,
         )
         self._pending[session_id] = pending

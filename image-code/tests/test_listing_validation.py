@@ -19,7 +19,7 @@ from design_hub.application.listing.requests import (
     ListingGenerateRequest,
 )
 from design_hub.application.listing.sizing import ratio_to_size
-from design_hub.domain.enums import ModelName
+from design_hub.domain.tasking import RenderTier
 
 _MR = PromptModifierRegistry()
 _CR = CategoryCardRegistry()
@@ -124,17 +124,17 @@ def test_ratio_to_size_preserves_requested_aspect_ratio(
     assert ratio_to_size(ratio) == expected
 
 
-def test_generation_size_uses_standard_dimensions_for_standard_model() -> None:
-    assert sizing.generation_size(ModelName.GPT_IMAGE_2, "4:3") == (1536, 1152)
+def test_generation_size_uses_standard_dimensions_for_any_standard_provider() -> None:
+    assert sizing.generation_size(RenderTier.STANDARD, "4:3") == (1536, 1152)
 
 
-def test_generation_size_uses_native_4k_dimensions_for_4k_model() -> None:
-    assert sizing.generation_size(ModelName.GPT_IMAGE_2_4K, "16:9") == (3840, 2160)
+def test_generation_size_uses_native_4k_dimensions_from_render_tier() -> None:
+    assert sizing.generation_size(RenderTier.FOUR_K, "16:9") == (3840, 2160)
 
 
-def test_generation_size_rejects_non_widescreen_ratio_for_4k_model() -> None:
+def test_generation_size_rejects_non_widescreen_ratio_for_4k_render_tier() -> None:
     with pytest.raises(ValueError, match="16:9"):
-        sizing.generation_size(ModelName.GPT_IMAGE_2_4K, "4:3")
+        sizing.generation_size(RenderTier.FOUR_K, "4:3")
 
 
 def test_single_mode_no_image_type_block() -> None:

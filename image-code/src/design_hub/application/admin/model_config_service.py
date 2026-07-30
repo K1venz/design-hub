@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from design_hub.domain.enums import ModelName
 from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 
 
@@ -75,15 +74,9 @@ class ModelConfigService:
     async def seed_defaults(self, defaults: Sequence[ModelConfigRecord]) -> None:
         await self.repo.seed_defaults(defaults)
 
-    async def unit_cost_map(self) -> dict[ModelName, Decimal]:
-        """单价映射（按 ModelName），供 composition 注入 Provider，替换写死的 Mock 价。
-
-        只取 name 命中 ModelName 枚举的行（未命中的留给 Mock 兜底）。单价 ⊥ enabled：
-        enabled 是模型可用性，归路由层（当前路由用静态表、暂未消费 model_config，属后续）。
-        """
-        valid = {m.value: m for m in ModelName}
+    async def unit_cost_map(self) -> dict[str, Decimal]:
+        """单价映射按稳定模型 ID 供 composition 注入 Provider。"""
         return {
-            valid[r.name]: r.unit_cost
+            r.name: r.unit_cost
             for r in await self.repo.list_all()
-            if r.name in valid
         }

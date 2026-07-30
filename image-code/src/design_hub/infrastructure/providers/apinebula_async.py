@@ -21,7 +21,6 @@ from typing import Any
 import httpx
 
 from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
@@ -52,7 +51,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
     def __init__(
         self,
         *,
-        name: ModelName,
+        name: str,
         unit_cost: Decimal,
         base_url: str,
         key_pool: ApiKeyPool,

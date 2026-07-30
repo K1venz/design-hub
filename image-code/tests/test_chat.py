@@ -56,7 +56,7 @@ from design_hub.application.tasking.health import (
 )
 from design_hub.composition import build_mock_registry
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName, Role, TaskEventType
+from design_hub.domain.enums import Role, TaskEventType
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import (
     AuthUser,
@@ -64,6 +64,7 @@ from design_hub.domain.models import (
     ListingJobImage,
     TaskEvent,
 )
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
@@ -234,16 +235,17 @@ class _FakeSubmission:
         self._query = query
         self._events = events
         self._uploads = uploads
-        self.calls: list[ModelName] = []
+        self.calls: list[str] = []
 
     def validate(
         self,
         user_id: str,
         request: ListingGenerateRequest | CloneRequest | EditRequest,
         *,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> None:
-        self._validator.validate(user_id, request, model=model)
+        self._validator.validate(user_id, request, model=model, render_tier=render_tier)
 
     async def submit_generate(
         self,
@@ -253,7 +255,8 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         submission = self._planner.plan_generate(
             user_id=user_id,
@@ -263,6 +266,7 @@ class _FakeSubmission:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         return await self._complete(submission, model)
 
@@ -274,7 +278,8 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         submission = self._planner.plan_clone(
             user_id=user_id,
@@ -284,6 +289,7 @@ class _FakeSubmission:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         return await self._complete(submission, model)
 
@@ -295,7 +301,8 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         source = await self._query.resolve_generated_image_source(
             source_image_key=request.source_image_key,
@@ -312,6 +319,7 @@ class _FakeSubmission:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         return await self._complete(submission, model)
 
@@ -334,7 +342,8 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         if request.source.kind == "upload":
             data, _content_type = await self._uploads.load(
@@ -360,13 +369,14 @@ class _FakeSubmission:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         return await self._complete(submission, model)
 
     async def _complete(
         self,
         submission: JobSubmission,
-        model: ModelName,
+        model: str,
     ) -> SubmissionReceipt:
         self.calls.append(model)
         await self._history.start(submission.job)
@@ -727,8 +737,8 @@ async def _infra(
     sf = async_sessionmaker(engine, expire_on_commit=False)
     registry = build_mock_registry(
         {
-            ModelName.GPT_IMAGE_2: Decimal("0.0500"),
-            ModelName.GPT_IMAGE_2_4K: Decimal("0.1800"),
+            "gpt-image-2": Decimal("0.0500"),
+            "gpt-image-2-4k": Decimal("0.1800"),
         }
     )
     planner = ListingTaskPlanner(
@@ -800,7 +810,7 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
         assert cc["unit_cost"] == "0.05"
         assert cc["estimate_cny"] == "0.25"
         sid = _first(ev, "session")["session_id"]
-        assert inf.pending._pending[sid].model is ModelName.GPT_IMAGE_2
+        assert inf.pending._pending[sid].model == "gpt-image-2"
         assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
         # 费用闸：确认前 DB 无 job(未出图);user 消息已落、assistant 未落(答复留到 confirm)
         assert await inf.chat_repo.job_count(sid) == 0
@@ -979,7 +989,7 @@ def test_4k_tool_call_uses_real_price_ratio_and_pending_model(tmp_path) -> None:
         assert confirm["unit_cost"] == "0.18"
         assert confirm["estimate_cny"] == "0.18"
         assert confirm["args"]["ratio"] == "16:9"
-        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2_4K
+        assert inf.pending._pending[session_id].model == "gpt-image-2-4k"
 
     asyncio.run(_impl())
 
@@ -1162,7 +1172,7 @@ def test_unavailable_4k_stops_before_cost_pending_or_job(
         inf = await _infra(str(tmp_path), four_k_enabled=four_k_enabled)
         if not registry_available:
             standard_only = ProviderRegistry()
-            standard_only.register(inf.registry.get(ModelName.GPT_IMAGE_2))
+            standard_only.register(inf.registry.get("gpt-image-2"))
             inf.registry = standard_only
         uid = await _stage(inf)
         events = await _drain(
@@ -1446,7 +1456,7 @@ def test_4k_confirm_launches_with_pending_model_snapshot(tmp_path) -> None:
             orch.handle_confirm(USER, session_id, token, "confirm")
         )
 
-        assert inf.submission.calls == [ModelName.GPT_IMAGE_2_4K]
+        assert inf.submission.calls == ["gpt-image-2-4k"]
         assert "job_started" in [event_type for event_type, _data in confirmed]
 
     asyncio.run(_impl())
@@ -1462,7 +1472,7 @@ def test_confirm_rechecks_model_disabled_after_cost_card(tmp_path) -> None:
         )
         session_id = _first(planned, "session")["session_id"]
         token = _first(planned, "cost_confirm")["confirm_token"]
-        inf.model_config.set_enabled(ModelName.GPT_IMAGE_2_4K.value, False)
+        inf.model_config.set_enabled("gpt-image-2-4k", False)
 
         confirmed = await _drain(
             orch.handle_confirm(USER, session_id, token, "confirm")
@@ -1529,7 +1539,7 @@ def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
         )
         standard_confirm = _first(standard_edit, "cost_confirm")
         assert standard_confirm["unit_cost"] == "0.05"
-        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2
+        assert inf.pending._pending[session_id].model == "gpt-image-2"
 
         four_k_edit = await _drain(
             orch.handle_message(
@@ -1544,7 +1554,7 @@ def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
         assert four_k_confirm["unit_cost"] == "0.18"
         assert four_k_confirm["args"]["ratio"] == "16:9"
         assert four_k_confirm["args"]["edit_mode"] == "full"
-        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2_4K
+        assert inf.pending._pending[session_id].model == "gpt-image-2-4k"
 
     asyncio.run(_impl())
 
@@ -1806,9 +1816,10 @@ def test_pending_take_one_time_and_mismatch_preserves() -> None:
         req=_req(),
         count=1,
         estimate=Decimal("0.4"),
-        model=ModelName.GPT_IMAGE_2_4K,
+        model="gpt-image-2-4k",
+        render_tier=RenderTier.FOUR_K,
     )
-    assert action.model is ModelName.GPT_IMAGE_2_4K
+    assert action.model == "gpt-image-2-4k"
     assert p.take("s1", "wrong") is None  # 不匹配不消费
     assert p.take("s1", action.confirm_token) is action  # 真 token 仍在
     assert p.take("s1", action.confirm_token) is None  # 一次性，二次拒
@@ -1822,7 +1833,8 @@ def test_pending_take_expired() -> None:
         req=_req(),
         count=1,
         estimate=Decimal("0.4"),
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
+        render_tier=RenderTier.STANDARD,
     )
     assert p.take("s1", action.confirm_token) is None  # 匹配但过期
     assert p.take("s1", action.confirm_token) is None  # 已消费
@@ -1836,7 +1848,8 @@ def test_pending_clear() -> None:
         req=_req(),
         count=1,
         estimate=Decimal("0.4"),
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
+        render_tier=RenderTier.STANDARD,
     )
     p.clear("s1")
     assert p.take("s1", action.confirm_token) is None

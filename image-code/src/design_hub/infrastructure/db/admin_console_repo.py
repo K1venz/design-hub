@@ -24,7 +24,7 @@ from design_hub.domain.admin import (
     ModerationReason,
     ModerationStatus,
 )
-from design_hub.domain.enums import ModelName, Role
+from design_hub.domain.enums import Role
 from design_hub.domain.errors import DomainError, NotFoundError
 from design_hub.infrastructure.db.models import (
     AdminAuditLogRow,
@@ -806,13 +806,13 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                             or_(
                                 and_(
                                     ModelCallRow.model
-                                    == ModelName.GPT_IMAGE_2_4K.value,
+                                    == "gpt-image-2-4k",
                                     ModelCallRow.started_at
                                     < now - _FOUR_K_IMAGE_STALE_AFTER,
                                 ),
                                 and_(
                                     ModelCallRow.model
-                                    != ModelName.GPT_IMAGE_2_4K.value,
+                                    != "gpt-image-2-4k",
                                     ModelCallRow.started_at
                                     < now - _IMAGE_STALE_AFTER,
                                 ),

@@ -128,7 +128,7 @@ class GenerationWorker:
                 "generation_stale_submission_marked_uncertain",
                 extra=self._log_context(delivery, work),
             )
-            task_metrics.record_uncertain(work.spec.model.value)
+            task_metrics.record_uncertain(work.spec.model)
             await self._broker.ack(delivery.redis_id)
             return
 
@@ -198,7 +198,7 @@ class GenerationWorker:
             )
             try:
                 task_metrics.provider_started(
-                    work.spec.model.value,
+                    work.spec.model,
                     work.spec.render_tier.value,
                 )
                 try:
@@ -212,7 +212,7 @@ class GenerationWorker:
                     )
                 finally:
                     task_metrics.provider_finished(
-                        work.spec.model.value,
+                        work.spec.model,
                         work.spec.render_tier.value,
                     )
             except SubmissionUncertain as exc:
@@ -226,13 +226,13 @@ class GenerationWorker:
                     extra=self._log_context(delivery, work),
                     exc_info=True,
                 )
-                task_metrics.record_uncertain(work.spec.model.value)
+                task_metrics.record_uncertain(work.spec.model)
                 capture_task_exception(
                     exc,
                     request_id=delivery.message.request_id,
                     job_id=work.job_id,
                     item_id=work.spec.item_id,
-                    provider=work.spec.model.value,
+                    provider=work.spec.model,
                     error_code="submission_uncertain",
                 )
                 await self._broker.ack(delivery.redis_id)
@@ -357,7 +357,7 @@ class GenerationWorker:
             request_id=delivery.message.request_id,
             job_id=work.job_id,
             item_id=work.spec.item_id,
-            provider=work.spec.model.value,
+            provider=work.spec.model,
             error_code=error_code,
         )
         logger.warning(

@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from design_hub.application.registry import ProviderRegistry
 from design_hub.config.settings import Settings
-from design_hub.domain.enums import ModelName
+from design_hub.domain.model_config import GPT_IMAGE_2
 from design_hub.infrastructure.auth.rsa_cipher import RsaPasswordCipher
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.mock import MockModelProvider
@@ -36,17 +36,18 @@ from design_hub.ports.text_llm import TextLLMPort
 from design_hub.ports.upload_store import UploadStore
 
 # 两个 GPT Image runtime 的价格是产品固定契约，不受持久化 model_config 旧值覆盖。
-_FIXED_IMAGE_UNIT_COSTS: dict[ModelName, Decimal] = {
-    ModelName.GPT_IMAGE_2: Decimal("0.05"),
-    ModelName.GPT_IMAGE_2_4K: Decimal("0.18"),
+_GPT_IMAGE_2_4K = "gpt-image-2-4k"
+_FIXED_IMAGE_UNIT_COSTS: dict[str, Decimal] = {
+    GPT_IMAGE_2: Decimal("0.05"),
+    _GPT_IMAGE_2_4K: Decimal("0.18"),
 }
 
 # 其他 Mock 模型仍允许 model_config 热更；4K 只注册 runtime，不进入启动 seed。
-_MOCK_UNIT_COSTS: dict[ModelName, Decimal] = {
-    ModelName.SEEDREAM_5: Decimal("0.20"),
+_MOCK_UNIT_COSTS: dict[str, Decimal] = {
+    "seedream-5": Decimal("0.20"),
     **_FIXED_IMAGE_UNIT_COSTS,
-    ModelName.WANXIANG_27: Decimal("0.05"),
-    ModelName.LINGDONG_2: Decimal("0.04"),
+    "wanxiang-2.7-pro": Decimal("0.05"),
+    "lingdong-2": Decimal("0.04"),
 }
 _IMAGE_PROVIDER_PROTOCOL = "openai_compat_image"
 
@@ -54,14 +55,14 @@ _IMAGE_PROVIDER_PROTOCOL = "openai_compat_image"
 def default_model_configs() -> list[ModelConfigRecord]:
     """启动 seed：不新增 4K 持久行；4K 能力由 runtime Provider 注册决定。"""
     return [
-        ModelConfigRecord(name=name.value, unit_cost=cost, enabled=True, extra={})
+        ModelConfigRecord(name=name, unit_cost=cost, enabled=True, extra={})
         for name, cost in _MOCK_UNIT_COSTS.items()
-        if name is not ModelName.GPT_IMAGE_2_4K
+        if name != _GPT_IMAGE_2_4K
     ]
 
 
 def build_mock_registry(
-    unit_costs: Mapping[ModelName, Decimal] | None = None,
+    unit_costs: Mapping[str, Decimal] | None = None,
 ) -> ProviderRegistry:
     """Mock 全模型；持久价格只覆盖非固定价模型。"""
     configurable_costs = {
@@ -120,7 +121,7 @@ def _require_image_keys(
 def build_gpt_image_providers(
     settings: Settings,
     recorder: ModelCallRecorder,
-    unit_costs: Mapping[ModelName, Decimal] | None = None,
+    unit_costs: Mapping[str, Decimal] | None = None,
     *,
     default_config: ModelConfigRecord | None = None,
 ) -> tuple[AbstractModelProvider, AbstractModelProvider]:
@@ -142,8 +143,8 @@ def build_gpt_image_providers(
     standard_key_pool = ApiKeyPool(standard_keys)
     four_k_key_pool = ApiKeyPool(four_k_keys)
     standard = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2,
-        unit_cost=_FIXED_IMAGE_UNIT_COSTS[ModelName.GPT_IMAGE_2],
+        name=GPT_IMAGE_2,
+        unit_cost=_FIXED_IMAGE_UNIT_COSTS[GPT_IMAGE_2],
         base_url=base_url,
         key_pool=standard_key_pool,
         model=model,
@@ -159,11 +160,11 @@ def build_gpt_image_providers(
         retry_max_elapsed=settings.gpt_image_retry_max_elapsed,
     )
     four_k = OpenAICompatImageProvider(
-        name=ModelName.GPT_IMAGE_2_4K,
-        unit_cost=_FIXED_IMAGE_UNIT_COSTS[ModelName.GPT_IMAGE_2_4K],
+        name=_GPT_IMAGE_2_4K,
+        unit_cost=_FIXED_IMAGE_UNIT_COSTS[_GPT_IMAGE_2_4K],
         base_url=base_url,
         key_pool=four_k_key_pool,
-        model=ModelName.GPT_IMAGE_2_4K.value,
+        model=_GPT_IMAGE_2_4K,
         recorder=recorder,
         input_fidelity=settings.gpt_image_input_fidelity,
         response_format=settings.gpt_image_response_format,
@@ -264,7 +265,7 @@ def build_registry(
     *,
     recorder: ModelCallRecorder,
     real_gpt_image: bool = False,
-    unit_costs: Mapping[ModelName, Decimal] | None = None,
+    unit_costs: Mapping[str, Decimal] | None = None,
     default_config: ModelConfigRecord | None = None,
 ) -> ProviderRegistry:
     """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖普通与 4K 模型。

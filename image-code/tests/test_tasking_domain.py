@@ -4,7 +4,6 @@ from itertools import pairwise
 
 import pytest
 
-from design_hub.domain.enums import ModelName
 from design_hub.domain.tasking import (
     GenerationItemSpec,
     GenerationItemStatus,
@@ -118,7 +117,7 @@ def test_execution_snapshot_keeps_object_keys_not_urls_or_bytes() -> None:
         operation_type=OperationType.GENERATE_IMAGE,
         render_tier=RenderTier.STANDARD,
         final_prompt="make a faithful product image",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
         ratio="1:1",
         size=(1024, 1024),
         quality=None,
@@ -159,11 +158,50 @@ def test_execution_snapshot_rejects_invalid_boundaries(
             operation_type=OperationType.GENERATE_IMAGE,
             render_tier=RenderTier.STANDARD,
             final_prompt="prompt",
-            model=ModelName.GPT_IMAGE_2,
+            model="gpt-image-2",
             ratio="1:1",
             size=size,
             quality=None,
             seed=0,
             references=(),
             reserved_cost=cost,
+        )
+
+
+def test_execution_snapshot_keeps_a_non_empty_stable_model_id() -> None:
+    spec = GenerationItemSpec(
+        item_id="item-1",
+        operation_id="operation-1",
+        sequence=1,
+        image_type=None,
+        operation_type=OperationType.GENERATE_IMAGE,
+        render_tier=RenderTier.FOUR_K,
+        final_prompt="render",
+        model="gpt-image-2",
+        ratio="16:9",
+        size=(3840, 2160),
+        quality="high",
+        seed=1,
+        references=(),
+        reserved_cost=Decimal("0.18"),
+    )
+
+    assert spec.model == "gpt-image-2"
+
+    with pytest.raises(ValueError, match="model"):
+        GenerationItemSpec(
+            item_id="item-2",
+            operation_id="operation-2",
+            sequence=1,
+            image_type=None,
+            operation_type=OperationType.GENERATE_IMAGE,
+            render_tier=RenderTier.STANDARD,
+            final_prompt="render",
+            model="",
+            ratio="1:1",
+            size=(1024, 1024),
+            quality=None,
+            seed=1,
+            references=(),
+            reserved_cost=Decimal("0.05"),
         )

@@ -19,7 +19,6 @@ from design_hub.composition import (
     build_upload_store,
 )
 from design_hub.config.settings import Settings
-from design_hub.domain.enums import ModelName
 from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.generation_work_repo import (
     SqlAlchemyGenerationWorkRepository,
@@ -66,9 +65,9 @@ async def run_worker(settings: Settings | None = None) -> None:
     model_config_repo = SqlAlchemyModelConfigRepository(session_factory)
     configs = await ModelConfigService(repo=model_config_repo).list()
     unit_costs = {
-        ModelName(config.name): config.unit_cost
+        config.name: config.unit_cost
         for config in configs
-        if config.enabled and config.name in ModelName._value2member_map_
+        if config.enabled
     }
     default_config = next(
         (config for config in configs if config.enabled and config.is_default),
@@ -92,21 +91,21 @@ async def run_worker(settings: Settings | None = None) -> None:
         images=build_image_store(settings),
         signer=build_media_signer(settings),
     )
-    executors: dict[ModelName, ProviderExecutor] = {
-        model: ProviderExecutionAdapter(registry.get(model))
-        for model in ModelName
-        if model in registry
+    executors: dict[str, ProviderExecutor] = {
+        config.name: ProviderExecutionAdapter(registry.get(config.name))
+        for config in configs
+        if config.enabled and config.name in registry
     }
-    slots: dict[tuple[ModelName, RenderTier], RedisProviderSlots] = {}
+    slots: dict[tuple[str, RenderTier], RedisProviderSlots] = {}
 
     def executor_for(model: object) -> ProviderExecutor:
-        if not isinstance(model, ModelName):
-            raise TypeError("worker model key must be ModelName")
+        if not isinstance(model, str):
+            raise TypeError("worker model key must be a string")
         return executors[model]
 
     def slots_for(model: object, tier: RenderTier) -> RedisProviderSlots:
-        if not isinstance(model, ModelName):
-            raise TypeError("worker model key must be ModelName")
+        if not isinstance(model, str):
+            raise TypeError("worker model key must be a string")
         key = (model, tier)
         if key not in slots:
             limit = (
@@ -116,7 +115,7 @@ async def run_worker(settings: Settings | None = None) -> None:
             )
             slots[key] = RedisProviderSlots(
                 client=eval_client,
-                provider=model.value,
+                provider=model,
                 tier=tier.value,
                 limit=limit,
                 lease_seconds=settings.provider_slot_lease_seconds,

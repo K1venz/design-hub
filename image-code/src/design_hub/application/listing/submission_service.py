@@ -27,8 +27,9 @@ from design_hub.application.tasking.health import (
     QueueSnapshotReader,
     RedisHealthState,
 )
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import NotFoundError
+from design_hub.domain.model_config import GPT_IMAGE_2
+from design_hub.domain.tasking import RenderTier
 from design_hub.ports.generation_work import (
     GenerationWorkRepository,
     JobSubmission,
@@ -74,10 +75,11 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        self.validate(user_id, request, model=model)
+        self.validate(user_id, request, model=model, render_tier=render_tier)
         admission = await self._admit()
         submission = self.planner.plan_generate(
             user_id=user_id,
@@ -87,6 +89,7 @@ class ListingSubmissionService:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
         self._log_submission(submission, result.replayed)
@@ -105,10 +108,11 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        self.validate(user_id, request, model=model)
+        self.validate(user_id, request, model=model, render_tier=render_tier)
         admission = await self._admit()
         submission = self.planner.plan_clone(
             user_id=user_id,
@@ -118,6 +122,7 @@ class ListingSubmissionService:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
         self._log_submission(submission, result.replayed)
@@ -136,10 +141,11 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
-        self.validate(user_id, request, model=model)
+        self.validate(user_id, request, model=model, render_tier=render_tier)
         source = await self.query.resolve_generated_image_source(
             source_image_key=request.source_image_key,
             user_id=user_id,
@@ -156,6 +162,7 @@ class ListingSubmissionService:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
         self._log_submission(submission, result.replayed)
@@ -174,7 +181,8 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         self._require_idempotency_key(idempotency_key)
         source, ratio = await self._background_replace_context(
@@ -192,6 +200,7 @@ class ListingSubmissionService:
             trace_id=trace_id,
             request_id=request_id,
             model=model,
+            render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
         self._log_submission(submission, result.replayed)
@@ -246,7 +255,8 @@ class ListingSubmissionService:
         user_id: str,
         request: ListingGenerateRequest | CloneRequest | EditRequest,
         *,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> None:
         if isinstance(request, ListingGenerateRequest):
             if not 1 <= len(request.upload_ids) <= 3:
@@ -254,7 +264,7 @@ class ListingSubmissionService:
                     f"请上传 1–3 张图片（当前 {len(request.upload_ids)} 张）"
                 )
             self._require_owned_uploads(user_id, tuple(request.upload_ids))
-            generation_size(model, request.ratio)
+            generation_size(render_tier, request.ratio)
             build_listing_prompts(
                 request.prompt,
                 request.modifiers,
@@ -283,7 +293,7 @@ class ListingSubmissionService:
                     *request.reference_upload_ids,
                 ),
             )
-            generation_size(model, request.ratio)
+            generation_size(render_tier, request.ratio)
             compose_clone_prompt(
                 request.prompt,
                 request.modifiers,
@@ -300,7 +310,7 @@ class ListingSubmissionService:
                 "微调会沿用原图比例，如需修改比例请改用「重做」"
             )
         if request.ratio is not None:
-            generation_size(model, request.ratio)
+            generation_size(render_tier, request.ratio)
 
     async def _admit(self) -> AdmissionResult:
         self.redis_health.require_available(now=self.clock())

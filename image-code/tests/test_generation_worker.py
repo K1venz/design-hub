@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from design_hub.application.tasking.worker import GenerationWorker
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ListingJobStart, ReferenceImage
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -55,7 +54,7 @@ def _spec() -> GenerationItemSpec:
         operation_type=OperationType.GENERATE_IMAGE,
         render_tier=RenderTier.STANDARD,
         final_prompt="faithful product",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
         ratio="1:1",
         size=(1024, 1024),
         quality=None,
@@ -490,7 +489,7 @@ def _submission(item_count: int = 3) -> JobSubmission:
             operation_type=OperationType.GENERATE_IMAGE,
             render_tier=RenderTier.STANDARD,
             final_prompt=f"prompt {index}",
-            model=ModelName.GPT_IMAGE_2,
+            model="gpt-image-2",
             ratio="1:1",
             size=(1024, 1024),
             quality=None,

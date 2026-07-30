@@ -76,6 +76,13 @@ def test_upgrade_rebuilds_model_config_without_legacy_columns() -> None:
         connection.close()
 
 
+def test_migration_revision_follows_the_current_head() -> None:
+    migration = _load_migration()
+
+    assert migration.revision == "d7e8f9a0b1c2"
+    assert migration.down_revision == "b8c9d0e1f2a3"
+
+
 def test_upgrade_creates_one_default_per_type_with_same_type_foreign_key() -> None:
     """A default must point to a model record of the matching type."""
     connection = _upgrade_legacy_model_config()
@@ -129,7 +136,7 @@ def test_upgrade_seeds_only_disabled_non_secret_gpt_wan_and_doubao_skeletons() -
                 "base_url": "",
                 "model": "gpt-image-2",
                 "credentials_ciphertext": "{}",
-                "unit_cost": 0,
+                "unit_cost": 0.05,
                 "enabled": 0,
                 "revision": 1,
                 "extra": "{}",
@@ -142,7 +149,7 @@ def test_upgrade_seeds_only_disabled_non_secret_gpt_wan_and_doubao_skeletons() -
                 "base_url": "",
                 "model": "wan2.7-image-pro",
                 "credentials_ciphertext": "{}",
-                "unit_cost": 0,
+                "unit_cost": 0.5,
                 "enabled": 0,
                 "revision": 1,
                 "extra": "{}",
