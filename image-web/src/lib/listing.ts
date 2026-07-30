@@ -337,6 +337,7 @@ export interface ResultSlotLike {
   imageType?: string
   error?: string
   imageKey?: string
+  unavailable?: boolean
 }
 
 export function mergeSlotsWithDetail<T extends ResultSlotLike>(
@@ -359,7 +360,19 @@ export function mergeSlotsWithDetail<T extends ResultSlotLike>(
     const img = buckets.get(k)?.[i]
     if (!img) return s
     cursor.set(k, i + 1)
-    return { ...s, url: img.url, imageKey: img.image_key }
+    if (!img.available || !img.url) {
+      return {
+        ...s,
+        url: null,
+        imageKey: undefined,
+        unavailable: true,
+      }
+    }
+    return {
+      ...s,
+      url: img.url,
+      imageKey: img.image_key,
+    }
   })
 }
 
@@ -388,7 +401,17 @@ export function detailToResultSlots(detail: ListingJobDetail): ResultSlotLike[] 
   if (detail.images.length > 0) {
     return detail.images.map((im) =>
       im.status === IMAGE_SUCCESS_STATUS
-        ? { url: im.url, imageType: im.image_type ?? undefined, imageKey: im.image_key }
+        ? im.available && im.url
+          ? {
+              url: im.url,
+              imageType: im.image_type ?? undefined,
+              imageKey: im.image_key,
+            }
+          : {
+              url: null,
+              imageType: im.image_type ?? undefined,
+              unavailable: true,
+            }
         : { url: null, imageType: im.image_type ?? undefined, error: detail.error ?? '生成失败' },
     )
   }

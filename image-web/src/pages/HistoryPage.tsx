@@ -83,7 +83,9 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
         {job.first_image_url ? (
           <img src={job.first_image_url} alt="" loading="lazy" className="size-full object-cover" />
         ) : (
-          <div className="grid size-full place-items-center text-[12px] text-wb-faint-3">无图</div>
+          <div className="grid size-full place-items-center p-4 text-center text-[12px] text-wb-faint-3">
+            {job.image_count > 0 ? '该图片暂不可用' : '无图'}
+          </div>
         )}
         <JobStatusBadge status={job.status} className="absolute left-2 top-2" />
         {job.image_count > 0 && (

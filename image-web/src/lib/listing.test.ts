@@ -196,7 +196,15 @@ describe('buildEditBody（二次编辑：终契约 #657/#659）', () => {
 
 describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口）', () => {
   const img = (key: string, type: string | null, status = '成功', url = `http://x/${key}.png`) =>
-    ({ url, image_key: key, seed: 0, cost: '0.40', status, image_type: type }) as ListingJobImage
+    ({
+      url,
+      available: true,
+      image_key: key,
+      seed: 0,
+      cost: '0.40',
+      status,
+      image_type: type,
+    }) as ListingJobImage
 
   it('套图：成功槽按图型组内序对位、取 image_key 并刷新 url；失败槽保留 SSE 原因', () => {
     const slots = [
@@ -245,9 +253,25 @@ describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口
 
 describe('detailToResultSlots（恢复最近一单：终态详情 → 结果槽）', () => {
   const okImg = (key: string, type: string | null): ListingJobImage =>
-    ({ url: `http://x/${key}.png`, image_key: key, seed: 0, cost: '0.40', status: '成功', image_type: type }) as ListingJobImage
+    ({
+      url: `http://x/${key}.png`,
+      available: true,
+      image_key: key,
+      seed: 0,
+      cost: '0.40',
+      status: '成功',
+      image_type: type,
+    }) as ListingJobImage
   const failImg = (type: string | null): ListingJobImage =>
-    ({ url: '', image_key: '', seed: 0, cost: '0', status: '失败', image_type: type }) as ListingJobImage
+    ({
+      url: null,
+      available: false,
+      image_key: '',
+      seed: 0,
+      cost: '0',
+      status: '失败',
+      image_type: type,
+    }) as ListingJobImage
   const detail = (over: Partial<ListingJobDetail>): ListingJobDetail =>
     ({
       job_id: 'j1', prompt: '', modifiers: {}, platform: null, ratio: '1:1', size: '1024x1024',
@@ -294,6 +318,26 @@ describe('detailToResultSlots（恢复最近一单：终态详情 → 结果槽�
       detail({ status: JOB_STATUS.partial, error: null, images: [okImg('k1', '白底'), failImg('场景')] }),
     )
     expect(slots[1]).toEqual({ url: null, imageType: '场景', error: '生成失败' })
+  })
+
+  it('屏蔽图片保留槽位但不暴露 URL 或下游操作 handle', () => {
+    const blocked = {
+      ...okImg('blocked', '场景'),
+      url: null,
+      available: false,
+    }
+
+    expect(
+      detailToResultSlots(
+        detail({ status: JOB_STATUS.done, images: [blocked] }),
+      ),
+    ).toEqual([
+      {
+        url: null,
+        imageType: '场景',
+        unavailable: true,
+      },
+    ])
   })
 
   it('整单失败（无图行）：合成单一失败槽，顶层原因可见', () => {

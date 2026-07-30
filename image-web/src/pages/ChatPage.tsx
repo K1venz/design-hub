@@ -557,7 +557,7 @@ function JobResult({
   return (
     <ChatResultBlock
       slots={slots}
-      done={slots.filter((slot) => slot.url).length}
+      done={slots.filter((slot) => slot.url || slot.unavailable).length}
       total={slots.length}
       onPreview={onPreview}
       onEdit={onEdit}
@@ -583,7 +583,9 @@ function CurrentJobResult({
   const stableJobId = !state.streaming ? state.activeJobId ?? undefined : undefined
   const job = useListingJob(stableJobId)
   const slots = job.data ? detailToResultSlots(job.data) : state.slots
-  const done = slots.filter((slot) => slot.url).length
+  const done = slots.filter(
+    (slot) => slot.url || slot.unavailable,
+  ).length
 
   return (
     <ChatResultBlock
