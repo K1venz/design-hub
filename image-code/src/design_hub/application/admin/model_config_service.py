@@ -26,8 +26,9 @@ class ModelConfigService:
 
     async def update(
         self,
-        name: str,
         *,
+        actor_id: int,
+        name: str,
         unit_cost: Decimal | None = None,
         enabled: bool | None = None,
         extra: Mapping[str, Any] | None = None,
@@ -40,25 +41,36 @@ class ModelConfigService:
         if unit_cost is not None and unit_cost < 0:
             raise ValueError("单价不能为负")
         return await self.repo.update(
-            name, unit_cost=unit_cost, enabled=enabled, extra=extra,
+            actor_id=actor_id, name=name,
+            unit_cost=unit_cost, enabled=enabled, extra=extra,
             provider_type=provider_type, base_url=base_url, model=model,
             api_key_env=api_key_env,
         )
 
-    async def create(self, record: ModelConfigRecord) -> ModelConfigRecord:
+    async def create(
+        self,
+        *,
+        actor_id: int,
+        record: ModelConfigRecord,
+    ) -> ModelConfigRecord:
         # ISSUE-0057：新增一个可用模型配置（A1 密钥不入库、record.api_key_env 只存 env 名）。
         if record.unit_cost < 0:
             raise ValueError("单价不能为负")
         if not record.name.strip():
             raise ValueError("模型名不能为空")
-        return await self.repo.create(record)
+        return await self.repo.create(actor_id=actor_id, record=record)
 
-    async def delete(self, name: str) -> None:
-        await self.repo.delete(name)
+    async def delete(self, *, actor_id: int, name: str) -> None:
+        await self.repo.delete(actor_id=actor_id, name=name)
 
-    async def set_default(self, name: str) -> ModelConfigRecord:
+    async def set_default(
+        self,
+        *,
+        actor_id: int,
+        name: str,
+    ) -> ModelConfigRecord:
         """设为默认出图模型（唯一性由 repo 事务保证）。备用渠道切换=改默认，治 0056 单点。"""
-        return await self.repo.set_default(name)
+        return await self.repo.set_default(actor_id=actor_id, name=name)
 
     async def seed_defaults(self, defaults: Sequence[ModelConfigRecord]) -> None:
         await self.repo.seed_defaults(defaults)
