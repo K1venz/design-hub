@@ -28,6 +28,10 @@ export type ModelCapabilityTestInput =
   components['schemas']['ModelCapabilityTestIn']
 export type ModelCapabilityTestResult =
   components['schemas']['ModelCapabilityTestOut']
+export type RuntimeLogListItem =
+  components['schemas']['RuntimeLogListItemOut']
+export type RuntimeLogDetail = components['schemas']['RuntimeLogDetailOut']
+export type RuntimeLogPage = components['schemas']['RuntimeLogPageOut']
 
 export interface DateFilters {
   start?: string
@@ -65,6 +69,14 @@ export interface AdminAuditFilters extends DateFilters, PaginationFilters {
   target_type?: string
 }
 
+export interface RuntimeLogFilters extends DateFilters, PaginationFilters {
+  level?: 'info' | 'warning' | 'error'
+  service?: 'api' | 'worker'
+  chain?: string
+  trace_id?: string
+  job_id?: string
+}
+
 const normalized = <T extends object>(filters: T) =>
   normalizeAdminFilters(filters)
 
@@ -89,6 +101,13 @@ export const adminKeys = {
   auditRoot: ['admin-console', 'audit'] as const,
   audit: (filters: AdminAuditFilters) =>
     ['admin-console', 'audit', normalized(filters)] as const,
+  logsRoot: ['admin-console', 'runtime-logs'] as const,
+  logs: (filters: RuntimeLogFilters) =>
+    ['admin-console', 'runtime-logs', normalized(filters)] as const,
+  log: (eventId: string) =>
+    ['admin-console', 'runtime-log', eventId] as const,
+  logTrace: (eventId: string) =>
+    ['admin-console', 'runtime-log-trace', eventId] as const,
   modelsRoot: ['admin-console', 'models'] as const,
 }
 
@@ -236,6 +255,58 @@ export function useAdminAuditLogs(filters: AdminAuditFilters = {}) {
       }
       return data
     },
+  })
+}
+
+export function useRuntimeLogs(filters: RuntimeLogFilters = {}) {
+  const query = normalized(filters)
+  return useQuery({
+    queryKey: adminKeys.logs(query),
+    queryFn: async (): Promise<RuntimeLogPage> => {
+      const { data, error } = await api.GET('/admin/runtime-logs', {
+        params: { query },
+      })
+      if (error || !data) {
+        throw new Error(errorMessage(error, '获取运行日志失败'))
+      }
+      return data
+    },
+  })
+}
+
+export function useRuntimeLogDetail(eventId: string | undefined) {
+  return useQuery({
+    queryKey: adminKeys.log(eventId ?? ''),
+    queryFn: async (): Promise<RuntimeLogDetail> => {
+      if (!eventId) throw new Error('缺少日志事件 ID')
+      const { data, error } = await api.GET(
+        '/admin/runtime-logs/{event_id}',
+        { params: { path: { event_id: eventId } } },
+      )
+      if (error || !data) {
+        throw new Error(errorMessage(error, '获取运行日志详情失败'))
+      }
+      return data
+    },
+    enabled: Boolean(eventId),
+  })
+}
+
+export function useRuntimeLogTrace(eventId: string | undefined) {
+  return useQuery({
+    queryKey: adminKeys.logTrace(eventId ?? ''),
+    queryFn: async (): Promise<RuntimeLogDetail[]> => {
+      if (!eventId) throw new Error('缺少日志事件 ID')
+      const { data, error } = await api.GET(
+        '/admin/runtime-logs/{event_id}/trace',
+        { params: { path: { event_id: eventId } } },
+      )
+      if (error || !data) {
+        throw new Error(errorMessage(error, '获取日志链路失败'))
+      }
+      return data
+    },
+    enabled: Boolean(eventId),
   })
 }
 

@@ -2,6 +2,7 @@ import {
   FileClockIcon,
   ImagesIcon,
   LayoutDashboardIcon,
+  LogsIcon,
   RadioTowerIcon,
   SlidersHorizontalIcon,
   UsersRoundIcon,
@@ -51,6 +52,11 @@ const ADMIN_NAVIGATION: readonly AdminNavigationItem[] = [
     to: '/admin/audit',
     label: '操作记录',
     icon: FileClockIcon,
+  },
+  {
+    to: '/admin/logs',
+    label: '运行日志',
+    icon: LogsIcon,
   },
 ]
 
