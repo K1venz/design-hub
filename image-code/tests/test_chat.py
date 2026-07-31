@@ -14,7 +14,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from io import BytesIO
@@ -22,6 +22,8 @@ from io import BytesIO
 import pytest
 from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from design_hub.interface.chat_schemas import ChatMessageRequest
 
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
@@ -720,6 +722,11 @@ class Infra:
 @dataclass(frozen=True)
 class _TextResolver:
     text_llm: TextLLMPort
+    requested_model_ids: list[str] = field(default_factory=list)
+
+    async def resolve(self, model_id: str) -> TextLLMPort:
+        self.requested_model_ids.append(model_id)
+        return self.text_llm
 
     async def resolve_default(self) -> TextLLMPort:
         return self.text_llm
@@ -733,6 +740,7 @@ class _TestChatOrchestrator(ChatOrchestrator):
         message: str,
         upload_ids: list[str],
         *,
+        chat_model: str = "doubao-chat",
         image_model: str = "gpt-image-2",
         edit_source_image_key: str | None = None,
     ) -> AsyncIterator:
@@ -741,6 +749,7 @@ class _TestChatOrchestrator(ChatOrchestrator):
             session_id,
             message,
             upload_ids,
+            chat_model=chat_model,
             image_model=image_model,
             edit_source_image_key=edit_source_image_key,
         ):
@@ -818,6 +827,52 @@ def _first(events: list[tuple[str, dict]], type_: str) -> dict:
 
 
 # ── ChatOrchestrator 事件序 + 费用闸 ──────────────────────────────────────────
+
+
+def test_chat_message_request_requires_selected_text_model() -> None:
+    with pytest.raises(ValueError):
+        ChatMessageRequest(
+            message="帮我设计",
+            image_model="gpt-image-2",
+        )
+
+
+def test_selected_text_model_is_retained_for_confirmation(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        resolver = orch.text_llm_resolver
+
+        planned = await _drain(
+            orch.handle_message(
+                USER,
+                None,
+                "出一张",
+                [uid],
+                chat_model="deepseek-v4-flash",
+                image_model="gpt-image-2",
+            )
+        )
+        session_id = _first(planned, "session")["session_id"]
+        pending = inf.pending._pending[session_id]
+        assert pending.chat_model == "deepseek-v4-flash"
+        assert resolver.requested_model_ids == ["deepseek-v4-flash"]
+
+        await _drain(
+            orch.handle_confirm(
+                USER,
+                session_id,
+                pending.confirm_token,
+                "confirm",
+            )
+        )
+        assert resolver.requested_model_ids == [
+            "deepseek-v4-flash",
+            "deepseek-v4-flash",
+        ]
+
+    asyncio.run(_impl())
 
 
 def test_valid_tool_call_reaches_generation_confirm_without_generating(tmp_path) -> None:
@@ -1800,6 +1855,7 @@ def test_pending_take_one_time_and_mismatch_preserves() -> None:
         tool="generate",
         req=_req(),
         count=1,
+        chat_model="doubao-chat",
         image_model="gpt-image-2",
         model_display_name="GPT Image 2.0",
         render_tier=RenderTier.FOUR_K,
@@ -1817,6 +1873,7 @@ def test_pending_take_expired() -> None:
         tool="generate",
         req=_req(),
         count=1,
+        chat_model="doubao-chat",
         image_model="gpt-image-2",
         model_display_name="GPT Image 2.0",
         render_tier=RenderTier.STANDARD,
@@ -1832,6 +1889,7 @@ def test_pending_clear() -> None:
         tool="generate",
         req=_req(),
         count=1,
+        chat_model="doubao-chat",
         image_model="gpt-image-2",
         model_display_name="GPT Image 2.0",
         render_tier=RenderTier.STANDARD,

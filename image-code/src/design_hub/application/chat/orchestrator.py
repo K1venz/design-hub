@@ -264,6 +264,7 @@ class ChatOrchestrator:
         message: str,
         upload_ids: list[str],
         *,
+        chat_model: str,
         image_model: str,
         edit_source_image_key: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
@@ -308,6 +309,7 @@ class ChatOrchestrator:
             assistant_chunks: list[str] = []
             tool_calls: tuple[ToolCall, ...] = ()
             llm_failed = False
+            llm_error_code = "llm_unavailable"
             logger.info(
                 "chat_model_started",
                 extra={
@@ -318,7 +320,7 @@ class ChatOrchestrator:
                 },
             )
             try:
-                text_llm = await self.text_llm_resolver.resolve_default()
+                text_llm = await self.text_llm_resolver.resolve(chat_model)
                 async for chunk in text_llm.complete(
                     context=llm_context,
                     messages=llm_messages,
@@ -340,6 +342,7 @@ class ChatOrchestrator:
                     },
                 )
                 llm_failed = True
+                llm_error_code = "model_unavailable"
             except TextLLMError:
                 logger.error(
                     "chat_model_failed",
@@ -363,7 +366,12 @@ class ChatOrchestrator:
                     )
                 yield ChatEvent(
                     "error",
-                    {"code": "llm_unavailable", "message": "对话模型暂时不可用"},
+                    {
+                        "code": llm_error_code,
+                        "message": "当前文本模型已不可用，请重新选择。"
+                        if llm_error_code == "model_unavailable"
+                        else "对话模型暂时不可用",
+                    },
                 )
                 yield ChatEvent("assistant_end", {"status": "error"})
                 return
@@ -592,6 +600,7 @@ class ChatOrchestrator:
                 tool=call.name,
                 req=req,
                 count=count,
+                chat_model=chat_model,
                 image_model=config.name,
                 model_display_name=config.display_name,
                 render_tier=rendering.render_tier,
@@ -738,7 +747,9 @@ class ChatOrchestrator:
         )
         closing = ""
         try:
-            text_llm = await self.text_llm_resolver.resolve_default()
+            text_llm = await self.text_llm_resolver.resolve(
+                pending.chat_model
+            )
             async for chunk in text_llm.complete(
                 context=llm_context,
                 messages=llm_messages,

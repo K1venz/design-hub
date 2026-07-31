@@ -91,6 +91,7 @@ async def chat_messages(
         req.session_id,
         req.message,
         req.upload_ids,
+        chat_model=req.chat_model,
         image_model=req.image_model,
         edit_source_image_key=req.edit_source_image_key,
     )
