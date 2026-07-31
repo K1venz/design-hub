@@ -2,11 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { useListingEdit, useListingEvents, useListingJob } from '@/api/listing'
+import {
+  isModelUnavailableError,
+  useListingEdit,
+  useListingEvents,
+  useListingJob,
+} from '@/api/listing'
 import { EditConfigPanel, type EditConfig, type EditSource } from '@/components/listing/EditConfigPanel'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import { useEditEntries } from '@/components/listing/use-edit-entries'
+import {
+  requireSelectedImageModel,
+  useImageModelSelection,
+} from '@/components/models/image-model-context'
+import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import {
   DEFAULT_EDIT_MODE, DEFAULT_LISTING_CONFIG, IMAGE_SUCCESS_STATUS, RATIOS,
   type ListingJobDetail, type Ratio,
@@ -37,6 +47,7 @@ export function EditWorkbenchPage() {
   const [slots, setSlots] = useState<ResultSlot[]>([])
   const [done, setDone] = useState(0)
   const edit = useListingEdit()
+  const modelSelection = useImageModelSelection()
   const editEntries = useEditEntries(setSlots)
 
   // 父详情到达后按父值播种一次（per 父 job）；「新建任务」重置回同一种子（源图随路由保留）
@@ -61,10 +72,14 @@ export function EditWorkbenchPage() {
 
   // 仅成功张可作源（失败张前端无入口 + 后端 404 双层，Q-δ）
   const sourceImg = d?.images.find(
-    (img) => img.image_key === imageKey && img.status === IMAGE_SUCCESS_STATUS,
+    (img) =>
+      img.image_key === imageKey &&
+      img.status === IMAGE_SUCCESS_STATUS &&
+      img.available &&
+      img.url,
   )
   const source: EditSource | null =
-    d && sourceImg
+    d && sourceImg?.url
       ? {
           url: sourceImg.url,
           imageType: sourceImg.image_type ?? undefined,
@@ -91,11 +106,13 @@ export function EditWorkbenchPage() {
 
   async function onGenerate() {
     if (!imageKey) return
+    const imageModel = requireSelectedImageModel(modelSelection)
     editEntries.reset()
     setSlots([{ url: null }])
     setDone(0)
     try {
       const { job_id } = await edit.mutateAsync({
+        imageModel,
         sourceImageKey: imageKey,
         editMode: config.editMode,
         prompt: config.prompt,
@@ -105,7 +122,12 @@ export function EditWorkbenchPage() {
       setJobIdRunning(job_id)
     } catch (err) {
       setSlots([])
-      toast.error(err instanceof Error ? err.message : '编辑请求失败')
+      if (isModelUnavailableError(err)) {
+        modelSelection.retry()
+        toast.error('刚选择的图片模型已不可用，编辑内容已保留，请重新选择。')
+      } else {
+        toast.error(err instanceof Error ? err.message : '编辑请求失败')
+      }
     }
   }
 
@@ -138,6 +160,13 @@ export function EditWorkbenchPage() {
         config={config}
         source={source}
         pending={generating}
+        modelReady={modelSelection.state === 'ready'}
+        modelSelector={
+          <ImageModelSelector
+            selection={modelSelection}
+            disabled={generating}
+          />
+        }
         onConfigChange={setConfig}
         onGenerate={onGenerate}
       />

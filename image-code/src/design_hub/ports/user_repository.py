@@ -17,6 +17,10 @@ class UserAccount:
     role: Role
     created_at: datetime
     password_hash: str
+    enabled: bool = True
+    disabled_at: datetime | None = None
+    disabled_by: int | None = None
+    disabled_reason: str | None = None
 
 
 class UserRepository(ABC):
@@ -33,14 +37,26 @@ class UserRepository(ABC):
         ...
 
     @abstractmethod
-    async def set_role(self, user_id: int, role: Role) -> UserAccount:
-        """改角色；user_id 不存在 → NotFoundError（边界映射 404）。"""
+    async def set_role_with_audit(
+        self,
+        *,
+        actor_id: int,
+        user_id: int,
+        role: Role,
+    ) -> UserAccount:
+        ...
+
+    @abstractmethod
+    async def set_status_with_audit(
+        self,
+        *,
+        actor_id: int,
+        user_id: int,
+        enabled: bool,
+        reason: str,
+    ) -> UserAccount:
         ...
 
     @abstractmethod
     async def list_all(self) -> list[UserAccount]:
-        ...
-
-    @abstractmethod
-    async def count_by_role(self, role: Role) -> int:
         ...

@@ -5,8 +5,6 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import ClassVar
 
-from design_hub.domain.enums import ModelName
-
 
 class OperationType(StrEnum):
     GENERATE_IMAGE = "generate_image"
@@ -146,7 +144,7 @@ class GenerationItemSpec:
     operation_type: OperationType
     render_tier: RenderTier
     final_prompt: str
-    model: ModelName
+    model: str
     ratio: str
     size: tuple[int, int]
     quality: str | None
@@ -163,6 +161,8 @@ class GenerationItemSpec:
             raise ValueError("sequence must be positive")
         if not self.final_prompt:
             raise ValueError("final_prompt must not be empty")
+        if not self.model:
+            raise ValueError("model must not be empty")
         if not self.ratio:
             raise ValueError("ratio must not be empty")
         if self.size[0] <= 0 or self.size[1] <= 0:

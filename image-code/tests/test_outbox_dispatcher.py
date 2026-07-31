@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -90,7 +91,9 @@ def _record() -> OutboxRecord:
     )
 
 
-def test_dispatcher_publishes_before_marking_database_row() -> None:
+def test_dispatcher_publishes_before_marking_database_row(caplog) -> None:
+    caplog.set_level(logging.INFO)
+
     async def run() -> None:
         repository = _OutboxRepository((_record(),))
         broker = _Broker()
@@ -111,6 +114,13 @@ def test_dispatcher_publishes_before_marking_database_row() -> None:
         ]
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "generation_outbox_published"
+    )
+    assert record.chain == "image_generation"
+    assert record.action == "发布任务到队列"
 
 
 def test_crash_after_publish_republishes_same_message_id() -> None:

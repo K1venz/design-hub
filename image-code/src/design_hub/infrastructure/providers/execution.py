@@ -35,6 +35,7 @@ class ProviderExecutionAdapter:
             return SubmittedTask(provider_task_id=task_id)
         try:
             images = await self.provider.generate(
+                context=request.context,
                 prompt=request.prompt,
                 negative_prompt="",
                 reference_images=list(request.reference_images),

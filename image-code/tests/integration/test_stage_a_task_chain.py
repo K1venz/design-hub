@@ -19,7 +19,7 @@ from sqlalchemy import delete, update
 
 from design_hub.application.tasking.outbox_dispatcher import OutboxDispatcher
 from design_hub.application.tasking.worker import GenerationWorker
-from design_hub.domain.enums import ModelName, TaskEventType
+from design_hub.domain.enums import TaskEventType
 from design_hub.domain.models import GeneratedImage, ListingJobStart, ReferenceImage
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -89,7 +89,7 @@ def _submission(run: _Run, *, job_id: str | None = None) -> JobSubmission:
             operation_type=OperationType.GENERATE_IMAGE,
             render_tier=RenderTier.STANDARD,
             final_prompt=f"integration prompt {index}",
-            model=ModelName.GPT_IMAGE_2,
+            model="gpt-image-2",
             ratio="1:1",
             size=(1024, 1024),
             quality=None,

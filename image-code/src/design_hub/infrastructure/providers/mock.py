@@ -1,8 +1,8 @@
 import asyncio
 from decimal import Decimal
 
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import AbstractModelProvider, ProviderTimeout
 
 
@@ -14,7 +14,7 @@ class MockModelProvider(AbstractModelProvider):
     def __init__(
         self,
         *,
-        name: ModelName = ModelName.SEEDREAM_5,
+        name: str = "seedream-5",
         unit_cost: Decimal = Decimal("0.20"),
         latency_ms: int = 5,
         fail: bool = False,
@@ -27,6 +27,7 @@ class MockModelProvider(AbstractModelProvider):
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
@@ -35,6 +36,7 @@ class MockModelProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
+        del context
         await asyncio.sleep(self._latency_ms / 1000)
         if self._fail:
             raise ProviderTimeout(f"{self.name} mock failure")

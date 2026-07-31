@@ -19,6 +19,27 @@ export class HttpError extends Error {
   }
 }
 
+export class ListingSubmissionError extends Error {
+  readonly status: number
+  readonly code: string | null
+
+  constructor(status: number, code: string | null, message: string) {
+    super(message)
+    this.name = 'ListingSubmissionError'
+    this.status = status
+    this.code = code
+  }
+}
+
+export function isModelUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof ListingSubmissionError &&
+    (error.code === 'model_unavailable' ||
+      (error.code === 'domain_error' &&
+        error.message.toLowerCase().includes('image model unavailable')))
+  )
+}
+
 /** Authenticated GET helper for listing JSON endpoints. fail-fast on non-2xx. */
 async function authGet<T>(path: string): Promise<T> {
   const token = useAuthStore.getState().token
@@ -66,7 +87,21 @@ export async function postJson(path: string, body: unknown): Promise<{ job_id: s
     },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`出图请求失败（${res.status}）：${await res.text()}`)
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as {
+        error?: unknown
+        detail?: unknown
+      } | null
+    const code =
+      typeof payload?.error === 'string' ? payload.error : null
+    const detail =
+      typeof payload?.detail === 'string' ? payload.detail.trim() : ''
+    throw new ListingSubmissionError(
+      res.status,
+      code,
+      detail || `出图请求失败（${res.status}）`,
+    )
+  }
   return res.json() as Promise<{ job_id: string }>
 }
 

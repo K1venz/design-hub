@@ -5,7 +5,11 @@ import { InboxIcon } from 'lucide-react'
 import { useListingJobs } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { editModeLabel, fmtListingTime, fmtListingCost, type ListingJobSummary } from '@/lib/listing'
+import {
+  editModeLabel,
+  fmtListingTime,
+  type ListingJobSummary,
+} from '@/lib/listing'
 
 const LIMIT = 20
 
@@ -83,7 +87,9 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
         {job.first_image_url ? (
           <img src={job.first_image_url} alt="" loading="lazy" className="size-full object-cover" />
         ) : (
-          <div className="grid size-full place-items-center text-[12px] text-wb-faint-3">无图</div>
+          <div className="grid size-full place-items-center p-4 text-center text-[12px] text-wb-faint-3">
+            {job.image_count > 0 ? '该图片暂不可用' : '无图'}
+          </div>
         )}
         <JobStatusBadge status={job.status} className="absolute left-2 top-2" />
         {job.image_count > 0 && (
@@ -106,7 +112,7 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
         </div>
         <div className="flex items-center justify-between text-[12px] text-wb-ink-6">
           <span>{fmtListingTime(job.created_at)}</span>
-          <span>{fmtListingCost(job.total_cost)}</span>
+          <span className="font-mono">{job.model_id ?? '未记录模型'}</span>
         </div>
       </div>
     </button>

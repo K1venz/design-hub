@@ -89,7 +89,7 @@ export function ClaudePreview() {
             </div>
           </CSection>
 
-          <CSection title="套图结构" right="共 5 张 · 约 ¥2.00">
+          <CSection title="套图结构" right="共 5 张">
             <div className="space-y-2">
               {PREVIEW_PLAN.map((p) => (
                 <div key={p.label} className="flex items-center justify-between rounded-[10px] bg-[#f5f1e6] px-3.5 py-2.5">
@@ -124,9 +124,9 @@ export function ClaudePreview() {
             className="mt-6 w-full rounded-[12px] py-3 text-[14px] font-semibold text-white shadow-[0_2px_8px_rgba(201,100,66,.35)]"
             style={{ background: CLAY }}
           >
-            一键生成套图 <span className="ml-1.5 text-[12.5px] font-normal text-white/80">约 ¥2.00 · 5 张</span>
+            一键生成套图 <span className="ml-1.5 text-[12.5px] font-normal text-white/80">5 张</span>
           </button>
-          <p className={`mt-2.5 text-center text-[11.5px] ${MUTED}`}>按成功张数计费，失败的不收钱</p>
+          <p className={`mt-2.5 text-center text-[11.5px] ${MUTED}`}>完成后可逐张下载</p>
         </aside>
 
         {/* 结果区 */}
@@ -134,7 +134,7 @@ export function ClaudePreview() {
           <div className="flex items-end justify-between">
             <div>
               <h1 className={`${SERIF} text-[26px] font-semibold tracking-[-0.01em]`}>商品套图</h1>
-              <p className={`mt-1 text-[13px] ${MUTED}`}>5 张全部完成 · 实付 ¥2.00</p>
+              <p className={`mt-1 text-[13px] ${MUTED}`}>5 张全部完成</p>
             </div>
             <button className={`rounded-full border ${BORDER} bg-[#fffdf8] px-4 py-2 text-[12.5px] font-medium`}>
               下载全部
@@ -152,7 +152,7 @@ export function ClaudePreview() {
                   <figure key={r.no} className={`${CARD} w-[204px] overflow-hidden`}>
                     <img src={r.src} alt="" className="aspect-square w-full object-cover" />
                     <figcaption className="flex items-center justify-between px-3 py-2 text-[11.5px]">
-                      <span className={MUTED}>{r.cost}</span>
+                      <span className={MUTED}>#{r.no}</span>
                       <span className="flex gap-2.5">
                         <span className={`cursor-pointer ${MUTED}`}>下载</span>
                         <span className="cursor-pointer font-medium" style={{ color: CLAY }}>再编辑</span>

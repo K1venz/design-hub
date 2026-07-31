@@ -1,9 +1,12 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
+import { CheckCircle2Icon, Loader2Icon, ShieldCheckIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
   useCreateModel,
+  useTestModel,
   useUpdateModel,
+  type ModelCapabilityTestInput,
   type ModelConfig,
 } from '@/api/admin'
 import { Button } from '@/components/ui/button'
@@ -18,190 +21,563 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-const DEFAULT_PROVIDER_TYPE = 'openai_compat_image'
-/** 环境变量名（UPPER_SNAKE）——用于挡住把真实密钥误填进「密钥变量」（验收⑦）。 */
-const ENV_NAME_RE = /^[A-Z_][A-Z0-9_]*$/
-
-interface Fields {
-  name: string
-  unitCost: string
-  providerType: string
-  baseUrl: string
-  model: string
-  apiKeyEnv: string
-}
-
-function fieldsOf(model?: ModelConfig): Fields {
-  return {
-    name: model?.name ?? '',
-    unitCost: model?.unit_cost ?? '',
-    providerType: model?.provider_type ?? DEFAULT_PROVIDER_TYPE,
-    baseUrl: model?.base_url ?? '',
-    model: model?.model ?? '',
-    apiKeyEnv: model?.api_key_env ?? '',
-  }
-}
+import { Switch } from '@/components/ui/switch'
+import {
+  PROVIDER_FORM_DEFINITIONS,
+  encryptModelCredentials,
+  modelExtra,
+  modelFormFields,
+  modelRuntimeFingerprint,
+  plaintextCredentials,
+  providerDefaults,
+  providersForModelType,
+  type ModelFormFields,
+  type ModelType,
+  type ProviderType,
+  type VerificationState,
+} from '@/lib/model-config'
 
 type Props = { trigger: ReactNode } & (
   | { mode: 'create' }
   | { mode: 'edit'; model: ModelConfig }
 )
 
-/**
- * 模型渠道配置的新增 / 编辑（ISSUE-0057）。承载「备用渠道切换」：填一行中转站连接
- * （类型 / base_url / 模型 / 密钥变量）。**密钥变量只收环境变量名，真实密钥仅存服务端环境变量**（验收⑦）。
- */
 export function ModelConfigDialog(props: Props) {
   const { trigger, mode } = props
   const editing = mode === 'edit' ? props.model : undefined
   const [open, setOpen] = useState(false)
-  const [f, setF] = useState<Fields>(() => fieldsOf(editing))
+  const [fields, setFields] = useState<ModelFormFields>(() =>
+    modelFormFields(editing),
+  )
+  const fieldsRef = useRef(fields)
+  const [verification, setVerification] = useState<VerificationState>({
+    kind: 'untested',
+  })
+  const [checks, setChecks] = useState<string[]>([])
   const create = useCreateModel()
   const update = useUpdateModel()
-  const pending = create.isPending || update.isPending
+  const test = useTestModel()
+  const pending =
+    create.isPending || update.isPending || verification.kind === 'testing'
+  const currentFingerprint = modelRuntimeFingerprint(fields)
+  const proofCurrent =
+    verification.kind === 'passed' &&
+    verification.testedFingerprint === currentFingerprint
+
+  function replaceFields(
+    next: ModelFormFields,
+    invalidateProof: boolean,
+  ) {
+    fieldsRef.current = next
+    setFields(next)
+    if (invalidateProof) {
+      setVerification({ kind: 'untested' })
+      setChecks([])
+    }
+  }
+
+  function setRuntime<K extends keyof ModelFormFields>(
+    key: K,
+    value: ModelFormFields[K],
+  ) {
+    replaceFields({ ...fieldsRef.current, [key]: value }, true)
+  }
+
+  function setCosmetic<K extends 'displayName' | 'unitCost'>(
+    key: K,
+    value: ModelFormFields[K],
+  ) {
+    replaceFields({ ...fieldsRef.current, [key]: value }, false)
+  }
+
+  function changeModelType(modelType: ModelType) {
+    const providerType = providersForModelType(modelType)[0]
+    replaceFields(
+      {
+        ...fieldsRef.current,
+        modelType,
+        providerType,
+        standardApiKeys: '',
+        fourKApiKey: '',
+        apiKey: '',
+        ...providerDefaults(providerType),
+      },
+      true,
+    )
+  }
+
+  function changeProvider(providerType: ProviderType) {
+    replaceFields(
+      {
+        ...fieldsRef.current,
+        providerType,
+        standardApiKeys: '',
+        fourKApiKey: '',
+        apiKey: '',
+        ...providerDefaults(providerType),
+      },
+      true,
+    )
+  }
+
+  function resetForm() {
+    const next = modelFormFields(editing)
+    fieldsRef.current = next
+    setFields(next)
+    setVerification({ kind: 'untested' })
+    setChecks([])
+    create.reset()
+    update.reset()
+    test.reset()
+  }
 
   function onOpenChange(next: boolean) {
     setOpen(next)
-    if (next) setF(fieldsOf(editing))
+    resetForm()
   }
 
-  function set<K extends keyof Fields>(key: K, value: Fields[K]) {
-    setF((prev) => ({ ...prev, [key]: value }))
+  function validate() {
+    if (!fields.name.trim()) throw new Error('请填写稳定模型 ID')
+    if (!fields.displayName.trim()) throw new Error('请填写展示名称')
+    if (!fields.baseUrl.trim()) throw new Error('请填写 Base URL')
+    if (!fields.upstreamModel.trim()) throw new Error('请填写上游模型 ID')
+    const unitCost = Number(fields.unitCost)
+    if (!Number.isFinite(unitCost) || unitCost < 0) {
+      throw new Error('内部单价必须是非负数')
+    }
+    if (
+      mode === 'create' &&
+      plaintextCredentials(fields) === undefined
+    ) {
+      throw new Error('请填写此 Provider 所需的凭据')
+    }
+    return unitCost
+  }
+
+  async function testConfiguration() {
+    if (verification.kind === 'testing') return
+    try {
+      validate()
+      const fingerprint = modelRuntimeFingerprint(fields)
+      setVerification({ kind: 'testing' })
+      const credentials = await encryptModelCredentials(fields)
+      const body: ModelCapabilityTestInput = {
+        name: fields.name.trim(),
+        existing_model_name: editing?.name,
+        model_type: fields.modelType,
+        provider_type: fields.providerType,
+        base_url: fields.baseUrl.trim(),
+        model: fields.upstreamModel.trim(),
+        credentials,
+        extra: modelExtra(fields),
+      }
+      const result = await test.mutateAsync(body)
+      if (modelRuntimeFingerprint(fieldsRef.current) !== fingerprint) {
+        setVerification({ kind: 'untested' })
+        return
+      }
+      setChecks(result.checks)
+      setVerification({
+        kind: 'passed',
+        proof: result.verification_proof,
+        testedFingerprint: fingerprint,
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : '配置测试失败，请检查连接字段与凭据'
+      setVerification({ kind: 'failed', message })
+      setChecks([])
+    }
   }
 
   async function submit() {
-    const name = f.name.trim()
-    if (mode === 'create' && !name) {
-      toast.error('请填模型名')
-      return
-    }
-    const cost = Number(f.unitCost)
-    if (!Number.isFinite(cost) || cost < 0) {
-      toast.error('单价需为非负数')
-      return
-    }
-    const apiKeyEnv = f.apiKeyEnv.trim()
-    if (apiKeyEnv && !ENV_NAME_RE.test(apiKeyEnv)) {
-      toast.error('「密钥变量」请填环境变量名（大写字母/数字/下划线），而非密钥本身')
-      return
-    }
-    const conn = {
-      provider_type: f.providerType.trim() || DEFAULT_PROVIDER_TYPE,
-      base_url: f.baseUrl.trim(),
-      model: f.model.trim(),
-      api_key_env: apiKeyEnv,
-    }
     try {
+      const unitCost = validate()
+      if (!proofCurrent || verification.kind !== 'passed') {
+        throw new Error('请先测试当前配置并通过全部能力检查')
+      }
+      const credentials = await encryptModelCredentials(fields)
+      const connection = {
+        display_name: fields.displayName.trim(),
+        model_type: fields.modelType,
+        provider_type: fields.providerType,
+        base_url: fields.baseUrl.trim(),
+        model: fields.upstreamModel.trim(),
+        unit_cost: unitCost,
+        enabled: fields.enabled,
+        extra: modelExtra(fields),
+        verification_proof: verification.proof,
+      }
       if (mode === 'create') {
-        await create.mutateAsync({ name, unit_cost: cost, enabled: true, ...conn })
-        toast.success(`已新增模型「${name}」`)
+        if (!credentials) throw new Error('请填写此 Provider 所需的凭据')
+        await create.mutateAsync({
+          name: fields.name.trim(),
+          credentials,
+          ...connection,
+        })
+        toast.success(`已创建「${fields.displayName.trim()}」，运行时立即可用`)
       } else {
-        await update.mutateAsync({ name: editing!.name, patch: { unit_cost: cost, ...conn } })
-        toast.success(`已更新「${editing!.name}」`)
+        await update.mutateAsync({
+          name: editing!.name,
+          patch: {
+            ...connection,
+            ...(credentials ? { credentials } : {}),
+          },
+        })
+        toast.success(`已更新「${fields.displayName.trim()}」，运行时立即生效`)
       }
       setOpen(false)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败')
+      resetForm()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存失败')
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{mode === 'create' ? '新增模型渠道' : '编辑模型渠道'}</DialogTitle>
+          <DialogTitle>
+            {mode === 'create' ? '新增模型配置' : '编辑模型配置'}
+          </DialogTitle>
           <DialogDescription>
-            配置出图 Provider 的连接。真实密钥仅存服务端环境变量，此处只填「密钥变量」（环境变量名）。
+            连接字段保存后立即生效。所有凭据会在浏览器中逐项独立加密，
+            编辑时留空表示保留服务端现有凭据。
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault()
+          className="space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault()
             void submit()
           }}
         >
-          <div className="space-y-2">
-            <Label htmlFor="mc-name">模型名</Label>
-            {mode === 'create' ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="稳定模型 ID" htmlFor="mc-name">
+              {mode === 'create' ? (
+                <Input
+                  id="mc-name"
+                  value={fields.name}
+                  onChange={(event) =>
+                    setRuntime('name', event.target.value)
+                  }
+                  placeholder="例如 gpt-image-2"
+                  autoFocus
+                />
+              ) : (
+                <p className="rounded-xl bg-wb-surface-1 px-3 py-2 font-mono text-sm">
+                  {fields.name}
+                </p>
+              )}
+            </Field>
+            <Field label="展示名称" htmlFor="mc-display-name">
               <Input
-                id="mc-name"
-                value={f.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="如 gpt-image-2-backup"
-                autoFocus
+                id="mc-display-name"
+                value={fields.displayName}
+                onChange={(event) =>
+                  setCosmetic('displayName', event.target.value)
+                }
+                placeholder="用户看到的模型名称"
               />
-            ) : (
-              <p className="font-mono text-sm text-muted-foreground">{editing!.name}</p>
-            )}
+            </Field>
+            <Field label="模型类型" htmlFor="mc-model-type">
+              <select
+                id="mc-model-type"
+                value={fields.modelType}
+                onChange={(event) =>
+                  changeModelType(event.target.value as ModelType)
+                }
+                className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="image">图片模型</option>
+                <option value="chat">Chat 模型</option>
+              </select>
+            </Field>
+            <Field label="Provider" htmlFor="mc-provider">
+              <select
+                id="mc-provider"
+                value={fields.providerType}
+                onChange={(event) =>
+                  changeProvider(event.target.value as ProviderType)
+                }
+                className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+              >
+                {providersForModelType(fields.modelType).map((provider) => (
+                  <option key={provider} value={provider}>
+                    {PROVIDER_FORM_DEFINITIONS[provider].label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Base URL" htmlFor="mc-base-url">
+              <Input
+                id="mc-base-url"
+                value={fields.baseUrl}
+                onChange={(event) =>
+                  setRuntime('baseUrl', event.target.value)
+                }
+                placeholder="https://api.example.com/v1"
+              />
+            </Field>
+            <Field label="上游模型 ID" htmlFor="mc-upstream-model">
+              <Input
+                id="mc-upstream-model"
+                value={fields.upstreamModel}
+                onChange={(event) =>
+                  setRuntime('upstreamModel', event.target.value)
+                }
+                placeholder="Provider 实际接收的 model"
+              />
+            </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="mc-provider">Provider 类型</Label>
-              <Input
-                id="mc-provider"
-                value={f.providerType}
-                onChange={(e) => set('providerType', e.target.value)}
-                placeholder={DEFAULT_PROVIDER_TYPE}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mc-cost">单价（¥ / 张）</Label>
+          <ProviderFields
+            fields={fields}
+            configured={editing?.credentials.configured_fields ?? {}}
+            onRuntimeChange={setRuntime}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="内部单价（仅管理员可见）" htmlFor="mc-cost">
               <Input
                 id="mc-cost"
                 type="number"
                 min="0"
-                step="0.01"
-                value={f.unitCost}
-                onChange={(e) => set('unitCost', e.target.value)}
+                step="0.0001"
+                value={fields.unitCost}
+                onChange={(event) =>
+                  setCosmetic('unitCost', event.target.value)
+                }
+              />
+            </Field>
+            <div className="flex items-center justify-between rounded-xl border border-wb-line-1 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">启用模型</p>
+                <p className="text-xs text-muted-foreground">
+                  仅通过当前配置测试后才能保存启用
+                </p>
+              </div>
+              <Switch
+                checked={fields.enabled}
+                onCheckedChange={(enabled) =>
+                  replaceFields({ ...fieldsRef.current, enabled }, false)
+                }
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="mc-base-url">Base URL</Label>
-            <Input
-              id="mc-base-url"
-              value={f.baseUrl}
-              onChange={(e) => set('baseUrl', e.target.value)}
-              placeholder="https://中转站/v1（留空则回落 .env）"
-            />
-          </div>
+          <VerificationPanel
+            verification={verification}
+            checks={checks}
+          />
 
-          <div className="space-y-2">
-            <Label htmlFor="mc-model">模型 ID</Label>
-            <Input
-              id="mc-model"
-              value={f.model}
-              onChange={(e) => set('model', e.target.value)}
-              placeholder="如 gpt-image-2"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="mc-key-env">密钥变量（环境变量名）</Label>
-            <Input
-              id="mc-key-env"
-              className="font-mono"
-              value={f.apiKeyEnv}
-              onChange={(e) => set('apiKeyEnv', e.target.value)}
-              placeholder="如 APINEBULA_API_KEY"
-            />
-            <p className="text-xs text-muted-foreground">
-              填服务端环境变量的名字，不是密钥本身。留空则回落 .env 默认连接。
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button type="submit" disabled={pending}>
-              {pending ? '保存中…' : '保存'}
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending}
+              onClick={() => void testConfiguration()}
+            >
+              {verification.kind === 'testing' ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <ShieldCheckIcon className="size-4" />
+              )}
+              测试当前配置
+            </Button>
+            <Button type="submit" disabled={pending || !proofCurrent}>
+              {create.isPending || update.isPending ? '保存中…' : '保存配置'}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string
+  htmlFor: string
+  children: ReactNode
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={htmlFor}>{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+export function ProviderFields({
+  fields,
+  configured,
+  onRuntimeChange,
+}: {
+  fields: ModelFormFields
+  configured: Record<string, boolean>
+  onRuntimeChange: <K extends keyof ModelFormFields>(
+    key: K,
+    value: ModelFormFields[K],
+  ) => void
+}) {
+  const configuredLabel = (key: string) =>
+    configured[key] ? '已配置；留空则保留' : '尚未配置'
+
+  return (
+    <fieldset className="space-y-4 rounded-2xl border border-wb-line-1 p-4">
+      <legend className="px-1 text-sm font-semibold">凭据与 Provider 参数</legend>
+      {fields.providerType === 'openai_compat_image' ? (
+        <>
+          <Field label="标准图片 API Key 池" htmlFor="mc-standard-keys">
+            <textarea
+              id="mc-standard-keys"
+              value={fields.standardApiKeys}
+              onChange={(event) =>
+                onRuntimeChange('standardApiKeys', event.target.value)
+              }
+              placeholder="每行一个 API Key"
+              autoComplete="off"
+              className="min-h-24 w-full rounded-xl border border-input bg-transparent px-3 py-2 font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              {configuredLabel('standard_api_keys')}；每个 Key 会独立加密。
+            </p>
+          </Field>
+          <Field label="4K 专用 API Key（可选）" htmlFor="mc-four-k-key">
+            <Input
+              id="mc-four-k-key"
+              type="password"
+              value={fields.fourKApiKey}
+              onChange={(event) =>
+                onRuntimeChange('fourKApiKey', event.target.value)
+              }
+              placeholder={configuredLabel('four_k_api_key')}
+              autoComplete="new-password"
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="编辑保真度" htmlFor="mc-input-fidelity">
+              <select
+                id="mc-input-fidelity"
+                value={fields.inputFidelity}
+                onChange={(event) =>
+                  onRuntimeChange('inputFidelity', event.target.value)
+                }
+                className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="high">high</option>
+                <option value="low">low</option>
+              </select>
+            </Field>
+            <Field label="响应格式" htmlFor="mc-response-format">
+              <select
+                id="mc-response-format"
+                value={fields.responseFormat}
+                onChange={(event) =>
+                  onRuntimeChange('responseFormat', event.target.value)
+                }
+                className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="b64_json">b64_json</option>
+                <option value="url">url</option>
+              </select>
+            </Field>
+          </div>
+        </>
+      ) : (
+        <Field label="API Key" htmlFor="mc-api-key">
+          <Input
+            id="mc-api-key"
+            type="password"
+            value={fields.apiKey}
+            onChange={(event) =>
+              onRuntimeChange('apiKey', event.target.value)
+            }
+            placeholder={configuredLabel('api_key')}
+            autoComplete="new-password"
+          />
+        </Field>
+      )}
+      {fields.providerType === 'dashscope_wan_image' ? (
+        <BooleanField
+          label="生成结果添加水印"
+          checked={fields.watermark}
+          onChange={(value) => onRuntimeChange('watermark', value)}
+        />
+      ) : null}
+      {fields.providerType === 'openai_compat_chat' ? (
+        <BooleanField
+          label="关闭上游思考模式"
+          checked={fields.thinkingDisabled}
+          onChange={(value) =>
+            onRuntimeChange('thinkingDisabled', value)
+          }
+        />
+      ) : null}
+    </fieldset>
+  )
+}
+
+function BooleanField({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-center justify-between rounded-xl bg-wb-surface-1 px-3 py-2 text-sm">
+      {label}
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </label>
+  )
+}
+
+export function VerificationPanel({
+  verification,
+  checks,
+}: {
+  verification: VerificationState
+  checks: string[]
+}) {
+  if (verification.kind === 'untested') {
+    return (
+      <div className="rounded-xl border border-wb-line-1 bg-wb-surface-1 p-3 text-sm text-muted-foreground">
+        保存前请测试当前连接。图片模型会验证生成与编辑，Chat
+        模型会验证流式文本与工具调用。
+      </div>
+    )
+  }
+  if (verification.kind === 'testing') {
+    return (
+      <div role="status" className="rounded-xl border border-wb-tint-line bg-wb-tint-3 p-3 text-sm">
+        正在执行真实能力测试，请勿重复提交…
+      </div>
+    )
+  }
+  if (verification.kind === 'failed') {
+    return (
+      <div role="alert" className="rounded-xl border border-wb-red-line bg-wb-red-tint p-3 text-sm text-wb-red">
+        {verification.message}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+      <p className="flex items-center gap-1.5 font-medium">
+        <CheckCircle2Icon className="size-4" />
+        当前配置已通过真实能力测试
+      </p>
+      <p className="mt-1 text-xs">{checks.join(' · ')}</p>
+    </div>
   )
 }

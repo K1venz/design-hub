@@ -1,4 +1,5 @@
 import { Loader2Icon } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { GradientButton } from '@/components/visual/GradientButton'
 import { ConfigSelect } from '@/components/listing/ConfigSelect'
@@ -6,7 +7,7 @@ import { ImageUploader } from '@/components/listing/ImageUploader'
 import { cn } from '@/lib/utils'
 import {
   CLONE_MODES, CLONE_PRODUCT_MAX, CLONE_REFERENCE_MAX, MODIFIER_FIELDS, RATIOS,
-  estimateCost, type CloneModeKey, type Ratio, type UploadedImage,
+  type CloneModeKey, type Ratio, type UploadedImage,
 } from '@/lib/listing'
 
 export interface CloneConfig {
@@ -21,6 +22,8 @@ interface CloneConfigPanelProps {
   product: UploadedImage[]
   references: UploadedImage[]
   pending: boolean
+  modelReady: boolean
+  modelSelector: ReactNode
   onConfigChange: (next: CloneConfig) => void
   onProductChange: (v: UploadedImage[]) => void
   onReferencesChange: (v: UploadedImage[]) => void
@@ -30,13 +33,14 @@ interface CloneConfigPanelProps {
 /** 爆款图复刻配置栏：双角色上传（语义钉死防传反）+ 两档复刻程度卡 + 统一要求（选填）。 */
 export function CloneConfigPanel(props: CloneConfigPanelProps) {
   const {
-    config, product, references, pending,
+    config, product, references, pending, modelReady, modelSelector,
     onConfigChange, onProductChange, onReferencesChange, onGenerate,
   } = props
   const setModifier = (key: string, value: string) =>
     onConfigChange({ ...config, modifiers: { ...config.modifiers, [key]: value } })
   // 统一要求选填：启用条件只看双角色图齐（PRD §3.13①，prompt 空=合法）
-  const canGenerate = product.length >= 1 && references.length >= 1 && !pending
+  const canGenerate =
+    product.length >= 1 && references.length >= 1 && !pending && modelReady
 
   return (
     <div className="glass-panel flex w-[372px] shrink-0 flex-col overflow-hidden">
@@ -48,6 +52,9 @@ export function CloneConfigPanel(props: CloneConfigPanelProps) {
         <h4 className="mb-1 mt-5 text-[13px] font-bold">参考爆款图（想复刻的模板 · 最多 {CLONE_REFERENCE_MAX} 张）</h4>
         <p className="mb-2 text-[11.5px] text-wb-ink-7">只借它的结构与风格，模板上的产品与文案不会出现在成品</p>
         <ImageUploader onChange={onReferencesChange} max={CLONE_REFERENCE_MAX} />
+
+        <h4 className="mb-2.5 mt-5 text-[13px] font-bold">图片模型</h4>
+        {modelSelector}
 
         <h4 className="mb-2.5 mt-5 text-[13px] font-bold">生成设置</h4>
         <div className="grid grid-cols-2 gap-2.5">
@@ -107,7 +114,7 @@ export function CloneConfigPanel(props: CloneConfigPanelProps) {
         <GradientButton onClick={onGenerate} disabled={!canGenerate} className="w-full">
           {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
           开始复刻
-          <span className="ml-2 text-[13px] font-normal opacity-90">约 ¥{estimateCost(1).toFixed(2)} · 1 张</span>
+          <span className="ml-2 text-[13px] font-normal opacity-90">1 张</span>
         </GradientButton>
       </div>
     </div>

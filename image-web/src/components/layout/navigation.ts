@@ -2,9 +2,8 @@ import {
   FlameIcon,
   HistoryIcon,
   HomeIcon,
+  LayoutDashboardIcon,
   LayersIcon,
-  SlidersHorizontalIcon,
-  UsersRoundIcon,
   WandSparklesIcon,
   WallpaperIcon,
   type LucideIcon,
@@ -29,8 +28,7 @@ export const PRIMARY_NAV_ITEMS: readonly NavigationItem[] = [
 ]
 
 const MANAGER_NAV_ITEMS: readonly NavigationItem[] = [
-  { to: '/admin/models', label: '模型配置', icon: SlidersHorizontalIcon },
-  { to: '/admin/users', label: '用户管理', icon: UsersRoundIcon },
+  { to: '/admin', label: '管理后台', icon: LayoutDashboardIcon },
 ]
 
 export function getAccountNavItems(role: Role): readonly NavigationItem[] {

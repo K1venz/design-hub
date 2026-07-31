@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from io import BytesIO
@@ -13,20 +14,27 @@ from pydantic import (
 
 from design_hub.application.listing.requests import ImageSource
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import NotFoundError
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.model_calls import ModelCallContext
+from design_hub.ports.model_resolution import (
+    ModelUnavailableError,
+    TextLLMResolver,
+)
 from design_hub.ports.text_llm import (
     ChatImage,
     ChatMessage,
     LLMChunk,
     TextLLMError,
-    TextLLMPort,
     ToolCall,
     ToolCallChunk,
     ToolSpec,
 )
-from design_hub.ports.upload_store import owns
+from design_hub.ports.upload_store import UploadReadError, owns
+
+logger = logging.getLogger(__name__)
 
 _RESULT_TOOL = "return_reverse_prompt"
 _MEDIA_TYPES = {
@@ -70,7 +78,7 @@ class ReversePromptResult(BaseModel):
 
 @dataclass(frozen=True)
 class ReversePromptService:
-    text_llm: TextLLMPort
+    text_llm_resolver: TextLLMResolver
     uploads: UploadService
     images: ImageStore
     query: ListingHistoryQuery
@@ -81,8 +89,22 @@ class ReversePromptService:
         user_id: str,
         request: ReversePromptRequest,
     ) -> ReversePromptResult:
-        image_data = await self._load_image(user_id=user_id, request=request)
-        media_type = _detect_media_type(image_data)
+        try:
+            image_data = await self._load_image(
+                user_id=user_id,
+                request=request,
+            )
+            media_type = _detect_media_type(image_data)
+        except (ValueError, NotFoundError, UploadReadError):
+            logger.warning(
+                "reverse_prompt_rejected",
+                extra={
+                    "chain": "reverse_prompt",
+                    "action": "反推提示词输入不满足要求",
+                    "status": "rejected",
+                },
+            )
+            raise
         messages = [
             ChatMessage(role="system", content=_SYSTEM_PROMPT),
             ChatMessage(
@@ -97,15 +119,50 @@ class ReversePromptService:
             parameters=ReversePromptResult.model_json_schema(),
             required=True,
         )
-        calls = await _collect_tool_calls(
-            self.text_llm.complete(messages=messages, tools=[tool])
-        )
-        if len(calls) != 1 or calls[0].name != _RESULT_TOOL:
-            raise TextLLMError("反推提示词模型未返回唯一的结构化结果")
         try:
-            return ReversePromptResult.model_validate(calls[0].arguments)
-        except ValidationError as exc:
-            raise TextLLMError("反推提示词模型返回结构不完整") from exc
+            text_llm = await self.text_llm_resolver.resolve_default()
+            calls = await _collect_tool_calls(
+                text_llm.complete(
+                    context=ModelCallContext(
+                        user_id=user_id,
+                        operation=ModelOperation.REVERSE_PROMPT,
+                    ),
+                    messages=messages,
+                    tools=[tool],
+                )
+            )
+            if len(calls) != 1 or calls[0].name != _RESULT_TOOL:
+                raise TextLLMError(
+                    "反推提示词模型未返回唯一的结构化结果"
+                )
+            try:
+                result = ReversePromptResult.model_validate(
+                    calls[0].arguments
+                )
+            except ValidationError as exc:
+                raise TextLLMError(
+                    "反推提示词模型返回结构不完整"
+                ) from exc
+        except (ModelUnavailableError, TextLLMError):
+            logger.error(
+                "reverse_prompt_failed",
+                extra={
+                    "chain": "reverse_prompt",
+                    "action": "反推提示词模型调用失败",
+                    "status": "failed",
+                },
+                exc_info=True,
+            )
+            raise
+        logger.info(
+            "reverse_prompt_completed",
+            extra={
+                "chain": "reverse_prompt",
+                "action": "完成图片提示词反推",
+                "status": "completed",
+            },
+        )
+        return result
 
     async def _load_image(
         self,

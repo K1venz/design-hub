@@ -105,15 +105,22 @@ describe('parseChatEvent', () => {
     expect(parseChatEvent('tool_call', '{"tool":"generate","args":{}}')).toEqual({ kind: 'tool_call', tool: 'generate' })
   })
 
-  it('maps cost_confirm with camelCased fields', () => {
+  it('maps generation_confirm with a stable model snapshot and no price data', () => {
     const e = parseChatEvent(
-      'cost_confirm',
-      '{"confirm_token":"ct_1","tool":"generate","count":5,"unit_cost":"0.40","estimate_cny":"2.00"}',
+      'generation_confirm',
+      '{"confirm_token":"ct_1","tool":"generate","count":5,"image_model":"wan2.7-image-pro","model_display_name":"Wan 2.7"}',
     )
     expect(e).toEqual({
-      kind: 'cost_confirm',
-      confirm: { confirmToken: 'ct_1', tool: 'generate', count: 5, unitCost: '0.40', estimateCny: '2.00' },
+      kind: 'generation_confirm',
+      confirm: {
+        confirmToken: 'ct_1',
+        tool: 'generate',
+        count: 5,
+        modelId: 'wan2.7-image-pro',
+        modelDisplayName: 'Wan 2.7',
+      },
     })
+    expect(parseChatEvent('cost_confirm', '{}')).toEqual({ kind: 'unknown' })
   })
 
   it('maps assistant_end / error / job_started', () => {
@@ -209,19 +216,26 @@ describe('applyChatEvent reducer', () => {
     expect(s.bubbles[1]).toMatchObject({ role: 'assistant', text: '好的，这就出。' })
   })
 
-  it('cost_confirm sets awaiting + attaches card; assistant_end ends stream', () => {
+  it('generation_confirm sets awaiting with its model snapshot', () => {
     let s = pushUserMessage(initialChatState(), 'x')
     s = feed(s, [
       { kind: 'tool_call', tool: 'generate' },
       { kind: 'step', step: { phase: 'planning', detail: '套图 5 张' } },
       {
-        kind: 'cost_confirm',
-        confirm: { confirmToken: 'ct_1', tool: 'generate', count: 5, unitCost: '0.40', estimateCny: '2.00' },
+        kind: 'generation_confirm',
+        confirm: {
+          confirmToken: 'ct_1',
+          tool: 'generate',
+          count: 5,
+          modelId: 'wan2.7-image-pro',
+          modelDisplayName: 'Wan 2.7',
+        },
       },
       { kind: 'assistant_end', status: 'awaiting_confirm' },
     ])
     expect(s.awaiting?.confirmToken).toBe('ct_1')
-    expect(s.bubbles[1].cost?.estimateCny).toBe('2.00')
+    expect(s.bubbles[1].generation?.modelId).toBe('wan2.7-image-pro')
+    expect(s.bubbles[1].generation?.modelDisplayName).toBe('Wan 2.7')
     expect(s.bubbles[1].tools).toEqual(['generate'])
     expect(s.bubbles[1].steps).toHaveLength(1)
     expect(s.bubbles[1].ended).toBe(true)
@@ -229,7 +243,17 @@ describe('applyChatEvent reducer', () => {
   })
 
   it('confirm flow: job_started prefills slots, job images fill by image_type', () => {
-    let s: ChatState = { ...initialChatState(), sessionId: 's1', awaiting: { confirmToken: 'ct_1', tool: 'generate', count: 3, unitCost: '0.40', estimateCny: '1.20' } }
+    let s: ChatState = {
+      ...initialChatState(),
+      sessionId: 's1',
+      awaiting: {
+        confirmToken: 'ct_1',
+        tool: 'generate',
+        count: 3,
+        modelId: 'gpt-image-2',
+        modelDisplayName: 'GPT Image 2',
+      },
+    }
     s = clearAwaiting(s)
     expect(s.awaiting).toBeNull()
     s = feed(s, [{ kind: 'job_started', jobId: 'j1', tool: 'generate', count: 3 }])

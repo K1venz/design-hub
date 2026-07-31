@@ -11,7 +11,6 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.application.tasking.runtime import GenerationWorkerRuntime
-from design_hub.domain.enums import ModelName
 from design_hub.domain.tasking import (
     GenerationItemSpec,
     GenerationItemStatus,
@@ -76,9 +75,7 @@ class _RuntimeBroker:
     ) -> tuple[Delivery, ...]:
         return ()
 
-    async def read(
-        self, *, consumer: str, count: int, block_ms: int
-    ) -> tuple[Delivery, ...]:
+    async def read(self, *, consumer: str, count: int, block_ms: int) -> tuple[Delivery, ...]:
         self.read_counts.append(count)
         batch = tuple(self.deliveries[:count])
         del self.deliveries[:count]
@@ -108,8 +105,15 @@ def test_api_and_worker_have_separate_composition_roots() -> None:
     assert "ProviderExecutionAdapter" not in api_source
     assert "build_registry(" not in api_source
     assert "GenerationWorkerRuntime" not in api_source
-    assert "ProviderExecutionAdapter" in worker_source
+    assert "LiveImageExecutorResolver" in worker_source
     assert "GenerationWorkerRuntime" in worker_source
+
+
+def test_worker_has_no_eager_executor_registry() -> None:
+    worker_source = inspect.getsource(worker_entrypoint)
+
+    assert "_build_executors" not in worker_source
+    assert "gpt-image-2-4k" not in worker_source
 
 
 def test_worker_runtime_bounds_claimed_deliveries_and_drains_on_stop() -> None:
@@ -272,7 +276,7 @@ def _work_with_references() -> GenerationWorkItem:
         operation_type=OperationType.EDIT_IMAGE,
         render_tier=RenderTier.STANDARD,
         final_prompt="edit product",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
         ratio="1:1",
         size=(1024, 1024),
         quality=None,

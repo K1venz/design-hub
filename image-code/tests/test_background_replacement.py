@@ -1,4 +1,5 @@
 import asyncio
+from decimal import Decimal
 from io import BytesIO
 
 import pytest
@@ -27,8 +28,6 @@ from design_hub.application.tasking.health import (
     QueueSnapshot,
     RedisHealthState,
 )
-from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.tasking import OperationType, ReferenceSource
 from design_hub.ports.generation_work import (
@@ -44,7 +43,6 @@ from design_hub.ports.upload_store import UploadStore, upload_ns
 
 def _planner() -> ListingTaskPlanner:
     return ListingTaskPlanner(
-        registry=build_mock_registry(),
         modifier_registry=PromptModifierRegistry(),
         card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(),
@@ -61,6 +59,7 @@ def _png(width: int, height: int) -> bytes:
 
 def test_background_replace_request_forbids_unknown_and_invalid_variant_fields() -> None:
     valid = {
+        "image_model": "gpt-image-2",
         "source": {"kind": "upload", "upload_id": "abc/product.png"},
         "background": {
             "kind": "reference",
@@ -78,6 +77,7 @@ def test_background_replace_request_forbids_unknown_and_invalid_variant_fields()
     with pytest.raises(ValidationError):
         BackgroundReplaceRequest.model_validate(
             {
+                "image_model": "gpt-image-2",
                 "source": {
                     "kind": "upload",
                     "upload_id": "abc/product.png",
@@ -89,6 +89,7 @@ def test_background_replace_request_forbids_unknown_and_invalid_variant_fields()
     with pytest.raises(ValidationError):
         BackgroundReplaceRequest.model_validate(
             {
+                "image_model": "gpt-image-2",
                 "source": {"kind": "generated", "image_key": "generated.png"},
                 "background": {"kind": "description", "description": "  "},
             }
@@ -120,6 +121,7 @@ def test_closest_supported_ratio_rejects_damaged_image() -> None:
 def test_background_prompt_keeps_user_text_inside_fixed_fidelity_rules() -> None:
     request = BackgroundReplaceRequest.model_validate(
         {
+            "image_model": "gpt-image-2",
             "source": {"kind": "upload", "upload_id": "abc/product.png"},
             "background": {
                 "kind": "description",
@@ -139,6 +141,7 @@ def test_background_prompt_keeps_user_text_inside_fixed_fidelity_rules() -> None
 def test_plan_background_replace_upload_source_uses_only_product_reference() -> None:
     request = BackgroundReplaceRequest.model_validate(
         {
+            "image_model": "gpt-image-2",
             "source": {"kind": "upload", "upload_id": "abc/product.png"},
             "background": {
                 "kind": "description",
@@ -156,7 +159,8 @@ def test_plan_background_replace_upload_source_uses_only_product_reference() -> 
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     item = submission.items[0]
@@ -177,6 +181,7 @@ def test_plan_background_replace_upload_source_uses_only_product_reference() -> 
 def test_plan_background_replace_generated_source_preserves_parent_and_reference_order() -> None:
     request = BackgroundReplaceRequest.model_validate(
         {
+            "image_model": "gpt-image-2",
             "source": {"kind": "generated", "image_key": "generated.png"},
             "background": {
                 "kind": "reference",
@@ -201,7 +206,8 @@ def test_plan_background_replace_generated_source_preserves_parent_and_reference
         idempotency_key="idem-2",
         trace_id="trace-2",
         request_id="request-2",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     item = submission.items[0]
@@ -278,6 +284,16 @@ class _Snapshots:
         )
 
 
+class _ModelConfigs:
+    async def require_available_image(self, name: str) -> object:
+        assert name == "gpt-image-2"
+        return type(
+            "_Config",
+            (),
+            {"name": name, "unit_cost": Decimal("0.05")},
+        )()
+
+
 def _service(
     *,
     uploads: _MemoryUploads,
@@ -298,6 +314,7 @@ def _service(
             confirm_wait_seconds=900,
             hard_depth=2000,
         ),
+        model_configs=_ModelConfigs(),  # type: ignore[arg-type]
         clock=lambda: 10,
         id_factory=lambda: "background-job",
     )
@@ -318,6 +335,7 @@ def test_submit_background_replace_loads_owned_images_before_enqueue() -> None:
         service, repository = _service(uploads=uploads)
         request = BackgroundReplaceRequest.model_validate(
             {
+                "image_model": "gpt-image-2",
                 "source": {"kind": "upload", "upload_id": product},
                 "background": {
                     "kind": "reference",
@@ -349,6 +367,7 @@ def test_submit_background_replace_hides_foreign_upload_existence() -> None:
         service, repository = _service(uploads=uploads)
         request = BackgroundReplaceRequest.model_validate(
             {
+                "image_model": "gpt-image-2",
                 "source": {"kind": "upload", "upload_id": foreign},
                 "background": {
                     "kind": "description",

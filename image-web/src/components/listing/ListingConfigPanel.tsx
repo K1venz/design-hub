@@ -8,7 +8,7 @@ import { TagInput } from '@/components/TagInput'
 import { cn } from '@/lib/utils'
 import {
   CATEGORIES, CATEGORY_LABELS, IMAGE_TYPE_FIELDS, MODIFIER_FIELDS, OVERLAY_MAX_COUNT, OVERLAY_MAX_LEN,
-  PLAN_TOTAL_MAX, PLAN_TOTAL_MIN, RATIOS, estimateCost, planTotal,
+  PLAN_TOTAL_MAX, PLAN_TOTAL_MIN, RATIOS, planTotal,
   type Category, type ImageTypeKey, type ListingConfig, type UploadedImage,
 } from '@/lib/listing'
 
@@ -16,13 +16,24 @@ interface ListingConfigPanelProps {
   config: ListingConfig
   uploaded: UploadedImage[]
   pending: boolean
+  modelReady: boolean
+  modelSelector: ReactNode
   onConfigChange: (next: ListingConfig) => void
   onUploadedChange: (uploaded: UploadedImage[]) => void
   onGenerate: () => void
 }
 
 export function ListingConfigPanel(props: ListingConfigPanelProps) {
-  const { config, uploaded, pending, onConfigChange, onUploadedChange, onGenerate } = props
+  const {
+    config,
+    uploaded,
+    pending,
+    modelReady,
+    modelSelector,
+    onConfigChange,
+    onUploadedChange,
+    onGenerate,
+  } = props
   const setModifier = (key: string, value: string) =>
     onConfigChange({ ...config, modifiers: { ...config.modifiers, [key]: value } })
   const setCount = (key: ImageTypeKey, count: number) =>
@@ -34,13 +45,16 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
   const atMax = total >= PLAN_TOTAL_MAX
   const nOut = isSet ? total : config.n
   const baseReady = uploaded.length > 0 && config.prompt.trim().length > 0 && !pending
-  const canGenerate = baseReady && !tooFew
+  const canGenerate = baseReady && !tooFew && modelReady
 
   return (
     <div className="glass-panel flex w-full shrink-0 flex-col overflow-visible md:w-[372px] md:overflow-hidden">
       <div className="p-5 md:flex-1 md:overflow-auto">
         <h4 className="mb-2.5 text-[13px] font-bold">产品原图（最多 3 张）</h4>
         <ImageUploader onChange={onUploadedChange} max={3} />
+
+        <h4 className="mb-2.5 mt-5 text-[13px] font-bold">图片模型</h4>
+        {modelSelector}
 
         <h4 className="mb-2.5 mt-5 text-[13px] font-bold">生成设置</h4>
         <div className="grid grid-cols-2 gap-2.5">
@@ -74,7 +88,7 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
         <div className="grid grid-cols-2 gap-1 rounded-xl border border-wb-line-1 bg-wb-surface-1 p-1">
           {(
             [
-              { mode: 'single', label: `单图 ¥${estimateCost(1).toFixed(2)}` },
+              { mode: 'single', label: '单图' },
               { mode: 'set', label: '套图' },
             ] as const
           ).map((m) => (
@@ -97,7 +111,7 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
             <div className="mb-2.5 mt-5 flex items-baseline justify-between">
               <h4 className="text-[13px] font-bold">套图结构</h4>
               <span className="text-[12px] text-wb-ink-6">
-                合计 {total} 张 · 约 ¥{estimateCost(total).toFixed(2)}
+                合计 {total} 张
                 {tooFew && <span className="ml-1.5 text-wb-red">至少 {PLAN_TOTAL_MIN} 张</span>}
               </span>
             </div>
@@ -159,7 +173,7 @@ export function ListingConfigPanel(props: ListingConfigPanelProps) {
           {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
           {isSet ? '一键生成套图' : '开始出图'}
           <span className="ml-2 text-[13px] font-normal opacity-90">
-            约 ¥{estimateCost(nOut).toFixed(2)} · {nOut} 张
+            {nOut} 张
           </span>
         </GradientButton>
       </div>

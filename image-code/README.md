@@ -26,6 +26,30 @@ uv run python -m design_hub.interface.worker
 Development defaults are in `.env.development`. Real credentials belong in the
 ignored `.env` file or the process environment.
 
+## One-time live-model bootstrap
+
+After applying the live-model migration, run the bootstrap once in the target
+environment. The process must already contain the persistent
+`AUTH_RSA_PRIVATE_KEY_PEM`, the existing `GPT_IMAGE_*` values, and the existing
+`TEXT_LLM_*` values. Confirm that the private vertical key/value Wan CSV is
+outside this repository, then pass its absolute path explicitly:
+
+```bash
+uv run python -m design_hub.cli.bootstrap_models \
+  --wan-csv "/absolute/path/outside-the-repository/private-wan.csv"
+```
+
+The command imports only `apiKey`, the official DashScope `apiHost`, and the
+`dashScope` `/api/v1` path from that file. It encrypts every credential field
+with the server's persistent RSA key, performs the same real capability checks
+used by the administrator API, and enables only configurations whose checks
+pass. Its output contains model IDs and success/failure status only.
+
+After a successful bootstrap, remove local access to the CSV according to the
+operator's credential policy. Do not paste command output or the secret file
+into an issue, and never copy the CSV into the repository, an image, a test
+fixture, or a log.
+
 The fixed Redis names are:
 
 - Task stream: `design-hub:generation:v1`

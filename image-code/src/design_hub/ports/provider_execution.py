@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ReferenceMode
 
 
@@ -15,6 +16,7 @@ class UnsupportedProviderResume(RuntimeError):
 
 @dataclass(frozen=True)
 class ProviderRequest:
+    context: ModelCallContext
     prompt: str
     reference_images: tuple[ReferenceImage, ...]
     size: tuple[int, int]

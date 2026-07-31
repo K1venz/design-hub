@@ -28,12 +28,12 @@ export interface ChatEditSource {
 }
 
 export function previewImageFromSlot(slot: ResultSlot): ChatPreviewImage | null {
-  if (!slot.url) return null
+  if (slot.unavailable || !slot.url) return null
   return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
 }
 
 export function editSourceFromSlot(slot: ResultSlot): ChatEditSource | null {
-  if (!slot.url || !slot.imageKey) return null
+  if (slot.unavailable || !slot.url || !slot.imageKey) return null
   return { url: slot.url, imageKey: slot.imageKey, imageType: slot.imageType }
 }
 
@@ -47,13 +47,13 @@ export function consumeChatEditSource(source: ChatEditSource | null): {
   }
 }
 
-/** 费用确认闸载荷（cost_confirm 事件）。 */
-export interface CostConfirm {
+/** 生成确认载荷。模型名称是服务端创建 pending 时的快照。 */
+export interface GenerationConfirm {
   confirmToken: string
   tool: ChatTool
   count: number
-  unitCost: string
-  estimateCny: string
+  modelId: string
+  modelDisplayName: string
 }
 
 export interface ChatStep {
@@ -67,7 +67,7 @@ export type ChatEvent =
   | { kind: 'assistant_delta'; text: string }
   | { kind: 'step'; step: ChatStep }
   | { kind: 'tool_call'; tool: ChatTool }
-  | { kind: 'cost_confirm'; confirm: CostConfirm }
+  | { kind: 'generation_confirm'; confirm: GenerationConfirm }
   | { kind: 'assistant_end'; status: 'complete' | 'awaiting_confirm' | 'error' | string }
   | { kind: 'error'; code: string; message: string }
   | { kind: 'job_started'; jobId: string; tool: ChatTool; count: number }
@@ -90,15 +90,15 @@ export function parseChatEvent(type: string, rawData: string): ChatEvent {
       return { kind: 'step', step: { phase: String(d.phase ?? ''), detail: String(d.detail ?? '') } }
     case 'tool_call':
       return { kind: 'tool_call', tool: (String(d.tool ?? 'generate') as ChatTool) }
-    case 'cost_confirm':
+    case 'generation_confirm':
       return {
-        kind: 'cost_confirm',
+        kind: 'generation_confirm',
         confirm: {
           confirmToken: String(d.confirm_token ?? ''),
           tool: String(d.tool ?? 'generate') as ChatTool,
           count: Number(d.count ?? 0),
-          unitCost: String(d.unit_cost ?? ''),
-          estimateCny: String(d.estimate_cny ?? ''),
+          modelId: String(d.image_model ?? ''),
+          modelDisplayName: String(d.model_display_name ?? ''),
         },
       }
     case 'assistant_end':
@@ -144,8 +144,8 @@ export interface ChatBubble {
   images?: string[]
   steps: ChatStep[]
   tools: ChatTool[]
-  /** assistant 气泡携带的费用确认卡（awaiting）；确认/取消后清。 */
-  cost?: CostConfirm
+  /** assistant 气泡携带的生成确认卡；确认或取消后保留快照、移出 awaiting。 */
+  generation?: GenerationConfirm
   action?: ChatActionCard
   ended?: boolean
   /** 回显专用：该 assistant 气泡对应的出图 job（转录只存 job_id，图靠 useListingJob 现签）。 */
@@ -162,7 +162,7 @@ export interface ChatState {
   jobDone: number
   jobTotal: number
   /** 有 awaiting confirm 时非空——UI 据此渲染确认卡并禁用输入。 */
-  awaiting: CostConfirm | null
+  awaiting: GenerationConfirm | null
   streaming: boolean
   error: { code: string; message: string } | null
 }
@@ -239,9 +239,9 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
       bubbles[idx] = { ...bubbles[idx], tools: [...bubbles[idx].tools, ev.tool] }
       return { ...state, bubbles }
     }
-    case 'cost_confirm': {
+    case 'generation_confirm': {
       const { bubbles, idx } = ensureAssistant(state)
-      bubbles[idx] = { ...bubbles[idx], cost: ev.confirm }
+      bubbles[idx] = { ...bubbles[idx], generation: ev.confirm }
       return { ...state, bubbles, awaiting: ev.confirm }
     }
     case 'action_card': {
@@ -306,7 +306,7 @@ export type ChatTranscriptMessage = components['schemas']['ChatMessageOut']
 export type ChatSessionDetail = components['schemas']['ChatTranscriptOut']
 
 /**
- * 把持久化转录还原成 UI 气泡（回显）：过程态（流式/步骤/费用卡）不落库故为空；
+ * 把持久化转录还原成 UI 气泡（回显）：过程态（流式/步骤/生成确认卡）不落库故为空；
  * assistant 消息的 job_id 挂上（UI 据此 useListingJob 现签重渲出图卡，取舍②）；
  * user 消息的 attachment_upload_ids 经 previewOf 转成预览 url（/api/uploads/{id}?access_token=）。
  * previewOf 由调用方注入（需 token，属 IO/presentation，纯函数不自取）。

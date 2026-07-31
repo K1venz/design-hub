@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from design_hub.application.cost.budget import BudgetPolicy
-from design_hub.domain.enums import ModelName, TaskEventType
+from design_hub.domain.enums import TaskEventType
 from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.models import BudgetSnapshot, GeneratedImage
 from design_hub.domain.tasking import (
@@ -112,7 +112,7 @@ class SqlAlchemyGenerationWorkRepository:
                             render_tier=item.render_tier.value,
                             operation_type=item.operation_type.value,
                             final_prompt=item.final_prompt,
-                            model=item.model.value,
+                            model=item.model,
                             ratio=item.ratio,
                             size=f"{item.size[0]}x{item.size[1]}",
                             quality=item.quality,
@@ -619,7 +619,7 @@ class SqlAlchemyGenerationWorkRepository:
                 operation_type=OperationType(row.operation_type),
                 render_tier=RenderTier(row.render_tier),
                 final_prompt=row.final_prompt,
-                model=ModelName(row.model),
+                model=row.model,
                 ratio=row.ratio,
                 size=size,
                 quality=row.quality,

@@ -15,7 +15,6 @@ import {
   mergeSlotsWithDetail,
   parseListingEvent,
   planTotal,
-  estimateCost,
   JOB_STATUS,
   type ListingConfig,
   type ListingGenerateInput,
@@ -58,6 +57,7 @@ describe('buildModifiers', () => {
 
 describe('buildListingBody', () => {
   const input: ListingGenerateInput = {
+    imageModel: 'wan2.7-image-pro',
     uploadIds: ['u1', 'u2'],
     prompt: '早餐桌场景',
     ratio: '3:4',
@@ -68,6 +68,7 @@ describe('buildListingBody', () => {
 
   it('maps uploadIds → upload_ids, passes fields through, tags category', () => {
     expect(buildListingBody(input)).toEqual({
+      image_model: 'wan2.7-image-pro',
       upload_ids: ['u1', 'u2'],
       prompt: '早餐桌场景',
       ratio: '3:4',
@@ -84,6 +85,7 @@ describe('buildListingBody', () => {
 
 describe('套图 plan / buildSetListingBody', () => {
   const base = {
+    imageModel: 'gpt-image-2',
     uploadIds: ['u1'],
     prompt: '花生礼盒',
     ratio: '1:1',
@@ -99,6 +101,7 @@ describe('套图 plan / buildSetListingBody', () => {
   it('builds set body with plan + category, no n', () => {
     const body = buildSetListingBody({ ...base, plan: { 白底: 1, 场景: 2, 卖点: 2 }, overlayTexts: [] })
     expect(body).toEqual({
+      image_model: 'gpt-image-2',
       upload_ids: ['u1'],
       prompt: '花生礼盒',
       ratio: '1:1',
@@ -123,6 +126,7 @@ describe('套图 plan / buildSetListingBody', () => {
 
 describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () => {
   const base = {
+    imageModel: 'wan2.7-image-pro',
     productUploadIds: ['p1'],
     referenceUploadIds: ['r1', 'r2'],
     cloneMode: '参考风格' as const,
@@ -133,6 +137,7 @@ describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () =
   it('builds clone body with explicit dual-role fields + category, no n/plan', () => {
     const body = buildCloneBody({ ...base, prompt: '' })
     expect(body).toEqual({
+      image_model: 'wan2.7-image-pro',
       product_upload_ids: ['p1'],
       reference_upload_ids: ['r1', 'r2'],
       clone_mode: '参考风格',
@@ -153,6 +158,7 @@ describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () =
 
 describe('buildEditBody（二次编辑：终契约 #657/#659）', () => {
   const base = {
+    imageModel: 'gpt-image-2',
     sourceImageKey: 'a1b2c3d4e5f60708',
     prompt: ' 背景换成厨房木桌 ',
     ratio: '3:4',
@@ -162,6 +168,7 @@ describe('buildEditBody（二次编辑：终契约 #657/#659）', () => {
   it('delta：省略 ratio（显式传→400 契约）、不带 category（R2）、prompt trim', () => {
     const body = buildEditBody({ ...base, editMode: 'delta' })
     expect(body).toEqual({
+      image_model: 'gpt-image-2',
       source_image_key: 'a1b2c3d4e5f60708',
       edit_mode: 'delta',
       prompt: '背景换成厨房木桌',
@@ -196,7 +203,15 @@ describe('buildEditBody（二次编辑：终契约 #657/#659）', () => {
 
 describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口）', () => {
   const img = (key: string, type: string | null, status = '成功', url = `http://x/${key}.png`) =>
-    ({ url, image_key: key, seed: 0, cost: '0.40', status, image_type: type }) as ListingJobImage
+    ({
+      url,
+      available: true,
+      image_key: key,
+      seed: 0,
+      cost: '0.40',
+      status,
+      image_type: type,
+    }) as ListingJobImage
 
   it('套图：成功槽按图型组内序对位、取 image_key 并刷新 url；失败槽保留 SSE 原因', () => {
     const slots = [
@@ -245,9 +260,25 @@ describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口
 
 describe('detailToResultSlots（恢复最近一单：终态详情 → 结果槽）', () => {
   const okImg = (key: string, type: string | null): ListingJobImage =>
-    ({ url: `http://x/${key}.png`, image_key: key, seed: 0, cost: '0.40', status: '成功', image_type: type }) as ListingJobImage
+    ({
+      url: `http://x/${key}.png`,
+      available: true,
+      image_key: key,
+      seed: 0,
+      cost: '0.40',
+      status: '成功',
+      image_type: type,
+    }) as ListingJobImage
   const failImg = (type: string | null): ListingJobImage =>
-    ({ url: '', image_key: '', seed: 0, cost: '0', status: '失败', image_type: type }) as ListingJobImage
+    ({
+      url: null,
+      available: false,
+      image_key: '',
+      seed: 0,
+      cost: '0',
+      status: '失败',
+      image_type: type,
+    }) as ListingJobImage
   const detail = (over: Partial<ListingJobDetail>): ListingJobDetail =>
     ({
       job_id: 'j1', prompt: '', modifiers: {}, platform: null, ratio: '1:1', size: '1024x1024',
@@ -296,6 +327,26 @@ describe('detailToResultSlots（恢复最近一单：终态详情 → 结果槽�
     expect(slots[1]).toEqual({ url: null, imageType: '场景', error: '生成失败' })
   })
 
+  it('屏蔽图片保留槽位但不暴露 URL 或下游操作 handle', () => {
+    const blocked = {
+      ...okImg('blocked', '场景'),
+      url: null,
+      available: false,
+    }
+
+    expect(
+      detailToResultSlots(
+        detail({ status: JOB_STATUS.done, images: [blocked] }),
+      ),
+    ).toEqual([
+      {
+        url: null,
+        imageType: '场景',
+        unavailable: true,
+      },
+    ])
+  })
+
   it('整单失败（无图行）：合成单一失败槽，顶层原因可见', () => {
     expect(detailToResultSlots(detail({ status: JOB_STATUS.failed, error: '超时' }))).toEqual([
       { url: null, error: '超时' },
@@ -335,9 +386,9 @@ describe('parseListingEvent', () => {
     expect(parseListingEvent('image_failed', JSON.stringify({ image_type: '场景', error: 'provider 500' })))
       .toEqual({ kind: 'image_failed', imageType: '场景', error: 'provider 500' })
   })
-  it('maps task_completed (with total_cost) to completed', () => {
+  it('maps task_completed without exposing accounting data', () => {
     expect(parseListingEvent('task_completed', JSON.stringify({ total_cost: '7.14' })))
-      .toEqual({ kind: 'completed', totalCost: '7.14' })
+      .toEqual({ kind: 'completed' })
   })
   it('maps task_failed to failed with message', () => {
     expect(parseListingEvent('task_failed', JSON.stringify({ error: '超时' })))
@@ -349,11 +400,5 @@ describe('parseListingEvent', () => {
   })
   it('returns unknown for unrecognized type', () => {
     expect(parseListingEvent('whatever', '{}')).toEqual({ kind: 'unknown' })
-  })
-})
-
-describe('estimateCost', () => {
-  it('multiplies n by unit cost', () => {
-    expect(estimateCost(1)).toBeCloseTo(0.05, 2)
   })
 })

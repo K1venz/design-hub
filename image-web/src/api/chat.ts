@@ -60,6 +60,8 @@ async function streamSSE(
 export interface SendMessageInput {
   sessionId: string | null
   message: string
+  chatModel: string
+  imageModel: string
   uploadIds?: string[]
   editSourceImageKey?: string
 }
@@ -70,6 +72,8 @@ export function buildChatMessageBody(input: SendMessageInput): ChatMessageBody {
   const body: ChatMessageBody = {
     session_id: input.sessionId,
     message: input.message,
+    chat_model: input.chatModel,
+    image_model: input.imageModel,
     upload_ids: input.uploadIds ?? [],
   }
   if (input.editSourceImageKey) {
@@ -78,12 +82,12 @@ export function buildChatMessageBody(input: SendMessageInput): ChatMessageBody {
   return body
 }
 
-/** POST /chat/messages —— 发一句话，流式收一轮（session/delta/step/tool/cost_confirm/end）。 */
+/** POST /chat/messages —— 发一句话，流式收一轮（session/delta/step/tool/generation_confirm/end）。 */
 export function sendChatMessage(input: SendMessageInput, onEvent: (e: ChatEvent) => void, signal?: AbortSignal) {
   return streamSSE('/chat/messages', buildChatMessageBody(input), onEvent, signal)
 }
 
-/** POST /chat/confirm —— 显式确认/取消出图（费用闸用户动作）。 */
+/** POST /chat/confirm —— 显式确认或取消当前生成。 */
 export function confirmChat(
   input: { sessionId: string; confirmToken: string; action: 'confirm' | 'cancel' },
   onEvent: (e: ChatEvent) => void,

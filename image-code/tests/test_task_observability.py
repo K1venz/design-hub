@@ -1,6 +1,8 @@
 import io
 import json
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -11,6 +13,7 @@ from structlog.contextvars import (
     get_contextvars,
 )
 
+from design_hub.config.settings import Settings
 from design_hub.infrastructure.monitoring.logging import (
     configure_logging,
     install_request_context,
@@ -19,6 +22,238 @@ from design_hub.infrastructure.monitoring.logging import (
     set_sentry_task_context,
 )
 from design_hub.infrastructure.monitoring.task_metrics import TaskMetrics
+
+
+def _restore_root_logging(
+    handlers: list[logging.Handler],
+    level: int,
+) -> None:
+    root = logging.getLogger()
+    for handler in root.handlers:
+        handler.close()
+    root.handlers.clear()
+    root.handlers.extend(handlers)
+    root.setLevel(level)
+
+
+def test_runtime_file_only_contains_explicit_business_chain_logs(
+    tmp_path: Path,
+) -> None:
+    stream = io.StringIO()
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    try:
+        configure_logging(
+            stream=stream,
+            runtime_log_dir=tmp_path,
+            service="api",
+            runtime_log_max_bytes=1024,
+        )
+        logger = logging.getLogger("design_hub.example")
+        logger.info("ordinary_internal_event")
+        logger.info(
+            "generation_task_created",
+            extra={
+                "chain": "image_generation",
+                "action": "创建出图任务",
+                "trace_id": "trace-1",
+                "prompt": "完整提示词",
+            },
+        )
+    finally:
+        _restore_root_logging(original_handlers, original_level)
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "api.jsonl").read_text().splitlines()
+    ]
+    assert len(rows) == 1
+    assert rows[0]["event"] == "generation_task_created"
+    assert rows[0]["function"] == (
+        "test_runtime_file_only_contains_explicit_business_chain_logs"
+    )
+    assert rows[0]["prompt"] == "完整提示词"
+
+
+def test_runtime_file_excludes_uvicorn_and_stdout_excludes_prompt(
+    tmp_path: Path,
+) -> None:
+    stream = io.StringIO()
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    try:
+        configure_logging(
+            stream=stream,
+            runtime_log_dir=tmp_path,
+            service="api",
+        )
+        context = {
+            "chain": "image_generation",
+            "action": "开始调用图片模型",
+            "prompt": "只允许管理员在详情中查看",
+        }
+        logging.getLogger("uvicorn.access").info(
+            "access_with_business_fields",
+            extra=context,
+        )
+        logging.getLogger("design_hub.worker").info(
+            "generation_provider_submit_started",
+            extra=context,
+        )
+    finally:
+        _restore_root_logging(original_handlers, original_level)
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "api.jsonl").read_text().splitlines()
+    ]
+    assert [row["event"] for row in rows] == [
+        "generation_provider_submit_started"
+    ]
+    assert "只允许管理员在详情中查看" not in stream.getvalue()
+
+
+def test_runtime_prompt_is_complete_but_secret_patterns_are_redacted(
+    tmp_path: Path,
+) -> None:
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    long_prefix = "商品提示词" * 250
+    try:
+        configure_logging(
+            stream=io.StringIO(),
+            runtime_log_dir=tmp_path,
+            service="worker",
+        )
+        logging.getLogger("design_hub.worker").info(
+            "generation_provider_submit_started",
+            extra={
+                "chain": "image_generation",
+                "action": "开始调用图片模型",
+                "prompt": (
+                    f"{long_prefix} Bearer abc.def sk-secret123 "
+                    "password=private "
+                    "https://cdn.example/a.png?signature=private"
+                ),
+            },
+        )
+    finally:
+        _restore_root_logging(original_handlers, original_level)
+
+    row = json.loads((tmp_path / "worker.jsonl").read_text())
+    prompt = row["prompt"]
+    assert prompt.startswith(long_prefix)
+    assert len(prompt) > 1000
+    assert "Bearer [REDACTED]" in prompt
+    assert "sk-[REDACTED]" in prompt
+    assert "password=[REDACTED]" in prompt
+    assert "https://cdn.example/a.png?[REDACTED]" in prompt
+    for secret in ("abc.def", "secret123", "private"):
+        assert secret not in prompt
+
+
+def test_runtime_files_are_bounded_and_distinct_per_service(
+    tmp_path: Path,
+) -> None:
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    max_bytes = 50 * 1024 * 1024
+    try:
+        configure_logging(
+            stream=io.StringIO(),
+            runtime_log_dir=tmp_path,
+            service="api",
+            runtime_log_max_bytes=max_bytes,
+        )
+        api_handler = next(
+            handler
+            for handler in root.handlers
+            if isinstance(handler, RotatingFileHandler)
+        )
+        assert Path(api_handler.baseFilename).name == "api.jsonl"
+        assert api_handler.maxBytes == max_bytes
+        assert api_handler.backupCount == 1
+
+        configure_logging(
+            stream=io.StringIO(),
+            runtime_log_dir=tmp_path,
+            service="worker",
+            runtime_log_max_bytes=max_bytes,
+        )
+        worker_handler = next(
+            handler
+            for handler in root.handlers
+            if isinstance(handler, RotatingFileHandler)
+        )
+        assert Path(worker_handler.baseFilename).name == "worker.jsonl"
+    finally:
+        _restore_root_logging(original_handlers, original_level)
+
+    settings = Settings()
+    assert settings.runtime_log_dir == Path("./exports/.runtime-logs")
+    assert settings.runtime_log_max_bytes == max_bytes
+
+
+def test_runtime_file_failure_does_not_fail_business_logging(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    captured: list[BaseException] = []
+    monkeypatch.setattr(
+        "design_hub.infrastructure.monitoring.runtime_log_files."
+        "sentry_sdk.capture_exception",
+        captured.append,
+    )
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    original_level = root.level
+    try:
+        configure_logging(
+            stream=io.StringIO(),
+            runtime_log_dir=tmp_path,
+            service="api",
+        )
+        handler = next(
+            item
+            for item in root.handlers
+            if isinstance(item, RotatingFileHandler)
+        )
+
+        class BrokenStream:
+            def write(self, value: str) -> int:
+                del value
+                raise OSError("contains-private-path")
+
+            def flush(self) -> None:
+                return None
+
+            def tell(self) -> int:
+                return 0
+
+            def seek(self, offset: int, whence: int = 0) -> int:
+                del offset, whence
+                return 0
+
+            def close(self) -> None:
+                return None
+
+        handler.stream = BrokenStream()
+        logger = logging.getLogger("design_hub.worker")
+        context = {"chain": "image_generation", "action": "创建出图任务"}
+        logger.info("generation_task_created", extra=context)
+        logger.info("generation_task_created", extra=context)
+    finally:
+        _restore_root_logging(original_handlers, original_level)
+
+    assert len(captured) == 2
+    assert capsys.readouterr().err.count(
+        "runtime business log write failed"
+    ) == 1
 
 
 def test_log_allowlist_keeps_correlation_and_removes_sensitive_payloads() -> None:

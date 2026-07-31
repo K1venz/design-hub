@@ -43,12 +43,12 @@ class PyJwtTokenService(TokenService):
     def verify(self, token: str) -> AuthUser:
         return self._to_user(self._decode(token))
 
-    def renew_if_stale(self, token: str) -> str | None:
+    def renew_if_stale(self, token: str, current_user: AuthUser) -> str | None:
         payload = self._decode(token)  # exp 已过在此抛（正常路径 verify 已先拦）
         iat = datetime.fromtimestamp(int(payload["iat"]), UTC)
         if datetime.now(UTC) - iat < timedelta(hours=self._renew_after_hours):
             return None  # 未过半衰期，不续
-        return self.issue(self._to_user(payload))
+        return self.issue(current_user)
 
     def _decode(self, token: str) -> dict[str, Any]:
         try:

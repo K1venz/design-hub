@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from design_hub.application.tasking.worker import GenerationWorker
-from design_hub.domain.enums import ModelName
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.models import GeneratedImage, ListingJobStart, ReferenceImage
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -35,6 +36,7 @@ from design_hub.ports.generation_work import (
     GenerationWorkItem,
     JobSubmission,
 )
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.provider_execution import (
     ImmediateResult,
     ProviderRequest,
@@ -53,7 +55,7 @@ def _spec() -> GenerationItemSpec:
         operation_type=OperationType.GENERATE_IMAGE,
         render_tier=RenderTier.STANDARD,
         final_prompt="faithful product",
-        model=ModelName.GPT_IMAGE_2,
+        model="gpt-image-2",
         ratio="1:1",
         size=(1024, 1024),
         quality=None,
@@ -202,11 +204,13 @@ class _Executor:
         self.delay_seconds = delay_seconds
         self.submits = 0
         self.resumes = 0
+        self.last_request: ProviderRequest | None = None
 
     async def submit(
         self, request: ProviderRequest, *, operation_id: str
     ) -> SubmittedTask | ImmediateResult:
         self.submits += 1
+        self.last_request = request
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
         if self.error is not None:
@@ -244,6 +248,18 @@ class _Slots:
         return True
 
 
+class _ExecutorResolver:
+    def __init__(self, executor: _Executor) -> None:
+        self.executor = executor
+
+    async def resolve(
+        self, model_id: str, render_tier: RenderTier
+    ) -> _Executor:
+        assert model_id == "gpt-image-2"
+        assert render_tier is RenderTier.STANDARD
+        return self.executor
+
+
 def _worker(
     repository: _Repository,
     executor: _Executor,
@@ -256,7 +272,7 @@ def _worker(
     worker = GenerationWorker(
         repository=repository,
         broker=broker,
-        executor_for=lambda _model: executor,
+        executor_resolver=_ExecutorResolver(executor),
         materializer=_Materializer(),
         slots_for=lambda _model, _tier: slots,
         worker_id="worker-1",
@@ -267,7 +283,8 @@ def _worker(
     return worker, broker, slots
 
 
-def test_immediate_result_commits_terminal_before_ack() -> None:
+def test_immediate_result_commits_terminal_before_ack(caplog) -> None:
+    caplog.set_level(logging.INFO)
     async def run() -> None:
         repository = _Repository(_work())
         executor = _Executor()
@@ -284,8 +301,29 @@ def test_immediate_result_commits_terminal_before_ack() -> None:
         ]
         assert broker.acks == ["10-0"]
         assert slots.actions == ["acquire", "release"]
+        assert executor.last_request is not None
+        assert executor.last_request.context == ModelCallContext(
+            user_id="1",
+            operation=ModelOperation.IMAGE_EDIT,
+            job_id="job-1",
+            generation_item_id="item-1",
+        )
 
     asyncio.run(run())
+    records = {
+        record.msg: record
+        for record in caplog.records
+        if str(record.msg).startswith("generation_")
+    }
+    assert records["generation_item_claimed"].levelno == logging.INFO
+    started = records["generation_provider_submit_started"]
+    assert started.levelno == logging.INFO
+    assert started.chain == "image_generation"
+    assert started.action == "开始调用图片模型"
+    assert started.model == "gpt-image-2"
+    assert started.prompt == "faithful product"
+    completed = records["generation_item_completed"]
+    assert completed.action == "保存图片并完成任务"
 
 
 def test_submitted_task_is_persisted_then_resumed_without_second_submit() -> None:
@@ -312,7 +350,8 @@ def test_submitted_task_is_persisted_then_resumed_without_second_submit() -> Non
     asyncio.run(run())
 
 
-def test_duplicate_terminal_delivery_acks_without_provider_call() -> None:
+def test_duplicate_terminal_delivery_acks_without_provider_call(caplog) -> None:
+    caplog.set_level(logging.INFO)
     async def run() -> None:
         repository = _Repository(_work(GenerationItemStatus.GENERATED))
         executor = _Executor()
@@ -326,6 +365,14 @@ def test_duplicate_terminal_delivery_acks_without_provider_call() -> None:
         assert broker.acks == ["10-0"]
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "generation_item_duplicate_terminal"
+    )
+    assert record.levelno == logging.WARNING
+    assert record.chain == "image_generation"
+    assert record.action == "忽略重复投递的终态任务"
 
 
 def test_ambiguous_sync_timeout_marks_uncertain_and_never_retries() -> None:
@@ -479,7 +526,7 @@ def _submission(item_count: int = 3) -> JobSubmission:
             operation_type=OperationType.GENERATE_IMAGE,
             render_tier=RenderTier.STANDARD,
             final_prompt=f"prompt {index}",
-            model=ModelName.GPT_IMAGE_2,
+            model="gpt-image-2",
             ratio="1:1",
             size=(1024, 1024),
             quality=None,

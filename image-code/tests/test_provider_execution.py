@@ -3,9 +3,10 @@ from decimal import Decimal
 
 import pytest
 
-from design_hub.domain.enums import ModelName
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers.execution import ProviderExecutionAdapter
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderTimeout,
@@ -31,6 +32,10 @@ def _image() -> GeneratedImage:
 
 def _request() -> ProviderRequest:
     return ProviderRequest(
+        context=ModelCallContext(
+            user_id="7",
+            operation=ModelOperation.IMAGE_EDIT,
+        ),
         prompt="faithful product",
         reference_images=(ReferenceImage(data=b"product"),),
         size=(1024, 1024),
@@ -40,7 +45,7 @@ def _request() -> ProviderRequest:
 
 
 class _ImmediateProvider(AbstractModelProvider):
-    name = ModelName.GPT_IMAGE_2
+    name = "gpt-image-2"
     unit_cost = Decimal("0.05")
 
     def __init__(self, *, error: Exception | None = None) -> None:
@@ -50,6 +55,7 @@ class _ImmediateProvider(AbstractModelProvider):
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
@@ -58,6 +64,7 @@ class _ImmediateProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
+        del context
         self.calls += 1
         if self.error is not None:
             raise self.error

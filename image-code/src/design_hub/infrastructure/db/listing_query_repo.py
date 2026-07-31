@@ -57,6 +57,11 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
         successes = sorted(
             (im for im in r.images if im.status == "成功"), key=lambda im: im.id
         )
+        available = [
+            image
+            for image in successes
+            if image.moderation_status == "normal"
+        ]
         return ListingJobSummary(
             job_id=r.id,
             status=r.status,
@@ -65,8 +70,9 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             n=r.n,
             total_cost=r.total_cost,
             created_at=r.created_at,
-            first_image_key=(successes[0].image_key if successes else None),
+            first_image_key=(available[0].image_key if available else None),
             image_count=len(successes),
+            model_id=SqlAlchemyListingHistoryQuery._model_id_of(r),
             edit_mode=r.edit_mode,
             category=r.category,
             operation_type=SqlAlchemyListingHistoryQuery._operation_type_of(r),
@@ -87,18 +93,26 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             if row is None:
                 return None
             source_image_type: str | None = None
+            source_image_available = False
             chain_cost: Decimal | None = None
             if row.edit_mode is not None:  # 编辑单：补源张图型 + 迭代链累计（R5 根计源张）
                 src_stmt = (
-                    select(ListingImageRow.image_type)
+                    select(
+                        ListingImageRow.image_type,
+                        ListingImageRow.moderation_status,
+                    )
                     .where(
                         ListingImageRow.job_id == row.parent_job_id,
                         ListingImageRow.image_key == row.source_image_key,
+                        ListingImageRow.status == "成功",
                     )
                     .order_by(desc(ListingImageRow.id))
                     .limit(1)
                 )
-                source_image_type = (await session.execute(src_stmt)).scalar_one_or_none()
+                source = (await session.execute(src_stmt)).one_or_none()
+                if source is not None:
+                    source_image_type = source[0]
+                    source_image_available = source[1] == "normal"
                 chain_cost = await self._chain_cost(session, row)
         inputs = sorted(row.inputs, key=lambda i: i.ord)
         return ListingJobDetail(
@@ -118,16 +132,23 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             images=tuple(
                 ListingJobImageView(
                     image_key=im.image_key, seed=im.seed, cost=im.cost,
-                    status=im.status, image_type=im.image_type
+                    status=im.status,
+                    available=(
+                        im.status == "成功"
+                        and im.moderation_status == "normal"
+                    ),
+                    image_type=im.image_type,
                 )
                 for im in row.images
             ),
             input_keys=tuple(i.upload_key for i in inputs),
+            model_id=self._model_id_of(row),
             clone_mode=row.clone_mode,
             input_roles=tuple(i.role for i in inputs),
             parent_job_id=row.parent_job_id,
             edit_mode=row.edit_mode,
             source_image_key=row.source_image_key,
+            source_image_available=source_image_available,
             source_image_type=source_image_type,
             chain_cost=chain_cost,
             operation_type=self._operation_type_of(row),
@@ -145,6 +166,17 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                 f"任务 {row.id} 包含不一致的操作类型（数据异常）"
             )
         return operation_types.pop()
+
+    @staticmethod
+    def _model_id_of(row: ListingJobRow) -> str | None:
+        if not row.generation_items:
+            return None
+        model_ids = {item.model for item in row.generation_items}
+        if len(model_ids) != 1:
+            raise RuntimeError(
+                f"任务 {row.id} 包含不一致的模型标识（数据异常）"
+            )
+        return model_ids.pop()
 
     async def _chain_cost(self, session: AsyncSession, row: ListingJobRow) -> Decimal:
         """迭代链累计（R5）：路径上各编辑单 total_cost + 根单被编辑「源张」单张 cost。
@@ -193,6 +225,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                     ListingImageRow.image_key == source_image_key,
                     ListingJobRow.user_id == user_id,
                     ListingImageRow.status == "成功",
+                    ListingImageRow.moderation_status == "normal",
                 )
                 .order_by(desc(ListingImageRow.created_at), desc(ListingImageRow.id))
                 .limit(1)

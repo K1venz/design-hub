@@ -8,6 +8,7 @@ key 落定后由 OpenAICompatTextProvider 顶替（LSP 可替换）。
 import re
 from collections.abc import AsyncIterator
 
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.text_llm import (
     ChatMessage,
     LLMChunk,
@@ -90,8 +91,13 @@ class MockTextLLMProvider(TextLLMPort):
     is_live = False
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         # 收尾轮（无工具）：orchestrator 喂 tool 结果摘要，产模板收尾语
         if not tools:
             async for chunk in self._stream("已完成 ✅ 图已生成，可在结果区查看。"):

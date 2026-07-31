@@ -11,14 +11,18 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,18 +31,37 @@ from design_hub.infrastructure.db.base import Base
 
 class ModelConfig(Base):
     __tablename__ = "model_config"
+    __table_args__ = (
+        UniqueConstraint("model_type", "name", name="uq_model_config_type_name"),
+    )
 
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(128))
+    model_type: Mapped[str] = mapped_column(String(16), index=True)
+    provider_type: Mapped[str] = mapped_column(String(32))
+    base_url: Mapped[str] = mapped_column(String(255))
+    model: Mapped[str] = mapped_column(String(128))
+    credentials_ciphertext: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_fingerprint: Mapped[str | None] = mapped_column(String(64))
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    # 配置大模型（ISSUE-0057 档A 注册表制，用户亲签 schema）：每行=一个可用出图模型的连接配置。
-    provider_type: Mapped[str] = mapped_column(String(32), default="openai_compat_image")
-    base_url: Mapped[str] = mapped_column(String(255), default="")  # 中转站 endpoint
-    model: Mapped[str] = mapped_column(String(64), default="")  # 传给上游 API 的模型 id
-    # A1 密钥不入库：仅存持有真 key 的环境变量名（真 key 留 server .env、chmod600）
-    api_key_env: Mapped[str] = mapped_column(String(64), default="")
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)  # 出图默认模型（恰一 true）
+
+
+class ModelDefault(Base):
+    __tablename__ = "model_default"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["model_type", "model_name"],
+            ["model_config.model_type", "model_config.name"],
+            name="fk_model_default_same_type",
+        ),
+    )
+
+    model_type: Mapped[str] = mapped_column(String(16), primary_key=True)
+    model_name: Mapped[str] = mapped_column(String(64))
 
 
 class CostLedgerEntry(Base):
@@ -63,6 +86,17 @@ class AppUser(Base):
     password_hash: Mapped[str] = mapped_column(String(255))  # bcrypt
     name: Mapped[str] = mapped_column(String(128))
     role: Mapped[str] = mapped_column(String(16), default="设计师")  # 设计师 | 管理者
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=true(),
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
+    disabled_by: Mapped[int | None] = mapped_column(Integer, default=None)
+    disabled_reason: Mapped[str | None] = mapped_column(String(500), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -197,9 +231,84 @@ class ListingImageRow(Base):
     seed: Mapped[int] = mapped_column(Integer)
     cost: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     status: Mapped[str] = mapped_column(String(8))  # 成功|失败
+    moderation_status: Mapped[str] = mapped_column(
+        String(16),
+        default="normal",
+        server_default="normal",
+    )
+    moderation_reason: Mapped[str | None] = mapped_column(String(32), default=None)
+    moderation_note: Mapped[str | None] = mapped_column(String(500), default=None)
+    moderated_by: Mapped[int | None] = mapped_column(Integer, default=None)
+    moderated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     job: Mapped["ListingJobRow"] = relationship(back_populates="images")
+
+
+class ModelCallRow(Base):
+    __tablename__ = "model_call"
+    __table_args__ = (
+        CheckConstraint("attempt_no >= 1", name="ck_model_call_attempt_no_positive"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(64), index=True)
+    modality: Mapped[str] = mapped_column(String(16))
+    operation_type: Mapped[str] = mapped_column(String(32), index=True)
+    job_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    generation_item_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    chat_session_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    attempt_no: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128), default=None)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    input_text_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    input_image_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    output_image_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    error_code: Mapped[str | None] = mapped_column(String(64), default=None)
+    error_detail: Mapped[str | None] = mapped_column(String(500), default=None)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
+    latency_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    platform_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 4),
+        default=None,
+    )
+
+
+class AdminAuditLogRow(Base):
+    __tablename__ = "admin_audit_log"
+    __table_args__ = (
+        Index("ix_admin_audit_log_target", "target_type", "target_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    actor_user_id: Mapped[int] = mapped_column(Integer, index=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    target_type: Mapped[str] = mapped_column(String(32))
+    target_id: Mapped[str] = mapped_column(String(128))
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    after: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    reason: Mapped[str | None] = mapped_column(String(500), default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True,
+    )
 
 
 class ListingJobInputRow(Base):

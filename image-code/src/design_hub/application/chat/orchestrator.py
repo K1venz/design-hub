@@ -9,11 +9,11 @@
 重启可续）。confirm_token 留内存（PendingStore，取舍⑤）。产出 ChatEvent 流由 /chat 路由序列化 SSE。
 """
 
+import logging
 import uuid
 from collections import Counter
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Any
 
 from structlog.contextvars import get_contextvars
@@ -51,49 +51,45 @@ from design_hub.application.listing.submission_service import (
     ListingSubmissionService,
 )
 from design_hub.application.listing.upload_service import UploadService
-from design_hub.application.registry import ProviderRegistry
 from design_hub.application.tasking.health import (
     AdmissionRejected,
     RedisUnavailable,
 )
-from design_hub.domain.enums import ModelName, TaskEventType
-from design_hub.domain.errors import BudgetExceeded, NotFoundError
+from design_hub.domain.admin import ModelOperation
+from design_hub.domain.enums import TaskEventType
+from design_hub.domain.errors import DomainError, NotFoundError
+from design_hub.domain.model_config import GPT_IMAGE_2
 from design_hub.domain.models import AuthUser, ChatTranscript
+from design_hub.domain.tasking import RenderTier
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import ReplayableEventStream
 from design_hub.ports.generation_work import IdempotencyConflict
-from design_hub.ports.ledger import LedgerRepository
 from design_hub.ports.listing_query import ListingHistoryQuery
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_config_repository import ModelConfigRepository
+from design_hub.ports.model_resolution import (
+    ModelUnavailableError,
+    TextLLMResolver,
+)
 from design_hub.ports.text_llm import (
     ChatMessage,
     TextChunk,
     TextLLMError,
-    TextLLMPort,
     ToolCall,
     ToolSpec,
 )
 from design_hub.ports.upload_store import UploadReadError, owns
 
+logger = logging.getLogger(__name__)
+
 # 长会话上下文裁剪（A3）：LLM 上下文超此消息数 → 只带首条(原始诉求) + 最近若干；
 # DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
 _CONTEXT_MAX_MESSAGES = 40
 _CONTEXT_HEAD = 1
-_FOUR_K_MAX_COUNT = 3
+_FOUR_K_MAX_COUNT = 1
 _FOUR_K_COUNT_LIMIT_MESSAGE = (
-    "4K 单次最多生成 3 张，请将本次数量调整为 1–3 张；如需更多，请分批生成。"
+    "4K 每次只能生成 1 张，请将本次数量调整为 1 张。"
 )
-
-
-def _decimal_text(value: Decimal) -> str:
-    return format(value.normalize(), "f")
-
-
-def _pricing_capability(label: str, unit_cost: Decimal, remaining: Decimal) -> str:
-    affordable = (
-        f"（余额约可生成 {int(remaining / unit_cost)} 张）" if unit_cost else ""
-    )
-    return f"{label} ¥{_decimal_text(unit_cost)}/张{affordable}"
 
 
 @dataclass(frozen=True)
@@ -108,7 +104,7 @@ class ChatEvent:
 _WRITE_TOOLS = frozenset(
     {"generate", "clone", "edit", "replace_background"}
 )
-_READ_TOOLS = frozenset({"query_my_jobs", "get_job_recipe", "get_pricing_quota"})
+_READ_TOOLS = frozenset({"query_my_jobs", "get_job_recipe"})
 _MAX_TOOL_ITERS = 5  # 读工具回喂循环上限（防 LLM 无限调工具）
 
 
@@ -174,11 +170,6 @@ def _tool_specs() -> list[ToolSpec]:
                 "required": ["job_id"],
             },
         ),
-        ToolSpec(
-            "get_pricing_quota",
-            "查价格与当前用户额度（真实数据）。用户问「多少钱/我还能出几张/额度」时用。",
-            {"type": "object", "properties": {}},
-        ),
     ]
 
 
@@ -243,16 +234,14 @@ def _to_llm_messages(
 
 @dataclass
 class ChatOrchestrator:
-    text_llm: TextLLMPort
+    text_llm_resolver: TextLLMResolver
     submission: ListingSubmissionService
     event_stream: ReplayableEventStream
     uploads: UploadService
-    registry: ProviderRegistry
     chat_repo: ChatSessionRepository
     pending: PendingStore
     query: ListingHistoryQuery  # 读工具：出图历史/配方（owner-scoped，护栏③）
-    ledger: LedgerRepository  # 读工具：额度真数据
-    model_config: ModelConfigRepository  # 读工具：价格/启用模型实时值（波动信息走工具，#1043）
+    model_config: ModelConfigRepository
     reverse_prompt: ReversePromptService
     max_session_jobs: int = 5  # 会话级出图闸（#884②）
     # 四段 system prompt（persona/知识库/工具契约/守则，A3）：启动组装缓存，可注入便于测试
@@ -275,6 +264,8 @@ class ChatOrchestrator:
         message: str,
         upload_ids: list[str],
         *,
+        chat_model: str,
+        image_model: str,
         edit_source_image_key: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         if session_id is None:
@@ -306,22 +297,65 @@ class ChatOrchestrator:
                 edit_source_image_key=edit_source_image_key,
             ),
         ]
+        llm_context = ModelCallContext(
+            user_id=user.user_id,
+            operation=ModelOperation.CHAT_COMPLETION,
+            chat_session_id=session_id,
+        )
 
         # 工具化 tool-use 循环（A3）：读工具即时执行→结果回喂→再问 LLM；写工具→费用闸；纯文本→收尾。
         for _ in range(_MAX_TOOL_ITERS):
             assistant_text = ""
             assistant_chunks: list[str] = []
             tool_calls: tuple[ToolCall, ...] = ()
+            llm_failed = False
+            llm_error_code = "llm_unavailable"
+            logger.info(
+                "chat_model_started",
+                extra={
+                    "chain": "chat",
+                    "action": "开始调用对话模型",
+                    "operation_id": session_id,
+                    "status": "started",
+                },
+            )
             try:
-                async for chunk in self.text_llm.complete(
-                    messages=llm_messages, tools=self._tools
+                text_llm = await self.text_llm_resolver.resolve(chat_model)
+                async for chunk in text_llm.complete(
+                    context=llm_context,
+                    messages=llm_messages,
+                    tools=self._tools,
                 ):
                     if isinstance(chunk, TextChunk):
                         assistant_text += chunk.text
                         assistant_chunks.append(chunk.text)
                     else:
                         tool_calls = chunk.tool_calls
-            except TextLLMError as exc:
+            except ModelUnavailableError:
+                logger.warning(
+                    "chat_model_unavailable",
+                    extra={
+                        "chain": "chat",
+                        "action": "对话模型未启用",
+                        "operation_id": session_id,
+                        "status": "unavailable",
+                    },
+                )
+                llm_failed = True
+                llm_error_code = "model_unavailable"
+            except TextLLMError:
+                logger.error(
+                    "chat_model_failed",
+                    extra={
+                        "chain": "chat",
+                        "action": "对话模型调用失败",
+                        "operation_id": session_id,
+                        "status": "failed",
+                    },
+                    exc_info=True,
+                )
+                llm_failed = True
+            if llm_failed:
                 for text in assistant_chunks:
                     yield ChatEvent("assistant_delta", {"text": text})
                 if assistant_chunks:
@@ -330,9 +364,26 @@ class ChatOrchestrator:
                         role="assistant",
                         content=assistant_text,
                     )
-                yield ChatEvent("error", {"code": "llm_unavailable", "message": str(exc)})
+                yield ChatEvent(
+                    "error",
+                    {
+                        "code": llm_error_code,
+                        "message": "当前文本模型已不可用，请重新选择。"
+                        if llm_error_code == "model_unavailable"
+                        else "对话模型暂时不可用",
+                    },
+                )
                 yield ChatEvent("assistant_end", {"status": "error"})
                 return
+            logger.info(
+                "chat_model_completed",
+                extra={
+                    "chain": "chat",
+                    "action": "对话模型调用完成",
+                    "operation_id": session_id,
+                    "status": "completed",
+                },
+            )
 
             if not tool_calls:  # 纯文本（澄清/答复/顾问建议）：落 assistant 转录，收尾
                 for text in assistant_chunks:
@@ -440,7 +491,7 @@ class ChatOrchestrator:
                 rendering = decide_chat_rendering(message, auto_ratio)
                 if (
                     call.name == "replace_background"
-                    and rendering.model is ModelName.GPT_IMAGE_2_4K
+                    and rendering.render_tier is RenderTier.FOUR_K
                 ):
                     raise ValueError("换背景当前只支持普通分辨率，不支持 4K。")
                 normalized_args = self._prepare_write_args(
@@ -471,7 +522,11 @@ class ChatOrchestrator:
                 yield ChatEvent("assistant_end", {"status": "complete"})
                 return
             try:
-                req = self._parse_req(call.name, normalized_args)
+                req = self._parse_req(
+                    call.name,
+                    normalized_args,
+                    image_model,
+                )
             except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
                 clar = (
                     "这次出图参数还没整理完整，请确认已至少上传一张图片，"
@@ -485,7 +540,7 @@ class ChatOrchestrator:
                 return
             count = self._count(call.name, req)
             if (
-                rendering.model is ModelName.GPT_IMAGE_2_4K
+                rendering.render_tier is RenderTier.FOUR_K
                 and count > _FOUR_K_MAX_COUNT
             ):
                 yield ChatEvent(
@@ -509,9 +564,29 @@ class ChatOrchestrator:
                     self.submission.validate(
                         user.user_id,
                         req,
-                        model=rendering.model,
+                        render_tier=rendering.render_tier,
                     )
-            except (ValueError, NotFoundError) as exc:
+                config = await self.model_config.require_available_image(
+                    image_model
+                )
+                if (
+                    rendering.render_tier is RenderTier.FOUR_K
+                    and config.name != GPT_IMAGE_2
+                ):
+                    raise DomainError(
+                        "4K 当前仅支持 GPT Image 2.0。"
+                    )
+            except (DomainError, ValueError, NotFoundError) as exc:
+                if str(exc) == "image model unavailable":
+                    yield ChatEvent(
+                        "error",
+                        {
+                            "code": "model_unavailable",
+                            "message": "当前图片模型已不可用，请重新选择。",
+                        },
+                    )
+                    yield ChatEvent("assistant_end", {"status": "error"})
+                    return
                 clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
                 yield ChatEvent("assistant_delta", {"text": clar})
                 await self.chat_repo.append_message(
@@ -519,35 +594,27 @@ class ChatOrchestrator:
                 )
                 yield ChatEvent("assistant_end", {"status": "complete"})
                 return
-            if not await self._model_available(rendering.model):
-                clar = self._model_unavailable_message(rendering.model)
-                yield ChatEvent("assistant_delta", {"text": clar})
-                await self.chat_repo.append_message(
-                    session_id=session_id, role="assistant", content=clar
-                )
-                yield ChatEvent("assistant_end", {"status": "complete"})
-                return
             yield ChatEvent("tool_call", {"tool": call.name, "args": normalized_args})
-            unit_cost = self.registry.get(rendering.model).unit_cost
-            estimate = unit_cost * count
             pending = self.pending.new(
                 session_id,
                 tool=call.name,
                 req=req,
                 count=count,
-                estimate=estimate,
-                model=rendering.model,
+                chat_model=chat_model,
+                image_model=config.name,
+                model_display_name=config.display_name,
+                render_tier=rendering.render_tier,
             )
             # assistant 最终答复（收尾语+job_id）留到 confirm 后落库；tool_call/cost_confirm 不落库
             yield ChatEvent(
-                "cost_confirm",
+                "generation_confirm",
                 {
                     "confirm_token": pending.confirm_token,
                     "tool": call.name,
                     "args": normalized_args,
                     "count": count,
-                    "unit_cost": _decimal_text(unit_cost),
-                    "estimate_cny": _decimal_text(estimate),
+                    "image_model": config.name,
+                    "model_display_name": config.display_name,
                 },
             )
             yield ChatEvent("assistant_end", {"status": "awaiting_confirm"})
@@ -592,13 +659,16 @@ class ChatOrchestrator:
             yield ChatEvent("assistant_end", {"status": "complete"})
             return
 
-        # 费用卡到点击确认之间配置可能变化；消费 token 后、创建 job 前重新检查。
-        if not await self._model_available(pending.model):
+        try:
+            await self.model_config.require_available_image(
+                pending.image_model
+            )
+        except DomainError:
             yield ChatEvent(
                 "error",
                 {
                     "code": "model_unavailable",
-                    "message": self._model_unavailable_message(pending.model),
+                    "message": self._model_unavailable_message(pending.render_tier),
                 },
             )
             yield ChatEvent("assistant_end", {"status": "error"})
@@ -621,7 +691,7 @@ class ChatOrchestrator:
         except (
             ValueError,
             NotFoundError,
-            BudgetExceeded,
+            DomainError,
             AdmissionRejected,
             RedisUnavailable,
             IdempotencyConflict,
@@ -670,13 +740,25 @@ class ChatOrchestrator:
         )
         history = _to_llm_messages(transcript) if transcript is not None else []
         llm_messages = [ChatMessage(role="system", content=self.system_prompt), *history, note]
+        llm_context = ModelCallContext(
+            user_id=user.user_id,
+            operation=ModelOperation.CHAT_COMPLETION,
+            chat_session_id=session_id,
+        )
         closing = ""
         try:
-            async for chunk in self.text_llm.complete(messages=llm_messages, tools=[]):
+            text_llm = await self.text_llm_resolver.resolve(
+                pending.chat_model
+            )
+            async for chunk in text_llm.complete(
+                context=llm_context,
+                messages=llm_messages,
+                tools=[],
+            ):
                 if isinstance(chunk, TextChunk):
                     closing += chunk.text
                     yield ChatEvent("assistant_delta", {"text": chunk.text})
-        except TextLLMError:
+        except (ModelUnavailableError, TextLLMError):
             closing = "已完成，可在结果区查看。" if completed else "很抱歉，出图未成功，请重试。"
             yield ChatEvent("assistant_delta", {"text": closing})
         # 落 assistant 最终答复（+job_id，回显时 job_id→image_key→现签图，取舍②）
@@ -701,7 +783,7 @@ class ChatOrchestrator:
                 idempotency_key=pending.confirm_token,
                 trace_id=trace_id,
                 request_id=request_id,
-                model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         if pending.tool == "clone" and isinstance(req, CloneRequest):
@@ -711,7 +793,7 @@ class ChatOrchestrator:
                 idempotency_key=pending.confirm_token,
                 trace_id=trace_id,
                 request_id=request_id,
-                model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         if pending.tool == "edit" and isinstance(req, EditRequest):
@@ -721,7 +803,7 @@ class ChatOrchestrator:
                 idempotency_key=pending.confirm_token,
                 trace_id=trace_id,
                 request_id=request_id,
-                model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         if (
@@ -734,20 +816,14 @@ class ChatOrchestrator:
                 idempotency_key=pending.confirm_token,
                 trace_id=trace_id,
                 request_id=request_id,
-                model=pending.model,
+                render_tier=pending.render_tier,
             )
             return receipt.job_id
         raise ValueError(f"未知工具：{pending.tool}")
 
-    async def _model_available(self, model: ModelName) -> bool:
-        if model not in self.registry:
-            return False
-        config = await self.model_config.get(model.value)
-        return config is None or config.enabled
-
     @staticmethod
-    def _model_unavailable_message(model: ModelName) -> str:
-        if model is ModelName.GPT_IMAGE_2_4K:
+    def _model_unavailable_message(render_tier: RenderTier) -> str:
+        if render_tier is RenderTier.FOUR_K:
             return "4K 当前不可用，请取消 4K 后使用普通出图。"
         return "普通出图当前不可用，请稍后再试。"
 
@@ -760,8 +836,6 @@ class ChatOrchestrator:
                 return await self._tool_query_my_jobs(user, call.arguments)
             if call.name == "get_job_recipe":
                 return await self._tool_get_job_recipe(user, call.arguments)
-            if call.name == "get_pricing_quota":
-                return await self._tool_get_pricing_quota(user)
         except Exception:  # 读工具失败不炸对话：喂给 LLM 让它如实告知用户（不静默假装成功）
             return f"（{call.name} 查询暂时失败，请告知用户稍后再试，不要编造数据。）"
         return f"（未知查询工具 {call.name}。）"
@@ -798,39 +872,7 @@ class ChatOrchestrator:
             f"这单（job_id={detail.job_id}）的配方（可复用）：\n"
             f"- 比例：{detail.ratio}\n- 图型配比：{plan_str}\n"
             f"- 风格描述：{detail.prompt}\n- 平台：{platform}\n"
-            "要用这套配置再出一套，就用这些参数调 generate（仍会先报预计费用等用户确认）。"
-        )
-
-    async def _tool_get_pricing_quota(self, user: AuthUser) -> str:
-        # 启用状态以显式配置为准；固定运行时价格只取 registry，避免旧 DB 价格覆盖产品口径。
-        configs = await self.model_config.list_all()
-        by_name = {config.name: config for config in configs}
-        capabilities: list[str] = []
-        standard_config = by_name.get(ModelName.GPT_IMAGE_2.value)
-        four_k_config = by_name.get(ModelName.GPT_IMAGE_2_4K.value)
-        snap = await self.ledger.snapshot(user.user_id)
-        remaining = snap.user_monthly_quota - snap.user_month_used
-        if (
-            (standard_config is None or standard_config.enabled)
-            and ModelName.GPT_IMAGE_2 in self.registry
-        ):
-            standard_cost = self.registry.get(ModelName.GPT_IMAGE_2).unit_cost
-            capabilities.append(
-                _pricing_capability("普通出图", standard_cost, remaining)
-            )
-        if (
-            (four_k_config is None or four_k_config.enabled)
-            and ModelName.GPT_IMAGE_2_4K in self.registry
-        ):
-            four_k_cost = self.registry.get(ModelName.GPT_IMAGE_2_4K).unit_cost
-            capabilities.append(
-                _pricing_capability("4K 16:9", four_k_cost, remaining)
-            )
-        capability_text = "、".join(capabilities) or "暂无可用出图能力"
-        return (
-            f"价格（当前固定价格）：{capability_text}。\n"
-            f"该用户额度：已用 ¥{snap.user_month_used} / 额度 ¥{snap.user_monthly_quota}，"
-            f"剩余约 ¥{remaining}。\n当前内测期间，未开放公开充值。"
+            "要用这套配置再出一套，就用这些参数调 generate，并等待用户确认生成。"
         )
 
     @staticmethod
@@ -841,6 +883,8 @@ class ChatOrchestrator:
         edit_source_image_key: str | None,
     ) -> dict[str, Any]:
         normalized = dict(args)
+        if "image_model" in normalized:
+            raise ValueError("模型只能使用本轮已选择的配置。")
         if tool == "replace_background":
             return normalized
         if tool in {"generate", "clone"}:
@@ -860,7 +904,7 @@ class ChatOrchestrator:
 
     @staticmethod
     def _parse_req(
-        tool: str, args: dict[str, Any]
+        tool: str, args: dict[str, Any], image_model: str
     ) -> (
         ListingGenerateRequest
         | CloneRequest
@@ -868,13 +912,15 @@ class ChatOrchestrator:
         | BackgroundReplaceRequest
     ):
         if tool == "generate":
-            return ChatGenerateRequest(**args).to_listing()
+            return ChatGenerateRequest(**args).to_listing(image_model)
         if tool == "clone":
-            return ChatCloneRequest(**args).to_listing()
+            return ChatCloneRequest(**args).to_listing(image_model)
         if tool == "edit":
-            return ChatEditRequest(**args).to_listing()
+            return ChatEditRequest(**args).to_listing(image_model)
         if tool == "replace_background":
-            return BackgroundReplaceRequest.model_validate(args)
+            return BackgroundReplaceRequest.model_validate(
+                {**args, "image_model": image_model}
+            )
         raise ValueError(f"未知工具：{tool}")
 
     @staticmethod
@@ -957,6 +1003,4 @@ class ChatOrchestrator:
             return "generation_unavailable"
         if isinstance(exc, IdempotencyConflict):
             return "idempotency_conflict"
-        if isinstance(exc, BudgetExceeded):
-            return "budget_exceeded"
         return "bad_request"  # ValueError / NotFoundError
