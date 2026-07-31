@@ -4,7 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
-    String,
+    Integer,
     and_,
     case,
     cast,
@@ -269,19 +269,19 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                 .select_from(AppUser)
                 .outerjoin(
                     metrics["jobs"],
-                    metrics["jobs"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["jobs"].c.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     metrics["images"],
-                    metrics["images"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["images"].c.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     metrics["calls"],
-                    metrics["calls"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["calls"].c.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     metrics["chats"],
-                    metrics["chats"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["chats"].c.user_id, Integer) == AppUser.id,
                 )
                 .where(*conditions)
                 .order_by(desc(AppUser.created_at), desc(AppUser.id))
@@ -304,19 +304,19 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                 .select_from(AppUser)
                 .outerjoin(
                     metrics["jobs"],
-                    metrics["jobs"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["jobs"].c.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     metrics["images"],
-                    metrics["images"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["images"].c.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     metrics["calls"],
-                    metrics["calls"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["calls"].c.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     metrics["chats"],
-                    metrics["chats"].c.user_id == cast(AppUser.id, String),
+                    cast(metrics["chats"].c.user_id, Integer) == AppUser.id,
                 )
                 .where(AppUser.id == user_id)
             )
@@ -379,7 +379,7 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                 .select_from(ListingJobRow)
                 .join(
                     AppUser,
-                    cast(AppUser.id, String) == ListingJobRow.user_id,
+                    cast(ListingJobRow.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     ListingImageRow,
@@ -515,7 +515,7 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                 )
                 .join(
                     AppUser,
-                    cast(AppUser.id, String) == ListingJobRow.user_id,
+                    cast(ListingJobRow.user_id, Integer) == AppUser.id,
                 )
                 .outerjoin(
                     GenerationItemRow,
@@ -631,7 +631,7 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                 select(ModelCallRow, AppUser, status)
                 .join(
                     AppUser,
-                    cast(AppUser.id, String) == ModelCallRow.user_id,
+                    cast(ModelCallRow.user_id, Integer) == AppUser.id,
                 )
                 .where(*conditions)
                 .order_by(

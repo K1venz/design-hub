@@ -1,11 +1,13 @@
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -36,6 +38,8 @@ from design_hub.interface.api.deps import get_current_user, get_user_admin_servi
 from design_hub.interface.api.routes import admin_console, users
 from design_hub.ports.admin_console import (
     AdminImageFilter,
+    AdminJobFilter,
+    AdminUserFilter,
     DateRange,
     ModelCallFilter,
 )
@@ -66,6 +70,62 @@ class _StatusService:
             enabled=enabled,
             disabled_reason=reason,
         )
+
+
+class _EmptyRows:
+    def all(self) -> list[Any]:
+        return []
+
+
+class _StatementCaptureSession:
+    def __init__(self) -> None:
+        self.statements: list[Any] = []
+
+    async def __aenter__(self) -> "_StatementCaptureSession":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        return None
+
+    async def scalar(self, statement: Any) -> int:
+        self.statements.append(statement)
+        return 0
+
+    async def execute(self, statement: Any) -> _EmptyRows:
+        self.statements.append(statement)
+        return _EmptyRows()
+
+
+def test_admin_list_queries_keep_user_id_comparisons_numeric_for_mysql() -> None:
+    async def run() -> None:
+        sessions: list[_StatementCaptureSession] = []
+
+        def session_factory() -> _StatementCaptureSession:
+            session = _StatementCaptureSession()
+            sessions.append(session)
+            return session
+
+        repository = SqlAlchemyAdminConsoleRepository(session_factory)  # type: ignore[arg-type]
+        await repository.list_users(AdminUserFilter(), limit=20, offset=0)
+        await repository.list_jobs(AdminJobFilter(), limit=20, offset=0)
+        await repository.list_images(AdminImageFilter(), limit=20, offset=0)
+        await repository.list_model_calls(ModelCallFilter(), limit=20, offset=0)
+
+        sql = "\n".join(
+            str(
+                statement.compile(
+                    dialect=mysql.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+            )
+            for session in sessions
+            for statement in session.statements
+        )
+        assert "CAST(app_user.id AS CHAR)" not in sql
+        assert "CAST(listing_job.user_id AS SIGNED INTEGER) = app_user.id" in sql
+        assert "CAST(model_call.user_id AS SIGNED INTEGER) = app_user.id" in sql
+
+    asyncio.run(run())
 
 
 async def _users_database() -> tuple[
