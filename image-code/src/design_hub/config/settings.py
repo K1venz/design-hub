@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     jwt_ttl_hours: int = 24
     # 滑动续期半衰期（小时，ISSUE-0058）：令牌签发超此→鉴权时签新 24h 令牌放 X-Renewed-Token 头
     jwt_renew_after_hours: int = 12
+    model_verification_ttl_seconds: int = Field(default=600, gt=0)
     # RSA private-key PEM encrypts authentication passwords and other application secrets.
     auth_rsa_private_key_pem: SecretStr = SecretStr("")
     # Production deployment enables this with REQUIRE_PERSISTENT_SECRET_CIPHER=true.
