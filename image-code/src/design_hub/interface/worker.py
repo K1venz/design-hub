@@ -44,6 +44,7 @@ from design_hub.infrastructure.queue.redis_streams import (
     RedisStreamClient,
     RedisTaskBroker,
 )
+from design_hub.infrastructure.security.model_verification import PyJwtModelVerificationService
 from design_hub.infrastructure.storage.reference_materializer import (
     StoredReferenceMaterializer,
 )
@@ -59,36 +60,31 @@ def _worker_id() -> str:
 
 
 def _build_executors(registry: ProviderRegistry) -> dict[str, ProviderExecutor]:
-    return {
-        name: ProviderExecutionAdapter(registry.get(name))
-        for name in registry.names()
-    }
+    return {name: ProviderExecutionAdapter(registry.get(name)) for name in registry.names()}
 
 
 async def run_worker(settings: Settings | None = None) -> None:
     settings = settings or Settings()
-    build_secret_cipher(settings)
+    cipher = build_secret_cipher(settings)
     configure_logging()
     init_sentry(settings.sentry_dsn)
     engine = create_engine(settings.db_url)
     session_factory = create_session_factory(engine)
     model_config_repo = SqlAlchemyModelConfigRepository(session_factory)
-    configs = await ModelConfigService(repo=model_config_repo).list()
-    unit_costs = {
-        config.name: config.unit_cost
-        for config in configs
-        if config.enabled
-    }
-    default_config = next(
-        (config for config in configs if config.enabled and config.is_default),
-        None,
-    )
+    configs = await ModelConfigService(
+        repo=model_config_repo,
+        cipher=cipher,
+        verifier=PyJwtModelVerificationService(
+            secret=settings.jwt_secret.get_secret_value(),
+            ttl_seconds=settings.model_verification_ttl_seconds,
+        ),
+    ).list()
+    unit_costs = {config.name: config.unit_cost for config in configs if config.enabled}
     registry = build_registry(
         settings,
         recorder=SqlAlchemyModelCallRecorder(session_factory),
         real_gpt_image=settings.real_gpt_image,
         unit_costs=unit_costs,
-        default_config=default_config,
     )
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     stream_client = cast(RedisStreamClient, redis)

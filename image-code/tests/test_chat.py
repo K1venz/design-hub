@@ -12,7 +12,7 @@ ListingSubmissionService.validate 纯校验; PendingStore token 语义; ChatSess
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from io import BytesIO
 
@@ -56,7 +56,7 @@ from design_hub.application.tasking.health import (
 )
 from design_hub.composition import build_mock_registry
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import Role, TaskEventType
+from design_hub.domain.enums import ModelType, ProviderType, Role, TaskEventType
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import (
     AuthUser,
@@ -120,32 +120,17 @@ class _FakeModelConfig(ModelConfigRepository):
         include_four_k: bool = True,
     ) -> None:
         self._c = [
-            ModelConfigRecord(
-                "gpt-image-2",
-                standard_cost,
-                enabled=standard_enabled,
-                extra={},
-            ),
-            ModelConfigRecord("seedream-5", Decimal("0.20"), enabled=False, extra={}),
+            _model_record("gpt-image-2", standard_cost, standard_enabled),
+            _model_record("seedream-5", Decimal("0.20"), False),
         ]
         if include_four_k:
             self._c.append(
-                ModelConfigRecord(
-                    "gpt-image-2-4k",
-                    four_k_cost,
-                    enabled=four_k_enabled,
-                    extra={},
-                )
+                _model_record("gpt-image-2-4k", four_k_cost, four_k_enabled)
             )
 
     def set_enabled(self, name: str, enabled: bool) -> None:
         current = next(config for config in self._c if config.name == name)
-        self._c[self._c.index(current)] = ModelConfigRecord(
-            current.name,
-            current.unit_cost,
-            enabled=enabled,
-            extra=current.extra,
-        )
+        self._c[self._c.index(current)] = replace(current, enabled=enabled)
 
     async def list_all(self) -> list[ModelConfigRecord]:
         return list(self._c)
@@ -153,7 +138,11 @@ class _FakeModelConfig(ModelConfigRepository):
     async def get(self, name: str) -> ModelConfigRecord | None:
         return next((c for c in self._c if c.name == name), None)
 
-    async def update(self, *, actor_id, name, **kw):  # type: ignore[no-untyped-def]
+    async def get_default(self, model_type: ModelType) -> str | None:
+        del model_type
+        return None
+
+    async def update(self, *, actor_id, record):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
     async def create(self, *, actor_id, record):  # type: ignore[no-untyped-def]
@@ -167,6 +156,24 @@ class _FakeModelConfig(ModelConfigRepository):
 
     async def seed_defaults(self, defaults) -> None:  # type: ignore[no-untyped-def]
         raise NotImplementedError
+
+
+def _model_record(name: str, unit_cost: Decimal, enabled: bool) -> ModelConfigRecord:
+    return ModelConfigRecord(
+        name=name,
+        display_name=name,
+        model_type=ModelType.IMAGE,
+        provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+        base_url="https://unused.example.test/v1",
+        model=name,
+        credentials_ciphertext={"standard_api_keys": ["test-ciphertext"]},
+        unit_cost=unit_cost,
+        enabled=enabled,
+        revision=1,
+        verified_at=None,
+        verified_fingerprint=None,
+        extra={},
+    )
 
 
 class _NeverSubmitRepository:
