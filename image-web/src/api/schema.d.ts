@@ -390,6 +390,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Chat Models */
+        get: operations["list_chat_models_models_chat_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/models": {
         parameters: {
             query?: never;
@@ -1105,6 +1122,8 @@ export interface components {
             session_id?: string | null;
             /** Message */
             message: string;
+            /** Chat Model */
+            chat_model: string;
             /** Image Model */
             image_model: string;
             /** Upload Ids */
@@ -1224,15 +1243,6 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /** ImageModelCatalogItemOut */
-        ImageModelCatalogItemOut: {
-            /** Id */
-            id: string;
-            /** Display Name */
-            display_name: string;
-            /** Is Default */
-            is_default: boolean;
         };
         /** ImageModerationUpdate */
         ImageModerationUpdate: {
@@ -1544,6 +1554,15 @@ export interface components {
             tested_at: string;
             /** Checks */
             checks: string[];
+        };
+        /** ModelCatalogItemOut */
+        ModelCatalogItemOut: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /** Is Default */
+            is_default: boolean;
         };
         /** ModelConfigCreate */
         ModelConfigCreate: {
@@ -2685,7 +2704,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImageModelCatalogItemOut"][];
+                    "application/json": components["schemas"]["ModelCatalogItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_models_models_chat_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalogItemOut"][];
                 };
             };
             /** @description Validation Error */

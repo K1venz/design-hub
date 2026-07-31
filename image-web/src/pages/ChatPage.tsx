@@ -23,6 +23,9 @@ import {
   useImageModelSelection,
 } from '@/components/models/image-model-context'
 import { ImageModelSelector } from '@/components/models/ImageModelSelector'
+import { requireSelectedModel } from '@/components/models/model-selection'
+import { useModelSelection } from '@/components/models/use-model-selection'
+import { useChatModels } from '@/api/models'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
 import { useListingJob, useUploadImage } from '@/api/listing'
 import {
@@ -55,6 +58,7 @@ export function ChatPage() {
   const navigate = useNavigate()
   const token = useAuthStore((auth) => auth.token)
   const modelSelection = useImageModelSelection()
+  const chatModelSelection = useModelSelection('chat', useChatModels())
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
@@ -175,6 +179,7 @@ export function ChatPage() {
     const text = message.trim()
     if (!text || stateRef.current.streaming || stateRef.current.awaiting) return
     const imageModel = requireSelectedImageModel(modelSelection)
+    const chatModel = requireSelectedModel(chatModelSelection, '文本')
     const consumed = consumeChatEditSource(selectedEditSource)
     pendingSendRef.current = {
       state: stateRef.current,
@@ -201,6 +206,7 @@ export function ChatPage() {
       await sendChatMessage({
         sessionId: stateRef.current.sessionId,
         message: text,
+        chatModel,
         imageModel,
         uploadIds,
         editSourceImageKey: consumed.editSourceImageKey,
