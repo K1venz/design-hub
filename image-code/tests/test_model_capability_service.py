@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
 from decimal import Decimal
@@ -247,7 +248,8 @@ def _service(
     )
 
 
-def test_image_probe_generates_then_edits_and_issues_exact_proof() -> None:
+def test_image_probe_generates_then_edits_and_issues_exact_proof(caplog) -> None:
+    caplog.set_level(logging.INFO)
     service, verifier, factory = _service()
 
     result = asyncio.run(
@@ -272,6 +274,16 @@ def test_image_probe_generates_then_edits_and_issues_exact_proof() -> None:
     assert len(factory.image.calls) == 2
     assert factory.image.calls[0] == []
     assert factory.image.calls[1][0].data is not None
+    records = {
+        record.msg: record
+        for record in caplog.records
+        if str(record.msg).startswith("model_capability_test_")
+    }
+    assert records["model_capability_test_started"].levelno == logging.INFO
+    assert records["model_capability_test_started"].chain == "model_configuration"
+    assert records["model_capability_test_started"].action == "开始模型连通性测试"
+    assert records["model_capability_test_completed"].levelno == logging.INFO
+    assert records["model_capability_test_completed"].action == "模型连通性测试成功"
 
 
 def test_chat_probe_requires_streamed_text_and_named_tool() -> None:

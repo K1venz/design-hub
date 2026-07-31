@@ -42,6 +42,7 @@ from design_hub.ports.model_config_repository import (
     ModelConfigRecord,
     ModelConfigRepository,
 )
+from design_hub.ports.model_resolution import ModelUnavailableError
 from design_hub.ports.upload_store import owns
 
 logger = logging.getLogger(__name__)
@@ -331,9 +332,21 @@ class ListingSubmissionService:
         ),
         render_tier: RenderTier,
     ) -> ModelConfigRecord:
-        config = await self.model_configs.require_available_image(
-            request.image_model
-        )
+        try:
+            config = await self.model_configs.require_available_image(
+                request.image_model
+            )
+        except ModelUnavailableError:
+            logger.warning(
+                "generation_model_unavailable",
+                extra={
+                    "chain": "image_generation",
+                    "action": "用户选择的模型不可用",
+                    "model": request.image_model,
+                    "status": "unavailable",
+                },
+            )
+            raise
         if render_tier is RenderTier.FOUR_K:
             if config.name != GPT_IMAGE_2:
                 raise DomainError(
@@ -389,13 +402,16 @@ class ListingSubmissionService:
     ) -> None:
         first = submission.items[0]
         logger.info(
-            "generation_submission_accepted",
+            "generation_task_created",
             extra={
+                "chain": "image_generation",
+                "action": "创建出图任务",
                 "request_id": submission.request_id,
                 "trace_id": submission.trace_id,
                 "job_id": submission.job.job_id,
                 "item_id": first.item_id,
                 "operation_id": first.operation_id,
+                "model": first.model,
                 "status": "replayed" if replayed else "accepted",
             },
         )

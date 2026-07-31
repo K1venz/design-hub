@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from io import BytesIO
 
@@ -207,7 +208,11 @@ def test_reverse_prompt_request_is_strict_and_reuses_image_source_contract() -> 
         )
 
 
-def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema() -> None:
+def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema(
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+
     async def run() -> None:
         upload_id = f"{upload_ns('user-1')}/product.png"
         uploads = _Uploads({upload_id: (_png(), "image/png")})
@@ -239,6 +244,14 @@ def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema() -> No
         )
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "reverse_prompt_completed"
+    )
+    assert record.levelno == logging.INFO
+    assert record.chain == "reverse_prompt"
+    assert record.action == "完成图片提示词反推"
 
 
 def test_reverse_uploaded_image_works_with_mock_text_provider() -> None:
@@ -393,7 +406,10 @@ def test_reverse_generated_image_checks_owner_before_loading_bytes() -> None:
 )
 def test_reverse_prompt_rejects_missing_or_invalid_tool_output(
     arguments: dict | None,
+    caplog,
 ) -> None:
+    caplog.set_level(logging.INFO)
+
     async def run() -> None:
         upload_id = f"{upload_ns('user-1')}/product.png"
         service = _service(
@@ -415,3 +431,10 @@ def test_reverse_prompt_rejects_missing_or_invalid_tool_output(
             )
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "reverse_prompt_failed"
+    )
+    assert record.levelno == logging.ERROR
+    assert record.chain == "reverse_prompt"

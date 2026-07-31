@@ -11,6 +11,7 @@ ListingSubmissionService.validate 纯校验; PendingStore token 语义; ChatSess
 """
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
@@ -1095,7 +1096,12 @@ def test_explicit_4k_note_reaches_llm_before_write_tool_selection(tmp_path) -> N
     asyncio.run(_impl())
 
 
-def test_chat_without_tool_replays_every_buffered_text_chunk(tmp_path) -> None:
+def test_chat_without_tool_replays_every_buffered_text_chunk(
+    tmp_path,
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         events = await _drain(
@@ -1110,9 +1116,24 @@ def test_chat_without_tool_replays_every_buffered_text_chunk(tmp_path) -> None:
         assert events[-1] == ("assistant_end", {"status": "complete"})
 
     asyncio.run(_impl())
+    records = {
+        record.msg: record
+        for record in caplog.records
+        if str(record.msg).startswith("chat_model_")
+    }
+    assert records["chat_model_started"].levelno == logging.INFO
+    assert records["chat_model_started"].chain == "chat"
+    assert records["chat_model_started"].action == "开始调用对话模型"
+    assert records["chat_model_completed"].levelno == logging.INFO
+    assert records["chat_model_completed"].action == "对话模型调用完成"
 
 
-def test_late_llm_error_replays_and_persists_partial_assistant_text(tmp_path) -> None:
+def test_late_llm_error_replays_and_persists_partial_assistant_text(
+    tmp_path,
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         events = await _drain(
@@ -1134,6 +1155,14 @@ def test_late_llm_error_replays_and_persists_partial_assistant_text(tmp_path) ->
         assert transcript.messages[-1].content == "已收到，正在处理"
 
     asyncio.run(_impl())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "chat_model_failed"
+    )
+    assert record.levelno == logging.ERROR
+    assert record.chain == "chat"
+    assert record.action == "对话模型调用失败"
 
 
 def test_non_gpt_model_cannot_be_used_for_4k(tmp_path) -> None:
