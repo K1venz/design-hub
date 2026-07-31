@@ -119,7 +119,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
             call_id = await self._recorder.start(
                 context=context,
                 provider="openai_compat_image",
-                model=self._model,
+                model=self.name,
                 attempt_no=attempt + 1,
             )
             try:

@@ -27,7 +27,7 @@ from design_hub.application.tasking.health import (
     QueueSnapshotReader,
     RedisHealthState,
 )
-from design_hub.domain.errors import NotFoundError
+from design_hub.domain.errors import DomainError, NotFoundError
 from design_hub.domain.model_config import GPT_IMAGE_2
 from design_hub.domain.tasking import RenderTier
 from design_hub.ports.generation_work import (
@@ -37,6 +37,10 @@ from design_hub.ports.generation_work import (
 from design_hub.ports.listing_query import (
     GeneratedImageSource,
     ListingHistoryQuery,
+)
+from design_hub.ports.model_config_repository import (
+    ModelConfigRecord,
+    ModelConfigRepository,
 )
 from design_hub.ports.upload_store import owns
 
@@ -64,6 +68,7 @@ class ListingSubmissionService:
     redis_health: RedisHealthState
     queue_snapshots: QueueSnapshotReader
     admission: QueueAdmissionController
+    model_configs: ModelConfigRepository
     clock: Callable[[], float] = time.monotonic
     id_factory: Callable[[], str] = field(default=_new_id)
 
@@ -75,11 +80,11 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str = GPT_IMAGE_2,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
+        config = await self._resolve_image_model(request, render_tier)
         self._require_idempotency_key(idempotency_key)
-        self.validate(user_id, request, model=model, render_tier=render_tier)
+        self.validate(user_id, request, render_tier=render_tier)
         admission = await self._admit()
         submission = self.planner.plan_generate(
             user_id=user_id,
@@ -88,7 +93,8 @@ class ListingSubmissionService:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=config.name,
+            unit_cost=config.unit_cost,
             render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
@@ -108,11 +114,11 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str = GPT_IMAGE_2,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
+        config = await self._resolve_image_model(request, render_tier)
         self._require_idempotency_key(idempotency_key)
-        self.validate(user_id, request, model=model, render_tier=render_tier)
+        self.validate(user_id, request, render_tier=render_tier)
         admission = await self._admit()
         submission = self.planner.plan_clone(
             user_id=user_id,
@@ -121,7 +127,8 @@ class ListingSubmissionService:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=config.name,
+            unit_cost=config.unit_cost,
             render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
@@ -141,11 +148,11 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str = GPT_IMAGE_2,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
+        config = await self._resolve_image_model(request, render_tier)
         self._require_idempotency_key(idempotency_key)
-        self.validate(user_id, request, model=model, render_tier=render_tier)
+        self.validate(user_id, request, render_tier=render_tier)
         source = await self.query.resolve_generated_image_source(
             source_image_key=request.source_image_key,
             user_id=user_id,
@@ -161,7 +168,8 @@ class ListingSubmissionService:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=config.name,
+            unit_cost=config.unit_cost,
             render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
@@ -181,9 +189,9 @@ class ListingSubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str = GPT_IMAGE_2,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
+        config = await self._resolve_image_model(request, render_tier)
         self._require_idempotency_key(idempotency_key)
         source, ratio = await self._background_replace_context(
             user_id=user_id,
@@ -199,7 +207,8 @@ class ListingSubmissionService:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=config.name,
+            unit_cost=config.unit_cost,
             render_tier=render_tier,
         )
         result = await self.repository.submit(submission)
@@ -217,6 +226,7 @@ class ListingSubmissionService:
         user_id: str,
         request: BackgroundReplaceRequest,
     ) -> None:
+        await self._resolve_image_model(request, RenderTier.STANDARD)
         await self._background_replace_context(
             user_id=user_id,
             request=request,
@@ -255,7 +265,6 @@ class ListingSubmissionService:
         user_id: str,
         request: ListingGenerateRequest | CloneRequest | EditRequest,
         *,
-        model: str = GPT_IMAGE_2,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> None:
         if isinstance(request, ListingGenerateRequest):
@@ -311,6 +320,39 @@ class ListingSubmissionService:
             )
         if request.ratio is not None:
             generation_size(render_tier, request.ratio)
+
+    async def _resolve_image_model(
+        self,
+        request: (
+            ListingGenerateRequest
+            | CloneRequest
+            | EditRequest
+            | BackgroundReplaceRequest
+        ),
+        render_tier: RenderTier,
+    ) -> ModelConfigRecord:
+        config = await self.model_configs.require_available_image(
+            request.image_model
+        )
+        if render_tier is RenderTier.FOUR_K:
+            if config.name != GPT_IMAGE_2:
+                raise DomainError(
+                    "4K is available only for GPT Image 2.0"
+                )
+            count = (
+                request.n
+                if isinstance(request, ListingGenerateRequest)
+                and request.n is not None
+                else (
+                    sum(request.plan.values())
+                    if isinstance(request, ListingGenerateRequest)
+                    and request.plan is not None
+                    else 1
+                )
+            )
+            if count != 1:
+                raise DomainError("4K requires exactly one image")
+        return config
 
     async def _admit(self) -> AdmissionResult:
         self.redis_health.require_available(now=self.clock())

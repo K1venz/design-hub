@@ -11,7 +11,6 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.application.tasking.runtime import GenerationWorkerRuntime
-from design_hub.composition import build_mock_registry
 from design_hub.domain.tasking import (
     GenerationItemSpec,
     GenerationItemStatus,
@@ -76,9 +75,7 @@ class _RuntimeBroker:
     ) -> tuple[Delivery, ...]:
         return ()
 
-    async def read(
-        self, *, consumer: str, count: int, block_ms: int
-    ) -> tuple[Delivery, ...]:
+    async def read(self, *, consumer: str, count: int, block_ms: int) -> tuple[Delivery, ...]:
         self.read_counts.append(count)
         batch = tuple(self.deliveries[:count])
         del self.deliveries[:count]
@@ -108,14 +105,15 @@ def test_api_and_worker_have_separate_composition_roots() -> None:
     assert "ProviderExecutionAdapter" not in api_source
     assert "build_registry(" not in api_source
     assert "GenerationWorkerRuntime" not in api_source
-    assert "ProviderExecutionAdapter" in worker_source
+    assert "LiveImageExecutorResolver" in worker_source
     assert "GenerationWorkerRuntime" in worker_source
 
 
-def test_worker_executors_include_runtime_4k_provider_without_config_row() -> None:
-    executors = worker_entrypoint._build_executors(build_mock_registry())
+def test_worker_has_no_eager_executor_registry() -> None:
+    worker_source = inspect.getsource(worker_entrypoint)
 
-    assert "gpt-image-2-4k" in executors
+    assert "_build_executors" not in worker_source
+    assert "gpt-image-2-4k" not in worker_source
 
 
 def test_worker_runtime_bounds_claimed_deliveries_and_drains_on_stop() -> None:

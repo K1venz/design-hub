@@ -1,9 +1,11 @@
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -31,8 +33,7 @@ from design_hub.application.tasking.health import (
     RedisHealthState,
     RedisUnavailable,
 )
-from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import Role, TaskEventType
+from design_hub.domain.enums import ModelType, ProviderType, Role, TaskEventType
 from design_hub.domain.models import AuthUser, TaskEvent
 from design_hub.domain.tasking import (
     OperationType,
@@ -49,12 +50,12 @@ from design_hub.ports.generation_work import (
     SubmitResult,
 )
 from design_hub.ports.listing_query import GeneratedImageSource, ListingHistoryQuery
+from design_hub.ports.model_config_repository import ModelConfigRecord
 from design_hub.ports.upload_store import UploadStore, upload_ns
 
 
 def _planner() -> ListingTaskPlanner:
     return ListingTaskPlanner(
-        registry=build_mock_registry(),
         modifier_registry=PromptModifierRegistry(),
         card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(),
@@ -63,8 +64,62 @@ def _planner() -> ListingTaskPlanner:
     )
 
 
+@pytest.mark.parametrize(
+    ("request_type", "payload"),
+    [
+        (
+            ListingGenerateRequest,
+            {
+                "upload_ids": ["1/front.png"],
+                "prompt": "red",
+                "ratio": "1:1",
+                "n": 1,
+            },
+        ),
+        (
+            CloneRequest,
+            {
+                "product_upload_ids": ["1/product.png"],
+                "reference_upload_ids": ["1/reference.png"],
+                "clone_mode": "参考风格",
+                "ratio": "1:1",
+            },
+        ),
+        (
+            EditRequest,
+            {
+                "source_image_key": "source.png",
+                "prompt": "red",
+            },
+        ),
+        (
+            BackgroundReplaceRequest,
+            {
+                "source": {
+                    "kind": "upload",
+                    "upload_id": "1/product.png",
+                },
+                "background": {
+                    "kind": "description",
+                    "description": "blue",
+                },
+            },
+        ),
+    ],
+)
+def test_every_listing_request_requires_nonblank_image_model(
+    request_type: type,
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        request_type.model_validate(payload)
+    with pytest.raises(ValidationError):
+        request_type.model_validate({**payload, "image_model": "  "})
+
+
 def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
     request = ListingGenerateRequest(
+        image_model="gpt-image-2",
         upload_ids=["1/front.png", "1/side.png"],
         prompt="春节红色礼盒",
         ratio="1:1",
@@ -81,7 +136,8 @@ def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model="gpt-image-2",
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     assert submission.job.n == 3
@@ -108,6 +164,7 @@ def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
 def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_input() -> None:
     planner = _planner()
     request = ListingGenerateRequest(
+        image_model="gpt-image-2",
         upload_ids=["1/front.png"],
         prompt="red",
         ratio="1:1",
@@ -121,7 +178,8 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model="gpt-image-2",
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
     replay = planner.plan_generate(
         user_id="1",
@@ -130,7 +188,8 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-2",
         request_id="request-2",
-        model="gpt-image-2",
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
     changed = planner.plan_generate(
         user_id="1",
@@ -139,7 +198,8 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-3",
         request_id="request-3",
-        model="gpt-image-2",
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     assert first.request_fingerprint == replay.request_fingerprint
@@ -150,9 +210,10 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
 def test_request_fingerprint_includes_render_tier_for_every_planner_operation() -> None:
     planner = _planner()
     generate = ListingGenerateRequest(
-        upload_ids=["1/front.png"], prompt="red", ratio="16:9", n=1
+        image_model="gpt-image-2", upload_ids=["1/front.png"], prompt="red", ratio="16:9", n=1
     )
     clone = CloneRequest(
+        image_model="gpt-image-2",
         product_upload_ids=["1/product.png"],
         reference_upload_ids=["1/reference.png"],
         clone_mode="完全复刻",
@@ -160,6 +221,7 @@ def test_request_fingerprint_includes_render_tier_for_every_planner_operation() 
         prompt="red",
     )
     edit = EditRequest(
+        image_model="gpt-image-2",
         source_image_key="source.png",
         prompt="red",
         edit_mode="full",
@@ -173,6 +235,7 @@ def test_request_fingerprint_includes_render_tier_for_every_planner_operation() 
     )
     background = BackgroundReplaceRequest.model_validate(
         {
+            "image_model": "gpt-image-2",
             "source": {"kind": "upload", "upload_id": "1/product.png"},
             "background": {"kind": "description", "description": "blue"},
         }
@@ -180,20 +243,50 @@ def test_request_fingerprint_includes_render_tier_for_every_planner_operation() 
 
     plan_calls = (
         lambda render_tier: planner.plan_generate(
-            user_id="1", request=generate, job_id="generate", idempotency_key="same",
-            trace_id="trace", request_id="request", model="gpt-image-2", render_tier=render_tier,
+            user_id="1",
+            request=generate,
+            job_id="generate",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         ),
         lambda render_tier: planner.plan_clone(
-            user_id="1", request=clone, job_id="clone", idempotency_key="same",
-            trace_id="trace", request_id="request", model="gpt-image-2", render_tier=render_tier,
+            user_id="1",
+            request=clone,
+            job_id="clone",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         ),
         lambda render_tier: planner.plan_edit(
-            user_id="1", request=edit, source=source, job_id="edit", idempotency_key="same",
-            trace_id="trace", request_id="request", model="gpt-image-2", render_tier=render_tier,
+            user_id="1",
+            request=edit,
+            source=source,
+            job_id="edit",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         ),
         lambda render_tier: planner.plan_background_replace(
-            user_id="1", request=background, source=None, ratio="16:9", job_id="background",
-            idempotency_key="same", trace_id="trace", request_id="request", model="gpt-image-2",
+            user_id="1",
+            request=background,
+            source=None,
+            ratio="16:9",
+            job_id="background",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
             render_tier=render_tier,
         ),
     )
@@ -205,6 +298,7 @@ def test_request_fingerprint_includes_render_tier_for_every_planner_operation() 
 
 def test_clone_plan_preserves_product_then_reference_roles() -> None:
     request = CloneRequest(
+        image_model="gpt-image-2",
         product_upload_ids=["1/product.png"],
         reference_upload_ids=["1/ref-a.png", "1/ref-b.png"],
         clone_mode="完全复刻",
@@ -219,7 +313,8 @@ def test_clone_plan_preserves_product_then_reference_roles() -> None:
         idempotency_key="idem-clone",
         trace_id="trace-1",
         request_id="request-1",
-        model="gpt-image-2",
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     item = submission.items[0]
@@ -236,6 +331,7 @@ def test_clone_plan_preserves_product_then_reference_roles() -> None:
 
 def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() -> None:
     request = EditRequest(
+        image_model="gpt-image-2",
         source_image_key="source.png",
         prompt="背景改蓝色",
         edit_mode="full",
@@ -257,7 +353,8 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
         idempotency_key="idem-edit",
         trace_id="trace-1",
         request_id="request-1",
-        model="gpt-image-2",
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     item = submission.items[0]
@@ -266,8 +363,7 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
     assert submission.job.source_image_key == "source.png"
     assert submission.job.modifiers == {"platform": "抖音电商", "language": "英文"}
     references = [
-        (reference.source, reference.object_key, reference.role)
-        for reference in item.references
+        (reference.source, reference.object_key, reference.role) for reference in item.references
     ]
     assert references == [
         (ReferenceSource.GENERATED, "source.png", "source"),
@@ -392,6 +488,7 @@ def _http_client(
 
 def _generate_payload() -> dict[str, object]:
     return {
+        "image_model": "gpt-image-2",
         "upload_ids": [f"{upload_ns('1')}/product.png"],
         "prompt": "red package",
         "ratio": "1:1",
@@ -426,6 +523,7 @@ def test_background_replace_route_uses_shared_submission_contract() -> None:
         "/listing/background-replace",
         headers={"Idempotency-Key": "background-1"},
         json={
+            "image_model": "gpt-image-2",
             "source": {
                 "kind": "upload",
                 "upload_id": f"{upload_ns('1')}/product.png",
@@ -469,9 +567,7 @@ def test_listing_sse_replays_after_last_event_id_and_emits_sse_id() -> None:
     )
 
     assert response.status_code == 200
-    assert response.text.startswith(
-        "id: 15-0\nevent: task_completed\ndata: "
-    )
+    assert response.text.startswith("id: 15-0\nevent: task_completed\ndata: ")
     assert stream.reads == [("job-1", "14-0")]
 
 
@@ -517,6 +613,26 @@ class _Snapshots:
         )
 
 
+class _ModelConfigs:
+    async def require_available_image(self, name: str) -> ModelConfigRecord:
+        assert name == "gpt-image-2"
+        return ModelConfigRecord(
+            name=name,
+            display_name="GPT Image 2.0",
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+            base_url="https://example.invalid",
+            model="upstream",
+            credentials_ciphertext={"standard_api_keys": ["encrypted"]},
+            unit_cost=Decimal("0.05"),
+            enabled=True,
+            revision=1,
+            verified_at=datetime.now(UTC),
+            verified_fingerprint="verified",
+            extra={},
+        )
+
+
 def _submission_service(
     repository: _SubmissionRepository,
     health: RedisHealthState,
@@ -535,6 +651,7 @@ def _submission_service(
             confirm_wait_seconds=900,
             hard_depth=2000,
         ),
+        model_configs=_ModelConfigs(),  # type: ignore[arg-type]
         clock=lambda: 10,
         id_factory=lambda: next(ids),
     )

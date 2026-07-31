@@ -7,16 +7,13 @@ from typing import cast
 
 from redis.asyncio import Redis
 
-from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.application.listing.upload_service import UploadService
-from design_hub.application.registry import ProviderRegistry
 from design_hub.application.tasking.outbox_dispatcher import OutboxDispatcher
 from design_hub.application.tasking.runtime import GenerationWorkerRuntime
 from design_hub.application.tasking.worker import GenerationWorker
 from design_hub.composition import (
     build_image_store,
     build_media_signer,
-    build_registry,
     build_secret_cipher,
     build_upload_store,
 )
@@ -35,8 +32,8 @@ from design_hub.infrastructure.db.session import (
 )
 from design_hub.infrastructure.monitoring.logging import configure_logging
 from design_hub.infrastructure.monitoring.setup import init_sentry
-from design_hub.infrastructure.providers.execution import (
-    ProviderExecutionAdapter,
+from design_hub.infrastructure.providers.live_resolution import (
+    LiveImageExecutorResolver,
 )
 from design_hub.infrastructure.queue.redis_slots import RedisEvalClient, RedisProviderSlots
 from design_hub.infrastructure.queue.redis_streams import (
@@ -44,12 +41,10 @@ from design_hub.infrastructure.queue.redis_streams import (
     RedisStreamClient,
     RedisTaskBroker,
 )
-from design_hub.infrastructure.security.model_verification import PyJwtModelVerificationService
 from design_hub.infrastructure.storage.reference_materializer import (
     StoredReferenceMaterializer,
 )
 from design_hub.ports.events import EventPublisher
-from design_hub.ports.provider_execution import ProviderExecutor
 
 _SAFE_WORKER_ID = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -57,10 +52,6 @@ _SAFE_WORKER_ID = re.compile(r"[^A-Za-z0-9._-]")
 def _worker_id() -> str:
     raw = f"{socket.gethostname()}-{os.getpid()}"
     return _SAFE_WORKER_ID.sub("-", raw)[:128]
-
-
-def _build_executors(registry: ProviderRegistry) -> dict[str, ProviderExecutor]:
-    return {name: ProviderExecutionAdapter(registry.get(name)) for name in registry.names()}
 
 
 async def run_worker(settings: Settings | None = None) -> None:
@@ -71,43 +62,29 @@ async def run_worker(settings: Settings | None = None) -> None:
     engine = create_engine(settings.db_url)
     session_factory = create_session_factory(engine)
     model_config_repo = SqlAlchemyModelConfigRepository(session_factory)
-    configs = await ModelConfigService(
-        repo=model_config_repo,
-        cipher=cipher,
-        verifier=PyJwtModelVerificationService(
-            secret=settings.jwt_secret.get_secret_value(),
-            ttl_seconds=settings.model_verification_ttl_seconds,
-        ),
-    ).list()
-    unit_costs = {config.name: config.unit_cost for config in configs if config.enabled}
-    registry = build_registry(
-        settings,
-        recorder=SqlAlchemyModelCallRecorder(session_factory),
-        real_gpt_image=settings.real_gpt_image,
-        unit_costs=unit_costs,
-    )
+    recorder = SqlAlchemyModelCallRecorder(session_factory)
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     stream_client = cast(RedisStreamClient, redis)
     eval_client = cast(RedisEvalClient, redis)
     repository = SqlAlchemyGenerationWorkRepository(session_factory)
     broker = RedisTaskBroker(stream_client)
     events = RedisJobEventStream(stream_client)
+    image_store = build_image_store(settings)
     materializer = StoredReferenceMaterializer(
         uploads=UploadService(store=build_upload_store(settings)),
-        images=build_image_store(settings),
+        images=image_store,
         signer=build_media_signer(settings),
     )
-    executors = _build_executors(registry)
+    executor_resolver = LiveImageExecutorResolver(
+        repository=model_config_repo,
+        cipher=cipher,
+        recorder=recorder,
+        image_store=image_store,
+        settings=settings,
+    )
     slots: dict[tuple[str, RenderTier], RedisProviderSlots] = {}
 
-    def executor_for(model: object) -> ProviderExecutor:
-        if not isinstance(model, str):
-            raise TypeError("worker model key must be a string")
-        return executors[model]
-
-    def slots_for(model: object, tier: RenderTier) -> RedisProviderSlots:
-        if not isinstance(model, str):
-            raise TypeError("worker model key must be a string")
+    def slots_for(model: str, tier: RenderTier) -> RedisProviderSlots:
         key = (model, tier)
         if key not in slots:
             limit = (
@@ -128,7 +105,7 @@ async def run_worker(settings: Settings | None = None) -> None:
     worker = GenerationWorker(
         repository=repository,
         broker=broker,
-        executor_for=executor_for,
+        executor_resolver=executor_resolver,
         materializer=materializer,
         slots_for=slots_for,
         worker_id=worker_id,

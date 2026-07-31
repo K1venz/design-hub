@@ -22,9 +22,12 @@ from design_hub.ports.generation_work import (
 )
 from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ProviderError, ReferenceMode
+from design_hub.ports.model_resolution import (
+    ImageExecutorResolver,
+    ModelUnavailableError,
+)
 from design_hub.ports.provider_execution import (
     ImmediateResult,
-    ProviderExecutor,
     ProviderRequest,
     SubmissionUncertain,
     SubmittedTask,
@@ -55,9 +58,9 @@ class GenerationWorker:
         *,
         repository: GenerationWorkRepository,
         broker: TaskBroker,
-        executor_for: Callable[[object], ProviderExecutor],
+        executor_resolver: ImageExecutorResolver,
         materializer: ReferenceMaterializer,
-        slots_for: Callable[[object, RenderTier], ProviderSlots],
+        slots_for: Callable[[str, RenderTier], ProviderSlots],
         worker_id: str,
         lease_seconds: int,
         heartbeat_seconds: float = 15,
@@ -67,7 +70,7 @@ class GenerationWorker:
             raise ValueError("lease refresh intervals must be positive")
         self._repository = repository
         self._broker = broker
-        self._executor_for = executor_for
+        self._executor_resolver = executor_resolver
         self._materializer = materializer
         self._slots_for = slots_for
         self._worker_id = worker_id
@@ -132,7 +135,21 @@ class GenerationWorker:
             await self._broker.ack(delivery.redis_id)
             return
 
-        executor = self._executor_for(work.spec.model)
+        try:
+            executor = await self._executor_resolver.resolve(
+                work.spec.model,
+                work.spec.render_tier,
+            )
+        except ModelUnavailableError:
+            await self._repository.fail_item(
+                work.spec.item_id,
+                self._worker_id,
+                "model_unavailable",
+                "model unavailable",
+            )
+            task_metrics.record_failure("model_unavailable")
+            await self._broker.ack(delivery.redis_id)
+            return
         references = await self._materializer.materialize(
             work, executor.reference_mode
         )

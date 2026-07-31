@@ -1,7 +1,16 @@
 from fastapi import APIRouter
 
-from design_hub.interface.admin_schemas import ModelConfigCreate, ModelConfigOut, ModelConfigUpdate
-from design_hub.interface.api.admin_deps import ModelConfigServiceDep
+from design_hub.interface.admin_schemas import (
+    ModelCapabilityTestIn,
+    ModelCapabilityTestOut,
+    ModelConfigCreate,
+    ModelConfigOut,
+    ModelConfigUpdate,
+)
+from design_hub.interface.api.admin_deps import (
+    ModelCapabilityServiceDep,
+    ModelConfigServiceDep,
+)
 from design_hub.interface.api.deps import CurrentManagerDep
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -19,6 +28,23 @@ async def create_model(
     svc: ModelConfigServiceDep,
 ) -> ModelConfigOut:
     return ModelConfigOut.of(await svc.create(actor_id=int(manager.user_id), **body.model_dump()))
+
+
+@router.post("/models/test", response_model=ModelCapabilityTestOut)
+async def test_model_capability(
+    body: ModelCapabilityTestIn,
+    manager: CurrentManagerDep,
+    svc: ModelCapabilityServiceDep,
+) -> ModelCapabilityTestOut:
+    result = await svc.test(
+        manager_id=manager.user_id,
+        **body.model_dump(),
+    )
+    return ModelCapabilityTestOut(
+        verification_proof=result.verification_proof,
+        tested_at=result.tested_at,
+        checks=list(result.checks),
+    )
 
 
 @router.put("/models/{name}", response_model=ModelConfigOut)

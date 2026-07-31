@@ -60,6 +60,7 @@ def _provider(content: bytes, *, captured: dict | None = None, status: int = 200
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return OpenAICompatTextProvider(
+        name="doubao-chat",
         base_url="http://ark.test/api/v3",
         api_key="k",
         model="ep-x",

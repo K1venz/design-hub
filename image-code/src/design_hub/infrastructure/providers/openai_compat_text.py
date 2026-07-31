@@ -42,6 +42,7 @@ class OpenAICompatTextProvider(TextLLMPort):
     def __init__(
         self,
         *,
+        name: str,
         base_url: str,
         api_key: str,
         model: str,
@@ -51,6 +52,9 @@ class OpenAICompatTextProvider(TextLLMPort):
         trust_env: bool = False,
         extra_body: dict[str, Any] | None = None,
     ) -> None:
+        if not name.strip():
+            raise ValueError("name must not be empty")
+        self.name = name.strip()
         self._base_url = base_url.rstrip("/")
         if not api_key:
             raise ValueError("api_key 不能为空")
@@ -111,7 +115,7 @@ class OpenAICompatTextProvider(TextLLMPort):
         call_id = await self._recorder.start(
             context=context,
             provider="openai_compat_text",
-            model=self._model,
+            model=self.name,
             attempt_no=1,
         )
         try:

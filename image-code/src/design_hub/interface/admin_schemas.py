@@ -78,3 +78,23 @@ class ModelConfigUpdate(BaseModel):
     enabled: bool | None = None
     extra: dict[str, object] | None = None
     verification_proof: str | None = None
+
+
+class ModelCapabilityTestIn(BaseModel):
+    name: str = Field(min_length=1)
+    existing_model_name: str | None = Field(
+        default=None,
+        min_length=1,
+    )
+    model_type: ModelType
+    provider_type: ProviderType
+    base_url: str
+    model: str
+    credentials: dict[str, str | list[str]] | None = None
+    extra: dict[str, object] = Field(default_factory=dict)
+
+
+class ModelCapabilityTestOut(BaseModel):
+    verification_proof: str
+    tested_at: datetime
+    checks: list[str]

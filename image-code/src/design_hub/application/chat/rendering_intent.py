@@ -7,7 +7,6 @@ from design_hub.application.chat.ratio_intent import (
     decide_chat_ratio,
     extract_explicit_chat_ratio,
 )
-from design_hub.domain.model_config import GPT_IMAGE_2
 from design_hub.domain.tasking import RenderTier
 
 FOUR_K_RATIO_CONFLICT_MESSAGE = (
@@ -34,7 +33,6 @@ class _FourKIntent:
 
 @dataclass(frozen=True)
 class ChatRenderingDecision:
-    model: str
     render_tier: RenderTier
     ratio: ChatRatioDecision
 
@@ -77,18 +75,16 @@ def decide_chat_rendering(message: str, auto_ratio: str) -> ChatRenderingDecisio
     intent = _resolve_four_k_intent(message)
     if intent.requested is not True:
         return ChatRenderingDecision(
-            GPT_IMAGE_2,
             RenderTier.STANDARD,
             decide_chat_ratio(intent.scope_text, auto_ratio),
         )
 
     explicit_ratio = extract_explicit_chat_ratio(intent.scope_text)
     if explicit_ratio is not None and explicit_ratio.ratio is None:
-        return ChatRenderingDecision("gpt-image-2-4k", RenderTier.FOUR_K, explicit_ratio)
+        return ChatRenderingDecision(RenderTier.FOUR_K, explicit_ratio)
     if explicit_ratio is not None and explicit_ratio.ratio != "16:9":
         raise ChatRenderingConflict(FOUR_K_RATIO_CONFLICT_MESSAGE)
     return ChatRenderingDecision(
-        "gpt-image-2-4k",
         RenderTier.FOUR_K,
         ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9"),
     )

@@ -7,7 +7,6 @@
 import secrets
 import time
 from dataclasses import dataclass, field
-from decimal import Decimal
 
 from design_hub.application.listing.requests import (
     BackgroundReplaceRequest,
@@ -27,14 +26,14 @@ ListingReq = (
 
 @dataclass
 class PendingAction:
-    """待用户确认的出图动作（费用闸暂停态）。"""
+    """待用户确认的出图动作。"""
 
     confirm_token: str
     tool: str  # generate | clone | edit | replace_background
     req: ListingReq
     count: int
-    estimate: Decimal
-    model: str
+    image_model: str
+    model_display_name: str
     render_tier: RenderTier
     expires_at: float  # time.monotonic() 基准
 
@@ -53,8 +52,8 @@ class PendingStore:
         tool: str,
         req: ListingReq,
         count: int,
-        estimate: Decimal,
-        model: str,
+        image_model: str,
+        model_display_name: str,
         render_tier: RenderTier,
     ) -> PendingAction:
         pending = PendingAction(
@@ -62,8 +61,8 @@ class PendingStore:
             tool=tool,
             req=req,
             count=count,
-            estimate=estimate,
-            model=model,
+            image_model=image_model,
+            model_display_name=model_display_name,
             render_tier=render_tier,
             expires_at=time.monotonic() + self.ttl_seconds,
         )

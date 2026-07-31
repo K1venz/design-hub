@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from uuid import uuid4
 
 from design_hub.application.listing.background_replacement import (
@@ -23,7 +24,6 @@ from design_hub.application.listing.requests import (
     ListingGenerateRequest,
 )
 from design_hub.application.listing.sizing import generation_size
-from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.models import ListingJobStart
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -48,7 +48,6 @@ def _fingerprint(payload: dict[str, object]) -> str:
 
 @dataclass(frozen=True)
 class ListingTaskPlanner:
-    registry: ProviderRegistry
     modifier_registry: PromptModifierRegistry
     card_registry: CategoryCardRegistry
     type_registry: ImageTypeRegistry
@@ -64,7 +63,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str,
+        model_id: str,
+        unit_cost: Decimal,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         overlay_texts = tuple(request.overlay_texts or ())
@@ -95,7 +95,8 @@ class ListingTaskPlanner:
                 image_type=image_type,
                 operation_type=OperationType.GENERATE_IMAGE,
                 final_prompt=final_prompt,
-                model=model,
+                model_id=model_id,
+                unit_cost=unit_cost,
                 render_tier=render_tier,
                 ratio=request.ratio,
                 size=size,
@@ -129,7 +130,7 @@ class ListingTaskPlanner:
             fingerprint_payload={
                 "operation_type": "generate",
                 "request": request.model_dump(mode="json"),
-                "model": model,
+                "model": model_id,
                 "render_tier": render_tier.value,
             },
         )
@@ -143,7 +144,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str,
+        model_id: str,
+        unit_cost: Decimal,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         final_prompt = compose_clone_prompt(
@@ -172,7 +174,8 @@ class ListingTaskPlanner:
             image_type=None,
             operation_type=OperationType.CLONE_IMAGE,
             final_prompt=final_prompt,
-            model=model,
+            model_id=model_id,
+            unit_cost=unit_cost,
             render_tier=render_tier,
             ratio=request.ratio,
             size=size,
@@ -202,7 +205,7 @@ class ListingTaskPlanner:
             fingerprint_payload={
                 "operation_type": "clone",
                 "request": request.model_dump(mode="json"),
-                "model": model,
+                "model": model_id,
                 "render_tier": render_tier.value,
             },
         )
@@ -217,7 +220,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str,
+        model_id: str,
+        unit_cost: Decimal,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         ratio = request.ratio or source.parent_ratio
@@ -254,7 +258,8 @@ class ListingTaskPlanner:
             image_type=None,
             operation_type=OperationType.EDIT_IMAGE,
             final_prompt=final_prompt,
-            model=model,
+            model_id=model_id,
+            unit_cost=unit_cost,
             render_tier=render_tier,
             ratio=ratio,
             size=size,
@@ -286,7 +291,7 @@ class ListingTaskPlanner:
                 "operation_type": "edit",
                 "request": request.model_dump(mode="json"),
                 "source": asdict(source),
-                "model": model,
+                "model": model_id,
                 "render_tier": render_tier.value,
             },
         )
@@ -302,7 +307,8 @@ class ListingTaskPlanner:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: str,
+        model_id: str,
+        unit_cost: Decimal,
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> JobSubmission:
         upload_keys: list[str] = []
@@ -354,7 +360,8 @@ class ListingTaskPlanner:
             image_type=None,
             operation_type=OperationType.REPLACE_BACKGROUND,
             final_prompt=final_prompt,
-            model=model,
+            model_id=model_id,
+            unit_cost=unit_cost,
             render_tier=render_tier,
             ratio=ratio,
             size=size,
@@ -391,7 +398,7 @@ class ListingTaskPlanner:
                 "request": request.model_dump(mode="json"),
                 "source": asdict(source) if source is not None else None,
                 "ratio": ratio,
-                "model": model,
+                "model": model_id,
                 "render_tier": render_tier.value,
             },
         )
@@ -403,7 +410,8 @@ class ListingTaskPlanner:
         image_type: str | None,
         operation_type: OperationType,
         final_prompt: str,
-        model: str,
+        model_id: str,
+        unit_cost: Decimal,
         render_tier: RenderTier,
         ratio: str,
         size: tuple[int, int],
@@ -419,13 +427,13 @@ class ListingTaskPlanner:
             operation_type=operation_type,
             render_tier=render_tier,
             final_prompt=final_prompt,
-            model=model,
+            model=model_id,
             ratio=ratio,
             size=size,
             quality=quality,
             seed=seed,
             references=references,
-            reserved_cost=self.registry.get(model).unit_cost,
+            reserved_cost=unit_cost,
         )
 
     @staticmethod
