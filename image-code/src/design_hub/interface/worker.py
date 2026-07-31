@@ -57,7 +57,11 @@ def _worker_id() -> str:
 async def run_worker(settings: Settings | None = None) -> None:
     settings = settings or Settings()
     cipher = build_secret_cipher(settings)
-    configure_logging()
+    configure_logging(
+        runtime_log_dir=settings.runtime_log_dir,
+        service="worker",
+        runtime_log_max_bytes=settings.runtime_log_max_bytes,
+    )
     init_sentry(settings.sentry_dsn)
     engine = create_engine(settings.db_url)
     session_factory = create_session_factory(engine)

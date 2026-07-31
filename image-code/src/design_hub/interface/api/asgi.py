@@ -228,7 +228,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_production_app() -> FastAPI:
     settings = Settings()
-    configure_logging()
+    configure_logging(
+        runtime_log_dir=settings.runtime_log_dir,
+        service="api",
+        runtime_log_max_bytes=settings.runtime_log_max_bytes,
+    )
     app = FastAPI(
         title="设计中台 · 图生图引擎(async)",
         version="0.1.0",
