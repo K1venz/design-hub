@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import { errorMessage } from '@/api/errors'
-import { imageModelKeys } from '@/api/models'
+import { modelKeys } from '@/api/models'
 import type { components } from '@/api/schema'
 import { normalizeAdminFilters } from '@/lib/admin'
 
@@ -328,7 +328,7 @@ async function invalidateModelQueries(
 ) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: adminKeys.modelsRoot }),
-    queryClient.invalidateQueries({ queryKey: imageModelKeys.image }),
+    queryClient.invalidateQueries({ queryKey: modelKeys.all }),
     queryClient.invalidateQueries({ queryKey: adminKeys.auditRoot }),
   ])
 }

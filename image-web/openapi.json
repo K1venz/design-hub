@@ -1239,9 +1239,62 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ImageModelCatalogItemOut"
+                    "$ref": "#/components/schemas/ModelCatalogItemOut"
                   },
                   "title": "Response List Image Models Models Image Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models/chat": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Chat Models",
+        "operationId": "list_chat_models_models_chat_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelCatalogItemOut"
+                  },
+                  "title": "Response List Chat Models Models Chat Get"
                 }
               }
             }
@@ -4496,6 +4549,11 @@
             "type": "string",
             "title": "Message"
           },
+          "chat_model": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Chat Model"
+          },
           "image_model": {
             "type": "string",
             "minLength": 1,
@@ -4523,6 +4581,7 @@
         "type": "object",
         "required": [
           "message",
+          "chat_model",
           "image_model"
         ],
         "title": "ChatMessageRequest",
@@ -4760,29 +4819,6 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
-      },
-      "ImageModelCatalogItemOut": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "display_name": {
-            "type": "string",
-            "title": "Display Name"
-          },
-          "is_default": {
-            "type": "boolean",
-            "title": "Is Default"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "display_name",
-          "is_default"
-        ],
-        "title": "ImageModelCatalogItemOut"
       },
       "ImageModerationUpdate": {
         "properties": {
@@ -5864,6 +5900,29 @@
           "checks"
         ],
         "title": "ModelCapabilityTestOut"
+      },
+      "ModelCatalogItemOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "is_default"
+        ],
+        "title": "ModelCatalogItemOut"
       },
       "ModelConfigCreate": {
         "properties": {

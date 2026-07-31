@@ -1,19 +1,11 @@
 import { createContext, useContext } from 'react'
 
-import type { ImageModelCatalogItem } from '@/api/models'
+import {
+  requireSelectedModel,
+  type ModelSelection,
+} from '@/components/models/model-selection'
 
-export interface ImageModelSelection {
-  modelId: string | null
-  models: ImageModelCatalogItem[]
-  state:
-    | 'loading'
-    | 'ready'
-    | 'error'
-    | 'empty'
-    | 'selection_required'
-  select: (modelId: string) => void
-  retry: () => void
-}
+export type ImageModelSelection = ModelSelection
 
 export const ImageModelContext =
   createContext<ImageModelSelection | null>(null)
@@ -29,8 +21,5 @@ export function useImageModelSelection(): ImageModelSelection {
 export function requireSelectedImageModel(
   selection: ImageModelSelection,
 ): string {
-  if (selection.state !== 'ready' || !selection.modelId) {
-    throw new Error('请先选择可用的图片模型')
-  }
-  return selection.modelId
+  return requireSelectedModel(selection, '图片')
 }

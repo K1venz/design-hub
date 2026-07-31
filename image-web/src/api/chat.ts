@@ -60,6 +60,7 @@ async function streamSSE(
 export interface SendMessageInput {
   sessionId: string | null
   message: string
+  chatModel: string
   imageModel: string
   uploadIds?: string[]
   editSourceImageKey?: string
@@ -71,6 +72,7 @@ export function buildChatMessageBody(input: SendMessageInput): ChatMessageBody {
   const body: ChatMessageBody = {
     session_id: input.sessionId,
     message: input.message,
+    chat_model: input.chatModel,
     image_model: input.imageModel,
     upload_ids: input.uploadIds ?? [],
   }
