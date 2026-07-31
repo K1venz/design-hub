@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -105,7 +106,7 @@ def test_create_update_roundtrip_and_safe_output() -> None:
             )
             assert saved.display_name == "Production GPT"
             assert saved.base_url == "https://images.example.test/v1"
-            assert saved.revision == 1
+            assert saved.revision == 2
             assert saved.verified_at is not None
             output = ModelConfigOut.of(saved).model_dump(mode="json")
             assert output["credentials"] == {
@@ -115,6 +116,66 @@ def test_create_update_roundtrip_and_safe_output() -> None:
             serialized = json.dumps(output)
             assert "ciphertext" not in serialized and "image-key" not in serialized
             assert saved.verified_fingerprint not in serialized
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_create_proof_binds_to_canonical_persisted_connection() -> None:
+    async def run() -> None:
+        service, _sessions, engine, cipher = await _service()
+        try:
+            await service.create(
+                actor_id=ACTOR_ID,
+                name="  canonical-image  ",
+                display_name="  Canonical image  ",
+                model_type=ModelType.IMAGE,
+                provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+                base_url="  https://images.example.test/v1///  ",
+                model="  canonical-upstream  ",
+                credentials=_ciphertext(cipher),
+                unit_cost=Decimal("0.40"),
+                enabled=True,
+                extra={"response_format": "b64_json"},
+                verification_proof=_proof(
+                    service,
+                    connection_fingerprint(
+                        model_type=ModelType.IMAGE,
+                        provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+                        base_url="https://images.example.test/v1",
+                        upstream_model="canonical-upstream",
+                        extra={"response_format": "b64_json"},
+                        credentials_plaintext={"standard_api_keys": ("image-key",)},
+                    ),
+                    name="canonical-image",
+                ),
+            )
+            saved = await service.repo.get("canonical-image")
+            assert saved is not None
+            assert saved.display_name == "Canonical image"
+            assert saved.base_url == "https://images.example.test/v1"
+            assert saved.model == "canonical-upstream"
+            updated = await service.update(
+                actor_id=ACTOR_ID,
+                name="  canonical-image  ",
+                base_url="  https://other.example.test/v1///  ",
+                model="  next-upstream  ",
+                verification_proof=_proof(
+                    service,
+                    connection_fingerprint(
+                        model_type=ModelType.IMAGE,
+                        provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+                        base_url="https://other.example.test/v1",
+                        upstream_model="next-upstream",
+                        extra={"response_format": "b64_json"},
+                        credentials_plaintext={"standard_api_keys": ("image-key",)},
+                    ),
+                    name="canonical-image",
+                ),
+            )
+            assert updated.base_url == "https://other.example.test/v1"
+            assert updated.model == "next-upstream"
         finally:
             await engine.dispose()
 
@@ -207,8 +268,66 @@ def test_display_and_cost_updates_do_not_require_a_connection_proof() -> None:
             )
             assert updated.display_name == "Unconfigured draft"
             assert updated.unit_cost == Decimal("0.10")
-            assert updated.revision == 1
+            assert updated.revision == 2
             assert updated.verified_at is None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_disabling_the_active_default_is_rejected() -> None:
+    async def run() -> None:
+        service, _sessions, engine, cipher = await _service()
+        try:
+            await _create_active(service, cipher)
+            await service.set_default(actor_id=ACTOR_ID, name="gpt-image")
+            with pytest.raises(DomainError, match="active default"):
+                await service.update(actor_id=ACTOR_ID, name="gpt-image", enabled=False)
+            catalog = await service.image_catalog()
+            assert catalog == [{"id": "gpt-image", "display_name": "GPT Image", "is_default": True}]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_stale_revision_cannot_overwrite_a_verified_connection() -> None:
+    async def run() -> None:
+        service, _sessions, engine, cipher = await _service()
+        try:
+            await _create_active(service, cipher)
+            stale = await service.repo.get("gpt-image")
+            assert stale is not None
+            await service.update(
+                actor_id=ACTOR_ID,
+                name="gpt-image",
+                base_url="https://other.example.test/v1",
+                verification_proof=_proof(
+                    service,
+                    connection_fingerprint(
+                        model_type=ModelType.IMAGE,
+                        provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+                        base_url="https://other.example.test/v1",
+                        upstream_model="upstream-image",
+                        extra={"response_format": "b64_json"},
+                        credentials_plaintext={"standard_api_keys": ("image-key",)},
+                    ),
+                ),
+            )
+            with pytest.raises(DomainError, match="revision conflict"):
+                await service.repo.update(
+                    actor_id=ACTOR_ID,
+                    record=replace(
+                        stale,
+                        display_name="stale writer",
+                        revision=stale.revision + 1,
+                    ),
+                    expected_revision=stale.revision,
+                )
+            current = await service.repo.get("gpt-image")
+            assert current is not None
+            assert current.base_url == "https://other.example.test/v1"
         finally:
             await engine.dispose()
 

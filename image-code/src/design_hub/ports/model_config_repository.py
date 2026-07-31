@@ -39,7 +39,13 @@ class ModelConfigRepository(ABC):
     async def create(self, *, actor_id: int, record: ModelConfigRecord) -> ModelConfigRecord: ...
 
     @abstractmethod
-    async def update(self, *, actor_id: int, record: ModelConfigRecord) -> ModelConfigRecord: ...
+    async def update(
+        self,
+        *,
+        actor_id: int,
+        record: ModelConfigRecord,
+        expected_revision: int,
+    ) -> ModelConfigRecord: ...
 
     @abstractmethod
     async def delete(self, *, actor_id: int, name: str) -> None: ...

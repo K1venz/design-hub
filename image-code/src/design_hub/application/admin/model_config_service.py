@@ -41,8 +41,11 @@ class ModelConfigService:
         extra: Mapping[str, object],
         verification_proof: str,
     ) -> ModelConfigRecord:
-        if unit_cost < 0 or not name.strip() or not display_name.strip():
+        if unit_cost < 0:
             raise ValueError("invalid model configuration")
+        normalized_name = _normalize_required_text(name)
+        normalized_display_name = _normalize_required_text(display_name)
+        normalized_model = _normalize_required_text(model)
         normalized_credentials = _validate_ciphertext_credentials(provider_type, credentials)
         normalized_base_url = _normalize_base_url(base_url)
         plaintext = _decrypt_credentials(self.cipher, normalized_credentials)
@@ -50,26 +53,26 @@ class ModelConfigService:
             model_type=model_type,
             provider_type=provider_type,
             base_url=normalized_base_url,
-            model=model,
+            model=normalized_model,
             extra=extra,
             credentials=plaintext,
         )
         self.verifier.verify(
             verification_proof,
             manager_id=str(actor_id),
-            model_id=name,
+            model_id=normalized_name,
             model_type=model_type,
             fingerprint=fingerprint,
         )
         return await self.repo.create(
             actor_id=actor_id,
             record=ModelConfigRecord(
-                name=name.strip(),
-                display_name=display_name.strip(),
+                name=normalized_name,
+                display_name=normalized_display_name,
                 model_type=model_type,
                 provider_type=provider_type,
                 base_url=normalized_base_url,
-                model=model.strip(),
+                model=normalized_model,
                 credentials_ciphertext=normalized_credentials,
                 unit_cost=unit_cost,
                 enabled=enabled,
@@ -96,7 +99,8 @@ class ModelConfigService:
         extra: Mapping[str, object] | None = None,
         verification_proof: str | None = None,
     ) -> ModelConfigRecord:
-        current = await self.repo.get(name)
+        normalized_name = _normalize_required_text(name)
+        current = await self.repo.get(normalized_name)
         if current is None:
             raise NotFoundError("model config not found")
         if unit_cost is not None and unit_cost < 0:
@@ -104,7 +108,7 @@ class ModelConfigService:
         next_model_type = model_type if model_type is not None else current.model_type
         next_provider_type = provider_type if provider_type is not None else current.provider_type
         next_base_url = _normalize_base_url(base_url) if base_url is not None else current.base_url
-        next_model = model.strip() if model is not None else current.model
+        next_model = _normalize_required_text(model) if model is not None else current.model
         next_extra = dict(extra) if extra is not None else current.extra
         next_credentials = (
             _validate_ciphertext_credentials(next_provider_type, credentials)
@@ -141,11 +145,9 @@ class ModelConfigService:
             )
             verified_at = datetime.now(UTC)
             verified_fingerprint = fingerprint
-            revision = current.revision + 1
         else:
             verified_at = current.verified_at
             verified_fingerprint = current.verified_fingerprint
-            revision = current.revision
         next_enabled = enabled if enabled is not None else current.enabled
         if next_enabled and not current.enabled:
             fingerprint = _fingerprint(
@@ -163,7 +165,9 @@ class ModelConfigService:
             record=ModelConfigRecord(
                 name=current.name,
                 display_name=(
-                    display_name.strip() if display_name is not None else current.display_name
+                    _normalize_required_text(display_name)
+                    if display_name is not None
+                    else current.display_name
                 ),
                 model_type=next_model_type,
                 provider_type=next_provider_type,
@@ -172,11 +176,12 @@ class ModelConfigService:
                 credentials_ciphertext=next_credentials,
                 unit_cost=unit_cost if unit_cost is not None else current.unit_cost,
                 enabled=next_enabled,
-                revision=revision,
+                revision=current.revision + 1,
                 verified_at=verified_at,
                 verified_fingerprint=verified_fingerprint,
                 extra=next_extra,
             ),
+            expected_revision=current.revision,
         )
 
     async def delete(self, *, actor_id: int, name: str) -> None:
@@ -217,6 +222,13 @@ class ModelConfigService:
 
 def _normalize_base_url(value: str) -> str:
     return value.strip().rstrip("/")
+
+
+def _normalize_required_text(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("invalid model configuration")
+    return normalized
 
 
 def _validate_ciphertext_credentials(
