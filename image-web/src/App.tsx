@@ -15,6 +15,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
 import { AdminOverviewPage } from '@/pages/AdminOverviewPage'
+import { AdminRuntimeLogsPage } from '@/pages/AdminRuntimeLogsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
 import { AdminAuditPage } from '@/pages/AdminAuditPage'
 import { AdminGenerationDetailPage } from '@/pages/AdminGenerationDetailPage'
@@ -181,6 +182,7 @@ function AppRoutes() {
           <Route path="usage" element={<AdminUsagePage />} />
           <Route path="models" element={<AdminModelsPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
+          <Route path="logs" element={<AdminRuntimeLogsPage />} />
         </Route>
       </Route>
       {import.meta.env.DEV && (

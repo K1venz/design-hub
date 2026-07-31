@@ -630,6 +630,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/runtime-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runtime Logs */
+        get: operations["list_runtime_logs_admin_runtime_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/runtime-logs/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Log */
+        get: operations["get_runtime_log_admin_runtime_logs__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/runtime-logs/{event_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Log Trace */
+        get: operations["get_runtime_log_trace_admin_runtime_logs__event_id__trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users/{user_id}/role": {
         parameters: {
             query?: never;
@@ -1761,6 +1812,113 @@ export interface components {
         /** RoleUpdate */
         RoleUpdate: {
             role: components["schemas"]["Role"];
+        };
+        /** RuntimeLogDetailOut */
+        RuntimeLogDetailOut: {
+            /** Event Id */
+            event_id: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "api" | "worker";
+            /** Chain */
+            chain: string;
+            /** Event */
+            event: string;
+            /** Action */
+            action: string;
+            /** Logger */
+            logger: string;
+            /** Function */
+            function: string;
+            /** Trace Id */
+            trace_id: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Model */
+            model: string | null;
+            /** Status */
+            status: string | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Item Id */
+            item_id: string | null;
+            /** Operation Id */
+            operation_id: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Type */
+            error_type: string | null;
+            /** Error Summary */
+            error_summary: string | null;
+            /** Prompt */
+            prompt: string | null;
+        };
+        /** RuntimeLogListItemOut */
+        RuntimeLogListItemOut: {
+            /** Event Id */
+            event_id: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "api" | "worker";
+            /** Chain */
+            chain: string;
+            /** Event */
+            event: string;
+            /** Action */
+            action: string;
+            /** Logger */
+            logger: string;
+            /** Function */
+            function: string;
+            /** Trace Id */
+            trace_id: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Model */
+            model: string | null;
+            /** Status */
+            status: string | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+        };
+        /** RuntimeLogPageOut */
+        RuntimeLogPageOut: {
+            /** Items */
+            items: components["schemas"]["RuntimeLogListItemOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
         };
         /**
          * ShowcaseItemOut
@@ -3110,6 +3268,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageOut_AdminAuditEntryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runtime_logs_admin_runtime_logs_get: {
+        parameters: {
+            query?: {
+                level?: ("info" | "warning" | "error") | null;
+                service?: ("api" | "worker") | null;
+                chain?: string | null;
+                trace_id?: string | null;
+                job_id?: string | null;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLogPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_runtime_log_admin_runtime_logs__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLogDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_runtime_log_trace_admin_runtime_logs__event_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLogDetailOut"][];
                 };
             };
             /** @description Validation Error */
