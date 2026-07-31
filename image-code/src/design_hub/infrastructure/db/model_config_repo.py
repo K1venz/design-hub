@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import cast
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, exists, select
+from sqlalchemy import update as sa_update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from design_hub.domain.admin import AdminAction
@@ -150,7 +152,15 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
                 await session.flush()
                 return _to_record(row)
 
-    async def update(self, *, actor_id: int, record: ModelConfigRecord) -> ModelConfigRecord:
+    async def update(
+        self,
+        *,
+        actor_id: int,
+        record: ModelConfigRecord,
+        expected_revision: int,
+    ) -> ModelConfigRecord:
+        if record.revision != expected_revision + 1:
+            raise ValueError("invalid model revision")
         async with self._session_factory() as session:
             async with session.begin():
                 row = await session.get(ModelConfig, record.name)
@@ -158,18 +168,49 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
                     raise NotFoundError("model config not found")
                 before = _audit_snapshot(row)
                 credentials_changed = row.credentials_ciphertext != record.credentials_ciphertext
-                row.display_name = record.display_name
-                row.model_type = record.model_type.value
-                row.provider_type = record.provider_type.value
-                row.base_url = record.base_url
-                row.model = record.model
-                row.credentials_ciphertext = dict(record.credentials_ciphertext)
-                row.unit_cost = record.unit_cost
-                row.enabled = record.enabled
-                row.revision = record.revision
-                row.verified_at = record.verified_at
-                row.verified_fingerprint = record.verified_fingerprint
-                row.extra = record.extra
+                statement = sa_update(ModelConfig).where(
+                    ModelConfig.name == record.name,
+                    ModelConfig.revision == expected_revision,
+                )
+                if not record.enabled:
+                    statement = statement.where(
+                        ~exists(
+                            select(ModelDefault.model_type).where(
+                                ModelDefault.model_type == record.model_type.value,
+                                ModelDefault.model_name == record.name,
+                            )
+                        )
+                    )
+                result = cast(
+                    CursorResult[object],
+                    await session.execute(
+                        statement.values(
+                            display_name=record.display_name,
+                            model_type=record.model_type.value,
+                            provider_type=record.provider_type.value,
+                            base_url=record.base_url,
+                            model=record.model,
+                            credentials_ciphertext=dict(record.credentials_ciphertext),
+                            unit_cost=record.unit_cost,
+                            enabled=record.enabled,
+                            revision=record.revision,
+                            verified_at=record.verified_at,
+                            verified_fingerprint=record.verified_fingerprint,
+                            extra=record.extra,
+                        )
+                    ),
+                )
+                if result.rowcount != 1:
+                    default_name = await session.scalar(
+                        select(ModelDefault.model_name).where(
+                            ModelDefault.model_type == record.model_type.value,
+                            ModelDefault.model_name == record.name,
+                        )
+                    )
+                    if not record.enabled and default_name == record.name:
+                        raise DomainError("cannot disable active default model")
+                    raise DomainError("model config revision conflict")
+                await session.refresh(row)
                 _audit(
                     session,
                     actor_id=actor_id,
@@ -187,18 +228,49 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
                 row = await session.get(ModelConfig, name)
                 if row is None:
                     raise NotFoundError("model config not found")
-                default_name = await session.scalar(
-                    select(ModelDefault.model_name).where(ModelDefault.model_type == row.model_type)
-                )
-                if default_name == name:
-                    raise DomainError("cannot delete active default model")
-                statuses = (
-                    await session.execute(
-                        select(GenerationItemRow.status).where(GenerationItemRow.model == name)
+                no_active_default = ~exists(
+                    select(ModelDefault.model_type).where(
+                        ModelDefault.model_type == row.model_type,
+                        ModelDefault.model_name == name,
                     )
-                ).scalars()
-                if any(not is_terminal(GenerationItemStatus(status)) for status in statuses):
-                    raise DomainError("cannot delete model referenced by active generation")
+                )
+                terminal_statuses = tuple(
+                    status.value for status in GenerationItemStatus if is_terminal(status)
+                )
+                no_active_generation = ~exists(
+                    select(GenerationItemRow.id).where(
+                        GenerationItemRow.model == name,
+                        GenerationItemRow.status.not_in(terminal_statuses),
+                    )
+                )
+                result = cast(
+                    CursorResult[object],
+                    await session.execute(
+                        delete(ModelConfig).where(
+                            ModelConfig.name == name,
+                            no_active_default,
+                            no_active_generation,
+                        )
+                    ),
+                )
+                if result.rowcount != 1:
+                    default_name = await session.scalar(
+                        select(ModelDefault.model_name).where(
+                            ModelDefault.model_type == row.model_type,
+                            ModelDefault.model_name == name,
+                        )
+                    )
+                    if default_name == name:
+                        raise DomainError("cannot delete active default model")
+                    active_generation = await session.scalar(
+                        select(GenerationItemRow.id).where(
+                            GenerationItemRow.model == name,
+                            GenerationItemRow.status.not_in(terminal_statuses),
+                        )
+                    )
+                    if active_generation is not None:
+                        raise DomainError("cannot delete model referenced by active generation")
+                    raise NotFoundError("model config not found")
                 _audit(
                     session,
                     actor_id=actor_id,
@@ -207,7 +279,6 @@ class SqlAlchemyModelConfigRepository(ModelConfigRepository):
                     before=_audit_snapshot(row),
                     after=None,
                 )
-                await session.delete(row)
 
     async def set_default(self, *, actor_id: int, name: str) -> ModelConfigRecord:
         async with self._session_factory() as session:
