@@ -94,7 +94,15 @@ class OutboxDispatcher:
                 await self.sleep(min(5.0, 0.5 * (2**exponent)))
                 break
             await self.repository.mark_outbox_published(record.event_id, redis_id)
-            logger.info("generation_outbox_published", extra=log_context)
+            logger.info(
+                "generation_outbox_published",
+                extra={
+                    **log_context,
+                    "chain": "image_generation",
+                    "action": "发布任务到队列",
+                    "status": "published",
+                },
+            )
             published += 1
         return DispatchResult(published=published, failed=failed)
 

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -47,6 +48,7 @@ from design_hub.ports.text_llm import (
 
 _PROBE_TOOL = "model_configuration_probe"
 _PROBE_PROMPT = "Create a neutral studio product image for connection testing."
+logger = logging.getLogger(__name__)
 
 
 class CapabilityTestBusy(ValueError):
@@ -143,35 +145,67 @@ class ModelCapabilityService:
         extra: Mapping[str, object],
         existing_model_name: str | None = None,
     ) -> CapabilityTestResult:
-        normalized_name = _normalize_required_text(name)
-        normalized_base_url = _normalize_base_url(base_url)
-        normalized_model = _normalize_required_text(model)
-        encrypted = await self._credentials_for_test(
-            provider_type=provider_type,
-            credentials=credentials,
-            existing_model_name=existing_model_name,
-        )
         try:
-            plaintext = _decrypt_credentials(self.cipher, encrypted)
-            fingerprint = _fingerprint(
-                model_type=model_type,
+            normalized_name = _normalize_required_text(name)
+            normalized_base_url = _normalize_base_url(base_url)
+            normalized_model = _normalize_required_text(model)
+            encrypted = await self._credentials_for_test(
                 provider_type=provider_type,
-                base_url=normalized_base_url,
-                model=normalized_model,
-                extra=extra,
-                credentials=plaintext,
+                credentials=credentials,
+                existing_model_name=existing_model_name,
             )
+            try:
+                plaintext = _decrypt_credentials(self.cipher, encrypted)
+                fingerprint = _fingerprint(
+                    model_type=model_type,
+                    provider_type=provider_type,
+                    base_url=normalized_base_url,
+                    model=normalized_model,
+                    extra=extra,
+                    credentials=plaintext,
+                )
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(
+                    "invalid capability test configuration"
+                ) from None
         except (KeyError, TypeError, ValueError):
-            raise ValueError("invalid capability test configuration") from None
+            logger.warning(
+                "model_capability_test_rejected",
+                extra={
+                    "chain": "model_configuration",
+                    "action": "模型配置未通过业务校验",
+                    "model": name,
+                    "status": "rejected",
+                },
+            )
+            raise
 
         active_key = (manager_id, fingerprint)
         async with self._active_lock:
             if active_key in self._active:
+                logger.warning(
+                    "model_capability_test_rejected",
+                    extra={
+                        "chain": "model_configuration",
+                        "action": "模型配置未通过业务校验",
+                        "model": normalized_name,
+                        "status": "busy",
+                    },
+                )
                 raise CapabilityTestBusy(
                     "an identical capability test is already running"
                 )
             self._active.add(active_key)
         try:
+            logger.info(
+                "model_capability_test_started",
+                extra={
+                    "chain": "model_configuration",
+                    "action": "开始模型连通性测试",
+                    "model": normalized_name,
+                    "status": "started",
+                },
+            )
             record = ModelConfigRecord(
                 name=normalized_name,
                 display_name=normalized_name,
@@ -194,21 +228,42 @@ class ModelCapabilityService:
                     record, plaintext, manager_id
                 )
             )
+            tested_at = datetime.now(UTC)
+            proof = self.verifier.issue(
+                manager_id=manager_id,
+                model_id=normalized_name,
+                model_type=model_type,
+                fingerprint=fingerprint,
+            )
+            logger.info(
+                "model_capability_test_completed",
+                extra={
+                    "chain": "model_configuration",
+                    "action": "模型连通性测试成功",
+                    "model": normalized_name,
+                    "status": "completed",
+                },
+            )
+            return CapabilityTestResult(
+                verification_proof=proof,
+                tested_at=tested_at,
+                checks=checks,
+            )
+        except Exception:
+            logger.error(
+                "model_capability_test_failed",
+                extra={
+                    "chain": "model_configuration",
+                    "action": "模型连通性测试发生系统错误",
+                    "model": normalized_name,
+                    "status": "failed",
+                },
+                exc_info=True,
+            )
+            raise
         finally:
             async with self._active_lock:
                 self._active.remove(active_key)
-        tested_at = datetime.now(UTC)
-        proof = self.verifier.issue(
-            manager_id=manager_id,
-            model_id=normalized_name,
-            model_type=model_type,
-            fingerprint=fingerprint,
-        )
-        return CapabilityTestResult(
-            verification_proof=proof,
-            tested_at=tested_at,
-            checks=checks,
-        )
 
     async def _credentials_for_test(
         self,

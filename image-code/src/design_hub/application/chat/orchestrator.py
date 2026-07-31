@@ -9,6 +9,7 @@
 重启可续）。confirm_token 留内存（PendingStore，取舍⑤）。产出 ChatEvent 流由 /chat 路由序列化 SSE。
 """
 
+import logging
 import uuid
 from collections import Counter
 from collections.abc import AsyncIterator
@@ -78,6 +79,8 @@ from design_hub.ports.text_llm import (
     ToolSpec,
 )
 from design_hub.ports.upload_store import UploadReadError, owns
+
+logger = logging.getLogger(__name__)
 
 # 长会话上下文裁剪（A3）：LLM 上下文超此消息数 → 只带首条(原始诉求) + 最近若干；
 # DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
@@ -304,6 +307,16 @@ class ChatOrchestrator:
             assistant_text = ""
             assistant_chunks: list[str] = []
             tool_calls: tuple[ToolCall, ...] = ()
+            llm_failed = False
+            logger.info(
+                "chat_model_started",
+                extra={
+                    "chain": "chat",
+                    "action": "开始调用对话模型",
+                    "operation_id": session_id,
+                    "status": "started",
+                },
+            )
             try:
                 text_llm = await self.text_llm_resolver.resolve_default()
                 async for chunk in text_llm.complete(
@@ -316,7 +329,30 @@ class ChatOrchestrator:
                         assistant_chunks.append(chunk.text)
                     else:
                         tool_calls = chunk.tool_calls
-            except (ModelUnavailableError, TextLLMError):
+            except ModelUnavailableError:
+                logger.warning(
+                    "chat_model_unavailable",
+                    extra={
+                        "chain": "chat",
+                        "action": "对话模型未启用",
+                        "operation_id": session_id,
+                        "status": "unavailable",
+                    },
+                )
+                llm_failed = True
+            except TextLLMError:
+                logger.error(
+                    "chat_model_failed",
+                    extra={
+                        "chain": "chat",
+                        "action": "对话模型调用失败",
+                        "operation_id": session_id,
+                        "status": "failed",
+                    },
+                    exc_info=True,
+                )
+                llm_failed = True
+            if llm_failed:
                 for text in assistant_chunks:
                     yield ChatEvent("assistant_delta", {"text": text})
                 if assistant_chunks:
@@ -331,6 +367,15 @@ class ChatOrchestrator:
                 )
                 yield ChatEvent("assistant_end", {"status": "error"})
                 return
+            logger.info(
+                "chat_model_completed",
+                extra={
+                    "chain": "chat",
+                    "action": "对话模型调用完成",
+                    "operation_id": session_id,
+                    "status": "completed",
+                },
+            )
 
             if not tool_calls:  # 纯文本（澄清/答复/顾问建议）：落 assistant 转录，收尾
                 for text in assistant_chunks:

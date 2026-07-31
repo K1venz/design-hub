@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -282,7 +283,8 @@ def _worker(
     return worker, broker, slots
 
 
-def test_immediate_result_commits_terminal_before_ack() -> None:
+def test_immediate_result_commits_terminal_before_ack(caplog) -> None:
+    caplog.set_level(logging.INFO)
     async def run() -> None:
         repository = _Repository(_work())
         executor = _Executor()
@@ -308,6 +310,20 @@ def test_immediate_result_commits_terminal_before_ack() -> None:
         )
 
     asyncio.run(run())
+    records = {
+        record.msg: record
+        for record in caplog.records
+        if str(record.msg).startswith("generation_")
+    }
+    assert records["generation_item_claimed"].levelno == logging.INFO
+    started = records["generation_provider_submit_started"]
+    assert started.levelno == logging.INFO
+    assert started.chain == "image_generation"
+    assert started.action == "开始调用图片模型"
+    assert started.model == "gpt-image-2"
+    assert started.prompt == "faithful product"
+    completed = records["generation_item_completed"]
+    assert completed.action == "保存图片并完成任务"
 
 
 def test_submitted_task_is_persisted_then_resumed_without_second_submit() -> None:
@@ -334,7 +350,8 @@ def test_submitted_task_is_persisted_then_resumed_without_second_submit() -> Non
     asyncio.run(run())
 
 
-def test_duplicate_terminal_delivery_acks_without_provider_call() -> None:
+def test_duplicate_terminal_delivery_acks_without_provider_call(caplog) -> None:
+    caplog.set_level(logging.INFO)
     async def run() -> None:
         repository = _Repository(_work(GenerationItemStatus.GENERATED))
         executor = _Executor()
@@ -348,6 +365,14 @@ def test_duplicate_terminal_delivery_acks_without_provider_call() -> None:
         assert broker.acks == ["10-0"]
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "generation_item_duplicate_terminal"
+    )
+    assert record.levelno == logging.WARNING
+    assert record.chain == "image_generation"
+    assert record.action == "忽略重复投递的终态任务"
 
 
 def test_ambiguous_sync_timeout_marks_uncertain_and_never_retries() -> None:

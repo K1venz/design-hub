@@ -5,7 +5,7 @@ from contextlib import suppress
 from typing import Protocol, TypeVar
 
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.errors import DataInvariantError
+from design_hub.domain.errors import DataInvariantError, DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.domain.tasking import (
     GenerationItemStatus,
@@ -21,7 +21,10 @@ from design_hub.ports.generation_work import (
     GenerationWorkRepository,
 )
 from design_hub.ports.model_calls import ModelCallContext
-from design_hub.ports.model_provider import ProviderError, ReferenceMode
+from design_hub.ports.model_provider import (
+    ProviderError,
+    ReferenceMode,
+)
 from design_hub.ports.model_resolution import (
     ImageExecutorResolver,
     ModelUnavailableError,
@@ -83,9 +86,13 @@ class GenerationWorker:
         work = await self._repository.load_item(message.item_id)
         self._require_matching_snapshot(work, delivery)
         if is_terminal(work.status):
-            logger.info(
+            logger.warning(
                 "generation_item_duplicate_terminal",
-                extra=self._log_context(delivery, work),
+                extra={
+                    **self._log_context(delivery, work),
+                    "chain": "image_generation",
+                    "action": "忽略重复投递的终态任务",
+                },
             )
             await self._broker.ack(delivery.redis_id)
             return
@@ -107,6 +114,16 @@ class GenerationWorker:
             self._worker_id,
             self._lease_seconds,
         )
+        logger.info(
+            "generation_item_claimed",
+            extra={
+                **self._log_context(delivery, work),
+                "chain": "image_generation",
+                "action": "Worker领取生成任务",
+                "status": "claimed",
+                "model": work.spec.model,
+            },
+        )
         if work.status is GenerationItemStatus.STORING:
             await self._repository.fail_item(
                 work.spec.item_id,
@@ -116,7 +133,14 @@ class GenerationWorker:
             )
             logger.error(
                 "generation_stale_storage_failed_closed",
-                extra=self._log_context(delivery, work),
+                extra={
+                    **self._log_context(delivery, work),
+                    "chain": "image_generation",
+                    "action": "Worker任务执行异常",
+                    "model": work.spec.model,
+                    "status": "failed",
+                    "error_code": "storage_commit_uncertain",
+                },
             )
             task_metrics.record_failure("storage_commit_uncertain")
             await self._broker.ack(delivery.redis_id)
@@ -129,7 +153,14 @@ class GenerationWorker:
             )
             logger.error(
                 "generation_stale_submission_marked_uncertain",
-                extra=self._log_context(delivery, work),
+                extra={
+                    **self._log_context(delivery, work),
+                    "chain": "image_generation",
+                    "action": "图片模型调用失败",
+                    "model": work.spec.model,
+                    "status": "uncertain",
+                    "error_code": "submission_uncertain",
+                },
             )
             task_metrics.record_uncertain(work.spec.model)
             await self._broker.ack(delivery.redis_id)
@@ -148,6 +179,16 @@ class GenerationWorker:
                 "model unavailable",
             )
             task_metrics.record_failure("model_unavailable")
+            logger.warning(
+                "generation_model_unavailable",
+                extra={
+                    **self._log_context(delivery, work),
+                    "chain": "image_generation",
+                    "action": "用户选择的模型不可用",
+                    "model": work.spec.model,
+                    "status": "unavailable",
+                },
+            )
             await self._broker.ack(delivery.redis_id)
             return
         references = await self._materializer.materialize(
@@ -186,6 +227,11 @@ class GenerationWorker:
                     work,
                     slots=None,
                 )
+            except DataInvariantError:
+                raise
+            except DomainError as exc:
+                await self._fail_provider_rejected(work, delivery, exc)
+                return
             except ProviderError as exc:
                 await self._fail_provider(work, delivery, exc)
                 return
@@ -211,7 +257,14 @@ class GenerationWorker:
             )
             logger.info(
                 "generation_provider_submit_started",
-                extra=self._log_context(delivery, work),
+                extra={
+                    **self._log_context(delivery, work),
+                    "chain": "image_generation",
+                    "action": "开始调用图片模型",
+                    "model": work.spec.model,
+                    "prompt": work.spec.final_prompt,
+                    "status": "started",
+                },
             )
             try:
                 task_metrics.provider_started(
@@ -240,7 +293,14 @@ class GenerationWorker:
                 )
                 logger.error(
                     "generation_provider_submission_uncertain",
-                    extra=self._log_context(delivery, work),
+                    extra={
+                        **self._log_context(delivery, work),
+                        "chain": "image_generation",
+                        "action": "图片模型调用失败",
+                        "model": work.spec.model,
+                        "status": "uncertain",
+                        "error_code": "submission_uncertain",
+                    },
                     exc_info=True,
                 )
                 task_metrics.record_uncertain(work.spec.model)
@@ -253,6 +313,11 @@ class GenerationWorker:
                     error_code="submission_uncertain",
                 )
                 await self._broker.ack(delivery.redis_id)
+                return
+            except DataInvariantError:
+                raise
+            except DomainError as exc:
+                await self._fail_provider_rejected(work, delivery, exc)
                 return
             except ProviderError as exc:
                 await self._fail_provider(work, delivery, exc)
@@ -279,6 +344,15 @@ class GenerationWorker:
                         work,
                         slots=None,
                     )
+                except DataInvariantError:
+                    raise
+                except DomainError as exc:
+                    await self._fail_provider_rejected(
+                        work,
+                        delivery,
+                        exc,
+                    )
+                    return
                 except ProviderError as exc:
                     await self._fail_provider(work, delivery, exc)
                     return
@@ -377,10 +451,44 @@ class GenerationWorker:
             provider=work.spec.model,
             error_code=error_code,
         )
-        logger.warning(
+        logger.error(
             "generation_provider_failed",
-            extra=self._log_context(delivery, work),
+            extra={
+                **self._log_context(delivery, work),
+                "chain": "image_generation",
+                "action": "图片模型调用失败",
+                "model": work.spec.model,
+                "status": "failed",
+                "error_code": error_code,
+            },
             exc_info=True,
+        )
+        await self._broker.ack(delivery.redis_id)
+
+    async def _fail_provider_rejected(
+        self,
+        work: GenerationWorkItem,
+        delivery: Delivery,
+        error: DomainError,
+    ) -> None:
+        error_code = type(error).__name__
+        await self._repository.fail_item(
+            work.spec.item_id,
+            self._worker_id,
+            error_code,
+            str(error),
+        )
+        task_metrics.record_failure(error_code)
+        logger.warning(
+            "generation_provider_rejected",
+            extra={
+                **self._log_context(delivery, work),
+                "chain": "image_generation",
+                "action": "模型拒绝业务请求",
+                "model": work.spec.model,
+                "status": "rejected",
+                "error_code": error_code,
+            },
         )
         await self._broker.ack(delivery.redis_id)
 
@@ -401,7 +509,14 @@ class GenerationWorker:
         )
         logger.info(
             "generation_item_completed",
-            extra=self._log_context(delivery, work),
+            extra={
+                **self._log_context(delivery, work),
+                "chain": "image_generation",
+                "action": "保存图片并完成任务",
+                "model": work.spec.model,
+                "status": "completed",
+                "duration_ms": image.latency_ms,
+            },
         )
         task_metrics.observe_item_duration(
             "generated",
