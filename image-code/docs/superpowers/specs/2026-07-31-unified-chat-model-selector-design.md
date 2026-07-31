@@ -6,6 +6,12 @@ Replace the standalone image-model selector at the top of Chat with one compact 
 
 The interaction follows DeerFlow's established composer pattern: current model shown in a compact trigger, model selection adjacent to send, searchable model list, secondary upstream identifier, and an explicit selected state. Our product keeps a dropdown instead of a modal and adds a second model category because Chat coordinates both text and image generation.
 
+## Final visual decision
+
+The selected production treatment is **C: dual-model compact**. One bordered trigger contains two compact segments separated by a vertical rule: the active text-model logo and truncated display name first, then the active image-model logo and truncated display name. A single chevron opens the shared grouped dropdown. On narrow screens the image-model name may collapse while both logos remain visible.
+
+The A/B comparison variants are throwaway design artifacts. Once C is integrated into Chat, the DEV-only comparison route and static demo fixtures are removed; the locally bundled brand assets are retained for the production selector.
+
 ## Scope
 
 - Add an interactive demo page with three visual variants before choosing the production styling.
@@ -86,4 +92,3 @@ The initial known brands are DeepSeek, Doubao, OpenAI, and Wan. Assets are store
 - Frontend unit tests cover catalog reconciliation, account isolation, search, grouped selection, missing-model behavior, busy locking, and request-body construction.
 - The demo page is manually checked at desktop and mobile widths before one style is promoted into Chat.
 - Focused backend and frontend tests run during development; a frontend production build verifies the final integration.
-
