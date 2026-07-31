@@ -177,6 +177,34 @@ def test_connection_fingerprint_rejects_credentials_with_the_wrong_provider_shap
         )
 
 
+def test_openai_four_k_api_key_is_optional_but_rejects_invalid_explicit_values() -> None:
+    base = {
+        "standard_api_keys": ("standard-key",),
+    }
+    assert model_config.connection_fingerprint(
+        model_type=ModelType.IMAGE,
+        provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+        base_url="https://provider.example.test/v1",
+        upstream_model="model-v1",
+        extra={},
+        credentials_plaintext=base,
+    )
+
+    for invalid_four_k_key in (None, (), ""):
+        with pytest.raises(ValueError, match="invalid provider credential fields"):
+            model_config.connection_fingerprint(
+                model_type=ModelType.IMAGE,
+                provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+                base_url="https://provider.example.test/v1",
+                upstream_model="model-v1",
+                extra={},
+                credentials_plaintext={
+                    **base,
+                    "four_k_api_key": invalid_four_k_key,
+                },  # type: ignore[dict-item]
+            )
+
+
 def _service() -> PyJwtModelVerificationService:
     return PyJwtModelVerificationService(secret=_SECRET, ttl_seconds=600)
 
