@@ -65,11 +65,10 @@ def validate_connection_fields(
         raise ValueError("invalid provider credential fields")
     if provider_type is ProviderType.OPENAI_COMPAT_IMAGE:
         standard_keys = credentials_plaintext["standard_api_keys"]
-        four_k_key = credentials_plaintext.get("four_k_api_key")
         if (
             not _is_nonempty_secret_tuple(standard_keys)
-            or four_k_key is not None
-            and not _is_nonempty_secret(four_k_key)
+            or "four_k_api_key" in credentials_plaintext
+            and not _is_nonempty_secret(credentials_plaintext["four_k_api_key"])
         ):
             raise ValueError("invalid provider credential fields")
     elif not _is_nonempty_secret(credentials_plaintext["api_key"]):
