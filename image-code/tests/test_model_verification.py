@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -49,6 +50,17 @@ def test_connection_fingerprint_is_order_independent_and_ignores_display_fields(
     )
 
     assert first.fingerprint() == second.fingerprint()
+
+
+def test_connection_fingerprint_normalizes_surrounding_whitespace_and_trailing_slashes() -> None:
+    normalized = _Draft(display_name="GPT Image", unit_cost=Decimal("0.05"))
+    whitespace_and_slashes = _Draft(
+        display_name="GPT Image",
+        unit_cost=Decimal("0.05"),
+        base_url="  https://images.example.test/v1///  ",
+    )
+
+    assert normalized.fingerprint() == whitespace_and_slashes.fingerprint()
 
 
 @pytest.mark.parametrize(
@@ -135,6 +147,36 @@ def test_connection_fingerprint_rejects_provider_fields_outside_the_allowlist(
         )
 
 
+@pytest.mark.parametrize(
+    ("provider_type", "credentials"),
+    [
+        (ProviderType.OPENAI_COMPAT_IMAGE, {"standard_api_keys": "one-key"}),
+        (ProviderType.OPENAI_COMPAT_IMAGE, {"standard_api_keys": ()}),
+        (
+            ProviderType.OPENAI_COMPAT_IMAGE,
+            {"standard_api_keys": ("one-key",), "four_k_api_key": ("four-k-key",)},
+        ),
+        (ProviderType.DASHSCOPE_WAN_IMAGE, {"api_key": ("wan-key",)}),
+        (ProviderType.OPENAI_COMPAT_CHAT, {"api_key": ("chat-key",)}),
+    ],
+)
+def test_connection_fingerprint_rejects_credentials_with_the_wrong_provider_shape(
+    provider_type: ProviderType,
+    credentials: dict[str, str | tuple[str, ...]],
+) -> None:
+    with pytest.raises(ValueError, match="invalid provider credential fields"):
+        model_config.connection_fingerprint(
+            model_type=ModelType.IMAGE
+            if provider_type is not ProviderType.OPENAI_COMPAT_CHAT
+            else ModelType.CHAT,
+            provider_type=provider_type,
+            base_url="https://provider.example.test/v1",
+            upstream_model="model-v1",
+            extra={},
+            credentials_plaintext=credentials,
+        )
+
+
 def _service() -> PyJwtModelVerificationService:
     return PyJwtModelVerificationService(secret=_SECRET, ttl_seconds=600)
 
@@ -191,7 +233,7 @@ def test_verification_proof_rejects_expired_and_tampered_tokens() -> None:
         _SECRET,
         algorithm="HS256",
     )
-    tampered = f"{proof[:-1]}{'a' if proof[-1] != 'a' else 'b'}"
+    tampered = f"x{proof[1:]}"
 
     for invalid in (expired, tampered):
         with pytest.raises(ValueError, match="invalid verification proof"):
@@ -202,3 +244,100 @@ def test_verification_proof_rejects_expired_and_tampered_tokens() -> None:
                 model_type=ModelType.IMAGE,
                 fingerprint="a" * 64,
             )
+
+
+@pytest.mark.parametrize(
+    "missing_claim",
+    ("exp", "aud", "manager_id", "model_id", "model_type", "fingerprint"),
+)
+def test_verification_proof_requires_exp_audience_and_every_binding_claim(
+    missing_claim: str,
+) -> None:
+    service = _service()
+    payload: dict[str, object] = {
+        "aud": "model-config-verification",
+        "exp": datetime.now(UTC) + timedelta(minutes=1),
+        "fingerprint": "a" * 64,
+        "manager_id": "manager-7",
+        "model_id": "gpt-image-2",
+        "model_type": "image",
+    }
+    del payload[missing_claim]
+    proof = jwt.encode(payload, _SECRET, algorithm="HS256")
+
+    with pytest.raises(ValueError, match="invalid verification proof"):
+        service.verify(
+            proof,
+            manager_id="manager-7",
+            model_id="gpt-image-2",
+            model_type=ModelType.IMAGE,
+            fingerprint="a" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"manager_id": ""},
+        {"manager_id": "   "},
+        {"model_id": ""},
+        {"model_id": "   "},
+        {"model_type": "image"},
+        {"fingerprint": "a" * 63},
+        {"fingerprint": "g" * 64},
+    ),
+)
+def test_verification_proof_issue_rejects_invalid_binding_inputs(
+    changes: dict[str, object],
+) -> None:
+    service = _service()
+
+    with pytest.raises(ValueError, match="invalid model verification input"):
+        service.issue(
+            manager_id=changes.get("manager_id", "manager-7"),  # type: ignore[arg-type]
+            model_id=changes.get("model_id", "gpt-image-2"),  # type: ignore[arg-type]
+            model_type=changes.get("model_type", ModelType.IMAGE),  # type: ignore[arg-type]
+            fingerprint=changes.get("fingerprint", "a" * 64),  # type: ignore[arg-type]
+        )
+
+
+def test_verification_proof_canonicalizes_valid_uppercase_fingerprints() -> None:
+    service = _service()
+    proof = service.issue(
+        manager_id="manager-7",
+        model_id="gpt-image-2",
+        model_type=ModelType.IMAGE,
+        fingerprint="A" * 64,
+    )
+
+    service.verify(
+        proof,
+        manager_id="manager-7",
+        model_id="gpt-image-2",
+        model_type=ModelType.IMAGE,
+        fingerprint="a" * 64,
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"manager_id": ""},
+        {"model_id": ""},
+        {"model_type": "image"},
+        {"fingerprint": "x" * 64},
+    ),
+)
+def test_verification_proof_verify_rejects_invalid_binding_inputs_before_decoding(
+    changes: dict[str, object],
+) -> None:
+    service, proof = _proof()
+
+    with pytest.raises(ValueError, match="invalid model verification input"):
+        service.verify(
+            proof,
+            manager_id=changes.get("manager_id", "manager-7"),  # type: ignore[arg-type]
+            model_id=changes.get("model_id", "gpt-image-2"),  # type: ignore[arg-type]
+            model_type=changes.get("model_type", ModelType.IMAGE),  # type: ignore[arg-type]
+            fingerprint=changes.get("fingerprint", "a" * 64),  # type: ignore[arg-type]
+        )
