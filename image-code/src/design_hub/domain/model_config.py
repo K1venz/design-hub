@@ -63,16 +63,17 @@ def validate_connection_fields(
         raise ValueError("invalid provider extra fields")
     if any(field not in credentials_plaintext for field in rule.required_credential_fields):
         raise ValueError("invalid provider credential fields")
-
-    for value in credentials_plaintext.values():
-        if isinstance(value, str):
-            if not value:
-                raise ValueError("invalid provider credential fields")
-            continue
-        if not isinstance(value, tuple) or not value or any(
-            not isinstance(item, str) or not item for item in value
+    if provider_type is ProviderType.OPENAI_COMPAT_IMAGE:
+        standard_keys = credentials_plaintext["standard_api_keys"]
+        four_k_key = credentials_plaintext.get("four_k_api_key")
+        if (
+            not _is_nonempty_secret_tuple(standard_keys)
+            or four_k_key is not None
+            and not _is_nonempty_secret(four_k_key)
         ):
             raise ValueError("invalid provider credential fields")
+    elif not _is_nonempty_secret(credentials_plaintext["api_key"]):
+        raise ValueError("invalid provider credential fields")
 
     for field, extra_value in extra.items():
         if field in {"input_fidelity", "response_format"} and (
@@ -81,6 +82,16 @@ def validate_connection_fields(
             raise ValueError("invalid provider extra fields")
         if field in {"watermark", "thinking_disabled"} and type(extra_value) is not bool:
             raise ValueError("invalid provider extra fields")
+
+
+def _is_nonempty_secret(value: object) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _is_nonempty_secret_tuple(value: object) -> bool:
+    return isinstance(value, tuple) and bool(value) and all(
+        _is_nonempty_secret(item) for item in value
+    )
 
 
 def connection_fingerprint(
@@ -110,7 +121,7 @@ def connection_fingerprint(
         else:
             credential_digests[key] = hashlib.sha256(value.encode()).hexdigest()
     payload = {
-        "base_url": base_url.rstrip("/"),
+        "base_url": base_url.strip().rstrip("/"),
         "credentials": credential_digests,
         "extra": dict(sorted(extra.items())),
         "model": upstream_model,
