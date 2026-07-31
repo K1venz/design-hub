@@ -5,7 +5,6 @@ DIP 的落点——把抽象端口绑定到具体适配器都集中在此，其�
 （registry / 图床签名 / 上传落点 / 真实 gpt provider）。
 """
 
-import os
 from collections.abc import Mapping
 from decimal import Decimal
 
@@ -29,7 +28,6 @@ from design_hub.infrastructure.storage.tos import (
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.model_calls import ModelCallRecorder
-from design_hub.ports.model_config_repository import ModelConfigRecord
 from design_hub.ports.model_provider import AbstractModelProvider
 from design_hub.ports.secret_cipher import SecretCipher
 from design_hub.ports.text_llm import TextLLMPort
@@ -52,15 +50,6 @@ _MOCK_UNIT_COSTS: dict[str, Decimal] = {
 _IMAGE_PROVIDER_PROTOCOL = "openai_compat_image"
 
 
-def default_model_configs() -> list[ModelConfigRecord]:
-    """启动 seed：不新增 4K 持久行；4K 能力由 runtime Provider 注册决定。"""
-    return [
-        ModelConfigRecord(name=name, unit_cost=cost, enabled=True, extra={})
-        for name, cost in _MOCK_UNIT_COSTS.items()
-        if name != _GPT_IMAGE_2_4K
-    ]
-
-
 def build_mock_registry(
     unit_costs: Mapping[str, Decimal] | None = None,
 ) -> ProviderRegistry:
@@ -77,26 +66,11 @@ def build_mock_registry(
     return registry
 
 
-def _resolve_image_connection(
-    settings: Settings,
-    default_config: ModelConfigRecord | None,
-) -> tuple[str, str, list[str]]:
+def _resolve_image_connection(settings: Settings) -> tuple[str, str, list[str]]:
     """出图 provider 连接解析（ISSUE-0057）：优先管理员配的默认模型连接（备用渠道切换、治 0056
     单点），需 base_url+model+非空 key（A1 真 key 从 api_key_env 指向的环境变量取）；否则回落 .env。
     runtime 只支持同步 Images API；完整但协议不兼容的默认连接必须 fail-fast。
     """
-    if default_config is not None and default_config.base_url and default_config.model:
-        if default_config.provider_type != _IMAGE_PROVIDER_PROTOCOL:
-            raise ValueError(
-                "configured image provider_type must be openai_compat_image"
-            )
-        keys = [
-            k.strip()
-            for k in os.environ.get(default_config.api_key_env, "").split(",")
-            if k.strip()
-        ]
-        if keys:
-            return default_config.base_url, default_config.model, keys
     if not settings.gpt_image_base_url or not settings.gpt_image_model:
         raise ValueError("GPT_IMAGE_BASE_URL / GPT_IMAGE_MODEL 未配置（见 .env 或 model_config）")
     keys = [
@@ -122,11 +96,9 @@ def build_gpt_image_providers(
     settings: Settings,
     recorder: ModelCallRecorder,
     unit_costs: Mapping[str, Decimal] | None = None,
-    *,
-    default_config: ModelConfigRecord | None = None,
 ) -> tuple[AbstractModelProvider, AbstractModelProvider]:
     """组装两个同步 Images API Provider，各自使用严格隔离的凭据池。"""
-    base_url, model, standard_raw_keys = _resolve_image_connection(settings, default_config)
+    base_url, model, standard_raw_keys = _resolve_image_connection(settings)
     standard_keys = _require_image_keys(
         standard_raw_keys,
         setting_name="GPT_IMAGE_API_KEY",
@@ -265,7 +237,6 @@ def build_registry(
     recorder: ModelCallRecorder,
     real_gpt_image: bool = False,
     unit_costs: Mapping[str, Decimal] | None = None,
-    default_config: ModelConfigRecord | None = None,
 ) -> ProviderRegistry:
     """Mock 全模型；real_gpt_image=True 时用真实 Provider 覆盖普通与 4K 模型。
 
@@ -278,7 +249,6 @@ def build_registry(
             settings,
             recorder,
             unit_costs,
-            default_config=default_config,
         ):
             registry.register(provider)
     return registry

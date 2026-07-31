@@ -9,11 +9,9 @@ from design_hub.composition import (
     build_gpt_image_providers,
     build_mock_registry,
     build_registry,
-    default_model_configs,
 )
 from design_hub.config.settings import Settings
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
-from design_hub.ports.model_config_repository import ModelConfigRecord
 
 
 def _settings(*, four_k_key: str = "test-key-4k") -> Settings:
@@ -38,10 +36,6 @@ def test_real_registry_uses_independent_key_pools_for_standard_and_4k() -> None:
 
     standard = registry.get("gpt-image-2")
     four_k = registry.get("gpt-image-2-4k")
-    defaults = {record.name: record for record in default_model_configs()}
-
-    assert defaults["gpt-image-2"].unit_cost == Decimal("0.05")
-    assert "gpt-image-2-4k" not in defaults
     assert isinstance(standard, OpenAICompatImageProvider)
     assert isinstance(four_k, OpenAICompatImageProvider)
     assert standard.reference_mode == "bytes"
@@ -87,33 +81,6 @@ def test_real_registry_requires_exactly_two_standard_keys(standard_keys: str) ->
         build_gpt_image_providers(settings, RecordingModelCallRecorder())
 
 
-def test_compatible_default_connection_cannot_override_fixed_runtime_price(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("COMPAT_IMAGE_KEYS", "test-key-a,test-key-b")
-    configured = ModelConfigRecord(
-        name="configured-image-route",
-        unit_cost=Decimal("0.40"),
-        enabled=True,
-        extra={},
-        provider_type="openai_compat_image",
-        base_url="https://configured.example.invalid/v1",
-        model="configured-upstream-model",
-        api_key_env="COMPAT_IMAGE_KEYS",
-        is_default=True,
-    )
-
-    standard, four_k = build_gpt_image_providers(
-        _settings(),
-        RecordingModelCallRecorder(),
-        unit_costs={"gpt-image-2": Decimal("0.40")},
-        default_config=configured,
-    )
-
-    assert standard.unit_cost == Decimal("0.05")
-    assert four_k.unit_cost == Decimal("0.18")
-
-
 def test_mock_runtime_also_ignores_stale_fixed_model_prices() -> None:
     registry = build_mock_registry(
         {
@@ -124,27 +91,3 @@ def test_mock_runtime_also_ignores_stale_fixed_model_prices() -> None:
 
     assert registry.get("gpt-image-2").unit_cost == Decimal("0.05")
     assert registry.get("gpt-image-2-4k").unit_cost == Decimal("0.18")
-
-
-def test_incompatible_default_connection_protocol_fails_fast(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ASYNC_IMAGE_KEYS", "test-key-a")
-    incompatible = ModelConfigRecord(
-        name="legacy-async-route",
-        unit_cost=Decimal("0.40"),
-        enabled=True,
-        extra={},
-        provider_type="apinebula_async_image",
-        base_url="https://configured.example.invalid/v1",
-        model="gpt-image-2",
-        api_key_env="ASYNC_IMAGE_KEYS",
-        is_default=True,
-    )
-
-    with pytest.raises(ValueError, match="openai_compat_image"):
-        build_gpt_image_providers(
-            _settings(),
-            RecordingModelCallRecorder(),
-            default_config=incompatible,
-        )

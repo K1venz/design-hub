@@ -43,7 +43,6 @@ from design_hub.composition import (
     build_secret_cipher,
     build_text_llm,
     build_upload_store,
-    default_model_configs,
 )
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import Role
@@ -76,6 +75,7 @@ from design_hub.infrastructure.queue.redis_streams import (
     RedisJobEventStream,
     RedisStreamClient,
 )
+from design_hub.infrastructure.security.model_verification import PyJwtModelVerificationService
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import require_role
 from design_hub.interface.api.routes import (
@@ -85,6 +85,7 @@ from design_hub.interface.api.routes import (
     chat,
     image_prompts,
     listing,
+    models,
     showcase,
     uploads,
     users,
@@ -100,11 +101,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     model_call_recorder = SqlAlchemyModelCallRecorder(session_factory)
     ledger = SqlAlchemyLedgerRepository(session_factory)
     model_config_repo = SqlAlchemyModelConfigRepository(session_factory)
-    model_config_service = ModelConfigService(repo=model_config_repo)
-    await model_config_service.seed_defaults(default_model_configs())
-    pricing_registry = build_mock_registry(
-        await model_config_service.unit_cost_map()
+    model_config_service = ModelConfigService(
+        repo=model_config_repo,
+        cipher=app.state.secret_cipher,
+        verifier=PyJwtModelVerificationService(
+            secret=settings.jwt_secret.get_secret_value(),
+            ttl_seconds=settings.model_verification_ttl_seconds,
+        ),
     )
+    pricing_registry = build_mock_registry()
     planner = ListingTaskPlanner(
         registry=pricing_registry,
         modifier_registry=PromptModifierRegistry(),
@@ -115,9 +120,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.listing_query = SqlAlchemyListingHistoryQuery(session_factory)
     app.state.media_signer = build_media_signer(settings)
-    app.state.upload_service = UploadService(
-        store=build_upload_store(settings)
-    )
+    app.state.upload_service = UploadService(store=build_upload_store(settings))
     text_llm = build_text_llm(settings, recorder=model_call_recorder)
     app.state.reverse_prompt_service = ReversePromptService(
         text_llm=text_llm,
@@ -127,9 +130,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    redis_health = RedisHealthState(
-        stale_after_seconds=settings.redis_health_stale_seconds
-    )
+    redis_health = RedisHealthState(stale_after_seconds=settings.redis_health_stale_seconds)
     health_client = cast(RedisHealthClient, redis)
     stream_client = cast(RedisStreamClient, redis)
     health_monitor = RedisHealthMonitor(
@@ -151,8 +152,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             client=health_client,
             rolling_item_seconds=settings.queue_rolling_item_seconds,
             available_slots=(
-                settings.provider_standard_concurrency
-                + settings.provider_4k_concurrency
+                settings.provider_standard_concurrency + settings.provider_4k_concurrency
             ),
         ),
         admission=QueueAdmissionController(
@@ -240,6 +240,7 @@ def create_production_app() -> FastAPI:
     app.include_router(uploads.router)
     # 公开首页成果展示（无鉴权）：精选清单现签 url，无用户数据/prompt 泄漏
     app.include_router(showcase.router)
+    app.include_router(models.router)
     # 仅管理者：模型配置 + 用户管理
     app.include_router(admin.router, dependencies=manager_only)
     app.include_router(admin_console.router, dependencies=manager_only)
