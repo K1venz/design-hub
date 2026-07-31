@@ -22,8 +22,8 @@ import {
   requireSelectedImageModel,
   useImageModelSelection,
 } from '@/components/models/image-model-context'
-import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import { requireSelectedModel } from '@/components/models/model-selection'
+import { UnifiedChatModelSelector } from '@/components/models/UnifiedChatModelSelector'
 import { useModelSelection } from '@/components/models/use-model-selection'
 import { useChatModels } from '@/api/models'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
@@ -57,8 +57,9 @@ export function ChatPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const token = useAuthStore((auth) => auth.token)
-  const modelSelection = useImageModelSelection()
-  const chatModelSelection = useModelSelection('chat', useChatModels())
+  const imageModelSelection = useImageModelSelection()
+  const chatModelsQuery = useChatModels()
+  const chatModelSelection = useModelSelection('chat', chatModelsQuery)
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
@@ -98,8 +99,9 @@ export function ChatPage() {
       } else {
         setState((current) => applyChatEvent(current, event))
       }
-      modelSelection.retry()
-      toast.error('当前图片模型已不可用，内容已保留，请重新选择。')
+      imageModelSelection.retry()
+      chatModelSelection.retry()
+      toast.error('当前模型已不可用，内容已保留，请重新选择。')
       return
     }
     setState((current) => applyChatEvent(current, event))
@@ -177,8 +179,16 @@ export function ChatPage() {
 
   async function send(message: string, uploadIds?: string[]) {
     const text = message.trim()
-    if (!text || stateRef.current.streaming || stateRef.current.awaiting) return
-    const imageModel = requireSelectedImageModel(modelSelection)
+    if (
+      !text ||
+      stateRef.current.streaming ||
+      stateRef.current.awaiting ||
+      imageModelSelection.state !== 'ready' ||
+      chatModelSelection.state !== 'ready'
+    ) {
+      return
+    }
+    const imageModel = requireSelectedImageModel(imageModelSelection)
     const chatModel = requireSelectedModel(chatModelSelection, '文本')
     const consumed = consumeChatEditSource(selectedEditSource)
     pendingSendRef.current = {
@@ -267,15 +277,21 @@ export function ChatPage() {
   useEffect(() => {
     const seed = pendingSeedRef.current
     if (!seed) return
-    if (modelSelection.state === 'ready') {
+    const modelsReady =
+      imageModelSelection.state === 'ready' &&
+      chatModelSelection.state === 'ready'
+    const catalogLoading =
+      imageModelSelection.state === 'loading' ||
+      chatModelSelection.state === 'loading'
+    if (modelsReady) {
       pendingSeedRef.current = null
       void send(seed)
-    } else if (modelSelection.state !== 'loading') {
+    } else if (!catalogLoading) {
       pendingSeedRef.current = null
     }
     // send intentionally uses the current composer snapshot when readiness changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelSelection.state])
+  }, [chatModelSelection.state, imageModelSelection.state])
 
   // 新内容滚到底
   useEffect(() => {
@@ -297,6 +313,9 @@ export function ChatPage() {
   }
 
   const busy = state.streaming || state.awaiting !== null
+  const modelsReady =
+    imageModelSelection.state === 'ready' &&
+    chatModelSelection.state === 'ready'
 
   return (
     <AppShell>
@@ -308,12 +327,6 @@ export function ChatPage() {
           onNew={newSession}
         />
         <div className="mx-auto flex h-full max-w-3xl flex-1 flex-col">
-          <div className="px-2 pt-3">
-            <ImageModelSelector
-              selection={modelSelection}
-              disabled={busy}
-            />
-          </div>
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto px-2 py-4">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-wb-ink-2">
               <span className="grid size-7 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white">
@@ -444,7 +457,7 @@ export function ChatPage() {
               }
               className="h-[72px] w-full resize-none bg-transparent px-3 py-2 text-[14px] leading-relaxed text-wb-ink-2 outline-none placeholder:text-wb-faint-1 disabled:opacity-60"
             />
-            <div className="flex items-center justify-between px-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => fileRef.current?.click()}
@@ -460,7 +473,7 @@ export function ChatPage() {
                     onClick={() =>
                       void send('反推这张图的提示词', [attached[0].id])
                     }
-                    disabled={busy || modelSelection.state !== 'ready'}
+                    disabled={busy || !modelsReady}
                     className="flex items-center gap-1.5 rounded-full border border-wb-brand-soft bg-wb-tint-3 px-3 py-1.5 text-[12.5px] font-medium text-wb-brand-deep disabled:opacity-50"
                   >
                     <ScanSearchIcon className="size-4" /> 反推提示词
@@ -475,17 +488,21 @@ export function ChatPage() {
                 hidden
                 onChange={(e) => void onPickFiles(e.target.files)}
               />
-              <button
-                onClick={() => void send(draft, attached.map((a) => a.id))}
-                disabled={
-                  busy ||
-                  modelSelection.state !== 'ready' ||
-                  !draft.trim()
-                }
-                className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-4 py-1.5 text-[13px] font-semibold text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.6)] transition-opacity disabled:opacity-45"
-              >
-                发送 <SendIcon className="size-3.5" />
-              </button>
+              <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+                <UnifiedChatModelSelector
+                  chatSelection={chatModelSelection}
+                  imageSelection={imageModelSelection}
+                  disabled={busy}
+                />
+                <button
+                  onClick={() => void send(draft, attached.map((a) => a.id))}
+                  disabled={busy || !modelsReady || !draft.trim()}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to text-[13px] font-semibold text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.6)] transition-opacity disabled:opacity-45"
+                  aria-label="发送"
+                >
+                  <SendIcon className="size-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
