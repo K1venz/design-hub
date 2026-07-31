@@ -173,6 +173,9 @@ class _ImageProvider(AbstractModelProvider):
 
 
 class _ChatProvider(TextLLMPort):
+    def __init__(self) -> None:
+        self.calls: list[list[ToolSpec]] = []
+
     def complete(
         self,
         *,
@@ -180,17 +183,21 @@ class _ChatProvider(TextLLMPort):
         messages: list[ChatMessage],
         tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        self.calls.append(tools)
+
         async def chunks() -> AsyncIterator[LLMChunk]:
-            yield TextChunk("probe ok")
-            yield ToolCallChunk(
-                (
-                    ToolCall(
-                        id="probe",
-                        name="model_configuration_probe",
-                        arguments={"ok": True},
-                    ),
+            if not tools:
+                yield TextChunk("probe ok")
+            else:
+                yield ToolCallChunk(
+                    (
+                        ToolCall(
+                            id="probe",
+                            name="model_configuration_probe",
+                            arguments={"ok": True},
+                        ),
+                    )
                 )
-            )
 
         return chunks()
 
@@ -203,6 +210,7 @@ class _Factory:
         release: asyncio.Event | None = None,
     ) -> None:
         self.image: _ImageProvider | None = None
+        self.chat: _ChatProvider | None = None
         self.entered = entered
         self.release = release
 
@@ -226,7 +234,8 @@ class _Factory:
         record: ModelConfigRecord,
         credentials: dict[str, str | tuple[str, ...]],
     ) -> TextLLMPort:
-        return _ChatProvider()
+        self.chat = _ChatProvider()
+        return self.chat
 
 
 def _service(
@@ -287,7 +296,7 @@ def test_image_probe_generates_then_edits_and_issues_exact_proof(caplog) -> None
 
 
 def test_chat_probe_requires_streamed_text_and_named_tool() -> None:
-    service, _verifier, _factory = _service()
+    service, _verifier, factory = _service()
     result = asyncio.run(
         service.test(
             manager_id="7",
@@ -301,6 +310,9 @@ def test_chat_probe_requires_streamed_text_and_named_tool() -> None:
         )
     )
     assert result.checks == ("streamed_text", "tool_call")
+    assert factory.chat is not None
+    assert [len(tools) for tools in factory.chat.calls] == [0, 1]
+    assert factory.chat.calls[1][0].required is True
 
 
 def test_omitted_credentials_reuse_only_the_named_existing_record() -> None:
