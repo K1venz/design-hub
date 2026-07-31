@@ -18,12 +18,12 @@ from design_hub.domain.errors import NotFoundError
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.listing_query import ListingHistoryQuery
 from design_hub.ports.model_calls import ModelCallContext
+from design_hub.ports.model_resolution import TextLLMResolver
 from design_hub.ports.text_llm import (
     ChatImage,
     ChatMessage,
     LLMChunk,
     TextLLMError,
-    TextLLMPort,
     ToolCall,
     ToolCallChunk,
     ToolSpec,
@@ -72,7 +72,7 @@ class ReversePromptResult(BaseModel):
 
 @dataclass(frozen=True)
 class ReversePromptService:
-    text_llm: TextLLMPort
+    text_llm_resolver: TextLLMResolver
     uploads: UploadService
     images: ImageStore
     query: ListingHistoryQuery
@@ -99,8 +99,9 @@ class ReversePromptService:
             parameters=ReversePromptResult.model_json_schema(),
             required=True,
         )
+        text_llm = await self.text_llm_resolver.resolve_default()
         calls = await _collect_tool_calls(
-            self.text_llm.complete(
+            text_llm.complete(
                 context=ModelCallContext(
                     user_id=user_id,
                     operation=ModelOperation.REVERSE_PROMPT,

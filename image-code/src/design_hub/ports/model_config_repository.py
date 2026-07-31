@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from design_hub.domain.enums import ModelType, ProviderType
+from design_hub.domain.errors import DomainError
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,23 @@ class ModelConfigRepository(ABC):
 
     @abstractmethod
     async def get_default(self, model_type: ModelType) -> str | None: ...
+
+    async def require_available_image(
+        self, name: str
+    ) -> ModelConfigRecord:
+        normalized = name.strip()
+        if not normalized:
+            raise DomainError("image model unavailable")
+        record = await self.get(normalized)
+        if (
+            record is None
+            or record.model_type is not ModelType.IMAGE
+            or not record.enabled
+            or record.verified_at is None
+            or record.verified_fingerprint is None
+        ):
+            raise DomainError("image model unavailable")
+        return record
 
     @abstractmethod
     async def create(self, *, actor_id: int, record: ModelConfigRecord) -> ModelConfigRecord: ...

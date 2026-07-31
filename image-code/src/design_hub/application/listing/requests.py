@@ -13,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 # 商品品类（ISSUE-0060 注册表制）：值=CategoryCardRegistry 的 key（英文码，前端标签中文映射）。
 # 加品类=这里加一个 + prompt_composer 加卡常量；enum 进 openapi 供前端 codegen。
 Category = Literal["FOOD", "FASHION", "BEAUTY", "SHOES", "DIGITAL"]
+ImageModelId = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
 
 
 class ListingGenerateRequest(BaseModel):
@@ -23,6 +27,7 @@ class ListingGenerateRequest(BaseModel):
     口径不一致，ISSUE-0024）。
     """
 
+    image_model: ImageModelId
     upload_ids: list[str]
     prompt: str
     ratio: str
@@ -45,6 +50,7 @@ class CloneRequest(BaseModel):
     边界仍走 submission service fail-fast 统一 400（ISSUE-0024 口径）。
     """
 
+    image_model: ImageModelId
     product_upload_ids: list[str]
     reference_upload_ids: list[str]
     clone_mode: str  # 参考风格 | 完全复刻（中文档位 key，ISSUE-0062 改版）
@@ -65,6 +71,7 @@ class EditRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    image_model: ImageModelId
     source_image_key: str  # 唯一不透明 handle（listing 产出图 image_key；E-δ 案3）
     # 编辑指令（两档必填）：先 strip 再验长 → ""/"  " 都 422
     prompt: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -119,5 +126,6 @@ class BackgroundReplaceRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    image_model: ImageModelId
     source: ImageSource
     background: BackgroundSource

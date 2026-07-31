@@ -93,6 +93,14 @@ class _LLM(TextLLMPort):
             )
 
 
+class _Resolver:
+    def __init__(self, llm: TextLLMPort) -> None:
+        self.llm = llm
+
+    async def resolve_default(self) -> TextLLMPort:
+        return self.llm
+
+
 class _Uploads(UploadStore):
     def __init__(self, images: dict[str, tuple[bytes, str]]) -> None:
         self.images = images
@@ -159,7 +167,7 @@ def _service(
     query: _Query | None = None,
 ) -> ReversePromptService:
     return ReversePromptService(
-        text_llm=llm,
+        text_llm_resolver=_Resolver(llm),
         uploads=UploadService(uploads or _Uploads({})),
         images=images or _Images(),
         query=query or _Query(),
@@ -237,10 +245,8 @@ def test_reverse_uploaded_image_works_with_mock_text_provider() -> None:
     async def run() -> None:
         upload_id = f"{upload_ns('user-1')}/product.png"
         service = ReversePromptService(
-            text_llm=MockTextLLMProvider(),
-            uploads=UploadService(
-                _Uploads({upload_id: (_png(), "image/png")})
-            ),
+            text_llm_resolver=_Resolver(MockTextLLMProvider()),
+            uploads=UploadService(_Uploads({upload_id: (_png(), "image/png")})),
             images=_Images(),
             query=_Query(),
         )

@@ -247,6 +247,18 @@ class _Slots:
         return True
 
 
+class _ExecutorResolver:
+    def __init__(self, executor: _Executor) -> None:
+        self.executor = executor
+
+    async def resolve(
+        self, model_id: str, render_tier: RenderTier
+    ) -> _Executor:
+        assert model_id == "gpt-image-2"
+        assert render_tier is RenderTier.STANDARD
+        return self.executor
+
+
 def _worker(
     repository: _Repository,
     executor: _Executor,
@@ -259,7 +271,7 @@ def _worker(
     worker = GenerationWorker(
         repository=repository,
         broker=broker,
-        executor_for=lambda _model: executor,
+        executor_resolver=_ExecutorResolver(executor),
         materializer=_Materializer(),
         slots_for=lambda _model, _tier: slots,
         worker_id="worker-1",

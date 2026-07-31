@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from design_hub.domain.models import (
     ChatMessageRecord,
@@ -14,6 +15,10 @@ class ChatMessageRequest(BaseModel):
 
     session_id: str | None = None
     message: str
+    image_model: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1),
+    ]
     upload_ids: list[str] = Field(default_factory=list)  # 来自现有 POST /uploads（带图路径）
     edit_source_image_key: str | None = None
 
