@@ -40,10 +40,14 @@ def test_chat_knowledge_removes_stale_capability_claims() -> None:
         "登录一般不会中途掉线",
         "历史图和首页案例图都能看「配方」",
         "AI 一键消除/智能扩图（预告中未上线）",
+        "按张计入出图额度",
     ):
         assert stale not in knowledge
     for current in (
-        "按张计入出图额度",
+        "GPT Image 2.0",
+        "Wan 2.7 Image Pro",
+        "用户在创作页面选择要使用的模型",
+        "钱包与价格信息目前暂未公开",
         "仅商品套图任务支持一键复用",
         "当前工作台选择器暂未提供 4:3",
         "暂无专用按钮、画笔、蒙版",
@@ -57,7 +61,9 @@ def test_build_system_prompt_has_four_segments_and_embeds_knowledge() -> None:
     assert "你的身份" in p  # persona
     assert "平台知识库" in p and "KNOWLEDGE_MARKER_XYZ" in p  # 知识库段注入
     assert "出图工具契约" in p  # 工具契约
-    assert "守则" in p and "不编造" in p and "费用" in p  # 守则含不编造+费用铁律
+    assert "守则" in p and "不编造" in p and "用户选择的模型" in p
+    assert "用户确认" in p and "不收费" not in p
+    assert "不得讨论或编造价格、额度、钱包、充值与套餐" not in p
     assert "三环" in p  # 三环边界
 
 
