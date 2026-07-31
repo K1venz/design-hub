@@ -61,12 +61,49 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
             ),
         )
         await service.set_default(actor_id=7, name="active")
+
+        chat_plaintext = "chat-catalog-key"
+        chat_fingerprint = connection_fingerprint(
+            model_type=ModelType.CHAT,
+            provider_type=ProviderType.OPENAI_COMPAT_CHAT,
+            base_url="https://chat.example.test/v1",
+            upstream_model="upstream-chat",
+            extra={},
+            credentials_plaintext={"api_key": chat_plaintext},
+        )
+        await service.create(
+            actor_id=7,
+            name="chat-active",
+            display_name="Chat Active",
+            model_type=ModelType.CHAT,
+            provider_type=ProviderType.OPENAI_COMPAT_CHAT,
+            base_url="https://chat.example.test/v1",
+            model="upstream-chat",
+            credentials={"api_key": cipher.encrypt(chat_plaintext)},
+            unit_cost=Decimal("0.2"),
+            enabled=True,
+            extra={},
+            verification_proof=service.verifier.issue(
+                manager_id="7",
+                model_id="chat-active",
+                model_type=ModelType.CHAT,
+                fingerprint=chat_fingerprint,
+            ),
+        )
+        await service.set_default(actor_id=7, name="chat-active")
         return service, engine
 
     service, engine = asyncio.run(run())
     try:
-        assert asyncio.run(service.image_catalog()) == [
+        assert asyncio.run(service.catalog(ModelType.IMAGE)) == [
             {"id": "active", "display_name": "Active", "is_default": True}
+        ]
+        assert asyncio.run(service.catalog(ModelType.CHAT)) == [
+            {
+                "id": "chat-active",
+                "display_name": "Chat Active",
+                "is_default": True,
+            }
         ]
         app = FastAPI()
         register_error_handlers(app)
@@ -83,5 +120,18 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         assert "unit_cost" not in response.text
         assert "base_url" not in response.text
         assert "catalog-key" not in response.text
+
+        chat_response = client.get("/models/chat")
+        assert chat_response.status_code == 200
+        assert chat_response.json() == [
+            {
+                "id": "chat-active",
+                "display_name": "Chat Active",
+                "is_default": True,
+            }
+        ]
+        assert "unit_cost" not in chat_response.text
+        assert "base_url" not in chat_response.text
+        assert "chat-catalog-key" not in chat_response.text
     finally:
         asyncio.run(engine.dispose())

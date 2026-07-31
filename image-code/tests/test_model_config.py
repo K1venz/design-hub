@@ -284,7 +284,7 @@ def test_disabling_the_active_default_is_rejected() -> None:
             await service.set_default(actor_id=ACTOR_ID, name="gpt-image")
             with pytest.raises(DomainError, match="active default"):
                 await service.update(actor_id=ACTOR_ID, name="gpt-image", enabled=False)
-            catalog = await service.image_catalog()
+            catalog = await service.catalog(ModelType.IMAGE)
             assert catalog == [{"id": "gpt-image", "display_name": "GPT Image", "is_default": True}]
         finally:
             await engine.dispose()
