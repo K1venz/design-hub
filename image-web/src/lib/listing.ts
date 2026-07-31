@@ -147,6 +147,7 @@ export function buildModifiers(config: ListingConfig): string {
 export type UploadedImage = Schemas['UploadResponse']
 
 export interface ListingGenerateInput {
+  imageModel: string
   uploadIds: string[]
   prompt: string
   ratio: string
@@ -163,6 +164,7 @@ export const LISTING_CATEGORY: Category = DEFAULT_CATEGORY
 
 export function buildListingBody(input: ListingGenerateInput): ListingGenerateBody {
   return {
+    image_model: input.imageModel,
     upload_ids: input.uploadIds,
     prompt: input.prompt,
     ratio: input.ratio,
@@ -174,6 +176,7 @@ export function buildListingBody(input: ListingGenerateInput): ListingGenerateBo
 
 // ── 套图请求（plan 流；与单图共用 ListingGenerateRequest，n/plan 互斥由后端 400 兜底）──
 export interface ListingSetGenerateInput {
+  imageModel: string
   uploadIds: string[]
   prompt: string
   ratio: string
@@ -185,6 +188,7 @@ export interface ListingSetGenerateInput {
 
 export function buildSetListingBody(input: ListingSetGenerateInput): ListingGenerateBody {
   const body: ListingGenerateBody = {
+    image_model: input.imageModel,
     upload_ids: input.uploadIds,
     prompt: input.prompt,
     ratio: input.ratio,
@@ -200,6 +204,7 @@ export function buildSetListingBody(input: ListingSetGenerateInput): ListingGene
 
 // ── 复刻请求（POST /listing/clone，schema 派生）──────────
 export interface CloneGenerateInput {
+  imageModel: string
   productUploadIds: string[] // ==1
   referenceUploadIds: string[] // 1..2
   cloneMode: CloneModeKey
@@ -213,6 +218,7 @@ export type CloneGenerateBody = Schemas['CloneRequest']
 
 export function buildCloneBody(input: CloneGenerateInput): CloneGenerateBody {
   return {
+    image_model: input.imageModel,
     product_upload_ids: input.productUploadIds,
     reference_upload_ids: input.referenceUploadIds,
     clone_mode: input.cloneMode,
@@ -226,6 +232,7 @@ export function buildCloneBody(input: CloneGenerateInput): CloneGenerateBody {
 
 // ── 编辑请求（POST /listing/edit，终契约 #657/#659）──────────
 export interface EditGenerateInput {
+  imageModel: string
   /** 源图稳定 handle（image_key，内容寻址 sha；owner/parent 链由服务端反解）。 */
   sourceImageKey: string
   editMode: EditModeKey
@@ -240,6 +247,7 @@ export type EditGenerateBody = Schemas['EditRequest']
 
 export function buildEditBody(input: EditGenerateInput): EditGenerateBody {
   const body: EditGenerateBody = {
+    image_model: input.imageModel,
     source_image_key: input.sourceImageKey,
     edit_mode: input.editMode,
     prompt: input.prompt.trim(),
@@ -259,7 +267,7 @@ export const LISTING_EVENT_TYPES = [
 export type ListingEvent =
   | { kind: 'image'; url: string; seed?: number; imageType?: string }
   | { kind: 'image_failed'; imageType?: string; error: string }
-  | { kind: 'completed'; totalCost?: string }
+  | { kind: 'completed' }
   | { kind: 'failed'; error: string }
   | { kind: 'meta' } // task_started / model_called — nothing to render
   | { kind: 'unknown' }
@@ -287,7 +295,7 @@ export function parseListingEvent(type: string, rawData: string): ListingEvent {
         error: String(d.error ?? '该张生成失败'),
       }
     case 'task_completed':
-      return { kind: 'completed', totalCost: d.total_cost == null ? undefined : String(d.total_cost) }
+      return { kind: 'completed' }
     case 'task_failed':
       return { kind: 'failed', error: String(d.error ?? '出图失败') }
     case 'task_started':
@@ -296,12 +304,6 @@ export function parseListingEvent(type: string, rawData: string): ListingEvent {
     default:
       return { kind: 'unknown' }
   }
-}
-
-/** 普通 gpt-image-2 固定单价 ¥0.05/张。CTA 估算用，完成后显示真实 total_cost。 */
-export const LISTING_UNIT_COST = 0.05
-export function estimateCost(n: number): number {
-  return n * LISTING_UNIT_COST
 }
 
 // ── listing 历史（ISSUE-0030）──────────────────────────────
@@ -337,6 +339,7 @@ export interface ResultSlotLike {
   imageType?: string
   error?: string
   imageKey?: string
+  unavailable?: boolean
 }
 
 export function mergeSlotsWithDetail<T extends ResultSlotLike>(
@@ -359,7 +362,19 @@ export function mergeSlotsWithDetail<T extends ResultSlotLike>(
     const img = buckets.get(k)?.[i]
     if (!img) return s
     cursor.set(k, i + 1)
-    return { ...s, url: img.url, imageKey: img.image_key }
+    if (!img.available || !img.url) {
+      return {
+        ...s,
+        url: null,
+        imageKey: undefined,
+        unavailable: true,
+      }
+    }
+    return {
+      ...s,
+      url: img.url,
+      imageKey: img.image_key,
+    }
   })
 }
 
@@ -368,11 +383,6 @@ export function fmtListingTime(s: string): string {
   const d = new Date(s)
   return Number.isNaN(d.getTime()) ? s : d.toLocaleString('zh-CN', { hour12: false })
 }
-export function fmtListingCost(c: string | number): string {
-  const n = Number(c)
-  return Number.isNaN(n) ? String(c) : `¥${n.toFixed(2)}`
-}
-
 /** GET /listing/jobs/{id} 详情。 */
 export type ListingJobDetail = Schemas['ListingJobDetailOut']
 
@@ -388,7 +398,17 @@ export function detailToResultSlots(detail: ListingJobDetail): ResultSlotLike[] 
   if (detail.images.length > 0) {
     return detail.images.map((im) =>
       im.status === IMAGE_SUCCESS_STATUS
-        ? { url: im.url, imageType: im.image_type ?? undefined, imageKey: im.image_key }
+        ? im.available && im.url
+          ? {
+              url: im.url,
+              imageType: im.image_type ?? undefined,
+              imageKey: im.image_key,
+            }
+          : {
+              url: null,
+              imageType: im.image_type ?? undefined,
+              unavailable: true,
+            }
         : { url: null, imageType: im.image_type ?? undefined, error: detail.error ?? '生成失败' },
     )
   }

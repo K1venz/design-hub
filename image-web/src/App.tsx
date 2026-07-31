@@ -6,13 +6,21 @@ import { toast } from 'sonner'
 import { useMe } from '@/api/auth'
 import { UNAUTHORIZED_EVENT } from '@/api/client'
 import { queryClient } from '@/api/query-client'
+import { AdminLayout } from '@/components/admin/AdminLayout'
 import { FullPageLoader } from '@/components/feedback/FullPageLoader'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout'
+import { ImageModelGate } from '@/components/models/ImageModelGate'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
+import { AdminOverviewPage } from '@/pages/AdminOverviewPage'
+import { AdminRuntimeLogsPage } from '@/pages/AdminRuntimeLogsPage'
 import { AdminUsersPage } from '@/pages/AdminUsersPage'
+import { AdminAuditPage } from '@/pages/AdminAuditPage'
+import { AdminGenerationDetailPage } from '@/pages/AdminGenerationDetailPage'
+import { AdminGenerationsPage } from '@/pages/AdminGenerationsPage'
+import { AdminUsagePage } from '@/pages/AdminUsagePage'
 import { BackgroundWorkbenchPage } from '@/pages/BackgroundWorkbenchPage'
 import { ChatPage } from '@/pages/ChatPage'
 import { CloneWorkbenchPage } from '@/pages/CloneWorkbenchPage'
@@ -132,8 +140,21 @@ function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         {/* 帮我设计（登录内测，自带 AppShell） */}
-        <Route path="chat" element={<ChatPage />} />
-        <Route element={<WorkbenchLayout />}>
+        <Route
+          path="chat"
+          element={
+            <ImageModelGate>
+              <ChatPage />
+            </ImageModelGate>
+          }
+        />
+        <Route
+          element={
+            <ImageModelGate>
+              <WorkbenchLayout />
+            </ImageModelGate>
+          }
+        >
           <Route path="set" element={<WorkbenchPage />} />
           <Route path="clone" element={<CloneWorkbenchPage />} />
           <Route path="background" element={<BackgroundWorkbenchPage />} />
@@ -142,22 +163,26 @@ function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route path="history" element={<HistoryPage />} />
           <Route path="history/:jobId" element={<HistoryDetailPage />} />
+        </Route>
+        <Route
+          path="admin"
+          element={
+            <RoleRoute allow={[ROLE_MANAGER]}>
+              <AdminLayout />
+            </RoleRoute>
+          }
+        >
+          <Route index element={<AdminOverviewPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="generations" element={<AdminGenerationsPage />} />
           <Route
-            path="admin/models"
-            element={
-              <RoleRoute allow={[ROLE_MANAGER]}>
-                <AdminModelsPage />
-              </RoleRoute>
-            }
+            path="generations/:jobId"
+            element={<AdminGenerationDetailPage />}
           />
-          <Route
-            path="admin/users"
-            element={
-              <RoleRoute allow={[ROLE_MANAGER]}>
-                <AdminUsersPage />
-              </RoleRoute>
-            }
-          />
+          <Route path="usage" element={<AdminUsagePage />} />
+          <Route path="models" element={<AdminModelsPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
+          <Route path="logs" element={<AdminRuntimeLogsPage />} />
         </Route>
       </Route>
       {import.meta.env.DEV && (

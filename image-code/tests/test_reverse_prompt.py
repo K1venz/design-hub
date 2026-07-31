@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from io import BytesIO
 
@@ -14,6 +15,7 @@ from design_hub.application.image_prompts.reverse_prompt import (
     ReversePromptService,
 )
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import AuthUser
@@ -26,6 +28,7 @@ from design_hub.ports.listing_query import (
     GeneratedImageSource,
     ListingHistoryQuery,
 )
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.text_llm import (
     ChatMessage,
     LLMChunk,
@@ -65,15 +68,18 @@ class _LLM(TextLLMPort):
 
     def __init__(self, arguments: dict | None = _RESULT) -> None:
         self.arguments = arguments
+        self.context: ModelCallContext | None = None
         self.messages: list[ChatMessage] = []
         self.tools: list[ToolSpec] = []
 
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         messages: list[ChatMessage],
         tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        self.context = context
         self.messages = messages
         self.tools = tools
         if self.arguments is not None:
@@ -86,6 +92,14 @@ class _LLM(TextLLMPort):
                     ),
                 )
             )
+
+
+class _Resolver:
+    def __init__(self, llm: TextLLMPort) -> None:
+        self.llm = llm
+
+    async def resolve_default(self) -> TextLLMPort:
+        return self.llm
 
 
 class _Uploads(UploadStore):
@@ -154,7 +168,7 @@ def _service(
     query: _Query | None = None,
 ) -> ReversePromptService:
     return ReversePromptService(
-        text_llm=llm,
+        text_llm_resolver=_Resolver(llm),
         uploads=UploadService(uploads or _Uploads({})),
         images=images or _Images(),
         query=query or _Query(),
@@ -194,7 +208,11 @@ def test_reverse_prompt_request_is_strict_and_reuses_image_source_contract() -> 
         )
 
 
-def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema() -> None:
+def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema(
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+
     async def run() -> None:
         upload_id = f"{upload_ns('user-1')}/product.png"
         uploads = _Uploads({upload_id: (_png(), "image/png")})
@@ -220,18 +238,28 @@ def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema() -> No
         assert llm.tools[0].required is True
         assert llm.messages[-1].images[0].data == _png()
         assert llm.messages[-1].images[0].media_type == "image/png"
+        assert llm.context == ModelCallContext(
+            user_id="user-1",
+            operation=ModelOperation.REVERSE_PROMPT,
+        )
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "reverse_prompt_completed"
+    )
+    assert record.levelno == logging.INFO
+    assert record.chain == "reverse_prompt"
+    assert record.action == "完成图片提示词反推"
 
 
 def test_reverse_uploaded_image_works_with_mock_text_provider() -> None:
     async def run() -> None:
         upload_id = f"{upload_ns('user-1')}/product.png"
         service = ReversePromptService(
-            text_llm=MockTextLLMProvider(),
-            uploads=UploadService(
-                _Uploads({upload_id: (_png(), "image/png")})
-            ),
+            text_llm_resolver=_Resolver(MockTextLLMProvider()),
+            uploads=UploadService(_Uploads({upload_id: (_png(), "image/png")})),
             images=_Images(),
             query=_Query(),
         )
@@ -378,7 +406,10 @@ def test_reverse_generated_image_checks_owner_before_loading_bytes() -> None:
 )
 def test_reverse_prompt_rejects_missing_or_invalid_tool_output(
     arguments: dict | None,
+    caplog,
 ) -> None:
+    caplog.set_level(logging.INFO)
+
     async def run() -> None:
         upload_id = f"{upload_ns('user-1')}/product.png"
         service = _service(
@@ -400,3 +431,10 @@ def test_reverse_prompt_rejects_missing_or_invalid_tool_output(
             )
 
     asyncio.run(run())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "reverse_prompt_failed"
+    )
+    assert record.levelno == logging.ERROR
+    assert record.chain == "reverse_prompt"

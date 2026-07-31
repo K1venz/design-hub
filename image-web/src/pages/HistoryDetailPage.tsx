@@ -7,7 +7,7 @@ import { RecipeDrawer } from '@/components/listing/RecipeDrawer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { downloadImage } from '@/lib/download'
 import {
-  IMAGE_SUCCESS_STATUS, IMAGE_TYPE_FIELDS, editModeLabel, fmtListingTime, fmtListingCost,
+  IMAGE_SUCCESS_STATUS, IMAGE_TYPE_FIELDS, editModeLabel, fmtListingTime,
   type ListingJobImage,
 } from '@/lib/listing'
 
@@ -58,11 +58,7 @@ export function HistoryDetailPage() {
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-wb-ink-6">
               <span>尺寸 {d.size}</span>
               <span>张数 {d.n}</span>
-              <span>成本 {fmtListingCost(d.total_cost)}</span>
-              {d.parent_job_id && d.chain_cost && (
-                // 链累计=根计源张单张 cost（R5）：这条线的账，不含根整单无关张
-                <span>迭代链累计 {fmtListingCost(d.chain_cost)}</span>
-              )}
+              <span className="font-mono">模型 {d.model_id ?? '未记录'}</span>
               <span>{fmtListingTime(d.created_at)}</span>
               {Object.entries(d.modifiers).map(([k, v]) => (
                 <span key={k}>{v}</span>
@@ -184,22 +180,45 @@ function ImageGrid({
           key={i}
           className="group relative aspect-square overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-10px_rgba(40,40,90,.12)] transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(40,40,90,.22)]"
         >
-          <img src={img.url} alt="" loading="lazy" className="size-full object-cover" />
-          {img.status === IMAGE_SUCCESS_STATUS && (
-            // 仅成功张可作编辑源（失败张无入口 + 后端 404 双层，Q-δ）
-            <Link
-              to={`/edit/${jobId}/${img.image_key}`}
-              className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-            >
-              <SquarePenIcon className="mr-1 inline size-3.5" /> 基于此图再编辑
-            </Link>
+          {img.available && img.url ? (
+            <>
+              <img
+                src={img.url}
+                alt=""
+                loading="lazy"
+                className="size-full object-cover"
+              />
+              {img.status === IMAGE_SUCCESS_STATUS ? (
+                <Link
+                  to={`/edit/${jobId}/${img.image_key}`}
+                  className="absolute bottom-2.5 left-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <SquarePenIcon className="mr-1 inline size-3.5" />{' '}
+                  基于此图再编辑
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  if (img.url) {
+                    void downloadImage(
+                      img.url,
+                      `${namePrefix}-${i + 1}.png`,
+                    )
+                  }
+                }}
+                className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <DownloadIcon className="mr-1 inline size-3.5" /> 下载
+              </button>
+            </>
+          ) : (
+            <div className="grid size-full place-items-center bg-wb-surface-3 p-4 text-center text-[12.5px] text-wb-ink-6">
+              {img.status === IMAGE_SUCCESS_STATUS
+                ? '该图片暂不可用'
+                : '生成失败'}
+            </div>
           )}
-          <button
-            onClick={() => downloadImage(img.url, `${namePrefix}-${i + 1}.png`)}
-            className="absolute bottom-2.5 right-2.5 rounded-[10px] bg-wb-ink-2/90 px-3 py-1.5 text-[12.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-          >
-            <DownloadIcon className="mr-1 inline size-3.5" /> 下载
-          </button>
         </div>
       ))}
     </div>

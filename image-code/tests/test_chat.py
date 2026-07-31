@@ -1,6 +1,7 @@
 """「帮我设计」方案 C 对话编排 + 持久化单测（ISSUE-0048 chat 测试债 + ISSUE-0051 持久化）。
 
-覆盖：ChatOrchestrator 事件序 / 费用闸(cost_confirm 暂停不出图) / confirm 启 job+job_event 转发 /
+覆盖：ChatOrchestrator 事件序 / generation_confirm 暂停不出图 /
+confirm 启 job+job_event 转发 /
 confirm_token 一次性·跨用户·cancel·过期 / 会话级闸(DB 派生) / 占位 ratio→转澄清 / 澄清轮无工具;
 ListingSubmissionService.validate 纯校验; PendingStore token 语义; ChatSessionRepository 持久化(刷新
 不丢/owner 404/CASCADE 删/job_count) + 转录落库(user 消息+assistant 答复+job_id,过程态不落)。
@@ -10,15 +11,19 @@ ListingSubmissionService.validate 纯校验; PendingStore token 语义; ChatSess
 """
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from decimal import Decimal
 from io import BytesIO
 
 import pytest
 from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from design_hub.interface.chat_schemas import ChatMessageRequest
 
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
@@ -48,14 +53,13 @@ from design_hub.application.listing.submission_service import (
 )
 from design_hub.application.listing.task_planner import ListingTaskPlanner
 from design_hub.application.listing.upload_service import UploadService
-from design_hub.application.registry import ProviderRegistry
 from design_hub.application.tasking.health import (
     QueueAdmissionController,
     QueueSnapshot,
     RedisHealthState,
 )
-from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import ModelName, Role, TaskEventType
+from design_hub.domain.admin import ModelOperation
+from design_hub.domain.enums import ModelType, ProviderType, Role, TaskEventType
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import (
     AuthUser,
@@ -63,6 +67,7 @@ from design_hub.domain.models import (
     ListingJobImage,
     TaskEvent,
 )
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.chat_repo import SqlAlchemyChatSessionRepository
 from design_hub.infrastructure.db.listing_history_repo import SqlAlchemyListingHistory
@@ -74,6 +79,7 @@ from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import ReplayableEvent
 from design_hub.ports.generation_work import JobSubmission, SubmitResult
 from design_hub.ports.ledger import LedgerRepository
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 from design_hub.ports.text_llm import (
     ChatMessage,
@@ -97,13 +103,9 @@ class _FakeLedger(LedgerRepository):
     async def snapshot(self, user_id: str) -> BudgetSnapshot:
         return BudgetSnapshot(Decimal(0), Decimal(1000), Decimal(0), Decimal(100000))
 
-    async def reserve(
-        self, user_id: str, amount: Decimal, *, operation_id: str
-    ) -> None: ...
+    async def reserve(self, user_id: str, amount: Decimal, *, operation_id: str) -> None: ...
 
-    async def rollback(
-        self, user_id: str, amount: Decimal, *, operation_id: str
-    ) -> None: ...
+    async def rollback(self, user_id: str, amount: Decimal, *, operation_id: str) -> None: ...
 
 
 class _FakeModelConfig(ModelConfigRepository):
@@ -116,33 +118,15 @@ class _FakeModelConfig(ModelConfigRepository):
         four_k_cost: Decimal = Decimal("0.18"),
         include_four_k: bool = True,
     ) -> None:
+        del four_k_enabled, four_k_cost, include_four_k
         self._c = [
-            ModelConfigRecord(
-                "gpt-image-2",
-                standard_cost,
-                enabled=standard_enabled,
-                extra={},
-            ),
-            ModelConfigRecord("seedream-5", Decimal("0.20"), enabled=False, extra={}),
+            _model_record("gpt-image-2", standard_cost, standard_enabled),
+            _model_record("seedream-5", Decimal("0.20"), True),
         ]
-        if include_four_k:
-            self._c.append(
-                ModelConfigRecord(
-                    "gpt-image-2-4k",
-                    four_k_cost,
-                    enabled=four_k_enabled,
-                    extra={},
-                )
-            )
 
     def set_enabled(self, name: str, enabled: bool) -> None:
         current = next(config for config in self._c if config.name == name)
-        self._c[self._c.index(current)] = ModelConfigRecord(
-            current.name,
-            current.unit_cost,
-            enabled=enabled,
-            extra=current.extra,
-        )
+        self._c[self._c.index(current)] = replace(current, enabled=enabled)
 
     async def list_all(self) -> list[ModelConfigRecord]:
         return list(self._c)
@@ -150,20 +134,42 @@ class _FakeModelConfig(ModelConfigRepository):
     async def get(self, name: str) -> ModelConfigRecord | None:
         return next((c for c in self._c if c.name == name), None)
 
-    async def update(self, name, **kw):  # type: ignore[no-untyped-def]
+    async def get_default(self, model_type: ModelType) -> str | None:
+        del model_type
+        return None
+
+    async def update(self, *, actor_id, record):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
-    async def create(self, record):  # type: ignore[no-untyped-def]
+    async def create(self, *, actor_id, record):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
-    async def delete(self, name) -> None:  # type: ignore[no-untyped-def]
+    async def delete(self, *, actor_id, name) -> None:  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
-    async def set_default(self, name):  # type: ignore[no-untyped-def]
+    async def set_default(self, *, actor_id, name):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
     async def seed_defaults(self, defaults) -> None:  # type: ignore[no-untyped-def]
         raise NotImplementedError
+
+
+def _model_record(name: str, unit_cost: Decimal, enabled: bool) -> ModelConfigRecord:
+    return ModelConfigRecord(
+        name=name,
+        display_name=name,
+        model_type=ModelType.IMAGE,
+        provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+        base_url="https://unused.example.test/v1",
+        model=name,
+        credentials_ciphertext={"standard_api_keys": ["test-ciphertext"]},
+        unit_cost=unit_cost,
+        enabled=enabled,
+        revision=1,
+        verified_at=datetime.now(UTC),
+        verified_fingerprint="verified",
+        extra={},
+    )
 
 
 class _NeverSubmitRepository:
@@ -210,6 +216,7 @@ class _FakeSubmission:
         query: SqlAlchemyListingHistoryQuery,
         events: _ReplayEvents,
         uploads: UploadService,
+        model_configs: _FakeModelConfig,
     ) -> None:
         health = RedisHealthState(stale_after_seconds=60)
         health.mark_healthy(now=0)
@@ -225,6 +232,7 @@ class _FakeSubmission:
                 confirm_wait_seconds=900,
                 hard_depth=2000,
             ),
+            model_configs=model_configs,
             clock=lambda: 0,
         )
         self._planner = planner
@@ -232,16 +240,16 @@ class _FakeSubmission:
         self._query = query
         self._events = events
         self._uploads = uploads
-        self.calls: list[ModelName] = []
+        self.calls: list[str] = []
 
     def validate(
         self,
         user_id: str,
         request: ListingGenerateRequest | CloneRequest | EditRequest,
         *,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> None:
-        self._validator.validate(user_id, request, model=model)
+        self._validator.validate(user_id, request, render_tier=render_tier)
 
     async def submit_generate(
         self,
@@ -251,7 +259,7 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         submission = self._planner.plan_generate(
             user_id=user_id,
@@ -260,9 +268,11 @@ class _FakeSubmission:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=request.image_model,
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         )
-        return await self._complete(submission, model)
+        return await self._complete(submission, request.image_model)
 
     async def submit_clone(
         self,
@@ -272,7 +282,7 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         submission = self._planner.plan_clone(
             user_id=user_id,
@@ -281,9 +291,11 @@ class _FakeSubmission:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=request.image_model,
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         )
-        return await self._complete(submission, model)
+        return await self._complete(submission, request.image_model)
 
     async def submit_edit(
         self,
@@ -293,7 +305,7 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         source = await self._query.resolve_generated_image_source(
             source_image_key=request.source_image_key,
@@ -309,9 +321,11 @@ class _FakeSubmission:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=request.image_model,
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         )
-        return await self._complete(submission, model)
+        return await self._complete(submission, request.image_model)
 
     async def validate_background_replace(
         self,
@@ -332,12 +346,10 @@ class _FakeSubmission:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        render_tier: RenderTier = RenderTier.STANDARD,
     ) -> SubmissionReceipt:
         if request.source.kind == "upload":
-            data, _content_type = await self._uploads.load(
-                request.source.upload_id
-            )
+            data, _content_type = await self._uploads.load(request.source.upload_id)
             source = None
             ratio = closest_supported_ratio(data)
         else:
@@ -357,14 +369,16 @@ class _FakeSubmission:
             idempotency_key=idempotency_key,
             trace_id=trace_id,
             request_id=request_id,
-            model=model,
+            model_id=request.image_model,
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
         )
-        return await self._complete(submission, model)
+        return await self._complete(submission, request.image_model)
 
     async def _complete(
         self,
         submission: JobSubmission,
-        model: ModelName,
+        model: str,
     ) -> SubmissionReceipt:
         self.calls.append(model)
         await self._history.start(submission.job)
@@ -424,10 +438,16 @@ class StubTextLLM(TextLLMPort):
     def __init__(self, *turns: tuple[str, tuple[ToolCall, ...]]) -> None:
         self._turns = list(turns)
         self._i = 0
+        self.contexts: list[ModelCallContext] = []
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        self.contexts.append(context)
         if not tools:  # 收尾轮
             yield TextChunk("已完成，可在结果区查看。")
             return
@@ -462,9 +482,11 @@ class _ReverseTextLLM(TextLLMPort):
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         messages: list[ChatMessage],
         tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         yield ToolCallChunk(
             (
                 ToolCall(
@@ -483,8 +505,13 @@ class ChunkedTextLLM(TextLLMPort):
         self._chunks = chunks
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         for chunk in self._chunks:
             yield TextChunk(chunk)
 
@@ -496,8 +523,13 @@ class CapturingTextLLM(TextLLMPort):
         self.messages: list[ChatMessage] = []
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         self.messages = messages
         yield TextChunk("请确认设计要求。")
 
@@ -506,8 +538,13 @@ class LateFailingTextLLM(TextLLMPort):
     is_live = False
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
+        del context
         yield TextChunk("已收到，")
         yield TextChunk("正在处理")
         raise TextLLMError("文本服务暂时不可用")
@@ -610,6 +647,7 @@ def test_chat_generate_converts_to_category_free_listing_request() -> None:
             "ratio": "1:1",
             "n": 1,
         },
+        "gpt-image-2",
     )
     assert isinstance(req, ListingGenerateRequest)
     assert req.category is None
@@ -626,6 +664,7 @@ def test_chat_generate_rejects_category_argument() -> None:
                 "n": 1,
                 "category": "FOOD",
             },
+            "gpt-image-2",
         )
 
 
@@ -637,15 +676,11 @@ def test_logo_request_uses_enhanced_prompt_without_category_clarification(tmp_pa
             "以用户上传图为主体，设计简洁现代的 Logo 视觉；保持原图已有文字与标识不变，"
             "主体居中，留白充足，使用清晰矢量感边缘，不新增品牌名或宣传文案。"
         )
-        orch = inf.orch(
-            StubTextLLM(("正在完善设计要求", _gen_tc(uid, n=1, prompt=enhanced)))
-        )
+        orch = inf.orch(StubTextLLM(("正在完善设计要求", _gen_tc(uid, n=1, prompt=enhanced))))
 
-        events = await _drain(
-            orch.handle_message(USER, None, "帮我做一个简洁现代的 Logo", [uid])
-        )
+        events = await _drain(orch.handle_message(USER, None, "帮我做一个简洁现代的 Logo", [uid]))
 
-        confirm = _first(events, "cost_confirm")
+        confirm = _first(events, "generation_confirm")
         assert confirm["args"]["prompt"] == enhanced
         assert "category" not in confirm["args"]
         assert not any(
@@ -661,29 +696,64 @@ def test_logo_request_uses_enhanced_prompt_without_category_clarification(tmp_pa
 class Infra:
     submission: _FakeSubmission
     uploads: UploadService
-    registry: ProviderRegistry
     events: _ReplayEvents
     chat_repo: ChatSessionRepository
     pending: PendingStore
     query: SqlAlchemyListingHistoryQuery
-    ledger: LedgerRepository
     model_config: _FakeModelConfig
     max_session_jobs: int
     reverse_prompt: ReversePromptService
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
-        return ChatOrchestrator(
-            text_llm=text_llm,
+        return _TestChatOrchestrator(
+            text_llm_resolver=_TextResolver(text_llm),
             submission=self.submission,  # type: ignore[arg-type]
             event_stream=self.events,
             uploads=self.uploads,
-            registry=self.registry,
             chat_repo=self.chat_repo,
             pending=self.pending,
-            query=self.query, ledger=self.ledger, model_config=self.model_config,
+            query=self.query,
+            model_config=self.model_config,
             max_session_jobs=self.max_session_jobs,
             reverse_prompt=self.reverse_prompt,
         )
+
+
+@dataclass(frozen=True)
+class _TextResolver:
+    text_llm: TextLLMPort
+    requested_model_ids: list[str] = field(default_factory=list)
+
+    async def resolve(self, model_id: str) -> TextLLMPort:
+        self.requested_model_ids.append(model_id)
+        return self.text_llm
+
+    async def resolve_default(self) -> TextLLMPort:
+        return self.text_llm
+
+
+class _TestChatOrchestrator(ChatOrchestrator):
+    async def handle_message(
+        self,
+        user: AuthUser,
+        session_id: str | None,
+        message: str,
+        upload_ids: list[str],
+        *,
+        chat_model: str = "doubao-chat",
+        image_model: str = "gpt-image-2",
+        edit_source_image_key: str | None = None,
+    ) -> AsyncIterator:
+        async for event in super().handle_message(
+            user,
+            session_id,
+            message,
+            upload_ids,
+            chat_model=chat_model,
+            image_model=image_model,
+            edit_source_image_key=edit_source_image_key,
+        ):
+            yield event
 
 
 async def _infra(
@@ -700,45 +770,45 @@ async def _infra(
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     sf = async_sessionmaker(engine, expire_on_commit=False)
-    registry = build_mock_registry(
-        {
-            ModelName.GPT_IMAGE_2: Decimal("0.0500"),
-            ModelName.GPT_IMAGE_2_4K: Decimal("0.1800"),
-        }
-    )
     planner = ListingTaskPlanner(
-        registry=registry,
-        modifier_registry=PromptModifierRegistry(), card_registry=CategoryCardRegistry(),
-        type_registry=ImageTypeRegistry(), clone_registry=CloneModeRegistry(),
+        modifier_registry=PromptModifierRegistry(),
+        card_registry=CategoryCardRegistry(),
+        type_registry=ImageTypeRegistry(),
+        clone_registry=CloneModeRegistry(),
         edit_registry=EditModeRegistry(),
     )
     events = _ReplayEvents()
     uploads = UploadService(store=LocalUploadStore(tmp))
     query = SqlAlchemyListingHistoryQuery(sf)
-    ledger = _FakeLedger()
+    model_config = _FakeModelConfig(
+        standard_enabled=standard_enabled,
+        four_k_enabled=four_k_enabled,
+        standard_cost=standard_cost,
+        four_k_cost=four_k_cost,
+        include_four_k=include_four_k,
+    )
     submission = _FakeSubmission(
         planner=planner,
         history=SqlAlchemyListingHistory(sf),
         query=query,
         events=events,
         uploads=uploads,
+        model_configs=model_config,
     )
     reverse_prompt = ReversePromptService(
-        text_llm=_ReverseTextLLM(),
+        text_llm_resolver=_TextResolver(_ReverseTextLLM()),
         uploads=uploads,
         images=LocalImageStore(tmp),
         query=query,
     )
     return Infra(
-        submission, uploads, registry, events, SqlAlchemyChatSessionRepository(sf),
-        PendingStore(), query, ledger,
-        _FakeModelConfig(
-            standard_enabled=standard_enabled,
-            four_k_enabled=four_k_enabled,
-            standard_cost=standard_cost,
-            four_k_cost=four_k_cost,
-            include_four_k=include_four_k,
-        ),
+        submission,
+        uploads,
+        events,
+        SqlAlchemyChatSessionRepository(sf),
+        PendingStore(),
+        query,
+        model_config,
         max_session_jobs,
         reverse_prompt,
     )
@@ -759,7 +829,53 @@ def _first(events: list[tuple[str, dict]], type_: str) -> dict:
 # ── ChatOrchestrator 事件序 + 费用闸 ──────────────────────────────────────────
 
 
-def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> None:
+def test_chat_message_request_requires_selected_text_model() -> None:
+    with pytest.raises(ValueError):
+        ChatMessageRequest(
+            message="帮我设计",
+            image_model="gpt-image-2",
+        )
+
+
+def test_selected_text_model_is_retained_for_confirmation(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        resolver = orch.text_llm_resolver
+
+        planned = await _drain(
+            orch.handle_message(
+                USER,
+                None,
+                "出一张",
+                [uid],
+                chat_model="deepseek-v4-flash",
+                image_model="gpt-image-2",
+            )
+        )
+        session_id = _first(planned, "session")["session_id"]
+        pending = inf.pending._pending[session_id]
+        assert pending.chat_model == "deepseek-v4-flash"
+        assert resolver.requested_model_ids == ["deepseek-v4-flash"]
+
+        await _drain(
+            orch.handle_confirm(
+                USER,
+                session_id,
+                pending.confirm_token,
+                "confirm",
+            )
+        )
+        assert resolver.requested_model_ids == [
+            "deepseek-v4-flash",
+            "deepseek-v4-flash",
+        ]
+
+    asyncio.run(_impl())
+
+
+def test_valid_tool_call_reaches_generation_confirm_without_generating(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
@@ -767,15 +883,17 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
         ev = await _drain(orch.handle_message(USER, None, "给我的花生出一套5张", [uid]))
         types = [t for t, _ in ev]
         assert types == [
-            "session", "step", "tool_call", "cost_confirm", "assistant_end",
+            "session",
+            "step",
+            "tool_call",
+            "generation_confirm",
+            "assistant_end",
         ]
         assert _first(ev, "tool_call")["tool"] == "generate"
-        cc = _first(ev, "cost_confirm")
+        cc = _first(ev, "generation_confirm")
         assert cc["count"] == 5
-        assert cc["unit_cost"] == "0.05"
-        assert cc["estimate_cny"] == "0.25"
         sid = _first(ev, "session")["session_id"]
-        assert inf.pending._pending[sid].model is ModelName.GPT_IMAGE_2
+        assert inf.pending._pending[sid].image_model == "gpt-image-2"
         assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
         # 费用闸：确认前 DB 无 job(未出图);user 消息已落、assistant 未落(答复留到 confirm)
         assert await inf.chat_repo.job_count(sid) == 0
@@ -785,7 +903,7 @@ def test_valid_tool_call_reaches_cost_confirm_without_generating(tmp_path) -> No
     asyncio.run(_impl())
 
 
-def test_background_replace_goes_directly_to_cost_confirmation(tmp_path) -> None:
+def test_background_replace_goes_directly_to_generation_confirmation(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         upload_id = await inf.uploads.save(
@@ -821,12 +939,9 @@ def test_background_replace_goes_directly_to_cost_confirmation(tmp_path) -> None
         )
 
         assert _first(planned, "tool_call")["tool"] == "replace_background"
-        confirmation = _first(planned, "cost_confirm")
+        confirmation = _first(planned, "generation_confirm")
         assert confirmation["count"] == 1
-        assert confirmation["unit_cost"] == "0.05"
-        assert confirmation["args"]["background"]["description"] == (
-            "明亮的现代咖啡店"
-        )
+        assert confirmation["args"]["background"]["description"] == ("明亮的现代咖啡店")
         session_id = _first(planned, "session")["session_id"]
         confirmed = await _drain(
             orchestrator.handle_confirm(
@@ -874,12 +989,10 @@ def test_reverse_prompt_returns_server_rendered_text_without_cost_gate(
         )
 
         types = [event_type for event_type, _data in events]
-        assert "cost_confirm" not in types
+        assert "generation_confirm" not in types
         assert "tool_call" not in types
         text = "".join(
-            data.get("text", "")
-            for event_type, data in events
-            if event_type == "assistant_delta"
+            data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
         )
         assert "中文提示词" in text
         assert _REVERSE_RESULT["prompt_zh"] in text
@@ -933,7 +1046,7 @@ def test_open_feature_emits_prefilled_action_card_without_submitting(
             "background_kind": "description",
             "background_description": "极简摄影棚",
         }
-        assert "cost_confirm" not in [event_type for event_type, _ in events]
+        assert "generation_confirm" not in [event_type for event_type, _ in events]
         assert inf.submission.calls == []
 
     asyncio.run(_impl())
@@ -950,16 +1063,14 @@ def test_4k_tool_call_uses_real_price_ratio_and_pending_model(tmp_path) -> None:
         )
 
         session_id = _first(events, "session")["session_id"]
-        confirm = _first(events, "cost_confirm")
-        assert confirm["unit_cost"] == "0.18"
-        assert confirm["estimate_cny"] == "0.18"
+        confirm = _first(events, "generation_confirm")
         assert confirm["args"]["ratio"] == "16:9"
-        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2_4K
+        assert inf.pending._pending[session_id].image_model == "gpt-image-2"
 
     asyncio.run(_impl())
 
 
-def test_national_style_4k_request_reaches_4k_cost_confirm_without_modifiers(
+def test_national_style_4k_request_reaches_4k_generation_confirm_without_modifiers(
     tmp_path,
 ) -> None:
     async def _impl() -> None:
@@ -972,36 +1083,10 @@ def test_national_style_4k_request_reaches_4k_cost_confirm_without_modifiers(
             ).handle_message(USER, None, "我要生成 4K 图，国风风格的", [uid])
         )
 
-        confirm = _first(events, "cost_confirm")
-        assert confirm["unit_cost"] == "0.18"
+        confirm = _first(events, "generation_confirm")
         assert confirm["args"]["ratio"] == "16:9"
         assert confirm["args"]["prompt"] == prompt
         assert "modifiers" not in confirm["args"]
-
-    asyncio.run(_impl())
-
-
-def test_chat_cost_confirm_ignores_stale_database_prices(tmp_path) -> None:
-    async def _impl() -> None:
-        inf = await _infra(
-            str(tmp_path),
-            standard_cost=Decimal("0.40"),
-            four_k_cost=Decimal("0.40"),
-        )
-        uid = await _stage(inf)
-        standard = await _drain(
-            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
-                USER, None, "生成普通主图", [uid]
-            )
-        )
-        four_k = await _drain(
-            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
-                USER, None, "生成 4K 主图", [uid]
-            )
-        )
-
-        assert _first(standard, "cost_confirm")["unit_cost"] == "0.05"
-        assert _first(four_k, "cost_confirm")["unit_cost"] == "0.18"
 
     asyncio.run(_impl())
 
@@ -1012,24 +1097,18 @@ def test_4k_conflicting_ratio_stops_before_cost_pending_or_job(tmp_path) -> None
         uid = await _stage(inf)
         events = await _drain(
             inf.orch(
-                StubTextLLM(
-                    ("好的，我来帮你出图。", _gen_tc(uid, ratio="4:3", n=1))
-                )
+                StubTextLLM(("好的，我来帮你出图。", _gen_tc(uid, ratio="4:3", n=1)))
             ).handle_message(USER, None, "生成 4K，比例 4:3", [uid])
         )
 
         session_id = _first(events, "session")["session_id"]
         event_types = [event_type for event_type, _data in events]
-        assert [
-            data["text"]
-            for event_type, data in events
-            if event_type == "assistant_delta"
-        ] == [
+        assert [data["text"] for event_type, data in events if event_type == "assistant_delta"] == [
             "4K 当前仅支持 16:9 横版（3840×2160）。"
             "你可以选择继续生成 4K 16:9，或取消 4K 后按本次指定比例生成。"
         ]
         assert "tool_call" not in event_types
-        assert "cost_confirm" not in event_types
+        assert "generation_confirm" not in event_types
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0
 
@@ -1047,14 +1126,12 @@ def test_4k_unsupported_ratio_uses_supported_ratio_message(tmp_path) -> None:
         )
 
         text = "".join(
-            data["text"]
-            for event_type, data in events
-            if event_type == "assistant_delta"
+            data["text"] for event_type, data in events if event_type == "assistant_delta"
         )
         assert "当前支持的图片比例是 1:1 / 3:4 / 4:3 / 9:16 / 16:9" in text
         assert "4K 当前仅支持" not in text
         assert "tool_call" not in [event_type for event_type, _data in events]
-        assert "cost_confirm" not in [event_type for event_type, _data in events]
+        assert "generation_confirm" not in [event_type for event_type, _data in events]
 
     asyncio.run(_impl())
 
@@ -1063,24 +1140,23 @@ def test_explicit_4k_note_reaches_llm_before_write_tool_selection(tmp_path) -> N
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         llm = CapturingTextLLM()
-        events = await _drain(
-            inf.orch(llm).handle_message(
-                USER, None, "4K 可以做成 4:3 吗？", []
-            )
-        )
+        events = await _drain(inf.orch(llm).handle_message(USER, None, "4K 可以做成 4:3 吗？", []))
 
         assert "本轮确定比例=16:9" in llm.messages[-1].content
         assert "4K 当前仅支持" not in "".join(
-            data.get("text", "")
-            for event_type, data in events
-            if event_type == "assistant_delta"
+            data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
         )
         assert events[-1] == ("assistant_end", {"status": "complete"})
 
     asyncio.run(_impl())
 
 
-def test_chat_without_tool_replays_every_buffered_text_chunk(tmp_path) -> None:
+def test_chat_without_tool_replays_every_buffered_text_chunk(
+    tmp_path,
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         events = await _drain(
@@ -1089,30 +1165,40 @@ def test_chat_without_tool_replays_every_buffered_text_chunk(tmp_path) -> None:
             )
         )
 
-        deltas = [
-            data["text"]
-            for event_type, data in events
-            if event_type == "assistant_delta"
-        ]
+        deltas = [data["text"] for event_type, data in events if event_type == "assistant_delta"]
         assert deltas == ["4K 当前", "支持 16:9 横版。"]
         assert "".join(deltas) == "4K 当前支持 16:9 横版。"
         assert events[-1] == ("assistant_end", {"status": "complete"})
 
     asyncio.run(_impl())
+    records = {
+        record.msg: record
+        for record in caplog.records
+        if str(record.msg).startswith("chat_model_")
+    }
+    assert records["chat_model_started"].levelno == logging.INFO
+    assert records["chat_model_started"].chain == "chat"
+    assert records["chat_model_started"].action == "开始调用对话模型"
+    assert records["chat_model_completed"].levelno == logging.INFO
+    assert records["chat_model_completed"].action == "对话模型调用完成"
 
 
-def test_late_llm_error_replays_and_persists_partial_assistant_text(tmp_path) -> None:
+def test_late_llm_error_replays_and_persists_partial_assistant_text(
+    tmp_path,
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         events = await _drain(
             inf.orch(LateFailingTextLLM()).handle_message(USER, None, "帮我设计", [])
         )
 
-        assert [
-            data["text"]
-            for event_type, data in events
-            if event_type == "assistant_delta"
-        ] == ["已收到，", "正在处理"]
+        assert [data["text"] for event_type, data in events if event_type == "assistant_delta"] == [
+            "已收到，",
+            "正在处理",
+        ]
         assert [event_type for event_type, _data in events][-2:] == [
             "error",
             "assistant_end",
@@ -1124,54 +1210,39 @@ def test_late_llm_error_replays_and_persists_partial_assistant_text(tmp_path) ->
         assert transcript.messages[-1].content == "已收到，正在处理"
 
     asyncio.run(_impl())
+    record = next(
+        item
+        for item in caplog.records
+        if item.msg == "chat_model_failed"
+    )
+    assert record.levelno == logging.ERROR
+    assert record.chain == "chat"
+    assert record.action == "对话模型调用失败"
 
 
-@pytest.mark.parametrize(
-    ("registry_available", "four_k_enabled"),
-    [(True, False), (False, True)],
-)
-def test_unavailable_4k_stops_before_cost_pending_or_job(
-    tmp_path, registry_available: bool, four_k_enabled: bool
-) -> None:
+def test_non_gpt_model_cannot_be_used_for_4k(tmp_path) -> None:
     async def _impl() -> None:
-        inf = await _infra(str(tmp_path), four_k_enabled=four_k_enabled)
-        if not registry_available:
-            standard_only = ProviderRegistry()
-            standard_only.register(inf.registry.get(ModelName.GPT_IMAGE_2))
-            inf.registry = standard_only
+        inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         events = await _drain(
             inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
-                USER, None, "生成 4K 主图", [uid]
+                USER,
+                None,
+                "生成 4K 主图",
+                [uid],
+                image_model="seedream-5",
             )
         )
 
         session_id = _first(events, "session")["session_id"]
         event_types = [event_type for event_type, _data in events]
         text = "".join(
-            data.get("text", "")
-            for event_type, data in events
-            if event_type == "assistant_delta"
+            data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
         )
-        assert text == "4K 当前不可用，请取消 4K 后使用普通出图。"
-        assert "cost_confirm" not in event_types
+        assert "4K 当前仅支持 GPT Image 2.0" in text
+        assert "generation_confirm" not in event_types
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0
-
-    asyncio.run(_impl())
-
-
-def test_missing_4k_config_row_does_not_disable_runtime_capability(tmp_path) -> None:
-    async def _impl() -> None:
-        inf = await _infra(str(tmp_path), include_four_k=False)
-        uid = await _stage(inf)
-        events = await _drain(
-            inf.orch(StubTextLLM(("", _gen_tc(uid, n=1)))).handle_message(
-                USER, None, "生成一张 4K 主图", [uid]
-            )
-        )
-
-        assert _first(events, "cost_confirm")["unit_cost"] == "0.18"
 
     asyncio.run(_impl())
 
@@ -1187,14 +1258,12 @@ def test_4k_count_above_three_stops_before_tool_cost_pending_or_job(tmp_path) ->
         )
 
         session_id = _first(events, "session")["session_id"]
-        assert [
-            data["text"]
-            for event_type, data in events
-            if event_type == "assistant_delta"
-        ] == ["4K 单次最多生成 3 张，请将本次数量调整为 1–3 张；如需更多，请分批生成。"]
+        assert [data["text"] for event_type, data in events if event_type == "assistant_delta"] == [
+            "4K 每次只能生成 1 张，请将本次数量调整为 1 张。"
+        ]
         event_types = [event_type for event_type, _data in events]
         assert "tool_call" not in event_types
-        assert "cost_confirm" not in event_types
+        assert "generation_confirm" not in event_types
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0
 
@@ -1211,7 +1280,7 @@ def test_4k_capability_question_without_write_tool_does_not_create_pending(tmp_p
         )
 
         session_id = _first(events, "session")["session_id"]
-        assert "cost_confirm" not in [event_type for event_type, _data in events]
+        assert "generation_confirm" not in [event_type for event_type, _data in events]
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0
 
@@ -1238,9 +1307,7 @@ def test_auto_ratio_falls_back_when_first_upload_cannot_be_loaded(tmp_path) -> N
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         llm = CapturingTextLLM()
-        await _drain(
-            inf.orch(llm).handle_message(USER, None, "给商品出图", ["missing/image.png"])
-        )
+        await _drain(inf.orch(llm).handle_message(USER, None, "给商品出图", ["missing/image.png"]))
         assert "本轮确定比例=1:1" in llm.messages[-1].content
 
     asyncio.run(_impl())
@@ -1253,9 +1320,7 @@ def test_auto_ratio_falls_back_when_upload_store_read_fails(tmp_path) -> None:
         upload_id = f"{upload_ns(USER.user_id)}/0000000000000000.png"
         llm = CapturingTextLLM()
 
-        await _drain(
-            inf.orch(llm).handle_message(USER, None, "给商品出图", [upload_id])
-        )
+        await _drain(inf.orch(llm).handle_message(USER, None, "给商品出图", [upload_id]))
 
         assert "本轮确定比例=1:1" in llm.messages[-1].content
 
@@ -1308,7 +1373,7 @@ def test_invalid_selected_source_never_creates_or_charges_a_job(tmp_path) -> Non
             )
         )
         session_id = _first(planned, "session")["session_id"]
-        confirm_token = _first(planned, "cost_confirm")["confirm_token"]
+        confirm_token = _first(planned, "generation_confirm")["confirm_token"]
         confirmed = await _drain(
             inf.orch(StubTextLLM(("完成", ()))).handle_confirm(
                 USER, session_id, confirm_token, "confirm"
@@ -1317,7 +1382,6 @@ def test_invalid_selected_source_never_creates_or_charges_a_job(tmp_path) -> Non
 
         assert _first(confirmed, "error")["code"] == "bad_request"
         assert await inf.chat_repo.job_count(session_id) == 0
-        assert (await inf.ledger.snapshot(USER.user_id)).user_month_used == 0
 
     asyncio.run(_impl())
 
@@ -1340,12 +1404,12 @@ def test_mock_text_llm_uses_selected_image_for_edit(tmp_path) -> None:
         assert tool_call["tool"] == "edit"
         assert tool_call["args"]["source_image_key"] == "selected.png"
         assert tool_call["args"]["edit_mode"] == "delta"
-        assert _first(events, "cost_confirm")["count"] == 1
+        assert _first(events, "generation_confirm")["count"] == 1
 
     asyncio.run(_impl())
 
 
-def test_mock_text_llm_uses_first_upload_ratio_in_cost_confirm(tmp_path) -> None:
+def test_mock_text_llm_uses_first_upload_ratio_in_generation_confirm(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await inf.uploads.save(
@@ -1353,12 +1417,10 @@ def test_mock_text_llm_uses_first_upload_ratio_in_cost_confirm(tmp_path) -> None
         )
 
         events = await _drain(
-            inf.orch(MockTextLLMProvider()).handle_message(
-                USER, None, "给商品出一张图", [uid]
-            )
+            inf.orch(MockTextLLMProvider()).handle_message(USER, None, "给商品出一张图", [uid])
         )
 
-        assert _first(events, "cost_confirm")["args"]["ratio"] == "9:16"
+        assert _first(events, "generation_confirm")["args"]["ratio"] == "9:16"
 
     asyncio.run(_impl())
 
@@ -1376,7 +1438,7 @@ def test_mock_text_llm_explicit_ratio_overrides_first_upload(tmp_path) -> None:
             )
         )
 
-        assert _first(events, "cost_confirm")["args"]["ratio"] == "3:4"
+        assert _first(events, "generation_confirm")["args"]["ratio"] == "3:4"
 
     asyncio.run(_impl())
 
@@ -1388,7 +1450,7 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, plan=_PLAN))))
         msg = await _drain(orch.handle_message(USER, None, "出一套", [uid]))
         sid = _first(msg, "session")["session_id"]
-        tok = _first(msg, "cost_confirm")["confirm_token"]
+        tok = _first(msg, "generation_confirm")["confirm_token"]
         conf = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         types = [t for t, _ in conf]
         assert "job_started" in types
@@ -1411,17 +1473,13 @@ def test_4k_confirm_launches_with_pending_model_snapshot(tmp_path) -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
-        planned = await _drain(
-            orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
-        )
+        planned = await _drain(orch.handle_message(USER, None, "生成一张 4K 主图", [uid]))
         session_id = _first(planned, "session")["session_id"]
-        token = _first(planned, "cost_confirm")["confirm_token"]
+        token = _first(planned, "generation_confirm")["confirm_token"]
 
-        confirmed = await _drain(
-            orch.handle_confirm(USER, session_id, token, "confirm")
-        )
+        confirmed = await _drain(orch.handle_confirm(USER, session_id, token, "confirm"))
 
-        assert inf.submission.calls == [ModelName.GPT_IMAGE_2_4K]
+        assert inf.submission.calls == ["gpt-image-2"]
         assert "job_started" in [event_type for event_type, _data in confirmed]
 
     asyncio.run(_impl())
@@ -1432,16 +1490,12 @@ def test_confirm_rechecks_model_disabled_after_cost_card(tmp_path) -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
-        planned = await _drain(
-            orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
-        )
+        planned = await _drain(orch.handle_message(USER, None, "生成一张 4K 主图", [uid]))
         session_id = _first(planned, "session")["session_id"]
-        token = _first(planned, "cost_confirm")["confirm_token"]
-        inf.model_config.set_enabled(ModelName.GPT_IMAGE_2_4K.value, False)
+        token = _first(planned, "generation_confirm")["confirm_token"]
+        inf.model_config.set_enabled("gpt-image-2", False)
 
-        confirmed = await _drain(
-            orch.handle_confirm(USER, session_id, token, "confirm")
-        )
+        confirmed = await _drain(orch.handle_confirm(USER, session_id, token, "confirm"))
 
         assert _first(confirmed, "error")["code"] == "model_unavailable"
         assert inf.submission.calls == []
@@ -1474,15 +1528,13 @@ def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
                 ("", edit_call),
             )
         )
-        generated = await _drain(
-            orch.handle_message(USER, None, "生成一张 4K 主图", [uid])
-        )
+        generated = await _drain(orch.handle_message(USER, None, "生成一张 4K 主图", [uid]))
         session_id = _first(generated, "session")["session_id"]
         confirmed = await _drain(
             orch.handle_confirm(
                 USER,
                 session_id,
-                _first(generated, "cost_confirm")["confirm_token"],
+                _first(generated, "generation_confirm")["confirm_token"],
                 "confirm",
             )
         )
@@ -1502,9 +1554,8 @@ def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
                 edit_source_image_key=source_image_key,
             )
         )
-        standard_confirm = _first(standard_edit, "cost_confirm")
-        assert standard_confirm["unit_cost"] == "0.05"
-        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2
+        _first(standard_edit, "generation_confirm")
+        assert inf.pending._pending[session_id].image_model == "gpt-image-2"
 
         four_k_edit = await _drain(
             orch.handle_message(
@@ -1515,11 +1566,10 @@ def test_editing_a_4k_source_uses_only_the_current_turn_for_model_selection(
                 edit_source_image_key=source_image_key,
             )
         )
-        four_k_confirm = _first(four_k_edit, "cost_confirm")
-        assert four_k_confirm["unit_cost"] == "0.18"
+        four_k_confirm = _first(four_k_edit, "generation_confirm")
         assert four_k_confirm["args"]["ratio"] == "16:9"
         assert four_k_confirm["args"]["edit_mode"] == "full"
-        assert inf.pending._pending[session_id].model is ModelName.GPT_IMAGE_2_4K
+        assert inf.pending._pending[session_id].image_model == "gpt-image-2"
 
     asyncio.run(_impl())
 
@@ -1531,7 +1581,7 @@ def test_confirm_token_is_one_time(tmp_path) -> None:
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
         msg = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         sid = _first(msg, "session")["session_id"]
-        tok = _first(msg, "cost_confirm")["confirm_token"]
+        tok = _first(msg, "generation_confirm")["confirm_token"]
         await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         again = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         assert any(t == "error" and d["code"] == "invalid_confirm_token" for t, d in again)
@@ -1559,7 +1609,7 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
         msg = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         sid = _first(msg, "session")["session_id"]
-        tok = _first(msg, "cost_confirm")["confirm_token"]
+        tok = _first(msg, "generation_confirm")["confirm_token"]
         canc = await _drain(orch.handle_confirm(USER, sid, tok, "cancel"))
         assert not any(t == "job_started" for t, _ in canc)
         assert canc[-1] == ("assistant_end", {"status": "complete"})
@@ -1577,17 +1627,13 @@ def test_cancel_with_stale_token_preserves_current_pending(tmp_path) -> None:
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
         planned = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         session_id = _first(planned, "session")["session_id"]
-        token = _first(planned, "cost_confirm")["confirm_token"]
+        token = _first(planned, "generation_confirm")["confirm_token"]
 
-        stale_cancel = await _drain(
-            orch.handle_confirm(USER, session_id, "ct_stale", "cancel")
-        )
+        stale_cancel = await _drain(orch.handle_confirm(USER, session_id, "ct_stale", "cancel"))
         assert _first(stale_cancel, "error")["code"] == "invalid_confirm_token"
         assert inf.pending._pending[session_id].confirm_token == token
 
-        confirmed = await _drain(
-            orch.handle_confirm(USER, session_id, token, "confirm")
-        )
+        confirmed = await _drain(orch.handle_confirm(USER, session_id, token, "confirm"))
         assert "job_started" in [event_type for event_type, _data in confirmed]
 
     asyncio.run(_impl())
@@ -1600,11 +1646,11 @@ def test_session_job_limit_blocks_second_confirm(tmp_path) -> None:
         orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
         m1 = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         sid = _first(m1, "session")["session_id"]
-        tok1 = _first(m1, "cost_confirm")["confirm_token"]
+        tok1 = _first(m1, "generation_confirm")["confirm_token"]
         c1 = await _drain(orch.handle_confirm(USER, sid, tok1, "confirm"))
         assert any(t == "job_started" for t, _ in c1)
         m2 = await _drain(orch.handle_message(USER, sid, "再出一张", [uid]))
-        tok2 = _first(m2, "cost_confirm")["confirm_token"]
+        tok2 = _first(m2, "generation_confirm")["confirm_token"]
         c2 = await _drain(orch.handle_confirm(USER, sid, tok2, "confirm"))
         assert any(t == "error" and d["code"] == "session_job_limit" for t, d in c2)
         assert not any(t == "job_started" for t, _ in c2)
@@ -1620,7 +1666,7 @@ def test_placeholder_model_ratio_is_overridden_by_deterministic_ratio(tmp_path) 
         orch = inf.orch(StubTextLLM(("好的", _gen_tc(uid, ratio="请问你要什么比例?", n=1))))
         ev = await _drain(orch.handle_message(USER, None, "出图", [uid]))
         assert _first(ev, "tool_call")["args"]["ratio"] == "1:1"
-        assert _first(ev, "cost_confirm")["args"]["ratio"] == "1:1"
+        assert _first(ev, "generation_confirm")["args"]["ratio"] == "1:1"
         assert ev[-1] == ("assistant_end", {"status": "awaiting_confirm"})
 
     asyncio.run(_impl())
@@ -1628,19 +1674,21 @@ def test_placeholder_model_ratio_is_overridden_by_deterministic_ratio(tmp_path) 
 
 def test_validation_clarification_hides_internal_field_names(tmp_path) -> None:
     """P3-#5：校验失败转澄清的用户文案=话术，不吐 upload_ids 等内部字段名。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         # LLM 产 upload_ids=[] 的 generate（漏带产品图）→ validate 失败 → 澄清而非报错
         bad = (
             ToolCall(
-                id="c1", name="generate",
+                id="c1",
+                name="generate",
                 arguments={"upload_ids": [], "prompt": "花生", "ratio": "1:1", "n": 1},
             ),
         )
         orch = inf.orch(StubTextLLM(("好的", bad)))
         ev = await _drain(orch.handle_message(USER, None, "出图", []))
         types = [t for t, _ in ev]
-        assert "cost_confirm" not in types and "tool_call" not in types
+        assert "generation_confirm" not in types and "tool_call" not in types
         text = "".join(d.get("text", "") for t, d in ev if t == "assistant_delta")
         assert "请上传" in text  # 话术兜底
         for tok in ("upload_ids", "overlay_texts", "plan", "modifiers", "ratio", "category"):
@@ -1656,7 +1704,7 @@ def test_clarify_turn_without_tool_completes(tmp_path) -> None:
         orch = inf.orch(StubTextLLM(("请描述你想要的设计，并上传产品图。", ())))
         ev = await _drain(orch.handle_message(USER, None, "你好", []))
         types = [t for t, _ in ev]
-        assert "cost_confirm" not in types and "tool_call" not in types
+        assert "generation_confirm" not in types and "tool_call" not in types
         assert any(t == "assistant_delta" for t in types)
         assert ev[-1] == ("assistant_end", {"status": "complete"})
 
@@ -1668,6 +1716,7 @@ def test_clarify_turn_without_tool_completes(tmp_path) -> None:
 
 def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
     """验收①：会话与消息落库，新 orchestrator 实例(模拟刷新/重启)仍能回显。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         orch = inf.orch(StubTextLLM(("你好呀，需要出什么图？", ())))
@@ -1675,8 +1724,14 @@ def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
         sid = _first(msg, "session")["session_id"]
         # 新 orchestrator + 全新 PendingStore(内存态丢失)，共享同一 DB
         inf2 = Infra(
-            inf.submission, inf.uploads, inf.registry, inf.events, inf.chat_repo,
-            PendingStore(), inf.query, inf.ledger, inf.model_config, inf.max_session_jobs,
+            inf.submission,
+            inf.uploads,
+            inf.events,
+            inf.chat_repo,
+            PendingStore(),
+            inf.query,
+            inf.model_config,
+            inf.max_session_jobs,
             inf.reverse_prompt,
         )
         t = await inf2.chat_repo.get_transcript(sid, USER.user_id)
@@ -1691,6 +1746,7 @@ def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:
 
 def test_get_transcript_owner_isolation_404(tmp_path) -> None:
     """验收③：越权他人会话 → None(路由 404 anti-enum)。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         orch = inf.orch(StubTextLLM(("在的~", ())))
@@ -1704,6 +1760,7 @@ def test_get_transcript_owner_isolation_404(tmp_path) -> None:
 
 def test_delete_session_cascade_and_owner(tmp_path) -> None:
     """验收④：删会话级联删消息、列表消失；他人删→False(404)、不受影响。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         orch = inf.orch(StubTextLLM(("好的", ())))
@@ -1725,7 +1782,9 @@ def test_validate_rejects_bad_ratio(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
-        req = ListingGenerateRequest(upload_ids=[uid], prompt="p", ratio="2:3", n=1)
+        req = ListingGenerateRequest(
+            image_model="gpt-image-2", upload_ids=[uid], prompt="p", ratio="2:3", n=1
+        )
         with pytest.raises(ValueError):
             inf.submission.validate(USER.user_id, req)
 
@@ -1736,7 +1795,11 @@ def test_validate_rejects_non_owned_upload(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         req = ListingGenerateRequest(
-            upload_ids=["deadbeef0000/x.png"], prompt="p", ratio="1:1", n=1
+            image_model="gpt-image-2",
+            upload_ids=["deadbeef0000/x.png"],
+            prompt="p",
+            ratio="1:1",
+            n=1,
         )
         with pytest.raises(NotFoundError):
             inf.submission.validate(USER.user_id, req)
@@ -1748,7 +1811,11 @@ def test_validate_clone_requires_one_product(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         req = CloneRequest(
-            product_upload_ids=[], reference_upload_ids=["a"], clone_mode="参考风格", ratio="1:1"
+            image_model="gpt-image-2",
+            product_upload_ids=[],
+            reference_upload_ids=["a"],
+            clone_mode="参考风格",
+            ratio="1:1",
         )
         with pytest.raises(ValueError):
             inf.submission.validate(USER.user_id, req)
@@ -1759,7 +1826,13 @@ def test_validate_clone_requires_one_product(tmp_path) -> None:
 def test_validate_edit_delta_rejects_ratio(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
-        req = EditRequest(source_image_key="k", prompt="改暖色", edit_mode="delta", ratio="1:1")
+        req = EditRequest(
+            image_model="gpt-image-2",
+            source_image_key="k",
+            prompt="改暖色",
+            edit_mode="delta",
+            ratio="1:1",
+        )
         with pytest.raises(ValueError):
             inf.submission.validate(USER.user_id, req)
 
@@ -1770,7 +1843,9 @@ def test_validate_edit_delta_rejects_ratio(tmp_path) -> None:
 
 
 def _req() -> ListingGenerateRequest:
-    return ListingGenerateRequest(upload_ids=["a"], prompt="p", ratio="1:1", n=1)
+    return ListingGenerateRequest(
+        image_model="gpt-image-2", upload_ids=["a"], prompt="p", ratio="1:1", n=1
+    )
 
 
 def test_pending_take_one_time_and_mismatch_preserves() -> None:
@@ -1780,10 +1855,12 @@ def test_pending_take_one_time_and_mismatch_preserves() -> None:
         tool="generate",
         req=_req(),
         count=1,
-        estimate=Decimal("0.4"),
-        model=ModelName.GPT_IMAGE_2_4K,
+        chat_model="doubao-chat",
+        image_model="gpt-image-2",
+        model_display_name="GPT Image 2.0",
+        render_tier=RenderTier.FOUR_K,
     )
-    assert action.model is ModelName.GPT_IMAGE_2_4K
+    assert action.image_model == "gpt-image-2"
     assert p.take("s1", "wrong") is None  # 不匹配不消费
     assert p.take("s1", action.confirm_token) is action  # 真 token 仍在
     assert p.take("s1", action.confirm_token) is None  # 一次性，二次拒
@@ -1796,8 +1873,10 @@ def test_pending_take_expired() -> None:
         tool="generate",
         req=_req(),
         count=1,
-        estimate=Decimal("0.4"),
-        model=ModelName.GPT_IMAGE_2,
+        chat_model="doubao-chat",
+        image_model="gpt-image-2",
+        model_display_name="GPT Image 2.0",
+        render_tier=RenderTier.STANDARD,
     )
     assert p.take("s1", action.confirm_token) is None  # 匹配但过期
     assert p.take("s1", action.confirm_token) is None  # 已消费
@@ -1810,8 +1889,10 @@ def test_pending_clear() -> None:
         tool="generate",
         req=_req(),
         count=1,
-        estimate=Decimal("0.4"),
-        model=ModelName.GPT_IMAGE_2,
+        chat_model="doubao-chat",
+        image_model="gpt-image-2",
+        model_display_name="GPT Image 2.0",
+        render_tier=RenderTier.STANDARD,
     )
     p.clear("s1")
     assert p.take("s1", action.confirm_token) is None
@@ -1822,69 +1903,39 @@ def test_pending_clear() -> None:
 
 def test_read_tool_loop_executes_and_feeds_back(tmp_path) -> None:
     """读工具即时执行→结果回喂→LLM 收尾；不进费用闸（写工具才过闸）。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         tc = (ToolCall(id="q1", name="query_my_jobs", arguments={}),)
-        orch = inf.orch(StubTextLLM(("", tc), ("你最近还没出过图哦。", ())))
+        llm = StubTextLLM(("", tc), ("你最近还没出过图哦。", ()))
+        orch = inf.orch(llm)
         ev = await _drain(orch.handle_message(USER, None, "我最近出过什么图", []))
         types = [t for t, _ in ev]
-        assert "cost_confirm" not in types and "tool_call" not in types  # 读工具不花钱不过闸
+        assert "generation_confirm" not in types and "tool_call" not in types  # 读工具不花钱不过闸
         assert any(t == "step" and d.get("phase") == "querying" for t, d in ev)
         text = "".join(d.get("text", "") for t, d in ev if t == "assistant_delta")
         assert "还没出过图" in text  # LLM 基于工具结果收尾
         assert ev[-1] == ("assistant_end", {"status": "complete"})
-
-    asyncio.run(_impl())
-
-
-def test_get_pricing_quota_reads_live_model_config(tmp_path) -> None:
-    """波动值走实时查（#1043）：价格取 model_config 当前值、只列启用模型、额度取 ledger。"""
-    async def _impl() -> None:
-        inf = await _infra(str(tmp_path))
-        out = await inf.orch(StubTextLLM(("", ())))._tool_get_pricing_quota(USER)
-        assert "普通出图 ¥0.05/张（余额约可生成 20000 张）" in out
-        assert "4K 16:9 ¥0.18/张（余额约可生成 5555 张）" in out
-        assert "（≈" not in out
-        assert "gpt-image-2" not in out and "seedream-5" not in out
-        assert "剩余" in out  # 额度真数据
-
-    asyncio.run(_impl())
-
-
-def test_get_pricing_quota_uses_fixed_registry_prices_and_missing_4k_config(
-    tmp_path,
-) -> None:
-    async def _impl() -> None:
-        inf = await _infra(
-            str(tmp_path),
-            standard_cost=Decimal("0.40"),
-            include_four_k=False,
-        )
-
-        out = await inf.orch(StubTextLLM(("", ())))._tool_get_pricing_quota(USER)
-
-        assert "普通出图 ¥0.05/张（余额约可生成 20000 张）" in out
-        assert "4K 16:9 ¥0.18/张（余额约可生成 5555 张）" in out
-        assert "¥0.4" not in out
-
-    asyncio.run(_impl())
-
-
-def test_get_pricing_quota_calculates_only_enabled_4k_capability(tmp_path) -> None:
-    async def _impl() -> None:
-        inf = await _infra(str(tmp_path), standard_enabled=False)
-
-        out = await inf.orch(StubTextLLM(("", ())))._tool_get_pricing_quota(USER)
-
-        assert "普通出图" not in out
-        assert "4K 16:9 ¥0.18/张（余额约可生成 5555 张）" in out
-        assert "（≈" not in out
+        session_id = next(data["session_id"] for event, data in ev if event == "session")
+        assert llm.contexts == [
+            ModelCallContext(
+                user_id=USER.user_id,
+                operation=ModelOperation.CHAT_COMPLETION,
+                chat_session_id=session_id,
+            ),
+            ModelCallContext(
+                user_id=USER.user_id,
+                operation=ModelOperation.CHAT_COMPLETION,
+                chat_session_id=session_id,
+            ),
+        ]
 
     asyncio.run(_impl())
 
 
 def test_get_job_recipe_owner_isolation(tmp_path) -> None:
     """owner-scoped 护栏③：查不到他人/不存在的单，返同一话术不泄漏存在性。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         out = await inf.orch(StubTextLLM(("", ())))._tool_get_job_recipe(
@@ -1897,13 +1948,14 @@ def test_get_job_recipe_owner_isolation(tmp_path) -> None:
 
 def test_query_my_jobs_returns_own_job_not_others(tmp_path) -> None:
     """真数据 + owner 隔离：出一单后本人可查、他人查为空。"""
+
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         orch = inf.orch(StubTextLLM(("好的", _gen_tc(uid, n=1))))
         msg = await _drain(orch.handle_message(USER, None, "出一张", [uid]))
         sid = _first(msg, "session")["session_id"]
-        tok = _first(msg, "cost_confirm")["confirm_token"]
+        tok = _first(msg, "generation_confirm")["confirm_token"]
         await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         mine = await inf.orch(StubTextLLM(("", ())))._tool_query_my_jobs(USER, {})
         assert "job_id=" in mine and "暂无出图记录" not in mine

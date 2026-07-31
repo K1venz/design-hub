@@ -1,6 +1,6 @@
 """登录健壮性（ISSUE-0058）：滑动续期 + 密码传输公钥加密。
 
-单元：jwt renew_if_stale（半衰期前/后/过期）、RSA cipher 往返/垃圾/from_pem。
+单元：jwt renew_if_stale（半衰期前/后/过期）。
 集成（TestClient + 假 repo + 真 cipher/token）：/auth/pubkey、密文注册登录往返、
 解密失败 400、明文<8 → 400、/me 过半衰期回 X-Renewed-Token、fresh 无头、过期 401。
 """
@@ -20,8 +20,9 @@ from design_hub.domain.errors import AuthenticationError
 from design_hub.domain.models import AuthUser
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
-from design_hub.infrastructure.auth.rsa_cipher import RsaPasswordCipher
+from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
 from design_hub.interface.api.app import register_error_handlers
+from design_hub.interface.api.deps import CurrentUserSseDep
 from design_hub.interface.api.routes import auth
 from design_hub.ports.user_repository import UserAccount, UserRepository
 
@@ -42,63 +43,24 @@ def _backdated_token(iat_hours_ago: float, ttl_hours: int = 24) -> str:
 
 def test_renew_if_stale_fresh_returns_none() -> None:
     svc = PyJwtTokenService(secret=_SECRET, renew_after_hours=12)
-    assert svc.renew_if_stale(_backdated_token(1)) is None  # 1h < 12h 半衰期
+    token = _backdated_token(1)
+    assert svc.renew_if_stale(token, svc.verify(token)) is None  # 1h < 12h 半衰期
 
 
 def test_renew_if_stale_past_halflife_issues_new_valid_token() -> None:
     svc = PyJwtTokenService(secret=_SECRET, renew_after_hours=12)
     tok = _backdated_token(13)  # 13h 老、仍未过期(exp=iat+24=now+11h)
-    new = svc.renew_if_stale(tok)
+    current = svc.verify(tok)
+    new = svc.renew_if_stale(tok, current)
     assert new is not None and new != tok  # iat 差 13h → 新令牌不同
     assert svc.verify(new).user_id == "7"
-    assert svc.renew_if_stale(new) is None  # 新令牌 fresh、不再续
+    assert svc.renew_if_stale(new, svc.verify(new)) is None  # 新令牌 fresh、不再续
 
 
 def test_verify_expired_raises() -> None:
     svc = PyJwtTokenService(secret=_SECRET, renew_after_hours=12)
     with pytest.raises(AuthenticationError):
         svc.verify(_backdated_token(30))  # exp=iat+24=now-6h 已过期
-
-
-# ── 单元：RSA 密码传输加密 ────────────────────────────────────────────────
-
-
-def test_rsa_round_trip_and_pubkey_is_spki() -> None:
-    c = RsaPasswordCipher.generate()
-    assert c.decrypt(c.encrypt("hunter2secret")) == "hunter2secret"
-    assert c.public_key_pem().startswith("-----BEGIN PUBLIC KEY-----")
-
-
-def test_rsa_decrypt_garbage_raises_valueerror_human() -> None:
-    c = RsaPasswordCipher.generate()
-    with pytest.raises(ValueError) as ei:
-        c.decrypt("!!!not-base64-or-cipher!!!")
-    assert "解密失败" in str(ei.value) and "500" not in str(ei.value)
-
-
-def test_rsa_from_pem_loads_and_decrypts() -> None:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode()
-    c = RsaPasswordCipher.from_pem(pem)
-    assert c.decrypt(c.encrypt("secret123")) == "secret123"
-
-
-def test_rsa_from_pem_tolerates_escaped_newlines() -> None:
-    # docker env-file 单行 PEM（\n 字面转义）也能 load（coordinator #1024 部署前置必修）
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode()
-    single_line = pem.replace("\n", "\\n")  # 真实换行 → `\n` 字面（模拟 env 单行携带）
-    assert "\n" not in single_line.replace("\\n", "")  # 确认已无真实换行
-    c = RsaPasswordCipher.from_pem(single_line)
-    assert c.decrypt(c.encrypt("secret123")) == "secret123"
 
 
 # ── 集成：/auth 路由（假 repo + 真 cipher/token via TestClient）─────────────
@@ -126,39 +88,78 @@ class _FakeUserRepo(UserRepository):
         self._by_email[email] = acc
         return acc
 
-    async def set_role(self, user_id: int, role: Role) -> UserAccount:
+    async def set_role_with_audit(
+        self,
+        *,
+        actor_id: int,
+        user_id: int,
+        role: Role,
+    ) -> UserAccount:
+        del actor_id, user_id, role
+        raise NotImplementedError
+
+    async def set_status_with_audit(
+        self,
+        *,
+        actor_id: int,
+        user_id: int,
+        enabled: bool,
+        reason: str,
+    ) -> UserAccount:
+        del actor_id, user_id, enabled, reason
         raise NotImplementedError
 
     async def list_all(self) -> list[UserAccount]:
         return list(self._by_email.values())
 
-    async def count_by_role(self, role: Role) -> int:
-        return sum(1 for a in self._by_email.values() if a.role == role)
 
 
-def _client() -> tuple[TestClient, RsaPasswordCipher, PyJwtTokenService]:
+def _client() -> tuple[
+    TestClient,
+    RsaSecretCipher,
+    PyJwtTokenService,
+    _FakeUserRepo,
+]:
     app = FastAPI()
     register_error_handlers(app)
     app.include_router(auth.router)
+
+    @app.get("/test/sse-auth")
+    async def sse_auth(user: CurrentUserSseDep) -> dict[str, str]:
+        return {"user_id": user.user_id}
+
     token_service = PyJwtTokenService(secret=_SECRET, renew_after_hours=12)
-    cipher = RsaPasswordCipher.generate()
+    cipher = RsaSecretCipher.generate()
     app.state.token_service = token_service
-    app.state.password_cipher = cipher
-    app.state.account_service = AccountService(
-        users=_FakeUserRepo(), passwords=BcryptPasswordHasher(), tokens=token_service
+    app.state.secret_cipher = cipher
+    users = _FakeUserRepo()
+    users._seq = 7
+    users._by_email["token-user@example.com"] = UserAccount(
+        id=7,
+        email="token-user@example.com",
+        name="t",
+        role=Role.DESIGNER,
+        created_at=datetime.now(UTC),
+        password_hash="hash",
     )
-    return TestClient(app), cipher, token_service
+    app.state.user_repository = users
+    app.state.account_service = AccountService(
+        users=users, passwords=BcryptPasswordHasher(), tokens=token_service
+    )
+    return TestClient(app), cipher, token_service, users
 
 
 def test_pubkey_returns_spki_pem() -> None:
-    client, _, _ = _client()
+    client, _, _, _ = _client()
     resp = client.get("/auth/pubkey")
     assert resp.status_code == 200
-    assert resp.json()["public_key"].startswith("-----BEGIN PUBLIC KEY-----")
+    pem = resp.json()["public_key"]
+    assert pem.startswith("-----BEGIN PUBLIC KEY-----")
+    assert isinstance(serialization.load_pem_public_key(pem.encode()), rsa.RSAPublicKey)
 
 
 def test_register_login_round_trip_encrypted_password() -> None:
-    client, cipher, _ = _client()
+    client, cipher, _, _ = _client()
     reg = client.post(
         "/auth/register",
         json={"email": "a@b.com", "name": "A", "password": cipher.encrypt("mypassword8")},
@@ -171,15 +172,16 @@ def test_register_login_round_trip_encrypted_password() -> None:
     assert login.status_code == 200 and login.json()["jwt"]
 
 
-def test_login_garbage_ciphertext_400_no_plaintext_leak() -> None:
-    client, _, _ = _client()
+def test_login_garbage_ciphertext_uses_password_specific_error() -> None:
+    client, _, _, _ = _client()
     resp = client.post("/auth/login", json={"email": "a@b.com", "password": "garbage-not-cipher"})
     assert resp.status_code == 400
+    assert resp.json()["detail"] == "密码解密失败，请刷新页面后重试"
 
 
 def test_register_short_plaintext_400_checked_after_decrypt() -> None:
     # 明文长度校验挪到解密后：密文合法但明文<8 → 400（不是密文长度）
-    client, cipher, _ = _client()
+    client, cipher, _, _ = _client()
     resp = client.post(
         "/auth/register",
         json={"email": "c@d.com", "name": "C", "password": cipher.encrypt("short")},
@@ -188,7 +190,7 @@ def test_register_short_plaintext_400_checked_after_decrypt() -> None:
 
 
 def test_me_stale_token_returns_renewed_header() -> None:
-    client, _, token_service = _client()
+    client, _, token_service, _ = _client()
     resp = client.get("/me", headers={"Authorization": f"Bearer {_backdated_token(13)}"})
     assert resp.status_code == 200
     assert "X-Renewed-Token" in resp.headers
@@ -196,13 +198,96 @@ def test_me_stale_token_returns_renewed_header() -> None:
 
 
 def test_me_fresh_token_no_renewed_header() -> None:
-    client, _, token_service = _client()
+    client, _, token_service, _ = _client()
     fresh = token_service.issue(AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None))
     resp = client.get("/me", headers={"Authorization": f"Bearer {fresh}"})
     assert resp.status_code == 200 and "X-Renewed-Token" not in resp.headers
 
 
 def test_me_expired_token_401_no_renewal() -> None:
-    client, _, _ = _client()
+    client, _, _, _ = _client()
     resp = client.get("/me", headers={"Authorization": f"Bearer {_backdated_token(30)}"})
     assert resp.status_code == 401 and "X-Renewed-Token" not in resp.headers
+
+
+def test_me_uses_current_database_role_instead_of_token_snapshot() -> None:
+    client, _, _, users = _client()
+    account = users._by_email["token-user@example.com"]
+    object.__setattr__(account, "role", Role.MANAGER)
+
+    response = client.get(
+        "/me",
+        headers={"Authorization": f"Bearer {_backdated_token(1)}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == Role.MANAGER.value
+
+
+def test_disabled_token_is_rejected_on_next_request() -> None:
+    client, _, token_service, users = _client()
+    account = users._by_email["token-user@example.com"]
+    object.__setattr__(account, "enabled", False)
+    token = token_service.issue(
+        AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None)
+    )
+
+    response = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthenticated"
+
+
+def test_disabled_sse_token_is_rejected_on_next_request() -> None:
+    client, _, token_service, users = _client()
+    account = users._by_email["token-user@example.com"]
+    object.__setattr__(account, "enabled", False)
+    token = token_service.issue(
+        AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None)
+    )
+
+    response = client.get(f"/test/sse-auth?access_token={token}")
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthenticated"
+
+
+def test_disabled_user_cannot_log_in_again() -> None:
+    client, cipher, _, users = _client()
+    registered = client.post(
+        "/auth/register",
+        json={
+            "email": "disabled@example.com",
+            "name": "Disabled",
+            "password": cipher.encrypt("mypassword8"),
+        },
+    )
+    assert registered.status_code == 200
+    account = users._by_email["disabled@example.com"]
+    object.__setattr__(account, "enabled", False)
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "disabled@example.com",
+            "password": cipher.encrypt("mypassword8"),
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthenticated"
+
+
+def test_stale_token_renews_with_current_database_role() -> None:
+    client, _, token_service, users = _client()
+    account = users._by_email["token-user@example.com"]
+    object.__setattr__(account, "role", Role.MANAGER)
+
+    response = client.get(
+        "/me",
+        headers={"Authorization": f"Bearer {_backdated_token(13)}"},
+    )
+
+    assert response.status_code == 200
+    renewed = response.headers["X-Renewed-Token"]
+    assert token_service.verify(renewed).role is Role.MANAGER

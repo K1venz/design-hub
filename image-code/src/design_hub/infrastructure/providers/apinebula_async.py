@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 
 from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
-from design_hub.domain.enums import ModelName
+from design_hub.domain.errors import DomainError
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
     raise_for_status,
@@ -29,6 +29,7 @@ from design_hub.infrastructure.providers._openai_common import (
 )
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.ports.image_store import ImageStore, StoredImage
+from design_hub.ports.model_calls import ModelCallContext, ModelCallRecorder, ModelUsage
 from design_hub.ports.model_provider import (
     AbstractModelProvider,
     ProviderError,
@@ -50,12 +51,13 @@ class AsyncImageTasksProvider(AbstractModelProvider):
     def __init__(
         self,
         *,
-        name: ModelName,
+        name: str,
         unit_cost: Decimal,
         base_url: str,
         key_pool: ApiKeyPool,
         model: str,
         image_store: ImageStore,
+        recorder: ModelCallRecorder,
         input_fidelity: str = "",
         client: httpx.AsyncClient | None = None,
         request_timeout: float = 60.0,
@@ -73,6 +75,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         self._model = model
         # 异步端点只回 download_url，必须有 image_store 拉回字节落存（对齐同步 b64 落点）
         self._image_store = image_store
+        self._recorder = recorder
         self._input_fidelity = input_fidelity
         self._client = client
         self._request_timeout = httpx.Timeout(request_timeout, connect=min(request_timeout, 15.0))
@@ -89,6 +92,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
@@ -104,7 +108,12 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         start = time.perf_counter()
         start_key_index = self._key_pool.reserve()
         task_id, successful_key_offset = await self._submit(
-            composed, image_urls, size_str, quality, start_key_index=start_key_index
+            composed,
+            image_urls,
+            size_str,
+            quality,
+            context=context,
+            start_key_index=start_key_index,
         )
         body = await self._poll(
             task_id,
@@ -128,6 +137,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
             image_urls,
             size,
             request.quality,
+            context=request.context,
             start_key_index=start_key_index,
         )
         return task_id
@@ -162,6 +172,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         size: str,
         quality: str | None,
         *,
+        context: ModelCallContext,
         start_key_index: int,
     ) -> tuple[str, int]:
         endpoint = "edits" if image_urls else "generations"
@@ -176,19 +187,54 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         attempt = 0
         overall_start = time.perf_counter()
         while True:
+            call_id = await self._recorder.start(
+                context=context,
+                provider="apinebula_async_image",
+                model=self._model,
+                attempt_no=attempt + 1,
+            )
             try:
                 api_key = self._key_pool.key_for(start_key_index, attempt)
                 response = await self._post_json(url, payload, api_key=api_key)
                 raise_for_status(self.name, response)  # 4xx→DomainError；429/5xx→ProviderTimeout
+            except asyncio.CancelledError:
+                await self._recorder.interrupt(call_id)
+                raise
             except httpx.TimeoutException:
                 error: ProviderError = ProviderTimeout(f"{self.name} submit timeout")
             except httpx.HTTPError:
                 error = ProviderTimeout(f"{self.name} submit transport error")
             except ProviderTimeout as exc:
                 error = exc
+            except DomainError as exc:
+                await self._recorder.fail(
+                    call_id,
+                    code="provider_rejected",
+                    detail=str(exc),
+                )
+                raise
             else:
-                task_id = self._task_id_of(response.json())
+                try:
+                    task_id = self._task_id_of(response.json())
+                except (ValueError, ProviderError) as exc:
+                    await self._recorder.fail(
+                        call_id,
+                        code="invalid_response",
+                        detail=str(exc),
+                    )
+                    raise
+                await self._recorder.succeed(
+                    call_id,
+                    usage=ModelUsage(),
+                    provider_request_id=task_id,
+                    platform_cost=self.unit_cost,
+                )
                 return task_id, attempt
+            await self._recorder.fail(
+                call_id,
+                code="provider_timeout",
+                detail=str(error),
+            )
             # submit 段瞬时错重试（I/O 域）；4xx 已在 raise_for_status 抛 DomainError 不入此分支
             elapsed = time.perf_counter() - overall_start
             if attempt >= self._submit_max_retries or elapsed >= self._poll_max_elapsed:

@@ -12,8 +12,11 @@ import json
 
 import httpx
 import pytest
+from model_call_fakes import RecordingModelCallRecorder
 
+from design_hub.domain.admin import ModelOperation
 from design_hub.infrastructure.providers.openai_compat_text import OpenAICompatTextProvider
+from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.text_llm import (
     ChatImage,
     ChatMessage,
@@ -57,7 +60,13 @@ def _provider(content: bytes, *, captured: dict | None = None, status: int = 200
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return OpenAICompatTextProvider(
-        base_url="http://ark.test/api/v3", api_key="k", model="ep-x", client=client, **kw
+        name="doubao-chat",
+        base_url="http://ark.test/api/v3",
+        api_key="k",
+        model="ep-x",
+        recorder=kw.pop("recorder", RecordingModelCallRecorder()),
+        client=client,
+        **kw,
     )
 
 
@@ -65,9 +74,59 @@ async def _collect(provider: OpenAICompatTextProvider, tools: list[ToolSpec]):
     return [
         chunk
         async for chunk in provider.complete(
-            messages=[ChatMessage(role="user", content="hi")], tools=tools
+            context=ModelCallContext(
+                user_id="7",
+                operation=ModelOperation.CHAT_COMPLETION,
+                chat_session_id="session-1",
+            ),
+            messages=[ChatMessage(role="user", content="hi")],
+            tools=tools,
         )
     ]
+
+
+def test_stream_usage_is_recorded_from_empty_choices_chunk() -> None:
+    content = (
+        'data: {"choices":[{"delta":{"content":"好"}}]}\n\n'
+        'data: {"choices":[],"usage":{"prompt_tokens":21,'
+        '"completion_tokens":8,"total_tokens":29}}\n\n'
+        "data: [DONE]\n\n"
+    ).encode()
+    captured: dict = {}
+    recorder = RecordingModelCallRecorder()
+
+    chunks = asyncio.run(
+        _collect(
+            _provider(content, captured=captured, recorder=recorder),
+            [],
+        )
+    )
+
+    assert [chunk.text for chunk in chunks if isinstance(chunk, TextChunk)] == [
+        "好"
+    ]
+    assert captured["payload"]["stream_options"] == {"include_usage": True}
+    assert [call.context.operation for call in recorder.started] == [
+        ModelOperation.CHAT_COMPLETION
+    ]
+    assert recorder.succeeded[0].usage.input_tokens == 21
+    assert recorder.succeeded[0].usage.output_tokens == 8
+    assert recorder.succeeded[0].usage.total_tokens == 29
+
+
+def test_missing_stream_usage_is_recorded_without_token_estimation() -> None:
+    recorder = RecordingModelCallRecorder()
+
+    chunks = asyncio.run(
+        _collect(
+            _provider(_sse({"content": "好"}), recorder=recorder),
+            [],
+        )
+    )
+
+    assert chunks == [TextChunk("好")]
+    assert recorder.succeeded[0].usage.total_tokens is None
+    assert recorder.succeeded[0].diagnostic_code == "usage_missing"
 
 
 def test_reasoning_content_is_filtered_only_content_surfaces() -> None:
@@ -129,6 +188,10 @@ def test_image_message_serializes_real_bytes_as_data_url() -> None:
         chunks = [
             chunk
             async for chunk in provider.complete(
+                context=ModelCallContext(
+                    user_id="7",
+                    operation=ModelOperation.REVERSE_PROMPT,
+                ),
                 messages=[
                     ChatMessage(
                         role="user",
@@ -184,9 +247,15 @@ def test_required_tool_is_forced_by_name() -> None:
 
 
 def test_non_2xx_raises_text_llm_error() -> None:
-    provider = _provider(b"rate limited", status=429)
+    recorder = RecordingModelCallRecorder()
+    provider = _provider(
+        b"rate limited",
+        status=429,
+        recorder=recorder,
+    )
     with pytest.raises(TextLLMError):
         asyncio.run(_collect(provider, []))
+    assert recorder.failed[0].call_id == "call-1"
 
 
 def test_bad_tool_args_json_raises() -> None:

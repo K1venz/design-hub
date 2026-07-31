@@ -242,8 +242,8 @@ export interface paths {
          * Chat Messages
          * @description 发一句话，流式收一轮（帮我设计 Agent 对话入口，方案 C）。Bearer 头鉴权。
          *
-         *     事件序：session → assistant_delta* → [step → tool_call → cost_confirm] → assistant_end。
-         *     触发出图时在 cost_confirm 暂停（不出图、不扣费），等用户 POST /chat/confirm。
+         *     事件序：session → assistant_delta* → [step → tool_call → generation_confirm] → assistant_end。
+         *     触发出图时等待 generation_confirm 的显式用户动作。
          */
         post: operations["chat_messages_chat_messages_post"];
         delete?: never;
@@ -263,7 +263,7 @@ export interface paths {
         put?: never;
         /**
          * Chat Confirm
-         * @description 费用确认的显式用户动作。confirm→启 job 流式回传 job_event；cancel→作废 token。
+         * @description 生成确认动作。confirm→启 job 流式回传 job_event；cancel→作废 token。
          */
         post: operations["chat_confirm_chat_confirm_post"];
         delete?: never;
@@ -373,6 +373,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Image Models */
+        get: operations["list_image_models_models_image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Chat Models */
+        get: operations["list_chat_models_models_chat_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/models": {
         parameters: {
             query?: never;
@@ -383,11 +417,25 @@ export interface paths {
         /** List Models */
         get: operations["list_models_admin_models_get"];
         put?: never;
-        /**
-         * Create Model
-         * @description 新增模型配置（ISSUE-0057）。重名 → 409；单价负/空名 → 400。
-         */
+        /** Create Model */
         post: operations["create_model_admin_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/models/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Model Capability */
+        post: operations["test_model_capability_admin_models_test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -405,10 +453,7 @@ export interface paths {
         /** Update Model */
         put: operations["update_model_admin_models__name__put"];
         post?: never;
-        /**
-         * Delete Model
-         * @description 删模型配置（ISSUE-0057）。name 缺 → 404。
-         */
+        /** Delete Model */
         delete: operations["delete_model_admin_models__name__delete"];
         options?: never;
         head?: never;
@@ -423,11 +468,25 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Set Default Model
-         * @description 设为默认出图模型（备用渠道切换=改默认，ISSUE-0057/0056 单点结构性解）。name 缺 → 404。
-         */
+        /** Set Default Model */
         put: operations["set_default_model_admin_models__name__default_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_admin_overview_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -444,6 +503,193 @@ export interface paths {
         };
         /** List Users */
         get: operations["list_users_admin_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User */
+        get: operations["get_user_admin_users__user_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["list_jobs_admin_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_admin_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Images */
+        get: operations["list_images_admin_images_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/images/{image_id}/moderation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Image Moderation */
+        put: operations["set_image_moderation_admin_images__image_id__moderation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/model-calls/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summarize Model Calls */
+        get: operations["summarize_model_calls_admin_model_calls_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/model-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Model Calls */
+        get: operations["list_model_calls_admin_model_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit Logs */
+        get: operations["list_audit_logs_admin_audit_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/runtime-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runtime Logs */
+        get: operations["list_runtime_logs_admin_runtime_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/runtime-logs/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Log */
+        get: operations["get_runtime_log_admin_runtime_logs__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/runtime-logs/{event_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Log Trace */
+        get: operations["get_runtime_log_trace_admin_runtime_logs__event_id__trace_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -469,15 +715,363 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users/{user_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set User Status */
+        put: operations["set_user_status_admin_users__user_id__status_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminAuditEntryOut */
+        AdminAuditEntryOut: {
+            /** Audit Id */
+            audit_id: string;
+            /** Actor User Id */
+            actor_user_id: number;
+            /** Actor Email */
+            actor_email: string;
+            /** Action */
+            action: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: string;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            } | null;
+            /** After */
+            after: {
+                [key: string]: unknown;
+            } | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AdminGenerationItemOut */
+        AdminGenerationItemOut: {
+            /** Item Id */
+            item_id: string;
+            /** Operation Type */
+            operation_type: string;
+            /** Model */
+            model: string;
+            /** Status */
+            status: string;
+            /** Final Prompt */
+            final_prompt: string;
+            /** Attempt Count */
+            attempt_count: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Detail */
+            error_detail: string | null;
+        };
+        /** AdminImageSummaryOut */
+        AdminImageSummaryOut: {
+            /** Image Id */
+            image_id: number;
+            /** Image Key */
+            image_key: string;
+            /** Job Id */
+            job_id: string;
+            /** User Id */
+            user_id: number;
+            /** User Email */
+            user_email: string;
+            /** User Name */
+            user_name: string;
+            /** Image Type */
+            image_type: string | null;
+            /** Status */
+            status: string;
+            /** Moderation Status */
+            moderation_status: string;
+            /** Moderation Reason */
+            moderation_reason: string | null;
+            /** Moderation Note */
+            moderation_note: string | null;
+            /** Moderated By */
+            moderated_by: number | null;
+            /** Moderated At */
+            moderated_at: string | null;
+            /** Operation Type */
+            operation_type: string | null;
+            /** Model */
+            model: string | null;
+            /** Cost */
+            cost: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Url */
+            url: string;
+        };
+        /** AdminJobDetailOut */
+        AdminJobDetailOut: {
+            /** Job Id */
+            job_id: string;
+            /** User Id */
+            user_id: number;
+            /** User Email */
+            user_email: string;
+            /** User Name */
+            user_name: string;
+            /** Status */
+            status: string;
+            /** Operation Type */
+            operation_type: string | null;
+            /** Model */
+            model: string | null;
+            /** Ratio */
+            ratio: string;
+            /** Size */
+            size: string;
+            /** Requested Images */
+            requested_images: number;
+            /** Successful Images */
+            successful_images: number;
+            /** Total Cost */
+            total_cost: string;
+            /** Preview Url */
+            preview_url: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Prompt */
+            prompt: string;
+            /** Modifiers */
+            modifiers: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error: string | null;
+            /** Inputs */
+            inputs: components["schemas"]["AdminJobInputOut"][];
+            /** Images */
+            images: components["schemas"]["AdminJobImageOut"][];
+            /** Generation Items */
+            generation_items: components["schemas"]["AdminGenerationItemOut"][];
+        };
+        /** AdminJobImageOut */
+        AdminJobImageOut: {
+            /** Image Id */
+            image_id: number;
+            /** Image Key */
+            image_key: string;
+            /** Image Type */
+            image_type: string | null;
+            /** Status */
+            status: string;
+            /** Moderation Status */
+            moderation_status: string;
+            /** Moderation Reason */
+            moderation_reason: string | null;
+            /** Moderation Note */
+            moderation_note: string | null;
+            /** Moderated By */
+            moderated_by: number | null;
+            /** Moderated At */
+            moderated_at: string | null;
+            /** Cost */
+            cost: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Url */
+            url: string;
+        };
+        /** AdminJobInputOut */
+        AdminJobInputOut: {
+            /** Key */
+            key: string;
+            /** Role */
+            role: string | null;
+            /** Url */
+            url: string;
+        };
+        /** AdminJobSummaryOut */
+        AdminJobSummaryOut: {
+            /** Job Id */
+            job_id: string;
+            /** User Id */
+            user_id: number;
+            /** User Email */
+            user_email: string;
+            /** User Name */
+            user_name: string;
+            /** Status */
+            status: string;
+            /** Operation Type */
+            operation_type: string | null;
+            /** Model */
+            model: string | null;
+            /** Ratio */
+            ratio: string;
+            /** Size */
+            size: string;
+            /** Requested Images */
+            requested_images: number;
+            /** Successful Images */
+            successful_images: number;
+            /** Total Cost */
+            total_cost: string;
+            /** Preview Url */
+            preview_url: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Completed At */
+            completed_at: string | null;
+        };
+        /** AdminOverviewOut */
+        AdminOverviewOut: {
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Registered Users */
+            registered_users: number;
+            /** Active Users */
+            active_users: number;
+            /** Jobs */
+            jobs: number;
+            /** Successful Images */
+            successful_images: number;
+            /** Image Calls */
+            image_calls: number;
+            /** Image Succeeded */
+            image_succeeded: number;
+            /** Image Failed */
+            image_failed: number;
+            /** Image Uncertain */
+            image_uncertain: number;
+            /** Image Retries */
+            image_retries: number;
+            /** Chat Calls */
+            chat_calls: number;
+            /** Chat Input Tokens */
+            chat_input_tokens: number;
+            /** Chat Output Tokens */
+            chat_output_tokens: number;
+            /** Chat Total Tokens */
+            chat_total_tokens: number;
+            /** Platform Cost */
+            platform_cost: string;
+            /** Average Latency Ms */
+            average_latency_ms: number | null;
+            /** Failure Rate */
+            failure_rate: number;
+        };
+        /** AdminUserDetailOut */
+        AdminUserDetailOut: {
+            /** User Id */
+            user_id: number;
+            /** Email */
+            email: string;
+            /** Name */
+            name: string;
+            role: components["schemas"]["Role"];
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Activity At */
+            last_activity_at: string | null;
+            /** Jobs */
+            jobs: number;
+            /** Successful Images */
+            successful_images: number;
+            /** Image Calls */
+            image_calls: number;
+            /** Chat Calls */
+            chat_calls: number;
+            /** Chat Total Tokens */
+            chat_total_tokens: number;
+            /** Platform Cost */
+            platform_cost: string;
+            /** Disabled At */
+            disabled_at: string | null;
+            /** Disabled By */
+            disabled_by: number | null;
+            /** Disabled Reason */
+            disabled_reason: string | null;
+        };
+        /** AdminUserSummaryOut */
+        AdminUserSummaryOut: {
+            /** User Id */
+            user_id: number;
+            /** Email */
+            email: string;
+            /** Name */
+            name: string;
+            role: components["schemas"]["Role"];
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Activity At */
+            last_activity_at: string | null;
+            /** Jobs */
+            jobs: number;
+            /** Successful Images */
+            successful_images: number;
+            /** Image Calls */
+            image_calls: number;
+            /** Chat Calls */
+            chat_calls: number;
+            /** Chat Total Tokens */
+            chat_total_tokens: number;
+            /** Platform Cost */
+            platform_cost: string;
+        };
         /**
          * BackgroundReplaceRequest
          * @description Dedicated background replacement without exposing provider controls.
          */
         BackgroundReplaceRequest: {
+            /** Image Model */
+            image_model: string;
             /** Source */
             source: components["schemas"]["UploadImageSource"] | components["schemas"]["GeneratedImageSourceRequest"];
             /** Background */
@@ -490,7 +1084,7 @@ export interface components {
         };
         /**
          * ChatConfirmRequest
-         * @description POST /chat/confirm 入参（费用闸的显式用户动作）。
+         * @description POST /chat/confirm 入参（生成确认的显式用户动作）。
          */
         ChatConfirmRequest: {
             /** Session Id */
@@ -528,6 +1122,10 @@ export interface components {
             session_id?: string | null;
             /** Message */
             message: string;
+            /** Chat Model */
+            chat_model: string;
+            /** Image Model */
+            image_model: string;
             /** Upload Ids */
             upload_ids?: string[];
             /** Edit Source Image Key */
@@ -571,6 +1169,8 @@ export interface components {
          *     边界仍走 submission service fail-fast 统一 400（ISSUE-0024 口径）。
          */
         CloneRequest: {
+            /** Image Model */
+            image_model: string;
             /** Product Upload Ids */
             product_upload_ids: string[];
             /** Reference Upload Ids */
@@ -611,6 +1211,8 @@ export interface components {
          *     edit_mode/ratio 仍走 submission service fail-fast 400（域值校验，单一事实源在卡/映射表）。
          */
         EditRequest: {
+            /** Image Model */
+            image_model: string;
             /** Source Image Key */
             source_image_key: string;
             /** Prompt */
@@ -642,6 +1244,13 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** ImageModerationUpdate */
+        ImageModerationUpdate: {
+            status: components["schemas"]["ModerationStatus"];
+            reason?: components["schemas"]["ModerationReason"] | null;
+            /** Note */
+            note?: string | null;
+        };
         /**
          * ListingGenerateRequest
          * @description listing 出图入参（两步流：图先经 POST /uploads，这里只带 upload_ids）。
@@ -651,6 +1260,8 @@ export interface components {
          *     口径不一致，ISSUE-0024）。
          */
         ListingGenerateRequest: {
+            /** Image Model */
+            image_model: string;
             /** Upload Ids */
             upload_ids: string[];
             /** Prompt */
@@ -675,7 +1286,9 @@ export interface components {
         /** ListingImageOut */
         ListingImageOut: {
             /** Url */
-            url: string;
+            url: string | null;
+            /** Available */
+            available: boolean;
             /** Image Key */
             image_key: string;
             /** Seed */
@@ -722,6 +1335,8 @@ export interface components {
             images: components["schemas"]["ListingImageOut"][];
             /** Input Urls */
             input_urls: string[];
+            /** Model Id */
+            model_id?: string | null;
             /** Category */
             category?: string | null;
             /** Clone Mode */
@@ -767,6 +1382,8 @@ export interface components {
             first_image_url: string | null;
             /** Image Count */
             image_count: number;
+            /** Model Id */
+            model_id?: string | null;
             /** Edit Mode */
             edit_mode?: string | null;
             /** Category */
@@ -811,72 +1428,214 @@ export interface components {
             /** Dept */
             dept: string | null;
         };
-        /**
-         * ModelConfigCreate
-         * @description 新增模型配置（POST /admin/models）。api_key_env=持有真 key 的 env 名（ops 在 .env 配）。
-         */
-        ModelConfigCreate: {
-            /** Name */
-            name: string;
-            /** Unit Cost */
-            unit_cost: number | string;
-            /**
-             * Provider Type
-             * @default openai_compat_image
-             */
-            provider_type: string;
-            /**
-             * Base Url
-             * @default
-             */
-            base_url: string;
-            /**
-             * Model
-             * @default
-             */
+        /** ModelCallDetailOut */
+        ModelCallDetailOut: {
+            /** Call Id */
+            call_id: string;
+            /** User Id */
+            user_id: number;
+            /** User Email */
+            user_email: string;
+            /** Provider */
+            provider: string;
+            /** Model */
             model: string;
+            /** Modality */
+            modality: string;
+            /** Operation Type */
+            operation_type: string;
+            /** Attempt No */
+            attempt_no: number;
+            /** Status */
+            status: string;
+            /** Provider Request Id */
+            provider_request_id: string | null;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Total Tokens */
+            total_tokens: number | null;
+            /** Input Text Tokens */
+            input_text_tokens: number | null;
+            /** Input Image Tokens */
+            input_image_tokens: number | null;
+            /** Output Image Tokens */
+            output_image_tokens: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Detail */
+            error_detail: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Generation Item Id */
+            generation_item_id: string | null;
+            /** Chat Session Id */
+            chat_session_id: string | null;
             /**
-             * Api Key Env
-             * @default
+             * Started At
+             * Format: date-time
              */
-            api_key_env: string;
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
+            started_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Platform Cost */
+            platform_cost: string | null;
         };
-        /**
-         * ModelConfigOut
-         * @description 模型配置读出。**A1 密钥不入库：只回 api_key_env（环境变量名）、绝不回真 key**（验收⑦）。
-         */
-        ModelConfigOut: {
+        /** ModelCallSummaryListOut */
+        ModelCallSummaryListOut: {
+            /** Models */
+            models: components["schemas"]["ModelCallSummaryOut"][];
+        };
+        /** ModelCallSummaryOut */
+        ModelCallSummaryOut: {
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
+            /** Modality */
+            modality: string;
+            /** Operation Type */
+            operation_type: string | null;
+            /** Calls */
+            calls: number;
+            /** Succeeded */
+            succeeded: number;
+            /** Failed */
+            failed: number;
+            /** Uncertain */
+            uncertain: number;
+            /** Interrupted */
+            interrupted: number;
+            /** Retries */
+            retries: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Platform Cost */
+            platform_cost: string;
+            /** Average Latency Ms */
+            average_latency_ms: number | null;
+        };
+        /** ModelCapabilityTestIn */
+        ModelCapabilityTestIn: {
             /** Name */
             name: string;
-            /** Unit Cost */
-            unit_cost: string;
-            /** Enabled */
-            enabled: boolean;
-            /** Extra */
-            extra: {
-                [key: string]: unknown;
-            };
-            /** Provider Type */
-            provider_type: string;
+            /** Existing Model Name */
+            existing_model_name?: string | null;
+            model_type: components["schemas"]["ModelType"];
+            provider_type: components["schemas"]["ProviderType"];
             /** Base Url */
             base_url: string;
             /** Model */
             model: string;
-            /** Api Key Env */
-            api_key_env: string;
+            /** Credentials */
+            credentials?: {
+                [key: string]: string | string[];
+            } | null;
+            /** Extra */
+            extra?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ModelCapabilityTestOut */
+        ModelCapabilityTestOut: {
+            /** Verification Proof */
+            verification_proof: string;
+            /**
+             * Tested At
+             * Format: date-time
+             */
+            tested_at: string;
+            /** Checks */
+            checks: string[];
+        };
+        /** ModelCatalogItemOut */
+        ModelCatalogItemOut: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
             /** Is Default */
             is_default: boolean;
         };
-        /**
-         * ModelConfigUpdate
-         * @description 部分更新：仅传入的字段生效（None = 不改）。is_default 走 PUT …/default 端点（唯一性）。
-         */
+        /** ModelConfigCreate */
+        ModelConfigCreate: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
+            model_type: components["schemas"]["ModelType"];
+            provider_type: components["schemas"]["ProviderType"];
+            /** Base Url */
+            base_url: string;
+            /** Model */
+            model: string;
+            /** Credentials */
+            credentials: {
+                [key: string]: string | string[];
+            };
+            /** Unit Cost */
+            unit_cost: number | string;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Extra */
+            extra?: {
+                [key: string]: unknown;
+            };
+            /** Verification Proof */
+            verification_proof: string;
+        };
+        /** ModelConfigOut */
+        ModelConfigOut: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
+            model_type: components["schemas"]["ModelType"];
+            provider_type: components["schemas"]["ProviderType"];
+            /** Base Url */
+            base_url: string;
+            /** Model */
+            model: string;
+            /** Unit Cost */
+            unit_cost: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Is Default */
+            is_default: boolean;
+            /** Revision */
+            revision: number;
+            /** Verified At */
+            verified_at: string | null;
+            /** Extra */
+            extra: {
+                [key: string]: unknown;
+            };
+            credentials: components["schemas"]["ModelCredentialStatusOut"];
+        };
+        /** ModelConfigUpdate */
         ModelConfigUpdate: {
+            /** Display Name */
+            display_name?: string | null;
+            model_type?: components["schemas"]["ModelType"] | null;
+            provider_type?: components["schemas"]["ProviderType"] | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Credentials */
+            credentials?: {
+                [key: string]: string | string[];
+            } | null;
             /** Unit Cost */
             unit_cost?: number | string | null;
             /** Enabled */
@@ -885,15 +1644,93 @@ export interface components {
             extra?: {
                 [key: string]: unknown;
             } | null;
-            /** Provider Type */
-            provider_type?: string | null;
-            /** Base Url */
-            base_url?: string | null;
-            /** Model */
-            model?: string | null;
-            /** Api Key Env */
-            api_key_env?: string | null;
+            /** Verification Proof */
+            verification_proof?: string | null;
         };
+        /** ModelCredentialStatusOut */
+        ModelCredentialStatusOut: {
+            /** Has Credentials */
+            has_credentials: boolean;
+            /** Configured Fields */
+            configured_fields: {
+                [key: string]: boolean;
+            };
+        };
+        /**
+         * ModelType
+         * @enum {string}
+         */
+        ModelType: "image" | "chat";
+        /**
+         * ModerationReason
+         * @enum {string}
+         */
+        ModerationReason: "sexual" | "violence" | "illegal" | "infringement" | "other";
+        /**
+         * ModerationStatus
+         * @enum {string}
+         */
+        ModerationStatus: "normal" | "blocked";
+        /** PageOut[AdminAuditEntryOut] */
+        PageOut_AdminAuditEntryOut_: {
+            /** Items */
+            items: components["schemas"]["AdminAuditEntryOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageOut[AdminImageSummaryOut] */
+        PageOut_AdminImageSummaryOut_: {
+            /** Items */
+            items: components["schemas"]["AdminImageSummaryOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageOut[AdminJobSummaryOut] */
+        PageOut_AdminJobSummaryOut_: {
+            /** Items */
+            items: components["schemas"]["AdminJobSummaryOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageOut[AdminUserSummaryOut] */
+        PageOut_AdminUserSummaryOut_: {
+            /** Items */
+            items: components["schemas"]["AdminUserSummaryOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PageOut[ModelCallDetailOut] */
+        PageOut_ModelCallDetailOut_: {
+            /** Items */
+            items: components["schemas"]["ModelCallDetailOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * ProviderType
+         * @enum {string}
+         */
+        ProviderType: "openai_compat_image" | "dashscope_wan_image" | "openai_compat_chat";
         /**
          * PubKeyResponse
          * @description GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。
@@ -995,6 +1832,113 @@ export interface components {
         RoleUpdate: {
             role: components["schemas"]["Role"];
         };
+        /** RuntimeLogDetailOut */
+        RuntimeLogDetailOut: {
+            /** Event Id */
+            event_id: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "api" | "worker";
+            /** Chain */
+            chain: string;
+            /** Event */
+            event: string;
+            /** Action */
+            action: string;
+            /** Logger */
+            logger: string;
+            /** Function */
+            function: string;
+            /** Trace Id */
+            trace_id: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Model */
+            model: string | null;
+            /** Status */
+            status: string | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Item Id */
+            item_id: string | null;
+            /** Operation Id */
+            operation_id: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Type */
+            error_type: string | null;
+            /** Error Summary */
+            error_summary: string | null;
+            /** Prompt */
+            prompt: string | null;
+        };
+        /** RuntimeLogListItemOut */
+        RuntimeLogListItemOut: {
+            /** Event Id */
+            event_id: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "api" | "worker";
+            /** Chain */
+            chain: string;
+            /** Event */
+            event: string;
+            /** Action */
+            action: string;
+            /** Logger */
+            logger: string;
+            /** Function */
+            function: string;
+            /** Trace Id */
+            trace_id: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Model */
+            model: string | null;
+            /** Status */
+            status: string | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+        };
+        /** RuntimeLogPageOut */
+        RuntimeLogPageOut: {
+            /** Items */
+            items: components["schemas"]["RuntimeLogListItemOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /**
          * ShowcaseItemOut
          * @description GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。
@@ -1040,11 +1984,27 @@ export interface components {
             /** Name */
             name: string;
             role: components["schemas"]["Role"];
+            /** Enabled */
+            enabled: boolean;
+            /** Disabled At */
+            disabled_at: string | null;
+            /** Disabled Reason */
+            disabled_reason: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+        };
+        /** UserStatusUpdate */
+        UserStatusUpdate: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -1727,6 +2687,68 @@ export interface operations {
             };
         };
     };
+    list_image_models_models_image_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalogItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_models_models_chat_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalogItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_models_admin_models_get: {
         parameters: {
             query?: never;
@@ -1780,6 +2802,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_model_capability_admin_models_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelCapabilityTestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCapabilityTestOut"];
                 };
             };
             /** @description Validation Error */
@@ -1898,9 +2955,12 @@ export interface operations {
             };
         };
     };
-    list_users_admin_users_get: {
+    overview_admin_overview_get: {
         parameters: {
-            query?: never;
+            query?: {
+                start?: string | null;
+                end?: string | null;
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -1915,7 +2975,456 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserOut"][];
+                    "application/json": components["schemas"]["AdminOverviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_admin_users_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                role?: components["schemas"]["Role"] | null;
+                enabled?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOut_AdminUserSummaryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_user_admin_users__user_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_jobs_admin_jobs_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                status?: string | null;
+                model?: string | null;
+                operation_type?: string | null;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOut_AdminJobSummaryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_admin_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminJobDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_images_admin_images_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                model?: string | null;
+                operation_type?: string | null;
+                status?: string | null;
+                moderation_status?: components["schemas"]["ModerationStatus"] | null;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOut_AdminImageSummaryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_image_moderation_admin_images__image_id__moderation_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                image_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageModerationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminJobImageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    summarize_model_calls_admin_model_calls_summary_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                provider?: string | null;
+                model?: string | null;
+                modality?: string | null;
+                operation_type?: string | null;
+                status?: string | null;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCallSummaryListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_model_calls_admin_model_calls_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                provider?: string | null;
+                model?: string | null;
+                modality?: string | null;
+                operation_type?: string | null;
+                status?: string | null;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOut_ModelCallDetailOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_logs_admin_audit_logs_get: {
+        parameters: {
+            query?: {
+                actor_user_id?: number | null;
+                action?: string | null;
+                target_type?: string | null;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOut_AdminAuditEntryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runtime_logs_admin_runtime_logs_get: {
+        parameters: {
+            query?: {
+                level?: ("info" | "warning" | "error") | null;
+                service?: ("api" | "worker") | null;
+                chain?: string | null;
+                trace_id?: string | null;
+                job_id?: string | null;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLogPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_runtime_log_admin_runtime_logs__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLogDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_runtime_log_trace_admin_runtime_logs__event_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLogDetailOut"][];
                 };
             };
             /** @description Validation Error */
@@ -1943,6 +3452,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_status_admin_users__user_id__status_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserStatusUpdate"];
             };
         };
         responses: {

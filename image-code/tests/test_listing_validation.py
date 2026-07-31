@@ -1,6 +1,5 @@
 """listing 校验矩阵 + 组装序（固化历轮 QA/dev 自查，B-3 门禁 test 步）。"""
 
-
 import pytest
 
 from design_hub.application.listing import sizing
@@ -19,7 +18,7 @@ from design_hub.application.listing.requests import (
     ListingGenerateRequest,
 )
 from design_hub.application.listing.sizing import ratio_to_size
-from design_hub.domain.enums import ModelName
+from design_hub.domain.tasking import RenderTier
 
 _MR = PromptModifierRegistry()
 _CR = CategoryCardRegistry()
@@ -33,7 +32,7 @@ def test_category_is_optional_without_food_fallback() -> None:
     from design_hub.application.listing.prompt_composer import _FOOD_FIDELITY
 
     req = ListingGenerateRequest(
-        upload_ids=["u"], prompt="极简品牌海报", ratio="1:1", n=1
+        image_model="gpt-image-2", upload_ids=["u"], prompt="极简品牌海报", ratio="1:1", n=1
     )
     assert req.category is None
 
@@ -64,9 +63,7 @@ def test_explicit_category_keeps_specialized_fidelity() -> None:
 def _build(**kw):
     kw.setdefault("n", None)
     kw.setdefault("plan", None)
-    return build_listing_prompts(
-        "春节红色背景", _MODS, _MR, _CR, _TR, category="FOOD", **kw
-    )
+    return build_listing_prompts("春节红色背景", _MODS, _MR, _CR, _TR, category="FOOD", **kw)
 
 
 # 用户可见文案不得泄漏内部字段/schema 名（P3-#5：校验失败信息过用户话术）。
@@ -124,17 +121,17 @@ def test_ratio_to_size_preserves_requested_aspect_ratio(
     assert ratio_to_size(ratio) == expected
 
 
-def test_generation_size_uses_standard_dimensions_for_standard_model() -> None:
-    assert sizing.generation_size(ModelName.GPT_IMAGE_2, "4:3") == (1536, 1152)
+def test_generation_size_uses_standard_dimensions_for_any_standard_provider() -> None:
+    assert sizing.generation_size(RenderTier.STANDARD, "4:3") == (1536, 1152)
 
 
-def test_generation_size_uses_native_4k_dimensions_for_4k_model() -> None:
-    assert sizing.generation_size(ModelName.GPT_IMAGE_2_4K, "16:9") == (3840, 2160)
+def test_generation_size_uses_native_4k_dimensions_from_render_tier() -> None:
+    assert sizing.generation_size(RenderTier.FOUR_K, "16:9") == (3840, 2160)
 
 
-def test_generation_size_rejects_non_widescreen_ratio_for_4k_model() -> None:
+def test_generation_size_rejects_non_widescreen_ratio_for_4k_render_tier() -> None:
     with pytest.raises(ValueError, match="16:9"):
-        sizing.generation_size(ModelName.GPT_IMAGE_2_4K, "4:3")
+        sizing.generation_size(RenderTier.FOUR_K, "4:3")
 
 
 def test_single_mode_no_image_type_block() -> None:
@@ -182,8 +179,13 @@ def test_compose_prompt_requires_text() -> None:
 
 def test_clone_prompt_optional_text_exact_assembly() -> None:
     out = compose_clone_prompt(
-        "", {}, _MR, category="FOOD", card_registry=_CR,
-        clone_registry=_CL, clone_mode="参考风格",
+        "",
+        {},
+        _MR,
+        category="FOOD",
+        card_registry=_CR,
+        clone_registry=_CL,
+        clone_mode="参考风格",
     )
     from design_hub.application.listing.prompt_composer import (
         _BASE_REFERENCE_FIDELITY,
@@ -198,8 +200,13 @@ def test_clone_prompt_optional_text_exact_assembly() -> None:
 
 def test_clone_prompt_order_with_text() -> None:
     out = compose_clone_prompt(
-        "要喜庆一点", _MODS, _MR, category="FOOD", card_registry=_CR,
-        clone_registry=_CL, clone_mode="完全复刻",
+        "要喜庆一点",
+        _MODS,
+        _MR,
+        category="FOOD",
+        card_registry=_CR,
+        clone_registry=_CL,
+        clone_mode="完全复刻",
     )
     assert out.index("产品绝对保真") < out.index("复刻·完全复刻") < out.index("要喜庆一点")
 
@@ -208,8 +215,13 @@ def test_clone_prompt_order_with_text() -> None:
 def test_clone_mode_fail_fast(mode: str) -> None:
     with pytest.raises(ValueError):
         compose_clone_prompt(
-            "", {}, _MR, category="FOOD", card_registry=_CR,
-            clone_registry=_CL, clone_mode=mode,
+            "",
+            {},
+            _MR,
+            category="FOOD",
+            card_registry=_CR,
+            clone_registry=_CL,
+            clone_mode=mode,
         )
 
 
@@ -238,7 +250,9 @@ def test_edit_mode_fail_fast(mode: str) -> None:
 
 def test_narrowed_enums_fail_fast() -> None:
     for field, value in [
-        ("platform", "亚马逊"), ("region", "美国"), ("language", "俄语"),
+        ("platform", "亚马逊"),
+        ("region", "美国"),
+        ("language", "俄语"),
     ]:
         with pytest.raises(ValueError):
             _MR.fragment(field, value)

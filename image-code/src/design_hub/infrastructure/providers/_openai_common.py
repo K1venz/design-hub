@@ -8,12 +8,11 @@ import random
 
 import httpx
 
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import DomainError
 from design_hub.ports.model_provider import ProviderTimeout
 
 
-def raise_for_status(name: ModelName, response: httpx.Response) -> None:
+def raise_for_status(name: str, response: httpx.Response) -> None:
     """按 status_code 分流（不对错误体调 .json()，诗云 502 是 nginx HTML）：
     2xx 放行；429/5xx→ProviderTimeout（限流/服务端故障，可切同模型备用/重试）；
     其余 4xx（400/401/403/422…）→DomainError（坏请求/鉴权/配置，fail-fast 不切备）。"""

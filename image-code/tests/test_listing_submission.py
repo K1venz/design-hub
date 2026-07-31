@@ -1,9 +1,11 @@
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from design_hub.application.listing.prompt_composer import (
     CategoryCardRegistry,
@@ -31,8 +33,7 @@ from design_hub.application.tasking.health import (
     RedisHealthState,
     RedisUnavailable,
 )
-from design_hub.composition import build_mock_registry
-from design_hub.domain.enums import ModelName, Role, TaskEventType
+from design_hub.domain.enums import ModelType, ProviderType, Role, TaskEventType
 from design_hub.domain.models import AuthUser, TaskEvent
 from design_hub.domain.tasking import (
     OperationType,
@@ -49,12 +50,12 @@ from design_hub.ports.generation_work import (
     SubmitResult,
 )
 from design_hub.ports.listing_query import GeneratedImageSource, ListingHistoryQuery
+from design_hub.ports.model_config_repository import ModelConfigRecord
 from design_hub.ports.upload_store import UploadStore, upload_ns
 
 
 def _planner() -> ListingTaskPlanner:
     return ListingTaskPlanner(
-        registry=build_mock_registry(),
         modifier_registry=PromptModifierRegistry(),
         card_registry=CategoryCardRegistry(),
         type_registry=ImageTypeRegistry(),
@@ -63,8 +64,62 @@ def _planner() -> ListingTaskPlanner:
     )
 
 
+@pytest.mark.parametrize(
+    ("request_type", "payload"),
+    [
+        (
+            ListingGenerateRequest,
+            {
+                "upload_ids": ["1/front.png"],
+                "prompt": "red",
+                "ratio": "1:1",
+                "n": 1,
+            },
+        ),
+        (
+            CloneRequest,
+            {
+                "product_upload_ids": ["1/product.png"],
+                "reference_upload_ids": ["1/reference.png"],
+                "clone_mode": "参考风格",
+                "ratio": "1:1",
+            },
+        ),
+        (
+            EditRequest,
+            {
+                "source_image_key": "source.png",
+                "prompt": "red",
+            },
+        ),
+        (
+            BackgroundReplaceRequest,
+            {
+                "source": {
+                    "kind": "upload",
+                    "upload_id": "1/product.png",
+                },
+                "background": {
+                    "kind": "description",
+                    "description": "blue",
+                },
+            },
+        ),
+    ],
+)
+def test_every_listing_request_requires_nonblank_image_model(
+    request_type: type,
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        request_type.model_validate(payload)
+    with pytest.raises(ValidationError):
+        request_type.model_validate({**payload, "image_model": "  "})
+
+
 def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
     request = ListingGenerateRequest(
+        image_model="gpt-image-2",
         upload_ids=["1/front.png", "1/side.png"],
         prompt="春节红色礼盒",
         ratio="1:1",
@@ -81,7 +136,8 @@ def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     assert submission.job.n == 3
@@ -108,6 +164,7 @@ def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
 def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_input() -> None:
     planner = _planner()
     request = ListingGenerateRequest(
+        image_model="gpt-image-2",
         upload_ids=["1/front.png"],
         prompt="red",
         ratio="1:1",
@@ -121,7 +178,8 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
     replay = planner.plan_generate(
         user_id="1",
@@ -130,7 +188,8 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-2",
         request_id="request-2",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
     changed = planner.plan_generate(
         user_id="1",
@@ -139,7 +198,8 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
         idempotency_key="idem-1",
         trace_id="trace-3",
         request_id="request-3",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     assert first.request_fingerprint == replay.request_fingerprint
@@ -147,8 +207,98 @@ def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_inp
     assert first.items[0].operation_id != replay.items[0].operation_id
 
 
+def test_request_fingerprint_includes_render_tier_for_every_planner_operation() -> None:
+    planner = _planner()
+    generate = ListingGenerateRequest(
+        image_model="gpt-image-2", upload_ids=["1/front.png"], prompt="red", ratio="16:9", n=1
+    )
+    clone = CloneRequest(
+        image_model="gpt-image-2",
+        product_upload_ids=["1/product.png"],
+        reference_upload_ids=["1/reference.png"],
+        clone_mode="完全复刻",
+        ratio="16:9",
+        prompt="red",
+    )
+    edit = EditRequest(
+        image_model="gpt-image-2",
+        source_image_key="source.png",
+        prompt="red",
+        edit_mode="full",
+        ratio="16:9",
+    )
+    source = GeneratedImageSource(
+        parent_job_id="parent-1",
+        parent_ratio="16:9",
+        parent_modifiers={},
+        root_product_upload_keys=("1/product.png",),
+    )
+    background = BackgroundReplaceRequest.model_validate(
+        {
+            "image_model": "gpt-image-2",
+            "source": {"kind": "upload", "upload_id": "1/product.png"},
+            "background": {"kind": "description", "description": "blue"},
+        }
+    )
+
+    plan_calls = (
+        lambda render_tier: planner.plan_generate(
+            user_id="1",
+            request=generate,
+            job_id="generate",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
+        ),
+        lambda render_tier: planner.plan_clone(
+            user_id="1",
+            request=clone,
+            job_id="clone",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
+        ),
+        lambda render_tier: planner.plan_edit(
+            user_id="1",
+            request=edit,
+            source=source,
+            job_id="edit",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
+        ),
+        lambda render_tier: planner.plan_background_replace(
+            user_id="1",
+            request=background,
+            source=None,
+            ratio="16:9",
+            job_id="background",
+            idempotency_key="same",
+            trace_id="trace",
+            request_id="request",
+            model_id="gpt-image-2",
+            unit_cost=Decimal("0.05"),
+            render_tier=render_tier,
+        ),
+    )
+    for plan in plan_calls:
+        standard = plan(RenderTier.STANDARD)
+        four_k = plan(RenderTier.FOUR_K)
+        assert standard.request_fingerprint != four_k.request_fingerprint
+
+
 def test_clone_plan_preserves_product_then_reference_roles() -> None:
     request = CloneRequest(
+        image_model="gpt-image-2",
         product_upload_ids=["1/product.png"],
         reference_upload_ids=["1/ref-a.png", "1/ref-b.png"],
         clone_mode="完全复刻",
@@ -163,7 +313,8 @@ def test_clone_plan_preserves_product_then_reference_roles() -> None:
         idempotency_key="idem-clone",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     item = submission.items[0]
@@ -180,6 +331,7 @@ def test_clone_plan_preserves_product_then_reference_roles() -> None:
 
 def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() -> None:
     request = EditRequest(
+        image_model="gpt-image-2",
         source_image_key="source.png",
         prompt="背景改蓝色",
         edit_mode="full",
@@ -201,7 +353,8 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
         idempotency_key="idem-edit",
         trace_id="trace-1",
         request_id="request-1",
-        model=ModelName.GPT_IMAGE_2,
+        model_id="gpt-image-2",
+        unit_cost=Decimal("0.05"),
     )
 
     item = submission.items[0]
@@ -210,8 +363,7 @@ def test_edit_plan_freezes_source_then_root_anchors_and_effective_modifiers() ->
     assert submission.job.source_image_key == "source.png"
     assert submission.job.modifiers == {"platform": "抖音电商", "language": "英文"}
     references = [
-        (reference.source, reference.object_key, reference.role)
-        for reference in item.references
+        (reference.source, reference.object_key, reference.role) for reference in item.references
     ]
     assert references == [
         (ReferenceSource.GENERATED, "source.png", "source"),
@@ -239,7 +391,7 @@ class _SubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
     ) -> SubmissionReceipt:
         self.keys.append(idempotency_key)
         if self.error is not None:
@@ -254,7 +406,7 @@ class _SubmissionService:
         idempotency_key: str,
         trace_id: str,
         request_id: str,
-        model: ModelName = ModelName.GPT_IMAGE_2,
+        model: str = "gpt-image-2",
     ) -> SubmissionReceipt:
         self.keys.append(idempotency_key)
         if self.error is not None:
@@ -336,6 +488,7 @@ def _http_client(
 
 def _generate_payload() -> dict[str, object]:
     return {
+        "image_model": "gpt-image-2",
         "upload_ids": [f"{upload_ns('1')}/product.png"],
         "prompt": "red package",
         "ratio": "1:1",
@@ -370,6 +523,7 @@ def test_background_replace_route_uses_shared_submission_contract() -> None:
         "/listing/background-replace",
         headers={"Idempotency-Key": "background-1"},
         json={
+            "image_model": "gpt-image-2",
             "source": {
                 "kind": "upload",
                 "upload_id": f"{upload_ns('1')}/product.png",
@@ -413,9 +567,7 @@ def test_listing_sse_replays_after_last_event_id_and_emits_sse_id() -> None:
     )
 
     assert response.status_code == 200
-    assert response.text.startswith(
-        "id: 15-0\nevent: task_completed\ndata: "
-    )
+    assert response.text.startswith("id: 15-0\nevent: task_completed\ndata: ")
     assert stream.reads == [("job-1", "14-0")]
 
 
@@ -461,12 +613,32 @@ class _Snapshots:
         )
 
 
+class _ModelConfigs:
+    async def require_available_image(self, name: str) -> ModelConfigRecord:
+        assert name == "gpt-image-2"
+        return ModelConfigRecord(
+            name=name,
+            display_name="GPT Image 2.0",
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+            base_url="https://example.invalid",
+            model="upstream",
+            credentials_ciphertext={"standard_api_keys": ["encrypted"]},
+            unit_cost=Decimal("0.05"),
+            enabled=True,
+            revision=1,
+            verified_at=datetime.now(UTC),
+            verified_fingerprint="verified",
+            extra={},
+        )
+
+
 def _submission_service(
     repository: _SubmissionRepository,
     health: RedisHealthState,
     snapshots: _Snapshots,
 ) -> ListingSubmissionService:
-    ids = iter(("job-first", "job-replay", "job-changed"))
+    ids = iter(("job-first", "job-replay", "job-tier-changed", "job-changed"))
     return ListingSubmissionService(
         planner=_planner(),
         repository=repository,  # type: ignore[arg-type]
@@ -479,6 +651,7 @@ def _submission_service(
             confirm_wait_seconds=900,
             hard_depth=2000,
         ),
+        model_configs=_ModelConfigs(),  # type: ignore[arg-type]
         clock=lambda: 10,
         id_factory=lambda: next(ids),
     )
@@ -490,7 +663,7 @@ def test_submission_service_replays_same_key_and_rejects_changed_request() -> No
         health = RedisHealthState(stale_after_seconds=6)
         health.mark_healthy(now=10)
         service = _submission_service(repository, health, _Snapshots())
-        request = ListingGenerateRequest(**_generate_payload())
+        request = ListingGenerateRequest(**(_generate_payload() | {"ratio": "16:9"}))
 
         first = await service.submit_generate(
             user_id="1",
@@ -510,6 +683,16 @@ def test_submission_service_replays_same_key_and_rejects_changed_request() -> No
         assert first.job_id == replay.job_id == "job-first"
         assert first.replayed is False
         assert replay.replayed is True
+
+        with pytest.raises(IdempotencyConflict):
+            await service.submit_generate(
+                user_id="1",
+                request=request,
+                idempotency_key="same-key",
+                trace_id="trace-3",
+                request_id="request-3",
+                render_tier=RenderTier.FOUR_K,
+            )
 
         with pytest.raises(IdempotencyConflict):
             await service.submit_generate(

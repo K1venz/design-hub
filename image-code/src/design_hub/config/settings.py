@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,33 +30,12 @@ class Settings(BaseSettings):
     worker_shutdown_timeout_seconds: float = Field(default=30, gt=0, le=120)
     queue_rolling_item_seconds: float = Field(default=60, gt=0)
 
-    # gpt-image-2 中转站（apinebula/诗云），走 OpenAI 兼容协议
-    gpt_image_base_url: str = ""
-    # 普通 1K 分组固定两把 Key，逗号分隔；provider 按请求轮换并在重试时切换。
-    gpt_image_api_key: SecretStr = SecretStr("")
-    # 4K 分组使用独立的一把 Key，禁止与普通分组交叉轮换或降级。
-    gpt_image_4k_api_key: SecretStr = SecretStr("")
-    gpt_image_model: str = ""
-    # 出图协议增强（apinebula 官方文档，coordinator #1092）：空串=不发该参数。
-    # input_fidelity=high 仅 /images/edits——保留产品真实阴影/高光/透视与文字（保真核心价值）。
-    gpt_image_input_fidelity: str = "high"
-    # response_format=b64_json 两端点——自包含返回，消掉 url 变体二次拉取+过期变数
-    # （_resolve_url 双格式兼容 url/b64 保留不动）。
-    gpt_image_response_format: str = "b64_json"
-    # 文本 LLM（方案 C「帮我设计」Agent）：配 TEXT_LLM_* 三项即启真实适配器，否则用 Mock。
-    # ⚠️ 现有 GPT_IMAGE key 仅图像权限（探明实测文本 403）；文本需用户另开 key/access。
-    text_llm_base_url: str = ""
-    text_llm_api_key: SecretStr = SecretStr("")
-    text_llm_model: str = ""
-    # thinking 模型关思考（火山 ARK doubao：thinking:{"type":"disabled"}）。默认 False=不透传
-    # (通用 OpenAI 兼容安全默认)；ARK 部署在 .env 设 true——实测关思考 tool-call 3.5s vs 开 13.8s，
-    # 结构化选工具正确性不降，聊天入口延迟优先故本部署关。
-    text_llm_thinking_disabled: bool = False
+    # Provider credentials, endpoints, upstream model names, and protocol options are
+    # database-only. Environment settings contain operational network budgets only.
+    gpt_image_request_timeout: float = Field(default=300.0, gt=0)
+    text_llm_request_timeout: float = Field(default=120.0, gt=0)
     # 对话会话级出图闸（#884②）：单会话最多出图单数，保守默认 5，可配。
     chat_session_max_jobs: int = 5
-    # 图像 Provider 真实/Mock 开关：默认 True（prod 走真实 gpt-image-2）。
-    # 本地/前端联调设 REAL_GPT_IMAGE=false → Mock 图像（零 API 成本、不触真中转站）。
-    real_gpt_image: bool = True
     # 套图并发窗口（ISSUE-0047）：apikey 轮换后新 key 分组并发档位低，5 路并发打满上游 429
     # → 套图「只出 1 张」。保守默认 3；ops 可经 .env 下调至 2 而无需改码。单图流 n=1 恒 1 路，
     # 任何 ≥1 的取值都不改其行为。
@@ -73,6 +54,15 @@ class Settings(BaseSettings):
     # 异步排队可能比同步 90s 长，故独立更宽默认；超墙钟=穷尽 fail-closed（同 0055 (i) 语义）。
     gpt_image_async_poll_interval: float = 6.0
     gpt_image_async_poll_max_elapsed: float = 300.0
+    wan_request_timeout: float = Field(default=60.0, gt=0)
+    wan_poll_interval: float = Field(default=6.0, ge=0)
+    wan_poll_max_elapsed: float = Field(default=900.0, gt=0)
+    wan_retry_count: int = Field(default=2, ge=0, le=10)
+    wan_retry_backoff: float = Field(default=1.0, ge=0)
+    wan_max_download_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        gt=0,
+    )
     # 本地出图落点（图生图 b64 解码后写入；gitignored）
     image_output_dir: str = "./generated"
     # 出图 url 公网前缀（ISSUE-0029）：非空→绝对 https://host/img/<name>；空→相对 /img/<name>
@@ -81,14 +71,21 @@ class Settings(BaseSettings):
     asset_output_dir: str = "./assets"
     # 本地导出归档落点（WP-E：多格式/改尺寸/zip 输出；gitignored）
     export_output_dir: str = "./exports"
+    runtime_log_dir: Path = Path("./exports/.runtime-logs")
+    runtime_log_max_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        gt=0,
+    )
     # WP-G 鉴权：JWT HS256 密钥（生产经 .env 覆盖，默认占位仅供本地/CI）+ 有效期
     jwt_secret: SecretStr = SecretStr("dev-insecure-secret-change-me-min-32-bytes")
     jwt_ttl_hours: int = 24
     # 滑动续期半衰期（小时，ISSUE-0058）：令牌签发超此→鉴权时签新 24h 令牌放 X-Renewed-Token 头
     jwt_renew_after_hours: int = 12
-    # 密码传输 RSA 私钥 PEM（ISSUE-0058，.env/文件不入库不入 git）
-    # 空=启动生成临时密钥对（local/CI 自足；prod/qa 各自配持久私钥）
+    model_verification_ttl_seconds: int = Field(default=600, gt=0)
+    # RSA private-key PEM encrypts authentication passwords and other application secrets.
     auth_rsa_private_key_pem: SecretStr = SecretStr("")
+    # Production deployment enables this with REQUIRE_PERSISTENT_SECRET_CIPHER=true.
+    require_persistent_secret_cipher: bool = False
     # ISSUE-0015 自建认证：启动 seed 管理员（邮箱/密码走 .env，空=不 seed；建议首登后改密）
     seed_admin_email: str = ""
     seed_admin_password: SecretStr = SecretStr("")

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from design_hub.domain.enums import Role
 from design_hub.domain.models import AuthUser
@@ -51,12 +51,36 @@ class UserOut(BaseModel):
     email: str
     name: str
     role: Role
+    enabled: bool
+    disabled_at: datetime | None
+    disabled_reason: str | None
     created_at: datetime
 
     @classmethod
     def of(cls, a: UserAccount) -> "UserOut":
-        return cls(id=a.id, email=a.email, name=a.name, role=a.role, created_at=a.created_at)
+        return cls(
+            id=a.id,
+            email=a.email,
+            name=a.name,
+            role=a.role,
+            enabled=a.enabled,
+            disabled_at=a.disabled_at,
+            disabled_reason=a.disabled_reason,
+            created_at=a.created_at,
+        )
 
 
 class RoleUpdate(BaseModel):
     role: Role
+
+
+class UserStatusUpdate(BaseModel):
+    enabled: bool
+    reason: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def validate_reason(self) -> "UserStatusUpdate":
+        self.reason = self.reason.strip()
+        if not self.enabled and not self.reason:
+            raise ValueError("停用用户时必须填写原因")
+        return self

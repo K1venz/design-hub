@@ -5,6 +5,7 @@
 本适配器契约=标准 OpenAI 流式协议，DeepSeek 亦遵循。
 """
 
+import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
@@ -12,6 +13,11 @@ from typing import Any
 
 import httpx
 
+from design_hub.ports.model_calls import (
+    ModelCallContext,
+    ModelCallRecorder,
+    ModelUsage,
+)
 from design_hub.ports.text_llm import (
     ChatMessage,
     LLMChunk,
@@ -24,6 +30,10 @@ from design_hub.ports.text_llm import (
 )
 
 
+class _UpstreamResponseError(TextLLMError):
+    pass
+
+
 class OpenAICompatTextProvider(TextLLMPort):
     """对 OpenAI chat/completions 标准协议编程的文本 LLM Provider。"""
 
@@ -32,19 +42,25 @@ class OpenAICompatTextProvider(TextLLMPort):
     def __init__(
         self,
         *,
+        name: str,
         base_url: str,
         api_key: str,
         model: str,
+        recorder: ModelCallRecorder,
         client: httpx.AsyncClient | None = None,
         timeout: float = 120.0,
         trust_env: bool = False,
         extra_body: dict[str, Any] | None = None,
     ) -> None:
+        if not name.strip():
+            raise ValueError("name must not be empty")
+        self.name = name.strip()
         self._base_url = base_url.rstrip("/")
         if not api_key:
             raise ValueError("api_key 不能为空")
         self._api_key = api_key
         self._model = model
+        self._recorder = recorder
         self._client = client
         # connect 快失败(≤15s)，read 容忍慢首 token
         self._timeout = httpx.Timeout(timeout, connect=min(timeout, 15.0))
@@ -54,13 +70,18 @@ class OpenAICompatTextProvider(TextLLMPort):
         self._extra_body = extra_body or {}
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
     ) -> AsyncIterator[LLMChunk]:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": [self._to_openai_msg(m) for m in messages],
-            "stream": True,
             **self._extra_body,  # 供应商特定参（thinking 开关等）
+            "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if tools:
             payload["tools"] = [
@@ -89,6 +110,14 @@ class OpenAICompatTextProvider(TextLLMPort):
         url = f"{self._base_url}/chat/completions"
         # index -> {"id", "name", "args"}：工具调用参数按 index 跨 chunk 拼接
         acc: dict[int, dict[str, str]] = {}
+        usage: ModelUsage | None = None
+        usage_diagnostic: str | None = None
+        call_id = await self._recorder.start(
+            context=context,
+            provider="openai_compat_text",
+            model=self.name,
+            attempt_no=1,
+        )
         try:
             async for line in self._iter_lines(url, payload, headers):
                 if not line.startswith("data:"):
@@ -96,7 +125,12 @@ class OpenAICompatTextProvider(TextLLMPort):
                 data = line[len("data:"):].strip()
                 if data == "[DONE]":
                     break
-                delta = self._delta(data)
+                body = self._body(data)
+                if body is None:
+                    continue
+                if "usage" in body:
+                    usage, usage_diagnostic = self._usage_of(body["usage"])
+                delta = self._delta(body)
                 if delta is None:
                     continue
                 # 只取 content；thinking 模型（火山 ARK doubao 等）的内部推理在
@@ -114,20 +148,47 @@ class OpenAICompatTextProvider(TextLLMPort):
                         slot["name"] = fn["name"]
                     if fn.get("arguments"):
                         slot["args"] += fn["arguments"]
-        except httpx.HTTPError as exc:
-            raise TextLLMError(f"文本 LLM 传输错误：{exc}") from exc
-        if acc:
-            calls = tuple(
-                ToolCall(
-                    id=s["id"] or s["name"],
-                    name=s["name"],
-                    arguments=self._parse_args(s["args"]),
-                )
-                for _, s in sorted(acc.items())
-                if s["name"]
+            calls = self._tool_calls(acc)
+        except asyncio.CancelledError:
+            await self._recorder.interrupt(call_id)
+            raise
+        except GeneratorExit:
+            await self._recorder.interrupt(call_id)
+            raise
+        except _UpstreamResponseError as exc:
+            await self._recorder.fail(
+                call_id,
+                code="provider_error",
+                detail=str(exc),
             )
-            if calls:
-                yield ToolCallChunk(calls)
+            raise
+        except TextLLMError as exc:
+            await self._recorder.fail(
+                call_id,
+                code="invalid_response",
+                detail=str(exc),
+            )
+            raise
+        except httpx.HTTPError as exc:
+            await self._recorder.fail(
+                call_id,
+                code="transport_error",
+                detail=str(exc),
+            )
+            raise TextLLMError(f"文本 LLM 传输错误：{exc}") from exc
+        await self._recorder.succeed(
+            call_id,
+            usage=usage or ModelUsage(),
+            provider_request_id=None,
+            platform_cost=None,
+            diagnostic_code=(
+                usage_diagnostic
+                if usage is not None
+                else "usage_missing"
+            ),
+        )
+        if calls:
+            yield ToolCallChunk(calls)
 
     async def _iter_lines(
         self, url: str, payload: dict[str, Any], headers: dict[str, str]
@@ -149,19 +210,82 @@ class OpenAICompatTextProvider(TextLLMPort):
     def _raise_for_status(self, resp: httpx.Response) -> None:
         if 200 <= resp.status_code < 300:
             return
-        raise TextLLMError(f"文本 LLM {resp.status_code}: {resp.reason_phrase}")
+        raise _UpstreamResponseError(
+            f"文本 LLM {resp.status_code}: {resp.reason_phrase}"
+        )
 
     @staticmethod
-    def _delta(data: str) -> dict[str, Any] | None:
+    def _body(data: str) -> dict[str, Any] | None:
         try:
             body = json.loads(data)
         except json.JSONDecodeError:
             return None
+        return body if isinstance(body, dict) else None
+
+    @staticmethod
+    def _delta(body: dict[str, Any]) -> dict[str, Any] | None:
         choices = body.get("choices") or []
         if not choices:
             return None
         delta = choices[0].get("delta")
         return delta if isinstance(delta, dict) else None
+
+    @classmethod
+    def _usage_of(cls, raw: object) -> tuple[ModelUsage, str | None]:
+        if not isinstance(raw, dict):
+            return ModelUsage(), "usage_invalid"
+        input_tokens, invalid_input = cls._token_value(
+            raw.get("prompt_tokens")
+        )
+        output_tokens, invalid_output = cls._token_value(
+            raw.get("completion_tokens")
+        )
+        total_tokens, invalid_total = cls._token_value(
+            raw.get("total_tokens")
+        )
+        diagnostic = (
+            "usage_invalid"
+            if (
+                invalid_input
+                or invalid_output
+                or invalid_total
+                or (
+                    input_tokens is None
+                    and output_tokens is None
+                    and total_tokens is None
+                )
+            )
+            else None
+        )
+        return (
+            ModelUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+            ),
+            diagnostic,
+        )
+
+    @staticmethod
+    def _token_value(value: object) -> tuple[int | None, bool]:
+        if value is None:
+            return None, False
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value, False
+        return None, True
+
+    def _tool_calls(
+        self, acc: dict[int, dict[str, str]]
+    ) -> tuple[ToolCall, ...]:
+        return tuple(
+            ToolCall(
+                id=slot["id"] or slot["name"],
+                name=slot["name"],
+                arguments=self._parse_args(slot["args"]),
+            )
+            for _, slot in sorted(acc.items())
+            if slot["name"]
+        )
 
     @staticmethod
     def _parse_args(raw: str) -> dict[str, Any]:

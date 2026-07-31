@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from functools import partial
 
 from design_hub.application.tasking.outbox_dispatcher import OutboxDispatcher
 from design_hub.application.tasking.worker import GenerationWorker
@@ -111,9 +112,16 @@ class GenerationWorkerRuntime:
         for delivery in deliveries:
             task = asyncio.create_task(self.worker.process(delivery))
             self._active.add(task)
-            task.add_done_callback(self._delivery_finished)
+            task.add_done_callback(
+                partial(self._delivery_finished, delivery=delivery)
+            )
 
-    def _delivery_finished(self, task: asyncio.Task[None]) -> None:
+    def _delivery_finished(
+        self,
+        task: asyncio.Task[None],
+        *,
+        delivery: Delivery,
+    ) -> None:
         self._active.discard(task)
         if task.cancelled():
             return
@@ -121,7 +129,20 @@ class GenerationWorkerRuntime:
         if error is not None:
             logger.error(
                 "generation_delivery_failed",
-                extra={"error_type": type(error).__name__},
+                extra={
+                    "chain": "image_generation",
+                    "action": "Worker任务执行异常",
+                    "trace_id": delivery.message.trace_id,
+                    "request_id": delivery.message.request_id,
+                    "message_id": delivery.message.message_id,
+                    "redis_id": delivery.redis_id,
+                    "job_id": delivery.message.job_id,
+                    "item_id": delivery.message.item_id,
+                    "operation_id": delivery.message.operation_id,
+                    "status": "failed",
+                    "error_type": type(error).__name__,
+                },
+                exc_info=(type(error), error, error.__traceback__),
             )
 
     async def _drain_active(self) -> None:

@@ -105,7 +105,7 @@ export function GlassPreview() {
             </div>
           </FSection>
 
-          <FSection title="套图结构" right="5 张 · 约 ¥2.00">
+          <FSection title="套图结构" right="5 张">
             <div className="space-y-1.5">
               {PREVIEW_PLAN.map((p) => (
                 <div key={p.label} className="flex items-center justify-between rounded-[12px] bg-white px-3 py-2 shadow-[0_1px_3px_rgba(40,40,90,.06)]">
@@ -143,9 +143,9 @@ export function GlassPreview() {
               boxShadow: `0 10px 26px -10px ${ACCENT}b3, inset 0 1px 0 #ffffff40`,
             }}
           >
-            一键生成套图 <span className="ml-1 text-[12px] font-medium text-white/80">约 ¥2.00 · 5 张</span>
+            一键生成套图 <span className="ml-1 text-[12px] font-medium text-white/80">5 张</span>
           </button>
-          <p className={`mt-2 text-center text-[11px] ${FAINT}`}>按成功张数计费 · 失败不计</p>
+          <p className={`mt-2 text-center text-[11px] ${FAINT}`}>完成后可逐张下载</p>
         </aside>
 
         {/* 结果区 */}
@@ -156,7 +156,7 @@ export function GlassPreview() {
               <span className="flex items-center gap-1.5 rounded-full bg-[#e9f9ef] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#1da55b]">
                 ● 已完成 5/5
               </span>
-              <span className={`text-[12px] ${MUTED}`}>实付 ¥2.00</span>
+              <span className={`text-[12px] ${MUTED}`}>全部完成</span>
             </div>
             <button
               className="rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-white"
@@ -180,7 +180,7 @@ export function GlassPreview() {
                   >
                     <img src={r.src} alt="" className="aspect-square w-full object-cover" />
                     <div className="flex items-center justify-between px-3 py-2 text-[11.5px]">
-                      <span className={FAINT}>{r.cost}</span>
+                      <span className={FAINT}>#{r.no}</span>
                       <span className="flex gap-1.5">
                         <button className={`rounded-full bg-[#f0f1f7] px-2.5 py-0.5 font-medium ${MUTED}`}>下载</button>
                         <button className="rounded-full px-2.5 py-0.5 font-semibold text-white" style={{ background: ACCENT }}>

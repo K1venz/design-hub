@@ -3,6 +3,7 @@ import re
 import sys
 import traceback
 from collections.abc import Awaitable, Callable, MutableMapping
+from pathlib import Path
 from typing import Any, TextIO, cast
 from uuid import uuid4
 
@@ -16,6 +17,11 @@ from structlog.contextvars import (
     merge_contextvars,
 )
 from structlog.typing import EventDict, Processor, WrappedLogger
+
+from design_hub.infrastructure.monitoring.runtime_log_files import (
+    RuntimeLogService,
+    runtime_log_handler,
+)
 
 _REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _URL_QUERY = re.compile(r"(https?://[^\s?]+)\?[^\s]+", re.IGNORECASE)
@@ -53,6 +59,17 @@ _ALLOWED_LOG_KEYS = frozenset(
         "publish_attempts",
     }
 )
+_RUNTIME_LOG_KEYS = _ALLOWED_LOG_KEYS | frozenset(
+    {
+        "event_id",
+        "service",
+        "chain",
+        "action",
+        "function",
+        "model",
+        "prompt",
+    }
+)
 _SENTRY_EXTRA_KEYS = frozenset(
     {
         "request_id",
@@ -76,12 +93,16 @@ _SENSITIVE_HEADERS = frozenset(
 
 
 def _safe_text(value: str) -> str:
+    return _redact_text(value)[:1000]
+
+
+def _redact_text(value: str) -> str:
     value = _REDIS_CREDENTIALS.sub(r"\1[REDACTED]@", value)
     value = _URL_QUERY.sub(r"\1?[REDACTED]", value)
     value = _BEARER.sub("Bearer [REDACTED]", value)
     value = _OPENAI_KEY.sub("sk-[REDACTED]", value)
     value = _SECRET_ASSIGNMENT.sub(r"\1=[REDACTED]", value)
-    return value[:1000]
+    return value
 
 
 def sanitize_event(
@@ -97,6 +118,47 @@ def sanitize_event(
             continue
         if isinstance(value, str):
             sanitized[key] = _safe_text(value)
+        elif isinstance(value, (int, float, bool)):
+            sanitized[key] = value
+        else:
+            sanitized[key] = str(value)[:200]
+    return sanitized
+
+
+def add_runtime_context(
+    service: RuntimeLogService,
+) -> Processor:
+    def processor(
+        logger: WrappedLogger,
+        method_name: str,
+        event_dict: EventDict,
+    ) -> EventDict:
+        del logger, method_name
+        record = event_dict.get("_record")
+        if isinstance(record, logging.LogRecord):
+            event_dict["function"] = record.funcName
+        event_dict["service"] = service
+        event_dict["event_id"] = uuid4().hex
+        return event_dict
+
+    return processor
+
+
+def sanitize_runtime_event(
+    logger: WrappedLogger,
+    method_name: str,
+    event_dict: EventDict,
+) -> EventDict:
+    del logger, method_name
+    sanitized: EventDict = {}
+    for key in _RUNTIME_LOG_KEYS:
+        value = event_dict.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            sanitized[key] = (
+                _redact_text(value) if key == "prompt" else _safe_text(value)
+            )
         elif isinstance(value, (int, float, bool)):
             sanitized[key] = value
         else:
@@ -136,6 +198,9 @@ def configure_logging(
     *,
     level: int = logging.INFO,
     stream: TextIO | None = None,
+    runtime_log_dir: Path | None = None,
+    service: RuntimeLogService | None = None,
+    runtime_log_max_bytes: int = 50 * 1024 * 1024,
 ) -> None:
     shared: list[Processor] = [
         merge_contextvars,
@@ -152,7 +217,7 @@ def configure_logging(
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
-    formatter = structlog.stdlib.ProcessorFormatter(
+    stdout_formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=[
             structlog.stdlib.ExtraAdder(),
             *shared,
@@ -165,10 +230,36 @@ def configure_logging(
         ],
     )
     handler = logging.StreamHandler(stream or sys.stdout)
-    handler.setFormatter(formatter)
+    handler.setFormatter(stdout_formatter)
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
+    if runtime_log_dir is not None or service is not None:
+        if runtime_log_dir is None or service is None:
+            raise ValueError(
+                "runtime_log_dir and service must be configured together"
+            )
+        runtime_handler = runtime_log_handler(
+            runtime_log_dir,
+            service,
+            runtime_log_max_bytes,
+        )
+        runtime_handler.setFormatter(
+            structlog.stdlib.ProcessorFormatter(
+                foreign_pre_chain=[
+                    structlog.stdlib.ExtraAdder(),
+                    *shared,
+                ],
+                processors=[
+                    add_safe_exception_context,
+                    add_runtime_context(service),
+                    structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                    sanitize_runtime_event,
+                    structlog.processors.JSONRenderer(ensure_ascii=False),
+                ],
+            )
+        )
+        root.addHandler(runtime_handler)
     root.setLevel(level)
     for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(logger_name)

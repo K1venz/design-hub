@@ -108,7 +108,7 @@ export function LinearPreview() {
 
           <div className="mt-5 flex items-baseline justify-between">
             <span className={LABEL}>套图结构</span>
-            <span className={`text-[12px] ${MUTED}`}>共 5 张 · 约 ¥2.00</span>
+            <span className={`text-[12px] ${MUTED}`}>共 5 张</span>
           </div>
           <div className="mt-2 space-y-1.5">
             {PREVIEW_PLAN.map((p) => (
@@ -149,7 +149,7 @@ export function LinearPreview() {
           >
             <span>一键生成套图</span>
             <span className="flex items-center gap-2 text-[12px] text-white/75">
-              约 ¥2.00 · 5 张
+              5 张
               <kbd className="rounded-[4px] bg-white/15 px-1.5 font-sans text-[10.5px]">⏎</kbd>
             </span>
           </button>
@@ -164,7 +164,7 @@ export function LinearPreview() {
                 <span className="size-1.5 rounded-full bg-[#4cc38a]" />
                 已完成 5/5
               </span>
-              <span className={`text-[12.5px] ${MUTED}`}>实付 ¥2.00</span>
+              <span className={`text-[12.5px] ${MUTED}`}>全部完成</span>
             </div>
             <button className="rounded-[6px] border border-[#26282e] px-3 py-1.5 text-[12.5px] text-[#b9bdc6]">
               下载全部
@@ -185,7 +185,7 @@ export function LinearPreview() {
                   >
                     <img src={r.src} alt="" className="aspect-square w-full object-cover" />
                     <div className="flex items-center justify-between px-2.5 py-1.5 text-[11.5px]">
-                      <span className={MUTED}>{r.cost}</span>
+                      <span className={MUTED}>#{r.no}</span>
                       <span className="flex gap-2.5">
                         <span className={`cursor-pointer ${MUTED}`}>下载</span>
                         <span className="cursor-pointer" style={{ color: '#9da2ff' }}>再编辑</span>

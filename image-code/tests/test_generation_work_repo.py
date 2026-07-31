@@ -7,7 +7,6 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from design_hub.domain.enums import ModelName
 from design_hub.domain.errors import BudgetExceeded, DataInvariantError
 from design_hub.domain.models import ListingJobStart
 from design_hub.domain.tasking import (
@@ -283,7 +282,7 @@ def _submission(
             operation_type=OperationType.GENERATE_IMAGE,
             render_tier=RenderTier.STANDARD,
             final_prompt=f"prompt {index}",
-            model=ModelName.GPT_IMAGE_2,
+            model="gpt-image-2",
             ratio="1:1",
             size=(1024, 1024),
             quality=None,

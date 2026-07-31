@@ -5,8 +5,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { estimateCost } from './listing'
-
 /** 工具区大 banner（直达现有工作台）。 */
 export interface ToolBanner {
   key: string
@@ -37,7 +35,7 @@ export const TOOL_TILES: ToolTile[] = [
     key: 'single',
     to: '/set',
     label: '单图出图',
-    desc: `只出一张 · ¥${estimateCost(1).toFixed(2)}`,
+    desc: '快速生成 1 张商品图',
     icon: ImageIcon,
   },
   { key: 'edit', to: '/history', label: '二次编辑', desc: '从历史选一张再改', icon: SquarePenIcon },

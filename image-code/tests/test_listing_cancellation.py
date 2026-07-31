@@ -13,8 +13,8 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.registry import ProviderRegistry
-from design_hub.domain.enums import ModelName
 from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
+from design_hub.ports.model_calls import ModelCallContext
 
 
 class _RecordingGuard:
@@ -35,7 +35,7 @@ class _RecordingGuard:
 
 
 class _BlockingProvider:
-    name = ModelName.GPT_IMAGE_2
+    name = "gpt-image-2"
     unit_cost = Decimal("0.05")
     is_live = True
     reference_mode = "bytes"
@@ -46,6 +46,7 @@ class _BlockingProvider:
     async def generate(
         self,
         *,
+        context: ModelCallContext,
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
@@ -54,6 +55,7 @@ class _BlockingProvider:
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
+        del context
         self.started.set()
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
@@ -84,7 +86,7 @@ def _operation(
         "modifiers": {},
         "ratio": "1:1",
         "user_id": "u1",
-        "model": ModelName.GPT_IMAGE_2,
+        "model": "gpt-image-2",
     }
     if name == "generate":
         return service.generate(

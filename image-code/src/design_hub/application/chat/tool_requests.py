@@ -29,9 +29,10 @@ class ChatGenerateRequest(BaseModel):
     plan: dict[str, int] | None = None
     overlay_texts: list[str] | None = None
 
-    def to_listing(self) -> ListingGenerateRequest:
+    def to_listing(self, image_model: str) -> ListingGenerateRequest:
         return ListingGenerateRequest(
             **self.model_dump(),
+            image_model=image_model,
             modifiers={},
             category=None,
         )
@@ -46,9 +47,10 @@ class ChatCloneRequest(BaseModel):
     ratio: str
     prompt: str = ""
 
-    def to_listing(self) -> CloneRequest:
+    def to_listing(self, image_model: str) -> CloneRequest:
         return CloneRequest(
             **self.model_dump(),
+            image_model=image_model,
             modifiers={},
             category=None,
         )
@@ -62,9 +64,10 @@ class ChatEditRequest(BaseModel):
     edit_mode: str = "delta"
     ratio: str | None = None
 
-    def to_listing(self) -> EditRequest:
+    def to_listing(self, image_model: str) -> EditRequest:
         return EditRequest(
             **self.model_dump(),
+            image_model=image_model,
             modifiers={},
         )
 
