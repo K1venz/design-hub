@@ -142,7 +142,9 @@ def _image_record(
     )
 
 
-def _chat_record() -> ModelConfigRecord:
+def _chat_record(
+    *, revision: int = 1, enabled: bool = True, verified: bool = True
+) -> ModelConfigRecord:
     fingerprint = connection_fingerprint(
         model_type=ModelType.CHAT,
         provider_type=ProviderType.OPENAI_COMPAT_CHAT,
@@ -160,10 +162,10 @@ def _chat_record() -> ModelConfigRecord:
         model="doubao-upstream",
         credentials_ciphertext={"api_key": "enc-chat"},
         unit_cost=Decimal("0"),
-        enabled=True,
-        revision=3,
-        verified_at=datetime.now(UTC),
-        verified_fingerprint=fingerprint,
+        enabled=enabled,
+        revision=revision,
+        verified_at=datetime.now(UTC) if verified else None,
+        verified_fingerprint=fingerprint if verified else None,
         extra={"thinking_disabled": True},
     )
 
@@ -313,6 +315,46 @@ def test_text_resolver_reads_default_and_row_on_every_operation() -> None:
         assert first._extra_body == {"thinking": {"type": "disabled"}}
 
     asyncio.run(run())
+
+
+def test_text_resolver_resolves_explicit_model_without_reading_default() -> None:
+    async def run() -> None:
+        record = _chat_record()
+        repo = _Repo({record.name: record})
+        resolver = LiveTextLLMResolver(
+            repository=repo,
+            cipher=_Cipher({"enc-chat": "chat-key"}),
+            recorder=RecordingModelCallRecorder(),
+            settings=Settings(),
+        )
+
+        first = await resolver.resolve(record.name)
+        second = await resolver.resolve(record.name)
+
+        assert first is second
+        assert repo.default_calls == []
+        assert repo.get_calls == [record.name, record.name]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "record",
+    [None, _chat_record(enabled=False), _chat_record(verified=False)],
+)
+def test_text_resolver_rejects_unavailable_explicit_model(
+    record: ModelConfigRecord | None,
+) -> None:
+    records = {} if record is None else {record.name: record}
+    with pytest.raises(ModelUnavailableError, match="model unavailable"):
+        asyncio.run(
+            LiveTextLLMResolver(
+                repository=_Repo(records),
+                cipher=_Cipher({"enc-chat": "chat-key"}),
+                recorder=RecordingModelCallRecorder(),
+                settings=Settings(),
+            ).resolve("doubao-chat")
+        )
 
 
 def test_image_resolver_constructs_recoverable_wan_only_for_standard_tier() -> None:

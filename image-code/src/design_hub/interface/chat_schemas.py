@@ -15,6 +15,10 @@ class ChatMessageRequest(BaseModel):
 
     session_id: str | None = None
     message: str
+    chat_model: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1),
+    ]
     image_model: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1),

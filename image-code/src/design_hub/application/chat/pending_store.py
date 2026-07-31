@@ -32,6 +32,7 @@ class PendingAction:
     tool: str  # generate | clone | edit | replace_background
     req: ListingReq
     count: int
+    chat_model: str
     image_model: str
     model_display_name: str
     render_tier: RenderTier
@@ -52,6 +53,7 @@ class PendingStore:
         tool: str,
         req: ListingReq,
         count: int,
+        chat_model: str,
         image_model: str,
         model_display_name: str,
         render_tier: RenderTier,
@@ -61,6 +63,7 @@ class PendingStore:
             tool=tool,
             req=req,
             count=count,
+            chat_model=chat_model,
             image_model=image_model,
             model_display_name=model_display_name,
             render_tier=render_tier,

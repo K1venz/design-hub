@@ -16,4 +16,6 @@ class ImageExecutorResolver(Protocol):
 
 
 class TextLLMResolver(Protocol):
+    async def resolve(self, model_id: str) -> TextLLMPort: ...
+
     async def resolve_default(self) -> TextLLMPort: ...

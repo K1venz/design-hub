@@ -96,7 +96,10 @@ class LiveTextLLMResolver:
         default_name = await self._repository.get_default(ModelType.CHAT)
         if default_name is None:
             raise ModelUnavailableError(_UNAVAILABLE)
-        record = await self._repository.get(default_name)
+        return await self.resolve(default_name)
+
+    async def resolve(self, model_id: str) -> TextLLMPort:
+        record = await self._repository.get(_required_model_id(model_id))
         credentials = _require_record(
             record,
             expected_type=ModelType.CHAT,
