@@ -383,13 +383,13 @@ class ModelCapabilityService:
                 record=record,
                 credentials=credentials,
             )
+            context = ModelCallContext(
+                user_id=manager_id,
+                operation=ModelOperation.CHAT_COMPLETION,
+            )
             text_seen = False
-            valid_tool_seen = False
             async for chunk in provider.complete(
-                context=ModelCallContext(
-                    user_id=manager_id,
-                    operation=ModelOperation.CHAT_COMPLETION,
-                ),
+                context=context,
                 messages=[
                     ChatMessage(
                         role="system",
@@ -397,7 +397,36 @@ class ModelCapabilityService:
                     ),
                     ChatMessage(
                         role="user",
-                        content="Return a short text and call the probe tool.",
+                        content="Return a short text response.",
+                    ),
+                ],
+                tools=[],
+            ):
+                if isinstance(chunk, TextChunk) and chunk.text:
+                    text_seen = True
+        except Exception:
+            raise CapabilityTestFailed(
+                protocol=record.provider_type.value,
+                check="chat_protocol",
+            ) from None
+        if not text_seen:
+            raise CapabilityTestFailed(
+                protocol=record.provider_type.value,
+                check="streamed_text",
+            )
+
+        try:
+            valid_tool_seen = False
+            async for chunk in provider.complete(
+                context=context,
+                messages=[
+                    ChatMessage(
+                        role="system",
+                        content="Run the configuration capability probe.",
+                    ),
+                    ChatMessage(
+                        role="user",
+                        content="Call the probe tool.",
                     ),
                 ],
                 tools=[
@@ -416,8 +445,6 @@ class ModelCapabilityService:
                     )
                 ],
             ):
-                if isinstance(chunk, TextChunk) and chunk.text:
-                    text_seen = True
                 if isinstance(chunk, ToolCallChunk):
                     valid_tool_seen = any(
                         call.name == _PROBE_TOOL
@@ -429,11 +456,6 @@ class ModelCapabilityService:
                 protocol=record.provider_type.value,
                 check="chat_protocol",
             ) from None
-        if not text_seen:
-            raise CapabilityTestFailed(
-                protocol=record.provider_type.value,
-                check="streamed_text",
-            )
         if not valid_tool_seen:
             raise CapabilityTestFailed(
                 protocol=record.provider_type.value,
