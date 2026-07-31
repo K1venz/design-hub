@@ -59,11 +59,6 @@ const ClaudePreview = devLazy(() =>
 const GlassPreview = devLazy(() =>
   import('@/pages/style-preview/GlassPreview').then((m) => ({ default: m.GlassPreview })),
 )
-const ModelSelectorDemoPage = devLazy(() =>
-  import('@/pages/model-selector-demo/ModelSelectorDemoPage').then((module) => ({
-    default: module.ModelSelectorDemoPage,
-  })),
-)
 
 /**
  * 应用级用户水合：有 token 但 user 未载入时拉 /me 填 store。
@@ -190,16 +185,6 @@ function AppRoutes() {
           <Route path="logs" element={<AdminRuntimeLogsPage />} />
         </Route>
       </Route>
-      {import.meta.env.DEV && (
-        <Route
-          path="/model-selector-demo"
-          element={
-            <Suspense fallback={<FullPageLoader label="载入模型选择器演示…" />}>
-              <ModelSelectorDemoPage />
-            </Suspense>
-          }
-        />
-      )}
       {import.meta.env.DEV && (
         <Route path="/style-preview">
           <Route
