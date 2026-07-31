@@ -203,12 +203,14 @@ class ModelConfigService:
             raise ValueError("default model must be enabled and verified")
         return await self.repo.set_default(actor_id=actor_id, name=name)
 
-    async def image_catalog(self) -> BuiltinList[dict[str, str | bool]]:
-        default_name = await self.repo.get_default(ModelType.IMAGE)
+    async def catalog(
+        self, model_type: ModelType
+    ) -> BuiltinList[dict[str, str | bool]]:
+        default_name = await self.repo.get_default(model_type)
         catalog: BuiltinList[dict[str, str | bool]] = []
         for record in await self.repo.list_all():
             if (
-                record.model_type is ModelType.IMAGE
+                record.model_type is model_type
                 and record.enabled
                 and record.verified_at is not None
                 and record.verified_fingerprint == _record_fingerprint(self.cipher, record)
