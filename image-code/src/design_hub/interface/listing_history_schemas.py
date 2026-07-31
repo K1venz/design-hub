@@ -17,6 +17,7 @@ class ListingJobSummaryOut(BaseModel):
     created_at: datetime
     first_image_url: str | None
     image_count: int
+    model_id: str | None = None
     edit_mode: str | None = None  # delta|full；None=原生单（列表 ✎ 徽标，ISSUE-0040）
     category: str | None = None  # 品类档（ISSUE-0060）；None=编辑单/旧数据
     operation_type: str | None = None
@@ -35,6 +36,7 @@ class ListingJobSummaryOut(BaseModel):
                 signer.generated_url(s.first_image_key) if s.first_image_key else None
             ),
             image_count=s.image_count,
+            model_id=s.model_id,
             edit_mode=s.edit_mode,
             category=s.category,
             operation_type=s.operation_type,
@@ -73,6 +75,7 @@ class ListingJobDetailOut(BaseModel):
     completed_at: datetime | None
     images: list[ListingImageOut]
     input_urls: list[str]
+    model_id: str | None = None
     category: str | None = None  # 品类档（ISSUE-0060）：配方复用回填；None=编辑单/旧数据
     clone_mode: str | None = None  # 参考风格|完全复刻；None=非复刻（历史「复刻」徽标）
     input_roles: list[str | None] = []  # product|reference，与 input_urls 同序；None=旧数据
@@ -116,6 +119,7 @@ class ListingJobDetailOut(BaseModel):
                 for im in d.images
             ],
             input_urls=[signer.upload_url(k) for k in d.input_keys],
+            model_id=d.model_id,
             category=d.category,
             clone_mode=d.clone_mode,
             input_roles=list(d.input_roles) or [None] * len(d.input_keys),

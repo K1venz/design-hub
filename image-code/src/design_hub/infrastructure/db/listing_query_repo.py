@@ -72,6 +72,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
             created_at=r.created_at,
             first_image_key=(available[0].image_key if available else None),
             image_count=len(successes),
+            model_id=SqlAlchemyListingHistoryQuery._model_id_of(r),
             edit_mode=r.edit_mode,
             category=r.category,
             operation_type=SqlAlchemyListingHistoryQuery._operation_type_of(r),
@@ -141,6 +142,7 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                 for im in row.images
             ),
             input_keys=tuple(i.upload_key for i in inputs),
+            model_id=self._model_id_of(row),
             clone_mode=row.clone_mode,
             input_roles=tuple(i.role for i in inputs),
             parent_job_id=row.parent_job_id,
@@ -164,6 +166,17 @@ class SqlAlchemyListingHistoryQuery(ListingHistoryQuery):
                 f"任务 {row.id} 包含不一致的操作类型（数据异常）"
             )
         return operation_types.pop()
+
+    @staticmethod
+    def _model_id_of(row: ListingJobRow) -> str | None:
+        if not row.generation_items:
+            return None
+        model_ids = {item.model for item in row.generation_items}
+        if len(model_ids) != 1:
+            raise RuntimeError(
+                f"任务 {row.id} 包含不一致的模型标识（数据异常）"
+            )
+        return model_ids.pop()
 
     async def _chain_cost(self, session: AsyncSession, row: ListingJobRow) -> Decimal:
         """迭代链累计（R5）：路径上各编辑单 total_cost + 根单被编辑「源张」单张 cost。

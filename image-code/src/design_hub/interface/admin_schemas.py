@@ -22,13 +22,19 @@ class ModelConfigOut(BaseModel):
     model: str
     unit_cost: Decimal
     enabled: bool
+    is_default: bool
     revision: int
     verified_at: datetime | None
     extra: dict[str, object]
     credentials: ModelCredentialStatusOut
 
     @classmethod
-    def of(cls, record: ModelConfigRecord) -> "ModelConfigOut":
+    def of(
+        cls,
+        record: ModelConfigRecord,
+        *,
+        is_default: bool = False,
+    ) -> "ModelConfigOut":
         rule = PROVIDER_RULES[record.provider_type]
         configured_fields = {
             field: field in record.credentials_ciphertext
@@ -43,6 +49,7 @@ class ModelConfigOut(BaseModel):
             model=record.model,
             unit_cost=record.unit_cost,
             enabled=record.enabled,
+            is_default=is_default,
             revision=record.revision,
             verified_at=record.verified_at,
             extra=dict(record.extra),

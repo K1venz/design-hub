@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import {
   HttpError,
+  isModelUnavailableError,
   useListingGenerate,
   useListingSetGenerate,
   useListingEvents,
@@ -15,6 +16,11 @@ import { ListingConfigPanel } from '@/components/listing/ListingConfigPanel'
 import { RecipeDrawer } from '@/components/listing/RecipeDrawer'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
+import {
+  requireSelectedImageModel,
+  useImageModelSelection,
+} from '@/components/models/image-model-context'
+import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import {
   detailToResultSlots,
   IMAGE_TYPE_FIELDS,
@@ -57,6 +63,7 @@ export function WorkbenchPage() {
   const applyPrefill = useWorkbenchStore((s) => s.applyPrefill)
   const generate = useListingGenerate()
   const generateSet = useListingSetGenerate()
+  const modelSelection = useImageModelSelection()
   const qc = useQueryClient()
   const location = useLocation()
   const navigate = useNavigate()
@@ -138,6 +145,7 @@ export function WorkbenchPage() {
   })
 
   async function onGenerate() {
+    const imageModel = requireSelectedImageModel(modelSelection)
     const isSet = config.mode === 'set'
     // 预铺槽位：套图按图型分组顺序铺（带标签），单图铺 n 个无标签槽
     const planned: ResultSlot[] = isSet
@@ -149,6 +157,7 @@ export function WorkbenchPage() {
     try {
       const { job_id } = isSet
         ? await generateSet.mutateAsync({
+            imageModel,
             uploadIds: uploaded.map((u) => u.id),
             prompt: config.prompt,
             ratio: config.ratio,
@@ -158,6 +167,7 @@ export function WorkbenchPage() {
             modifiers: config.modifiers,
           })
         : await generate.mutateAsync({
+            imageModel,
             uploadIds: uploaded.map((u) => u.id),
             prompt: config.prompt,
             ratio: config.ratio,
@@ -168,7 +178,12 @@ export function WorkbenchPage() {
       setActiveJobId(job_id)
     } catch (err) {
       clearActive()
-      toast.error(err instanceof Error ? err.message : '出图请求失败')
+      if (isModelUnavailableError(err)) {
+        modelSelection.retry()
+        toast.error('刚选择的图片模型已不可用，表单已保留，请重新选择。')
+      } else {
+        toast.error(err instanceof Error ? err.message : '出图请求失败')
+      }
     }
   }
 
@@ -193,6 +208,13 @@ export function WorkbenchPage() {
         config={config}
         uploaded={uploaded}
         pending={pending}
+        modelReady={modelSelection.state === 'ready'}
+        modelSelector={
+          <ImageModelSelector
+            selection={modelSelection}
+            disabled={pending}
+          />
+        }
         onConfigChange={setConfig}
         onUploadedChange={setUploaded}
         onGenerate={onGenerate}

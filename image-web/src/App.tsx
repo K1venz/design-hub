@@ -10,6 +10,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout'
 import { FullPageLoader } from '@/components/feedback/FullPageLoader'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout'
+import { ImageModelGate } from '@/components/models/ImageModelGate'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminModelsPage } from '@/pages/AdminModelsPage'
@@ -138,8 +139,21 @@ function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         {/* 帮我设计（登录内测，自带 AppShell） */}
-        <Route path="chat" element={<ChatPage />} />
-        <Route element={<WorkbenchLayout />}>
+        <Route
+          path="chat"
+          element={
+            <ImageModelGate>
+              <ChatPage />
+            </ImageModelGate>
+          }
+        />
+        <Route
+          element={
+            <ImageModelGate>
+              <WorkbenchLayout />
+            </ImageModelGate>
+          }
+        >
           <Route path="set" element={<WorkbenchPage />} />
           <Route path="clone" element={<CloneWorkbenchPage />} />
           <Route path="background" element={<BackgroundWorkbenchPage />} />

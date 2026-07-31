@@ -12,13 +12,24 @@ from design_hub.interface.api.admin_deps import (
     ModelConfigServiceDep,
 )
 from design_hub.interface.api.deps import CurrentManagerDep
+from design_hub.domain.enums import ModelType
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.get("/models", response_model=list[ModelConfigOut])
 async def list_models(svc: ModelConfigServiceDep) -> list[ModelConfigOut]:
-    return [ModelConfigOut.of(record) for record in await svc.list()]
+    defaults = {
+        model_type: await svc.default_name(model_type)
+        for model_type in ModelType
+    }
+    return [
+        ModelConfigOut.of(
+            record,
+            is_default=record.name == defaults[record.model_type],
+        )
+        for record in await svc.list()
+    ]
 
 
 @router.post("/models", response_model=ModelConfigOut)
@@ -65,7 +76,10 @@ async def set_default_model(
     manager: CurrentManagerDep,
     svc: ModelConfigServiceDep,
 ) -> ModelConfigOut:
-    return ModelConfigOut.of(await svc.set_default(actor_id=int(manager.user_id), name=name))
+    return ModelConfigOut.of(
+        await svc.set_default(actor_id=int(manager.user_id), name=name),
+        is_default=True,
+    )
 
 
 @router.delete("/models/{name}")

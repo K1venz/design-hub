@@ -11,6 +11,7 @@ describe('background replacement request', () => {
   it('builds a strict upload + description request and trims the description', () => {
     expect(
       buildBackgroundReplaceBody({
+        imageModel: 'wan2.7-image-pro',
         source: { kind: 'upload', uploadId: 'u/product.png' },
         background: {
           kind: 'description',
@@ -18,6 +19,7 @@ describe('background replacement request', () => {
         },
       }),
     ).toEqual({
+      image_model: 'wan2.7-image-pro',
       source: { kind: 'upload', upload_id: 'u/product.png' },
       background: {
         kind: 'description',
@@ -29,6 +31,7 @@ describe('background replacement request', () => {
   it('builds a generated + reference request and trims the optional instruction', () => {
     expect(
       buildBackgroundReplaceBody({
+        imageModel: 'gpt-image-2',
         source: { kind: 'generated', imageKey: 'generated/result.png' },
         background: {
           kind: 'reference',
@@ -37,6 +40,7 @@ describe('background replacement request', () => {
         },
       }),
     ).toEqual({
+      image_model: 'gpt-image-2',
       source: { kind: 'generated', image_key: 'generated/result.png' },
       background: {
         kind: 'reference',

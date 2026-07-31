@@ -242,8 +242,8 @@ export interface paths {
          * Chat Messages
          * @description 发一句话，流式收一轮（帮我设计 Agent 对话入口，方案 C）。Bearer 头鉴权。
          *
-         *     事件序：session → assistant_delta* → [step → tool_call → cost_confirm] → assistant_end。
-         *     触发出图时在 cost_confirm 暂停（不出图、不扣费），等用户 POST /chat/confirm。
+         *     事件序：session → assistant_delta* → [step → tool_call → generation_confirm] → assistant_end。
+         *     触发出图时等待 generation_confirm 的显式用户动作。
          */
         post: operations["chat_messages_chat_messages_post"];
         delete?: never;
@@ -263,7 +263,7 @@ export interface paths {
         put?: never;
         /**
          * Chat Confirm
-         * @description 费用确认的显式用户动作。confirm→启 job 流式回传 job_event；cancel→作废 token。
+         * @description 生成确认动作。confirm→启 job 流式回传 job_event；cancel→作废 token。
          */
         post: operations["chat_confirm_chat_confirm_post"];
         delete?: never;
@@ -373,6 +373,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Image Models */
+        get: operations["list_image_models_models_image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/models": {
         parameters: {
             query?: never;
@@ -383,11 +400,25 @@ export interface paths {
         /** List Models */
         get: operations["list_models_admin_models_get"];
         put?: never;
-        /**
-         * Create Model
-         * @description 新增模型配置（ISSUE-0057）。重名 → 409；单价负/空名 → 400。
-         */
+        /** Create Model */
         post: operations["create_model_admin_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/models/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Model Capability */
+        post: operations["test_model_capability_admin_models_test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -405,10 +436,7 @@ export interface paths {
         /** Update Model */
         put: operations["update_model_admin_models__name__put"];
         post?: never;
-        /**
-         * Delete Model
-         * @description 删模型配置（ISSUE-0057）。name 缺 → 404。
-         */
+        /** Delete Model */
         delete: operations["delete_model_admin_models__name__delete"];
         options?: never;
         head?: never;
@@ -423,10 +451,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Set Default Model
-         * @description 设为默认出图模型（备用渠道切换=改默认，ISSUE-0057/0056 单点结构性解）。name 缺 → 404。
-         */
+        /** Set Default Model */
         put: operations["set_default_model_admin_models__name__default_put"];
         post?: never;
         delete?: never;
@@ -977,6 +1002,8 @@ export interface components {
          * @description Dedicated background replacement without exposing provider controls.
          */
         BackgroundReplaceRequest: {
+            /** Image Model */
+            image_model: string;
             /** Source */
             source: components["schemas"]["UploadImageSource"] | components["schemas"]["GeneratedImageSourceRequest"];
             /** Background */
@@ -989,7 +1016,7 @@ export interface components {
         };
         /**
          * ChatConfirmRequest
-         * @description POST /chat/confirm 入参（费用闸的显式用户动作）。
+         * @description POST /chat/confirm 入参（生成确认的显式用户动作）。
          */
         ChatConfirmRequest: {
             /** Session Id */
@@ -1027,6 +1054,8 @@ export interface components {
             session_id?: string | null;
             /** Message */
             message: string;
+            /** Image Model */
+            image_model: string;
             /** Upload Ids */
             upload_ids?: string[];
             /** Edit Source Image Key */
@@ -1070,6 +1099,8 @@ export interface components {
          *     边界仍走 submission service fail-fast 统一 400（ISSUE-0024 口径）。
          */
         CloneRequest: {
+            /** Image Model */
+            image_model: string;
             /** Product Upload Ids */
             product_upload_ids: string[];
             /** Reference Upload Ids */
@@ -1110,6 +1141,8 @@ export interface components {
          *     edit_mode/ratio 仍走 submission service fail-fast 400（域值校验，单一事实源在卡/映射表）。
          */
         EditRequest: {
+            /** Image Model */
+            image_model: string;
             /** Source Image Key */
             source_image_key: string;
             /** Prompt */
@@ -1141,6 +1174,15 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** ImageModelCatalogItemOut */
+        ImageModelCatalogItemOut: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /** Is Default */
+            is_default: boolean;
+        };
         /** ImageModerationUpdate */
         ImageModerationUpdate: {
             status: components["schemas"]["ModerationStatus"];
@@ -1157,6 +1199,8 @@ export interface components {
          *     口径不一致，ISSUE-0024）。
          */
         ListingGenerateRequest: {
+            /** Image Model */
+            image_model: string;
             /** Upload Ids */
             upload_ids: string[];
             /** Prompt */
@@ -1230,6 +1274,8 @@ export interface components {
             images: components["schemas"]["ListingImageOut"][];
             /** Input Urls */
             input_urls: string[];
+            /** Model Id */
+            model_id?: string | null;
             /** Category */
             category?: string | null;
             /** Clone Mode */
@@ -1275,6 +1321,8 @@ export interface components {
             first_image_url: string | null;
             /** Image Count */
             image_count: number;
+            /** Model Id */
+            model_id?: string | null;
             /** Edit Mode */
             edit_mode?: string | null;
             /** Category */
@@ -1413,72 +1461,111 @@ export interface components {
             /** Average Latency Ms */
             average_latency_ms: number | null;
         };
-        /**
-         * ModelConfigCreate
-         * @description 新增模型配置（POST /admin/models）。api_key_env=持有真 key 的 env 名（ops 在 .env 配）。
-         */
-        ModelConfigCreate: {
+        /** ModelCapabilityTestIn */
+        ModelCapabilityTestIn: {
             /** Name */
             name: string;
-            /** Unit Cost */
-            unit_cost: number | string;
-            /**
-             * Provider Type
-             * @default openai_compat_image
-             */
-            provider_type: string;
-            /**
-             * Base Url
-             * @default
-             */
-            base_url: string;
-            /**
-             * Model
-             * @default
-             */
-            model: string;
-            /**
-             * Api Key Env
-             * @default
-             */
-            api_key_env: string;
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-        };
-        /**
-         * ModelConfigOut
-         * @description 模型配置读出。**A1 密钥不入库：只回 api_key_env（环境变量名）、绝不回真 key**（验收⑦）。
-         */
-        ModelConfigOut: {
-            /** Name */
-            name: string;
-            /** Unit Cost */
-            unit_cost: string;
-            /** Enabled */
-            enabled: boolean;
-            /** Extra */
-            extra: {
-                [key: string]: unknown;
-            };
-            /** Provider Type */
-            provider_type: string;
+            /** Existing Model Name */
+            existing_model_name?: string | null;
+            model_type: components["schemas"]["ModelType"];
+            provider_type: components["schemas"]["ProviderType"];
             /** Base Url */
             base_url: string;
             /** Model */
             model: string;
-            /** Api Key Env */
-            api_key_env: string;
+            /** Credentials */
+            credentials?: {
+                [key: string]: string | string[];
+            } | null;
+            /** Extra */
+            extra?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ModelCapabilityTestOut */
+        ModelCapabilityTestOut: {
+            /** Verification Proof */
+            verification_proof: string;
+            /**
+             * Tested At
+             * Format: date-time
+             */
+            tested_at: string;
+            /** Checks */
+            checks: string[];
+        };
+        /** ModelConfigCreate */
+        ModelConfigCreate: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
+            model_type: components["schemas"]["ModelType"];
+            provider_type: components["schemas"]["ProviderType"];
+            /** Base Url */
+            base_url: string;
+            /** Model */
+            model: string;
+            /** Credentials */
+            credentials: {
+                [key: string]: string | string[];
+            };
+            /** Unit Cost */
+            unit_cost: number | string;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Extra */
+            extra?: {
+                [key: string]: unknown;
+            };
+            /** Verification Proof */
+            verification_proof: string;
+        };
+        /** ModelConfigOut */
+        ModelConfigOut: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
+            model_type: components["schemas"]["ModelType"];
+            provider_type: components["schemas"]["ProviderType"];
+            /** Base Url */
+            base_url: string;
+            /** Model */
+            model: string;
+            /** Unit Cost */
+            unit_cost: string;
+            /** Enabled */
+            enabled: boolean;
             /** Is Default */
             is_default: boolean;
+            /** Revision */
+            revision: number;
+            /** Verified At */
+            verified_at: string | null;
+            /** Extra */
+            extra: {
+                [key: string]: unknown;
+            };
+            credentials: components["schemas"]["ModelCredentialStatusOut"];
         };
-        /**
-         * ModelConfigUpdate
-         * @description 部分更新：仅传入的字段生效（None = 不改）。is_default 走 PUT …/default 端点（唯一性）。
-         */
+        /** ModelConfigUpdate */
         ModelConfigUpdate: {
+            /** Display Name */
+            display_name?: string | null;
+            model_type?: components["schemas"]["ModelType"] | null;
+            provider_type?: components["schemas"]["ProviderType"] | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Credentials */
+            credentials?: {
+                [key: string]: string | string[];
+            } | null;
             /** Unit Cost */
             unit_cost?: number | string | null;
             /** Enabled */
@@ -1487,15 +1574,23 @@ export interface components {
             extra?: {
                 [key: string]: unknown;
             } | null;
-            /** Provider Type */
-            provider_type?: string | null;
-            /** Base Url */
-            base_url?: string | null;
-            /** Model */
-            model?: string | null;
-            /** Api Key Env */
-            api_key_env?: string | null;
+            /** Verification Proof */
+            verification_proof?: string | null;
         };
+        /** ModelCredentialStatusOut */
+        ModelCredentialStatusOut: {
+            /** Has Credentials */
+            has_credentials: boolean;
+            /** Configured Fields */
+            configured_fields: {
+                [key: string]: boolean;
+            };
+        };
+        /**
+         * ModelType
+         * @enum {string}
+         */
+        ModelType: "image" | "chat";
         /**
          * ModerationReason
          * @enum {string}
@@ -1561,6 +1656,11 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /**
+         * ProviderType
+         * @enum {string}
+         */
+        ProviderType: "openai_compat_image" | "dashscope_wan_image" | "openai_compat_chat";
         /**
          * PubKeyResponse
          * @description GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。
@@ -2410,6 +2510,37 @@ export interface operations {
             };
         };
     };
+    list_image_models_models_image_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageModelCatalogItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_models_admin_models_get: {
         parameters: {
             query?: never;
@@ -2463,6 +2594,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_model_capability_admin_models_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelCapabilityTestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCapabilityTestOut"];
                 };
             };
             /** @description Validation Error */

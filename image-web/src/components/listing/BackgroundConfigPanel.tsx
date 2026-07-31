@@ -4,17 +4,20 @@ import {
   LockIcon,
   XIcon,
 } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { ImageUploader } from '@/components/listing/ImageUploader'
 import { GradientButton } from '@/components/visual/GradientButton'
 import { cn } from '@/lib/utils'
-import { estimateCost, type UploadedImage } from '@/lib/listing'
+import type { UploadedImage } from '@/lib/listing'
 import type { BackgroundWorkbenchState } from '@/lib/image-tools'
 
 interface BackgroundConfigPanelProps {
   state: BackgroundWorkbenchState
   ratio: string | null
   pending: boolean
+  modelReady: boolean
+  modelSelector: ReactNode
   onChange: (state: BackgroundWorkbenchState) => void
   onSourceUpload: (image: UploadedImage | null) => void
   onReferenceUpload: (image: UploadedImage | null) => void
@@ -26,6 +29,8 @@ export function BackgroundConfigPanel({
   state,
   ratio,
   pending,
+  modelReady,
+  modelSelector,
   onChange,
   onSourceUpload,
   onReferenceUpload,
@@ -36,7 +41,8 @@ export function BackgroundConfigPanel({
     state.backgroundMode === 'description'
       ? state.description.trim().length > 0
       : state.reference !== null
-  const canGenerate = state.source !== null && backgroundReady && !pending
+  const canGenerate =
+    state.source !== null && backgroundReady && !pending && modelReady
 
   return (
     <div className="glass-panel flex w-[372px] shrink-0 flex-col overflow-hidden">
@@ -135,6 +141,9 @@ export function BackgroundConfigPanel({
           </div>
         )}
 
+        <h4 className="mb-2.5 mt-5 text-[13px] font-bold">图片模型</h4>
+        {modelSelector}
+
         <div className="mt-5 rounded-xl border border-wb-line-1 bg-wb-surface-1 p-3">
           <div className="flex items-center justify-between text-[12.5px]">
             <span className="flex items-center gap-1.5 text-wb-ink-5">
@@ -158,9 +167,7 @@ export function BackgroundConfigPanel({
         >
           {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
           开始换背景
-          <span className="ml-2 text-[13px] font-normal opacity-90">
-            约 ¥{estimateCost(1).toFixed(2)} · 1 张
-          </span>
+          <span className="ml-2 text-[13px] font-normal opacity-90">1 张</span>
         </GradientButton>
       </div>
     </div>

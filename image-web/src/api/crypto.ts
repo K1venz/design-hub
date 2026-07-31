@@ -1,5 +1,5 @@
-// 密码传输公钥加密（登录健壮性 §三.0）。WebCrypto RSA-OAEP-SHA256 加密明文密码 → base64 密文，
-// 后端私钥解密后照旧 bcrypt。铁律：公钥不可用 = 明确报错、绝不回退明文（静默回退=假加密）。
+// 敏感字段传输公钥加密。WebCrypto RSA-OAEP-SHA256 加密单个明文 secret → base64 密文；
+// 公钥不可用时明确失败，绝不回退明文。
 
 /** SPKI PEM → DER ArrayBuffer（去 header/footer + 空白，base64 解码）。 */
 export function pemToDer(pem: string): ArrayBuffer {
@@ -47,8 +47,8 @@ function getPublicKey(): Promise<CryptoKey> {
   return keyPromise
 }
 
-/** 加密明文密码 → base64(RSA-OAEP-SHA256 密文)。公钥不可用则抛（绝不回退明文）。 */
-export async function encryptPassword(plain: string): Promise<string> {
+/** 独立加密一个明文 secret。调用方必须逐字段、逐 key 调用，不能先拼接明文。 */
+export async function encryptSecret(plain: string): Promise<string> {
   let key: CryptoKey
   try {
     key = await getPublicKey()

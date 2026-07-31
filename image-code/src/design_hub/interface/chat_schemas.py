@@ -24,7 +24,7 @@ class ChatMessageRequest(BaseModel):
 
 
 class ChatConfirmRequest(BaseModel):
-    """POST /chat/confirm 入参（费用闸的显式用户动作）。"""
+    """POST /chat/confirm 入参（生成确认的显式用户动作）。"""
 
     session_id: str
     confirm_token: str

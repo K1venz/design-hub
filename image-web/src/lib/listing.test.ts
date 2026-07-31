@@ -15,7 +15,6 @@ import {
   mergeSlotsWithDetail,
   parseListingEvent,
   planTotal,
-  estimateCost,
   JOB_STATUS,
   type ListingConfig,
   type ListingGenerateInput,
@@ -58,6 +57,7 @@ describe('buildModifiers', () => {
 
 describe('buildListingBody', () => {
   const input: ListingGenerateInput = {
+    imageModel: 'wan2.7-image-pro',
     uploadIds: ['u1', 'u2'],
     prompt: '早餐桌场景',
     ratio: '3:4',
@@ -68,6 +68,7 @@ describe('buildListingBody', () => {
 
   it('maps uploadIds → upload_ids, passes fields through, tags category', () => {
     expect(buildListingBody(input)).toEqual({
+      image_model: 'wan2.7-image-pro',
       upload_ids: ['u1', 'u2'],
       prompt: '早餐桌场景',
       ratio: '3:4',
@@ -84,6 +85,7 @@ describe('buildListingBody', () => {
 
 describe('套图 plan / buildSetListingBody', () => {
   const base = {
+    imageModel: 'gpt-image-2',
     uploadIds: ['u1'],
     prompt: '花生礼盒',
     ratio: '1:1',
@@ -99,6 +101,7 @@ describe('套图 plan / buildSetListingBody', () => {
   it('builds set body with plan + category, no n', () => {
     const body = buildSetListingBody({ ...base, plan: { 白底: 1, 场景: 2, 卖点: 2 }, overlayTexts: [] })
     expect(body).toEqual({
+      image_model: 'gpt-image-2',
       upload_ids: ['u1'],
       prompt: '花生礼盒',
       ratio: '1:1',
@@ -123,6 +126,7 @@ describe('套图 plan / buildSetListingBody', () => {
 
 describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () => {
   const base = {
+    imageModel: 'wan2.7-image-pro',
     productUploadIds: ['p1'],
     referenceUploadIds: ['r1', 'r2'],
     cloneMode: '参考风格' as const,
@@ -133,6 +137,7 @@ describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () =
   it('builds clone body with explicit dual-role fields + category, no n/plan', () => {
     const body = buildCloneBody({ ...base, prompt: '' })
     expect(body).toEqual({
+      image_model: 'wan2.7-image-pro',
       product_upload_ids: ['p1'],
       reference_upload_ids: ['r1', 'r2'],
       clone_mode: '参考风格',
@@ -153,6 +158,7 @@ describe('buildCloneBody（复刻：双角色 + 两档 + prompt 选填）', () =
 
 describe('buildEditBody（二次编辑：终契约 #657/#659）', () => {
   const base = {
+    imageModel: 'gpt-image-2',
     sourceImageKey: 'a1b2c3d4e5f60708',
     prompt: ' 背景换成厨房木桌 ',
     ratio: '3:4',
@@ -162,6 +168,7 @@ describe('buildEditBody（二次编辑：终契约 #657/#659）', () => {
   it('delta：省略 ratio（显式传→400 契约）、不带 category（R2）、prompt trim', () => {
     const body = buildEditBody({ ...base, editMode: 'delta' })
     expect(body).toEqual({
+      image_model: 'gpt-image-2',
       source_image_key: 'a1b2c3d4e5f60708',
       edit_mode: 'delta',
       prompt: '背景换成厨房木桌',
@@ -379,9 +386,9 @@ describe('parseListingEvent', () => {
     expect(parseListingEvent('image_failed', JSON.stringify({ image_type: '场景', error: 'provider 500' })))
       .toEqual({ kind: 'image_failed', imageType: '场景', error: 'provider 500' })
   })
-  it('maps task_completed (with total_cost) to completed', () => {
+  it('maps task_completed without exposing accounting data', () => {
     expect(parseListingEvent('task_completed', JSON.stringify({ total_cost: '7.14' })))
-      .toEqual({ kind: 'completed', totalCost: '7.14' })
+      .toEqual({ kind: 'completed' })
   })
   it('maps task_failed to failed with message', () => {
     expect(parseListingEvent('task_failed', JSON.stringify({ error: '超时' })))
@@ -393,11 +400,5 @@ describe('parseListingEvent', () => {
   })
   it('returns unknown for unrecognized type', () => {
     expect(parseListingEvent('whatever', '{}')).toEqual({ kind: 'unknown' })
-  })
-})
-
-describe('estimateCost', () => {
-  it('multiplies n by unit cost', () => {
-    expect(estimateCost(1)).toBeCloseTo(0.05, 2)
   })
 })

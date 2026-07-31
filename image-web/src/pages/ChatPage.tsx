@@ -18,6 +18,11 @@ import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
 import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialog'
 import { AppShell } from '@/components/layout/AppShell'
+import {
+  requireSelectedImageModel,
+  useImageModelSelection,
+} from '@/components/models/image-model-context'
+import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
 import { useListingJob, useUploadImage } from '@/api/listing'
 import {
@@ -25,7 +30,7 @@ import {
   initialChatState, pushUserMessage,
   sessionMessagesToBubbles, shouldShowChatWelcome, shouldSubmitChatInput,
   type ChatBubble, type ChatEditSource, type ChatPreviewImage, type ChatState,
-  type ChatActionCard, type CostConfirm,
+  type ChatActionCard, type GenerationConfirm,
 } from '@/lib/chat'
 import type { ImageToolSource } from '@/lib/image-tools'
 import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
@@ -42,13 +47,14 @@ const PHASE_LABEL: Record<string, string> = {
 
 /**
  * 「帮我设计」对话页（登录内测，方案 C）。Hero/快捷卡带来的 `?q=` 自动发首条。
- * 流式气泡 + 步骤条 + 工具透明 + 费用确认闸 + 出图结果卡（job_event 复用工作台渲染）。
+ * 流式气泡 + 步骤条 + 工具透明 + 生成确认 + 出图结果卡（job_event 复用工作台渲染）。
  */
 export function ChatPage() {
   const [params] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
   const token = useAuthStore((auth) => auth.token)
+  const modelSelection = useImageModelSelection()
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
   const [attached, setAttached] = useState<UploadedImage[]>([])
@@ -65,8 +71,35 @@ export function ChatPage() {
   }, [state])
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const pendingSeedRef = useRef<string | null>(null)
+  const pendingSendRef = useRef<{
+    state: ChatState
+    draft: string
+    attached: UploadedImage[]
+    selectedEditSource: ChatEditSource | null
+  } | null>(null)
 
-  const on = (e: Parameters<typeof applyChatEvent>[1]) => setState((prev) => applyChatEvent(prev, e))
+  const on = (event: Parameters<typeof applyChatEvent>[1]) => {
+    if (event.kind === 'error' && event.code === 'model_unavailable') {
+      const pending = pendingSendRef.current
+      if (pending) {
+        setState({
+          ...pending.state,
+          error: { code: event.code, message: event.message },
+        })
+        setDraft(pending.draft)
+        setAttached(pending.attached)
+        setSelectedEditSource(pending.selectedEditSource)
+        pendingSendRef.current = null
+      } else {
+        setState((current) => applyChatEvent(current, event))
+      }
+      modelSelection.retry()
+      toast.error('当前图片模型已不可用，内容已保留，请重新选择。')
+      return
+    }
+    setState((current) => applyChatEvent(current, event))
+  }
 
   // 一轮流结束后刷新会话列表（首轮新建会话入列、后续轮更新标题/时间/消息数）。
   const refreshSessions = () => qc.invalidateQueries({ queryKey: CHAT_SESSIONS_KEY })
@@ -141,7 +174,14 @@ export function ChatPage() {
   async function send(message: string, uploadIds?: string[]) {
     const text = message.trim()
     if (!text || stateRef.current.streaming || stateRef.current.awaiting) return
+    const imageModel = requireSelectedImageModel(modelSelection)
     const consumed = consumeChatEditSource(selectedEditSource)
+    pendingSendRef.current = {
+      state: stateRef.current,
+      draft: text,
+      attached,
+      selectedEditSource,
+    }
     setState((prev) =>
       pushUserMessage(
         prev,
@@ -161,11 +201,14 @@ export function ChatPage() {
       await sendChatMessage({
         sessionId: stateRef.current.sessionId,
         message: text,
+        imageModel,
         uploadIds,
         editSourceImageKey: consumed.editSourceImageKey,
       }, on, ac.signal)
+      pendingSendRef.current = null
       refreshSessions()
     } catch (err) {
+      pendingSendRef.current = null
       if (!ac.signal.aborted) {
         setState((prev) => ({ ...prev, streaming: false }))
         toast.error(err instanceof Error ? err.message : '对话请求失败')
@@ -173,7 +216,10 @@ export function ChatPage() {
     }
   }
 
-  async function resolveConfirm(action: 'confirm' | 'cancel', c: CostConfirm) {
+  async function resolveConfirm(
+    action: 'confirm' | 'cancel',
+    confirmation: GenerationConfirm,
+  ) {
     const sid = stateRef.current.sessionId
     if (!sid) return
     setState((prev) => clearAwaiting(prev))
@@ -181,7 +227,11 @@ export function ChatPage() {
     const ac = new AbortController()
     abortRef.current = ac
     try {
-      await confirmChat({ sessionId: sid, confirmToken: c.confirmToken, action }, on, ac.signal)
+      await confirmChat({
+        sessionId: sid,
+        confirmToken: confirmation.confirmToken,
+        action,
+      }, on, ac.signal)
       refreshSessions()
     } catch (err) {
       if (!ac.signal.aborted) {
@@ -191,9 +241,8 @@ export function ChatPage() {
     }
   }
 
-  // Hero/快捷卡首句：进页自动发一次（guard 防 StrictMode 双发）。
-  // 首句走 navigate state 承载（隐私·不进 URL）；兼容遗留 ?q= 外链。消费后 replaceState
-  // 清 URL query（明文）+ history state（防刷新重发）。
+  // Hero/快捷卡首句先保留为可编辑草稿；目录 ready 后才自动发送。
+  // 目录 error/empty/需重选时停止自动发送，避免用户修复目录后突然发出旧草稿。
   const seededRef = useRef(false)
   useEffect(() => {
     const stateSeed = (location.state as { q?: string } | null)?.q?.trim()
@@ -201,12 +250,26 @@ export function ChatPage() {
     const seed = stateSeed || querySeed
     if (seed && !seededRef.current) {
       seededRef.current = true
-      void send(seed)
+      pendingSeedRef.current = seed
+      setDraft(seed)
     }
     // 清 URL query（明文隐私）+ history state（防刷新重发）
     if (seed || location.state) navigate(location.pathname, { replace: true, state: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const seed = pendingSeedRef.current
+    if (!seed) return
+    if (modelSelection.state === 'ready') {
+      pendingSeedRef.current = null
+      void send(seed)
+    } else if (modelSelection.state !== 'loading') {
+      pendingSeedRef.current = null
+    }
+    // send intentionally uses the current composer snapshot when readiness changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelSelection.state])
 
   // 新内容滚到底
   useEffect(() => {
@@ -239,6 +302,12 @@ export function ChatPage() {
           onNew={newSession}
         />
         <div className="mx-auto flex h-full max-w-3xl flex-1 flex-col">
+          <div className="px-2 pt-3">
+            <ImageModelSelector
+              selection={modelSelection}
+              disabled={busy}
+            />
+          </div>
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto px-2 py-4">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-wb-ink-2">
               <span className="grid size-7 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white">
@@ -316,7 +385,7 @@ export function ChatPage() {
                     正在基于此图编辑
                   </p>
                   <p className="truncate text-[11.5px] text-wb-ink-6">
-                    输入需要修改的内容，发送后再确认费用
+                    输入需要修改的内容，发送后确认生成
                   </p>
                 </div>
                 <button
@@ -346,7 +415,10 @@ export function ChatPage() {
             )}
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                pendingSeedRef.current = null
+                setDraft(e.target.value)
+              }}
               onKeyDown={(e) => {
                 if (!shouldSubmitChatInput({
                   key: e.key,
@@ -382,7 +454,7 @@ export function ChatPage() {
                     onClick={() =>
                       void send('反推这张图的提示词', [attached[0].id])
                     }
-                    disabled={busy}
+                    disabled={busy || modelSelection.state !== 'ready'}
                     className="flex items-center gap-1.5 rounded-full border border-wb-brand-soft bg-wb-tint-3 px-3 py-1.5 text-[12.5px] font-medium text-wb-brand-deep disabled:opacity-50"
                   >
                     <ScanSearchIcon className="size-4" /> 反推提示词
@@ -399,7 +471,11 @@ export function ChatPage() {
               />
               <button
                 onClick={() => void send(draft, attached.map((a) => a.id))}
-                disabled={busy || !draft.trim()}
+                disabled={
+                  busy ||
+                  modelSelection.state !== 'ready' ||
+                  !draft.trim()
+                }
                 className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-4 py-1.5 text-[13px] font-semibold text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.6)] transition-opacity disabled:opacity-45"
               >
                 发送 <SendIcon className="size-3.5" />
@@ -427,8 +503,11 @@ function Bubble({
   bubble, awaiting, onResolve, onOpenAction,
 }: {
   bubble: ChatBubble
-  awaiting: CostConfirm | null
-  onResolve: (action: 'confirm' | 'cancel', c: CostConfirm) => void
+  awaiting: GenerationConfirm | null
+  onResolve: (
+    action: 'confirm' | 'cancel',
+    confirmation: GenerationConfirm,
+  ) => void
   onOpenAction: (action: ChatActionCard) => void
 }) {
   if (bubble.role === 'user') {
@@ -450,7 +529,11 @@ function Bubble({
     )
   }
 
-  const activeCost = bubble.cost && awaiting?.confirmToken === bubble.cost.confirmToken ? bubble.cost : null
+  const activeGeneration =
+    bubble.generation &&
+    awaiting?.confirmToken === bubble.generation.confirmToken
+      ? bubble.generation
+      : null
   return (
     <div className="flex justify-start">
       {/* glass-lite: bubbles live inside the scroller and grow unbounded — real
@@ -468,7 +551,13 @@ function Bubble({
           </div>
         )}
         {bubble.text && <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-wb-ink-2">{bubble.text}</p>}
-        {bubble.cost && <CostCard cost={bubble.cost} active={activeCost !== null} onResolve={onResolve} />}
+        {bubble.generation && (
+          <GenerationCard
+            confirmation={bubble.generation}
+            active={activeGeneration !== null}
+            onResolve={onResolve}
+          />
+        )}
         {bubble.action && (
           <button
             type="button"
@@ -484,30 +573,41 @@ function Bubble({
   )
 }
 
-function CostCard({
-  cost, active, onResolve,
+function GenerationCard({
+  confirmation,
+  active,
+  onResolve,
 }: {
-  cost: CostConfirm
+  confirmation: GenerationConfirm
   active: boolean
-  onResolve: (action: 'confirm' | 'cancel', c: CostConfirm) => void
+  onResolve: (
+    action: 'confirm' | 'cancel',
+    confirmation: GenerationConfirm,
+  ) => void
 }) {
   return (
     <div className="rounded-xl border border-wb-brand-soft bg-wb-tint-3 p-3">
       <p className="text-[13px] font-medium text-wb-ink-2">
-        本次将出 <span className="font-bold text-wb-brand-deep">{cost.count}</span> 张，预计
-        <span className="font-bold text-wb-brand-deep"> ¥{cost.estimateCny}</span>
+        将使用
+        <span className="mx-1 font-bold text-wb-brand-deep">
+          {confirmation.modelDisplayName}
+        </span>
+        生成
+        <span className="mx-1 font-bold text-wb-brand-deep">
+          {confirmation.count}
+        </span>
+        张图片
       </p>
-      <p className="mt-0.5 text-[11.5px] text-wb-ink-6">确认后开始出图并计费；不确认不扣费。</p>
       {active ? (
         <div className="mt-2.5 flex gap-2">
           <button
-            onClick={() => onResolve('confirm', cost)}
+            onClick={() => onResolve('confirm', confirmation)}
             className="rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-4 py-1.5 text-[12.5px] font-semibold text-white"
           >
             确认出图
           </button>
           <button
-            onClick={() => onResolve('cancel', cost)}
+            onClick={() => onResolve('cancel', confirmation)}
             className="rounded-full border border-wb-line-1 bg-white px-4 py-1.5 text-[12.5px] font-medium text-wb-ink-4"
           >
             取消

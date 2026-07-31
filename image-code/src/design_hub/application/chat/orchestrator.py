@@ -524,6 +524,16 @@ class ChatOrchestrator:
                         "4K 当前仅支持 GPT Image 2.0。"
                     )
             except (DomainError, ValueError, NotFoundError) as exc:
+                if str(exc) == "image model unavailable":
+                    yield ChatEvent(
+                        "error",
+                        {
+                            "code": "model_unavailable",
+                            "message": "当前图片模型已不可用，请重新选择。",
+                        },
+                    )
+                    yield ChatEvent("assistant_end", {"status": "error"})
+                    return
                 clar = f"还差点信息、暂时没法出图：{exc}。你补充一下，我再帮你安排～"
                 yield ChatEvent("assistant_delta", {"text": clar})
                 await self.chat_repo.append_message(

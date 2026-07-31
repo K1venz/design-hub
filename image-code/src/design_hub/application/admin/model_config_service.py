@@ -25,6 +25,9 @@ class ModelConfigService:
     async def list(self) -> list[ModelConfigRecord]:
         return await self.repo.list_all()
 
+    async def default_name(self, model_type: ModelType) -> str | None:
+        return await self.repo.get_default(model_type)
+
     async def create(
         self,
         *,
