@@ -17,6 +17,7 @@ from design_hub.application.admin.model_capability_service import (
     ModelCapabilityService,
 )
 from design_hub.application.admin.model_config_service import ModelConfigService
+from design_hub.application.admin.runtime_log_service import RuntimeLogService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.chat.orchestrator import ChatOrchestrator
@@ -66,6 +67,9 @@ from design_hub.infrastructure.monitoring.logging import (
     configure_logging,
     install_request_context,
 )
+from design_hub.infrastructure.monitoring.runtime_log_files import (
+    FileRuntimeLogRepository,
+)
 from design_hub.infrastructure.monitoring.setup import init_sentry, instrument_app
 from design_hub.infrastructure.providers.live_resolution import (
     LiveTextLLMResolver,
@@ -90,6 +94,7 @@ from design_hub.interface.api.routes import (
     image_prompts,
     listing,
     models,
+    runtime_logs,
     showcase,
     uploads,
     users,
@@ -99,6 +104,9 @@ from design_hub.interface.api.routes import (
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
+    app.state.runtime_log_service = RuntimeLogService(
+        FileRuntimeLogRepository(settings.runtime_log_dir)
+    )
     app.state.secret_cipher = build_secret_cipher(settings)
     db = create_engine(settings.db_url)
     session_factory = create_session_factory(db)
@@ -264,6 +272,7 @@ def create_production_app() -> FastAPI:
     # 仅管理者：模型配置 + 用户管理
     app.include_router(admin.router, dependencies=manager_only)
     app.include_router(admin_console.router, dependencies=manager_only)
+    app.include_router(runtime_logs.router, dependencies=manager_only)
     app.include_router(users.router, dependencies=manager_only)
     register_error_handlers(app)
     return app

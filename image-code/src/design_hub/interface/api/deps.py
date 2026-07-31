@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request, Response
 
+from design_hub.application.admin.runtime_log_service import RuntimeLogService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
 from design_hub.domain.enums import Role
@@ -48,6 +49,12 @@ def get_user_repository(request: Request) -> UserRepository:
     repo = request.app.state.user_repository
     assert isinstance(repo, UserRepository)
     return repo
+
+
+def get_runtime_log_service(request: Request) -> RuntimeLogService:
+    service = request.app.state.runtime_log_service
+    assert isinstance(service, RuntimeLogService)
+    return service
 
 
 async def _current_database_user(
@@ -114,6 +121,10 @@ UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]
 CurrentUserSseDep = Annotated[AuthUser, Depends(get_current_user_sse)]
 MediaSignerDep = Annotated[MediaUrlSigner, Depends(get_media_signer)]
+RuntimeLogServiceDep = Annotated[
+    RuntimeLogService,
+    Depends(get_runtime_log_service),
+]
 
 
 def require_role(*roles: Role) -> Callable[[AuthUser], Awaitable[AuthUser]]:

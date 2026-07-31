@@ -6,6 +6,12 @@ from pydantic import BaseModel, ConfigDict
 
 from design_hub.domain.admin import ModerationReason, ModerationStatus
 from design_hub.domain.enums import Role
+from design_hub.domain.runtime_logs import (
+    RuntimeLogEntry,
+    RuntimeLogLevel,
+    RuntimeLogPage,
+    RuntimeLogServiceName,
+)
 from design_hub.ports.admin_console import (
     AdminAuditEntry,
     AdminImageSummary,
@@ -344,3 +350,57 @@ class AdminAuditEntryOut(BaseModel):
     @classmethod
     def of(cls, value: AdminAuditEntry) -> "AdminAuditEntryOut":
         return cls.model_validate(value)
+
+
+class RuntimeLogListItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    event_id: str
+    timestamp: datetime
+    level: RuntimeLogLevel
+    service: RuntimeLogServiceName
+    chain: str
+    event: str
+    action: str
+    logger: str
+    function: str
+    trace_id: str | None
+    job_id: str | None
+    model: str | None
+    status: str | None
+    duration_ms: int | None
+
+    @classmethod
+    def of(cls, value: RuntimeLogEntry) -> "RuntimeLogListItemOut":
+        return cls.model_validate(value)
+
+
+class RuntimeLogDetailOut(RuntimeLogListItemOut):
+    request_id: str | None
+    item_id: str | None
+    operation_id: str | None
+    provider: str | None
+    error_code: str | None
+    error_type: str | None
+    error_summary: str | None
+    prompt: str | None
+
+    @classmethod
+    def of(cls, value: RuntimeLogEntry) -> "RuntimeLogDetailOut":
+        return cls.model_validate(value)
+
+
+class RuntimeLogPageOut(BaseModel):
+    items: list[RuntimeLogListItemOut]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def of(cls, value: RuntimeLogPage) -> "RuntimeLogPageOut":
+        return cls(
+            items=[RuntimeLogListItemOut.of(item) for item in value.items],
+            total=value.total,
+            limit=value.limit,
+            offset=value.offset,
+        )
