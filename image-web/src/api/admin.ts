@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import { errorMessage } from '@/api/errors'
+import { imageModelKeys } from '@/api/models'
 import type { components } from '@/api/schema'
 import { normalizeAdminFilters } from '@/lib/admin'
 
@@ -23,6 +24,10 @@ export type AdminAuditPage = components['schemas']['PageOut_AdminAuditEntryOut_'
 export type ModelConfig = components['schemas']['ModelConfigOut']
 export type ModelConfigCreate = components['schemas']['ModelConfigCreate']
 export type ModelConfigUpdate = components['schemas']['ModelConfigUpdate']
+export type ModelCapabilityTestInput =
+  components['schemas']['ModelCapabilityTestIn']
+export type ModelCapabilityTestResult =
+  components['schemas']['ModelCapabilityTestOut']
 
 export interface DateFilters {
   start?: string
@@ -252,6 +257,7 @@ async function invalidateModelQueries(
 ) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: adminKeys.modelsRoot }),
+    queryClient.invalidateQueries({ queryKey: imageModelKeys.image }),
     queryClient.invalidateQueries({ queryKey: adminKeys.auditRoot }),
   ])
 }
@@ -267,6 +273,20 @@ export function useCreateModel() {
       return data
     },
     onSuccess: () => invalidateModelQueries(queryClient),
+  })
+}
+
+export function useTestModel() {
+  return useMutation({
+    mutationFn: async (
+      body: ModelCapabilityTestInput,
+    ): Promise<ModelCapabilityTestResult> => {
+      const { data, error } = await api.POST('/admin/models/test', { body })
+      if (error || !data) {
+        throw new Error('配置测试失败，请检查连接字段与凭据')
+      }
+      return data
+    },
   })
 }
 

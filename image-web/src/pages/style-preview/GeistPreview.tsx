@@ -60,7 +60,7 @@ export function GeistPreview() {
           ))}
           <div className={`mt-7 border-t ${BORDER} pt-4 text-[12px] leading-[1.9] ${FAINT}`}>
             <div className={`${MONO} text-[11px]`}>JOB 62FCC2C7</div>
-            <div>5 张 · ¥2.00 · 完成</div>
+            <div>5 张 · 完成</div>
           </div>
         </aside>
 
@@ -86,7 +86,7 @@ export function GeistPreview() {
             </div>
           </GSection>
 
-          <GSection title="套图结构" right="5 张 · ¥2.00">
+          <GSection title="套图结构" right="5 张">
             <div className={`divide-y divide-[#eaeaea] rounded-[6px] border ${BORDER}`}>
               {PREVIEW_PLAN.map((p) => (
                 <div key={p.label} className="flex items-center justify-between px-3 py-2.5">
@@ -119,9 +119,9 @@ export function GeistPreview() {
 
           <button className="mt-6 flex w-full items-center justify-center gap-3 rounded-[6px] bg-black py-2.5 text-[13.5px] font-medium text-white transition-colors hover:bg-[#333]">
             一键生成套图
-            <span className={`${MONO} text-[12px] text-white/60`}>¥2.00 / 5</span>
+            <span className={`${MONO} text-[12px] text-white/60`}>5 张</span>
           </button>
-          <p className={`mt-2 text-center text-[11.5px] ${FAINT}`}>按成功张数计费 · 失败不计</p>
+          <p className={`mt-2 text-center text-[11.5px] ${FAINT}`}>完成后可逐张下载</p>
         </aside>
 
         {/* 结果区 */}
@@ -135,7 +135,7 @@ export function GeistPreview() {
                   完成 <span className={MONO}>5/5</span>
                 </span>
                 <span>
-                  实付 <span className={`${MONO} text-black`}>¥2.00</span>
+                  状态 <span className={`${MONO} text-black`}>完成</span>
                 </span>
               </div>
             </div>
@@ -161,7 +161,7 @@ export function GeistPreview() {
                   >
                     <img src={r.src} alt="" className="aspect-square w-full object-cover" />
                     <div className={`flex items-center justify-between border-t ${BORDER} px-2.5 py-1.5 text-[11.5px]`}>
-                      <span className={`${MONO} ${FAINT}`}>{r.no} · {r.cost}</span>
+                      <span className={`${MONO} ${FAINT}`}>{r.no}</span>
                       <span className="flex gap-2.5">
                         <span className={`cursor-pointer ${MUTED} hover:text-black`}>下载</span>
                         <span className="cursor-pointer font-medium" style={{ color: BLUE }}>再编辑</span>

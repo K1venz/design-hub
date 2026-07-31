@@ -21,6 +21,8 @@ describe('BackgroundConfigPanel', () => {
           },
           ratio: null,
           pending: false,
+          modelReady: false,
+          modelSelector: createElement('div', null, '模型加载失败'),
           onChange: () => undefined,
           onSourceUpload: () => undefined,
           onReferenceUpload: () => undefined,

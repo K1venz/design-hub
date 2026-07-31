@@ -1,4 +1,5 @@
 import { ArrowUpRightIcon, Loader2Icon } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { GradientButton } from '@/components/visual/GradientButton'
@@ -6,7 +7,7 @@ import { ConfigSelect } from '@/components/listing/ConfigSelect'
 import { cn } from '@/lib/utils'
 import {
   EDIT_MODES, EDIT_OVERLAY_NOTICE, IMAGE_TYPE_FIELDS, MODIFIER_FIELDS, RATIOS,
-  estimateCost, type EditModeKey, type Ratio,
+  type EditModeKey, type Ratio,
 } from '@/lib/listing'
 
 export interface EditConfig {
@@ -34,13 +35,23 @@ interface EditConfigPanelProps {
   /** null = 源图不可用（详情中无此 key / 读模型未含 key）。 */
   source: EditSource | null
   pending: boolean
+  modelReady: boolean
+  modelSelector: ReactNode
   onConfigChange: (next: EditConfig) => void
   onGenerate: () => void
 }
 
 /** 二次编辑配置栏：源图只读区 + 微调/重做档位卡（#651 定稿文案）+ 必填新要求 + ratio 继承。 */
 export function EditConfigPanel(props: EditConfigPanelProps) {
-  const { config, source, pending, onConfigChange, onGenerate } = props
+  const {
+    config,
+    source,
+    pending,
+    modelReady,
+    modelSelector,
+    onConfigChange,
+    onGenerate,
+  } = props
   const setModifier = (key: string, value: string) =>
     onConfigChange({ ...config, modifiers: { ...config.modifiers, [key]: value } })
   const activeMode = EDIT_MODES.find((m) => m.key === config.editMode) ?? EDIT_MODES[0]
@@ -48,7 +59,11 @@ export function EditConfigPanel(props: EditConfigPanelProps) {
     ? (IMAGE_TYPE_FIELDS.find((f) => f.key === source.imageType)?.label ?? source.imageType)
     : null
   // E-⑤ prompt 必填：空白 CTA 禁用（后端 min_length=1 → 422 双层）
-  const canGenerate = source !== null && config.prompt.trim().length > 0 && !pending
+  const canGenerate =
+    source !== null &&
+    config.prompt.trim().length > 0 &&
+    !pending &&
+    modelReady
 
   return (
     <div className="glass-panel flex w-[372px] shrink-0 flex-col overflow-hidden">
@@ -122,6 +137,9 @@ export function EditConfigPanel(props: EditConfigPanelProps) {
           <p className="mt-1.5 text-[11.5px] leading-relaxed text-wb-amber">{EDIT_OVERLAY_NOTICE}</p>
         )}
 
+        <h4 className="mb-2.5 mt-5 text-[13px] font-bold">图片模型</h4>
+        {modelSelector}
+
         <h4 className="mb-2.5 mt-5 text-[13px] font-bold">生成设置</h4>
         <div className="grid grid-cols-2 gap-2.5">
           {MODIFIER_FIELDS.map((f) => (
@@ -157,7 +175,7 @@ export function EditConfigPanel(props: EditConfigPanelProps) {
         <GradientButton onClick={onGenerate} disabled={!canGenerate} className="w-full">
           {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
           开始编辑
-          <span className="ml-2 text-[13px] font-normal opacity-90">约 ¥{estimateCost(1).toFixed(2)} · 1 张</span>
+          <span className="ml-2 text-[13px] font-normal opacity-90">1 张</span>
         </GradientButton>
       </div>
     </div>

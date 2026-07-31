@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import { encryptPassword } from '@/api/crypto'
+import { encryptSecret } from '@/api/crypto'
 import { errorMessage } from '@/api/errors'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
@@ -25,7 +25,7 @@ export function useRegister() {
   const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
     mutationFn: async (vars: RegisterVars) => {
-      const password = await encryptPassword(vars.password)
+      const password = await encryptSecret(vars.password)
       const { data, error, response } = await api
         .POST('/auth/register', { body: { email: vars.email, name: vars.name, password } })
         .catch((): never => {
@@ -44,7 +44,7 @@ export function useLogin() {
   const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
     mutationFn: async (vars: LoginVars) => {
-      const password = await encryptPassword(vars.password)
+      const password = await encryptSecret(vars.password)
       const { data, error, response } = await api
         .POST('/auth/login', { body: { email: vars.email, password } })
         .catch((): never => {

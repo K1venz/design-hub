@@ -7,7 +7,7 @@ import { RecipeDrawer } from '@/components/listing/RecipeDrawer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { downloadImage } from '@/lib/download'
 import {
-  IMAGE_SUCCESS_STATUS, IMAGE_TYPE_FIELDS, editModeLabel, fmtListingTime, fmtListingCost,
+  IMAGE_SUCCESS_STATUS, IMAGE_TYPE_FIELDS, editModeLabel, fmtListingTime,
   type ListingJobImage,
 } from '@/lib/listing'
 
@@ -58,11 +58,7 @@ export function HistoryDetailPage() {
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-wb-ink-6">
               <span>尺寸 {d.size}</span>
               <span>张数 {d.n}</span>
-              <span>成本 {fmtListingCost(d.total_cost)}</span>
-              {d.parent_job_id && d.chain_cost && (
-                // 链累计=根计源张单张 cost（R5）：这条线的账，不含根整单无关张
-                <span>迭代链累计 {fmtListingCost(d.chain_cost)}</span>
-              )}
+              <span className="font-mono">模型 {d.model_id ?? '未记录'}</span>
               <span>{fmtListingTime(d.created_at)}</span>
               {Object.entries(d.modifiers).map(([k, v]) => (
                 <span key={k}>{v}</span>

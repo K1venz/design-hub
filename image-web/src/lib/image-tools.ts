@@ -11,6 +11,7 @@ export type BackgroundChoice =
   | { kind: 'reference'; uploadId: string; instruction: string }
 
 export interface BackgroundReplaceInput {
+  imageModel: string
   source: ImageToolSource
   background: BackgroundChoice
 }
@@ -64,7 +65,11 @@ export function buildBackgroundReplaceBody(
           upload_id: input.background.uploadId,
           instruction: input.background.instruction.trim(),
         }
-  return { source: sourceBody(input.source), background }
+  return {
+    image_model: input.imageModel,
+    source: sourceBody(input.source),
+    background,
+  }
 }
 
 export function buildReversePromptBody(

@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { TOOL_TILES } from './home'
 
-describe('home pricing copy', () => {
-  it('shows the fixed ordinary image price', () => {
+describe('home generation copy', () => {
+  it('describes the tool without exposing a fixed image price', () => {
     expect(TOOL_TILES.find((tile) => tile.key === 'single')?.desc).toBe(
-      '只出一张 · ¥0.05',
+      '快速生成 1 张商品图',
     )
   })
 })

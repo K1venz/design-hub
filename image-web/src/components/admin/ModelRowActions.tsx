@@ -24,7 +24,7 @@ export function ModelRowActions({ model }: { model: ModelConfig }) {
   async function doSetDefault() {
     try {
       await setDefault.mutateAsync(model.name)
-      toast.success(`已将「${model.name}」设为默认渠道，重启后生效`)
+      toast.success(`已将「${model.display_name}」设为类型默认模型，立即生效`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '设为默认渠道失败')
     }
@@ -51,9 +51,10 @@ export function ModelRowActions({ model }: { model: ModelConfig }) {
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>切换默认渠道？</AlertDialogTitle>
+              <AlertDialogTitle>切换类型默认模型？</AlertDialogTitle>
               <AlertDialogDescription>
-                后续出图将走「{model.name}」（{model.model || '未配置模型 ID'}）。切换后需重启服务生效。
+                未保存过个人选择的用户将优先使用「{model.display_name}」。
+                已有选择不会被静默切换。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

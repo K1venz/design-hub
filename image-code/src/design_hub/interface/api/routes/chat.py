@@ -81,8 +81,8 @@ async def chat_messages(
 ) -> StreamingResponse:
     """发一句话，流式收一轮（帮我设计 Agent 对话入口，方案 C）。Bearer 头鉴权。
 
-    事件序：session → assistant_delta* → [step → tool_call → cost_confirm] → assistant_end。
-    触发出图时在 cost_confirm 暂停（不出图、不扣费），等用户 POST /chat/confirm。
+    事件序：session → assistant_delta* → [step → tool_call → generation_confirm] → assistant_end。
+    触发出图时等待 generation_confirm 的显式用户动作。
     """
     orch = _orchestrator(request)
 
@@ -103,7 +103,7 @@ async def chat_messages(
 async def chat_confirm(
     req: ChatConfirmRequest, request: Request, user: CurrentUserDep
 ) -> StreamingResponse:
-    """费用确认的显式用户动作。confirm→启 job 流式回传 job_event；cancel→作废 token。"""
+    """生成确认动作。confirm→启 job 流式回传 job_event；cancel→作废 token。"""
     orch = _orchestrator(request)
 
     events = orch.handle_confirm(

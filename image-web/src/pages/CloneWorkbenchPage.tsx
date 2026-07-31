@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { useListingClone, useListingEvents } from '@/api/listing'
+import {
+  isModelUnavailableError,
+  useListingClone,
+  useListingEvents,
+} from '@/api/listing'
 import { CloneConfigPanel, type CloneConfig } from '@/components/listing/CloneConfigPanel'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import { useEditEntries } from '@/components/listing/use-edit-entries'
+import {
+  requireSelectedImageModel,
+  useImageModelSelection,
+} from '@/components/models/image-model-context'
+import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import { DEFAULT_CLONE_MODE, DEFAULT_LISTING_CONFIG, type UploadedImage } from '@/lib/listing'
 
 const DEFAULT_CLONE_CONFIG: CloneConfig = {
@@ -25,6 +34,7 @@ export function CloneWorkbenchPage() {
   const [slots, setSlots] = useState<ResultSlot[]>([])
   const [done, setDone] = useState(0)
   const clone = useListingClone()
+  const modelSelection = useImageModelSelection()
   const editEntries = useEditEntries(setSlots)
 
   useEffect(
@@ -70,11 +80,13 @@ export function CloneWorkbenchPage() {
   })
 
   async function onGenerate() {
+    const imageModel = requireSelectedImageModel(modelSelection)
     editEntries.reset()
     setSlots([{ url: null }])
     setDone(0)
     try {
       const { job_id } = await clone.mutateAsync({
+        imageModel,
         productUploadIds: product.map((u) => u.id),
         referenceUploadIds: references.map((u) => u.id),
         cloneMode: config.cloneMode,
@@ -85,7 +97,12 @@ export function CloneWorkbenchPage() {
       setJobId(job_id)
     } catch (err) {
       setSlots([])
-      toast.error(err instanceof Error ? err.message : '复刻请求失败')
+      if (isModelUnavailableError(err)) {
+        modelSelection.retry()
+        toast.error('刚选择的图片模型已不可用，表单已保留，请重新选择。')
+      } else {
+        toast.error(err instanceof Error ? err.message : '复刻请求失败')
+      }
     }
   }
 
@@ -99,6 +116,13 @@ export function CloneWorkbenchPage() {
         product={product}
         references={references}
         pending={generating}
+        modelReady={modelSelection.state === 'ready'}
+        modelSelector={
+          <ImageModelSelector
+            selection={modelSelection}
+            disabled={generating}
+          />
+        }
         onConfigChange={setConfig}
         onProductChange={setProduct}
         onReferencesChange={setReferences}

@@ -3,11 +3,16 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useBackgroundReplace } from '@/api/image-tools'
-import { useListingEvents } from '@/api/listing'
+import { isModelUnavailableError, useListingEvents } from '@/api/listing'
 import { BackgroundConfigPanel } from '@/components/listing/BackgroundConfigPanel'
 import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import { useEditEntries } from '@/components/listing/use-edit-entries'
+import {
+  requireSelectedImageModel,
+  useImageModelSelection,
+} from '@/components/models/image-model-context'
+import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import {
   backgroundWorkbenchStateFromPrefill,
   closestSupportedRatio,
@@ -38,6 +43,7 @@ export function BackgroundWorkbenchPage() {
   const [slots, setSlots] = useState<ResultSlot[]>([])
   const [done, setDone] = useState(0)
   const replaceBackground = useBackgroundReplace()
+  const modelSelection = useImageModelSelection()
   const editEntries = useEditEntries(setSlots)
 
   useEffect(() => {
@@ -113,6 +119,7 @@ export function BackgroundWorkbenchPage() {
 
   async function generate() {
     if (!state.source) return
+    const imageModel = requireSelectedImageModel(modelSelection)
     const background =
       state.backgroundMode === 'description'
         ? {
@@ -133,15 +140,21 @@ export function BackgroundWorkbenchPage() {
     setDone(0)
     try {
       const { job_id } = await replaceBackground.mutateAsync({
+        imageModel,
         source: state.source,
         background,
       })
       setJobId(job_id)
     } catch (error) {
       setSlots([])
-      toast.error(
-        error instanceof Error ? error.message : '换背景请求失败',
-      )
+      if (isModelUnavailableError(error)) {
+        modelSelection.retry()
+        toast.error('刚选择的图片模型已不可用，换背景设置已保留，请重新选择。')
+      } else {
+        toast.error(
+          error instanceof Error ? error.message : '换背景请求失败',
+        )
+      }
     }
   }
 
@@ -154,6 +167,13 @@ export function BackgroundWorkbenchPage() {
         state={state}
         ratio={ratio}
         pending={generating}
+        modelReady={modelSelection.state === 'ready'}
+        modelSelector={
+          <ImageModelSelector
+            selection={modelSelection}
+            disabled={generating}
+          />
+        }
         onChange={setState}
         onSourceUpload={setSourceUpload}
         onReferenceUpload={setReferenceUpload}

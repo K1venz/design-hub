@@ -5,7 +5,11 @@ import { InboxIcon } from 'lucide-react'
 import { useListingJobs } from '@/api/listing'
 import { JobStatusBadge } from '@/components/listing/JobStatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { editModeLabel, fmtListingTime, fmtListingCost, type ListingJobSummary } from '@/lib/listing'
+import {
+  editModeLabel,
+  fmtListingTime,
+  type ListingJobSummary,
+} from '@/lib/listing'
 
 const LIMIT = 20
 
@@ -108,7 +112,7 @@ function JobCard({ job, onClick }: { job: ListingJobSummary; onClick: () => void
         </div>
         <div className="flex items-center justify-between text-[12px] text-wb-ink-6">
           <span>{fmtListingTime(job.created_at)}</span>
-          <span>{fmtListingCost(job.total_cost)}</span>
+          <span className="font-mono">{job.model_id ?? '未记录模型'}</span>
         </div>
       </div>
     </button>
