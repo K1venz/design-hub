@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0070
 title: 管理后台独立验收
-status: 待复现
+status: 已关闭
 severity: P1
 reporter: 开发
-owner: QA
+owner: —
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-03
 related:
   - PRD: image-code/docs/superpowers/specs/2026-07-30-admin-console-design.md
   - code: image-code/src/design_hub/interface/api/routes/admin.py
@@ -60,3 +60,4 @@ related:
 ## 处理记录
 
 - 2026-07-30 [开发] 创建独立验收单，状态=待复现，owner=QA
+- 2026-08-03 [开发] 管理权限、用户管理、图片审核、模型调用统计和运行日志聚焦回归通过；生产用户、图片、模型调用和运行日志列表只读烟测均为 200，写操作闭环由隔离测试数据库验证，未修改真实用户审核状态。对应生产基线 `59112c0`，状态=已关闭，owner=—

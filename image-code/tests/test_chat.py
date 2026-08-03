@@ -23,8 +23,6 @@ import pytest
 from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from design_hub.interface.chat_schemas import ChatMessageRequest
-
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
 from design_hub.application.chat.ratio_intent import decide_chat_ratio
@@ -75,6 +73,7 @@ from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHis
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
 from design_hub.infrastructure.storage.local import LocalImageStore
 from design_hub.infrastructure.storage.local_upload import LocalUploadStore
+from design_hub.interface.chat_schemas import ChatMessageRequest
 from design_hub.ports.chat_repository import ChatSessionRepository
 from design_hub.ports.events import ReplayableEvent
 from design_hub.ports.generation_work import JobSubmission, SubmitResult

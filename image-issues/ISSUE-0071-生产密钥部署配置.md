@@ -6,7 +6,7 @@ severity: P1
 reporter: 开发
 owner: 运维
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-03
 related:
   - code: image-code/src/design_hub/config/settings.py
   - code: image-code/src/design_hub/composition.py
@@ -35,3 +35,4 @@ Task 2 将 RSA-OAEP 密钥从密码传输专用组件泛化为应用敏感信息
 ## 处理记录
 
 - 2026-07-30 [开发] 创建，状态=已确认，关联 Task 2，owner=运维。
+- 2026-08-03 [开发] 收口核对：生产 API/Worker 已使用同一持久 RSA 密钥并通过重启后的动态模型读取；但 `image-ops/deploy/.env.example` 仍未声明 `REQUIRE_PERSISTENT_SECRET_CIPHER=true` 与持久 `AUTH_RSA_PRIVATE_KEY_PEM` 注入方式。该单保持 status=已确认、owner=运维，待运维在其目录补齐模板后关闭。
