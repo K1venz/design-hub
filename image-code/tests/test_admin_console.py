@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +21,7 @@ from design_hub.domain.admin import ModelCallStatus, ModelModality, ModelOperati
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import DomainError
 from design_hub.domain.models import AuthUser
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.admin_console_repo import (
     SqlAlchemyAdminConsoleRepository,
 )
@@ -28,6 +29,7 @@ from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.models import (
     AdminAuditLogRow,
     AppUser,
+    GenerationItemRow,
     ListingImageRow,
     ListingJobRow,
     ModelCallRow,
@@ -471,6 +473,127 @@ def test_model_call_summary_counts_actual_attempts_and_retries() -> None:
             assert image.failed == 1
             assert image.uncertain == 1
             assert image.retries == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_effective_call_status_uses_generation_item_render_tier() -> None:
+    async def run() -> None:
+        sessions, engine = await _admin_database()
+        now = datetime.now(UTC)
+        items = (
+            (
+                "standard-young",
+                RenderTier.STANDARD,
+                now - timedelta(minutes=7),
+                "apinebula",
+                "gpt-image-2",
+            ),
+            (
+                "four-k-young",
+                RenderTier.FOUR_K,
+                now - timedelta(minutes=7),
+                "apinebula",
+                "gpt-image-2",
+            ),
+            (
+                "four-k-stale",
+                RenderTier.FOUR_K,
+                now - timedelta(minutes=32),
+                "apinebula",
+                "gpt-image-2",
+            ),
+            (
+                "wan-standard",
+                RenderTier.STANDARD,
+                now - timedelta(minutes=7),
+                "dashscope",
+                "wan2.7-image-pro",
+            ),
+        )
+        try:
+            async with sessions() as session:
+                async with session.begin():
+                    await session.execute(
+                        GenerationItemRow.__table__.insert(),
+                        [
+                            {
+                                "id": item_id,
+                                "job_id": "job-0",
+                                "sequence": sequence,
+                                "render_tier": tier.value,
+                                "operation_type": (
+                                    ModelOperation.IMAGE_GENERATION.value
+                                ),
+                                "final_prompt": "test prompt",
+                                "model": model,
+                                "ratio": (
+                                    "16:9"
+                                    if tier is RenderTier.FOUR_K
+                                    else "1:1"
+                                ),
+                                "size": (
+                                    "3840x2160"
+                                    if tier is RenderTier.FOUR_K
+                                    else "1024x1024"
+                                ),
+                                "seed": sequence,
+                                "reference_snapshot": [],
+                                "reserved_cost": Decimal("0"),
+                                "status": "processing",
+                                "operation_id": f"operation-{item_id}",
+                            }
+                            for sequence, (
+                                item_id,
+                                tier,
+                                _started_at,
+                                _provider,
+                                model,
+                            ) in enumerate(items)
+                        ],
+                    )
+                    await session.execute(
+                        ModelCallRow.__table__.insert(),
+                        [
+                            {
+                                "id": f"{item_id}-call",
+                                "user_id": "2",
+                                "provider": provider,
+                                "model": model,
+                                "modality": ModelModality.IMAGE.value,
+                                "operation_type": (
+                                    ModelOperation.IMAGE_GENERATION.value
+                                ),
+                                "job_id": "job-0",
+                                "generation_item_id": item_id,
+                                "attempt_no": 1,
+                                "status": ModelCallStatus.STARTED.value,
+                                "started_at": started_at,
+                            }
+                            for (
+                                item_id,
+                                _tier,
+                                started_at,
+                                provider,
+                                model,
+                            ) in items
+                        ],
+                    )
+
+            repository = SqlAlchemyAdminConsoleRepository(sessions)
+            page = await repository.list_model_calls(
+                ModelCallFilter(status=ModelCallStatus.UNCERTAIN.value),
+                limit=50,
+                offset=0,
+            )
+            uncertain_ids = {item.call_id for item in page.items}
+
+            assert "standard-young-call" in uncertain_ids
+            assert "wan-standard-call" in uncertain_ids
+            assert "four-k-stale-call" in uncertain_ids
+            assert "four-k-young-call" not in uncertain_ids
         finally:
             await engine.dispose()
 
