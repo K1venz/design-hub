@@ -41,12 +41,16 @@ def test_chat_knowledge_removes_stale_capability_claims() -> None:
         "历史图和首页案例图都能看「配方」",
         "AI 一键消除/智能扩图（预告中未上线）",
         "按张计入出图额度",
+        "用户在创作页面选择要使用的模型",
+        "引导其回创作页面完成选择",
     ):
         assert stale not in knowledge
     for current in (
-        "GPT Image 2.0",
-        "Wan 2.7 Image Pro",
-        "用户在创作页面选择要使用的模型",
+        "统一模型选择器",
+        "文本模型",
+        "图片模型",
+        "反推提示词",
+        "以页面当前显示的可用模型为准",
         "钱包与价格信息目前暂未公开",
         "仅商品套图任务支持一键复用",
         "当前工作台选择器暂未提供 4:3",
@@ -65,6 +69,9 @@ def test_build_system_prompt_has_four_segments_and_embeds_knowledge() -> None:
     assert "用户确认" in p and "不收费" not in p
     assert "不得讨论或编造价格、额度、钱包、充值与套餐" not in p
     assert "三环" in p  # 三环边界
+    assert "Chat 统一模型选择器" in p
+    assert "不得自行更换、猜测或代为选择" in p
+    assert "用户在创作页面选择" not in p
 
 
 def test_default_system_prompt_embeds_real_knowledge() -> None:
