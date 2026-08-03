@@ -6,8 +6,8 @@ import type { ModelSelection } from '@/components/models/model-selection'
 import {
   filterModelCatalog,
   modelBrand,
-  UnifiedChatModelSelector,
-} from '@/components/models/UnifiedChatModelSelector'
+} from '@/components/models/model-brand'
+import { UnifiedChatModelSelector } from '@/components/models/UnifiedChatModelSelector'
 
 const chatModels = [
   { id: 'doubao-chat', display_name: 'Doubao', is_default: true },
