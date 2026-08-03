@@ -26,6 +26,7 @@ from design_hub.domain.admin import (
 )
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import DomainError, NotFoundError
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.models import (
     AdminAuditLogRow,
     AppUser,
@@ -795,6 +796,14 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
 
     @staticmethod
     def _effective_call_status(now: datetime) -> Any:
+        is_four_k = (
+            select(GenerationItemRow.id)
+            .where(
+                GenerationItemRow.id == ModelCallRow.generation_item_id,
+                GenerationItemRow.render_tier == RenderTier.FOUR_K.value,
+            )
+            .exists()
+        )
         return case(
             (
                 and_(
@@ -805,14 +814,12 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                             == ModelModality.IMAGE.value,
                             or_(
                                 and_(
-                                    ModelCallRow.model
-                                    == "gpt-image-2-4k",
+                                    is_four_k,
                                     ModelCallRow.started_at
                                     < now - _FOUR_K_IMAGE_STALE_AFTER,
                                 ),
                                 and_(
-                                    ModelCallRow.model
-                                    != "gpt-image-2-4k",
+                                    ~is_four_k,
                                     ModelCallRow.started_at
                                     < now - _IMAGE_STALE_AFTER,
                                 ),

@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from design_hub.domain.enums import ModelType
 from design_hub.interface.admin_schemas import (
     ModelCapabilityTestIn,
     ModelCapabilityTestOut,
@@ -12,7 +13,6 @@ from design_hub.interface.api.admin_deps import (
     ModelConfigServiceDep,
 )
 from design_hub.interface.api.deps import CurrentManagerDep
-from design_hub.domain.enums import ModelType
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
