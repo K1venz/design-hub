@@ -1,12 +1,12 @@
 ---
 id: ISSUE-0069
 title: 换背景与反推提示词实现
-status: 待验证
+status: 已关闭
 severity: P2
 reporter: 调研
-owner: QA
+owner: —
 created: 2026-07-29
-updated: 2026-07-29
+updated: 2026-08-03
 related:
   - research: image-market/2026-07-29-换背景与反推提示词实现规格.md
   - api-doc: https://docs.apinebula.ai/docs/advanced/image/gpt-image-2-1k/
@@ -51,3 +51,4 @@ related:
 - 2026-07-29 [PM] 确认一期换背景验收范围限定为主体清晰、背景可分离的商品图；复杂海报的大面积文案、角标和排版不纳入保真承诺
 - 2026-07-29 [开发] 在换背景工作台和 Chat 知识中同步上述适用范围；包装文字仅承诺尽量保留，不承诺像素级保真；不增加图片检测、强制拦截或额外确认步骤
 - 2026-07-29 [开发] 新增边界回归测试并完成完整验证：后端 415 passed / 2 skipped，Ruff、mypy、Alembic check 通过；前端 103 tests、ESLint、TypeScript、生产构建通过；状态=待验证，owner=QA
+- 2026-08-03 [开发] 本轮规定的后端与前端聚焦回归全部通过；生产页面与模型目录只读烟测 200。沿用本单已有真实 APINebula 5/5 与真实 Chat 模型证据，未新增付费调用。换背景边界仍为主体清晰、背景可分离的商品图，复杂海报文字不纳入保真承诺。状态=已关闭，owner=—
