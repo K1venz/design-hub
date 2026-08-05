@@ -21,6 +21,7 @@ import {
   type ChatImageOptionDraft,
   type ChatImageRatio,
   type ChatRenderTier,
+  chatImageRatiosFor,
 } from '@/lib/chat-image-options'
 import { shouldSubmitChatInput, type ChatEditSource } from '@/lib/chat'
 import type { UploadedImage } from '@/lib/listing'
@@ -28,7 +29,6 @@ import { uploadPreviewUrl } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 const COUNTS: ChatImageCount[] = ['auto', 1, 2, 3, 4, 5, 6, 7]
-const RATIOS: ChatImageRatio[] = ['auto', '1:1', '3:4', '4:3', '9:16', '16:9']
 
 interface ChatComposerProps {
   draft: string
@@ -77,6 +77,10 @@ export function ChatComposer({
   const [enterToSend, setEnterToSend] = useState(true)
   const fourKAvailable = imageSelection.modelId === 'gpt-image-2'
   const fourK = imageOptions.renderTier === '4k'
+  const ratios = chatImageRatiosFor(
+    imageSelection.modelId,
+    imageOptions.renderTier,
+  )
   const canSend = !busy && modelsReady && draft.trim().length > 0
 
   function updateRenderTier(renderTier: ChatRenderTier) {
@@ -218,8 +222,10 @@ export function ChatComposer({
               <InfoIcon className="size-3 shrink-0 text-wb-brand" />
               <span className="truncate">
                 {fourK
-                  ? '4K 固定输出 3840×2160、16:9、1 张；仅 GPT Image 2.0 可用。'
-                  : '标准档支持 1:1、3:4、4:3、9:16、16:9；数量可自动判断或指定 1–7 张。'}
+                  ? '4K 固定输出 3840×2160、16:9；数量可指定 1–7 张，仅 GPT Image 2.0 可用。'
+                  : imageSelection.modelId === 'gpt-image-2'
+                    ? 'GPT Image 2 标准档支持 1:1（1024×1024）与 3:2（1536×1024）；数量可指定 1–7 张。'
+                    : '标准档数量可自动判断或指定 1–7 张。'}
               </span>
             </div>
           </>
@@ -243,8 +249,8 @@ export function ChatComposer({
           </ParameterSelect>
           <ParameterSelect
             ariaLabel="生成数量"
-            value={fourK ? '1' : String(imageOptions.count)}
-            disabled={busy || fourK}
+            value={String(imageOptions.count)}
+            disabled={busy}
             onChange={(value) =>
               onImageOptionsChange({
                 ...imageOptions,
@@ -266,7 +272,7 @@ export function ChatComposer({
               onImageOptionsChange({ ...imageOptions, ratio: value as ChatImageRatio })
             }
           >
-            {RATIOS.map((ratio) => (
+            {ratios.map((ratio) => (
               <option key={ratio} value={ratio}>
                 {ratio === 'auto' ? '比例自适应' : ratio}
               </option>

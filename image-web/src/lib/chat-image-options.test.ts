@@ -31,7 +31,7 @@ describe('resolveChatImageOptions', () => {
       }),
     ).toEqual({
       render_tier: '4k',
-      count: 1,
+      count: 7,
       ratio: '16:9',
     })
   })
@@ -72,10 +72,10 @@ describe('decorateChatImageModelSelection', () => {
     expect(decorated.modelId).toBe(selection.modelId)
     expect(decorated.state).toBe(selection.state)
     expect(select).toHaveBeenCalledWith('wan2.7-image-pro')
-    expect(onFourKUnavailable).toHaveBeenCalledOnce()
+    expect(onFourKUnavailable).toHaveBeenCalledWith('wan2.7-image-pro')
   })
 
-  it('does not add the compatibility reaction for GPT Image 2', () => {
+  it('notifies the option decorator for GPT Image 2 selections', () => {
     const onFourKUnavailable = vi.fn()
     const selection: ModelSelection = {
       modelId: 'wan2.7-image-pro',
@@ -88,6 +88,6 @@ describe('decorateChatImageModelSelection', () => {
     decorateChatImageModelSelection(selection, onFourKUnavailable)
       .select('gpt-image-2')
 
-    expect(onFourKUnavailable).not.toHaveBeenCalled()
+    expect(onFourKUnavailable).toHaveBeenCalledWith('gpt-image-2')
   })
 })

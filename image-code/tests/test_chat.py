@@ -1137,7 +1137,7 @@ def test_4k_unsupported_ratio_uses_supported_ratio_message(tmp_path) -> None:
         text = "".join(
             data["text"] for event_type, data in events if event_type == "assistant_delta"
         )
-        assert "当前支持的图片比例是 1:1 / 3:4 / 4:3 / 9:16 / 16:9" in text
+        assert "当前支持的图片比例是 1:1 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9" in text
         assert "4K 当前仅支持" not in text
         assert "tool_call" not in [event_type for event_type, _data in events]
         assert "generation_confirm" not in [event_type for event_type, _data in events]
@@ -1256,7 +1256,7 @@ def test_non_gpt_model_cannot_be_used_for_4k(tmp_path) -> None:
     asyncio.run(_impl())
 
 
-def test_4k_count_above_three_stops_before_tool_cost_pending_or_job(tmp_path) -> None:
+def test_4k_batch_count_reaches_confirmation_before_any_job_is_created(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
@@ -1267,13 +1267,13 @@ def test_4k_count_above_three_stops_before_tool_cost_pending_or_job(tmp_path) ->
         )
 
         session_id = _first(events, "session")["session_id"]
-        assert [data["text"] for event_type, data in events if event_type == "assistant_delta"] == [
-            "4K 每次只能生成 1 张，请将本次数量调整为 1 张。"
-        ]
         event_types = [event_type for event_type, _data in events]
-        assert "tool_call" not in event_types
-        assert "generation_confirm" not in event_types
-        assert session_id not in inf.pending._pending
+        confirmation = _first(events, "generation_confirm")
+        assert "tool_call" in event_types
+        assert confirmation["count"] == 4
+        assert confirmation["render_tier"] == "4k"
+        assert confirmation["ratio"] == "16:9"
+        assert session_id in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0
 
     asyncio.run(_impl())
@@ -1429,7 +1429,7 @@ def test_mock_text_llm_uses_first_upload_ratio_in_generation_confirm(tmp_path) -
             inf.orch(MockTextLLMProvider()).handle_message(USER, None, "给商品出一张图", [uid])
         )
 
-        assert _first(events, "generation_confirm")["args"]["ratio"] == "9:16"
+        assert _first(events, "generation_confirm")["args"]["ratio"] == "1:1"
 
     asyncio.run(_impl())
 
@@ -1443,11 +1443,11 @@ def test_mock_text_llm_explicit_ratio_overrides_first_upload(tmp_path) -> None:
 
         events = await _drain(
             inf.orch(MockTextLLMProvider()).handle_message(
-                USER, None, "给商品出一张 3：4 的图", [uid]
+                USER, None, "给商品出一张 3：2 的图", [uid]
             )
         )
 
-        assert _first(events, "generation_confirm")["args"]["ratio"] == "3:4"
+        assert _first(events, "generation_confirm")["args"]["ratio"] == "3:2"
 
     asyncio.run(_impl())
 

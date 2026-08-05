@@ -33,6 +33,7 @@ import {
 } from '@/lib/chat'
 import {
   INITIAL_CHAT_IMAGE_OPTIONS,
+  normalizeChatImageOptionsForModel,
   resolveChatImageOptions,
   type ChatImageOptionDraft,
 } from '@/lib/chat-image-options'
@@ -326,11 +327,9 @@ export function ChatPage() {
     chatModelSelection.state === 'ready'
   const composerImageModelSelection = decorateChatImageModelSelection(
     imageModelSelection,
-    () => {
+    (modelId) => {
       setImageOptions((current) =>
-        current.renderTier === '4k'
-          ? { ...current, renderTier: 'standard' }
-          : current,
+        normalizeChatImageOptionsForModel(current, modelId),
       )
     },
   )

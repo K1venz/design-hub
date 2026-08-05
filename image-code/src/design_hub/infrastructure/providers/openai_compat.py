@@ -9,6 +9,7 @@ import httpx
 
 from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
 from design_hub.domain.errors import DomainError
+from design_hub.domain.gpt_image_2 import gpt_image_2_contract_for_upstream_model
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
     raise_for_status,
@@ -54,9 +55,6 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         retry_backoff: float = 2.0,
         retry_max_sleep: float = 30.0,
         retry_max_elapsed: float = 90.0,
-        required_size: tuple[int, int] | None = None,
-        required_quality: str | None = None,
-        required_count: int | None = None,
         max_download_bytes: int = 64 * 1024 * 1024,
     ) -> None:
         if max_download_bytes <= 0:
@@ -66,6 +64,7 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         self._base_url = base_url.rstrip("/")
         self._key_pool = key_pool
         self._model = model
+        self._api_contract = gpt_image_2_contract_for_upstream_model(model)
         # 出图协议增强（apinebula 文档，coordinator #1092）：空串=不发该参数（保测/CI 旧行为）。
         # input_fidelity 仅 edits 端点发（保真）；response_format 两端点发（b64 自包含返回）。
         self._input_fidelity = input_fidelity
@@ -85,9 +84,6 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         # Retry eligibility budget. The operation deadline above remains authoritative for
         # active HTTP awaits.
         self._retry_max_elapsed = retry_max_elapsed
-        self._required_size = required_size
-        self._required_quality = required_quality
-        self._required_count = required_count
         self._max_download_bytes = max_download_bytes
         # 境内中转站(apinebula/诗云)应直连，trust_env=False 绕开本机 SOCKS 梯子代理
         self._trust_env = trust_env
@@ -104,12 +100,17 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
-        self._validate_request(size=size, n=n)
+        self._validate_request(
+            size=size,
+            n=n,
+            has_references=bool(reference_images),
+        )
         composed = compose_image_api_prompt(prompt, negative_prompt)
         # 模态解引用（ISSUE-0065）：同步走字节；worker 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
         size_str = f"{size[0]}x{size[1]}"
-        quality = self._required_quality or quality
+        if self._api_contract is not None:
+            quality = self._api_contract.required_quality or quality
         start_key_index = self._key_pool.reserve()
         attempt = 0
         overall_start = time.perf_counter()
@@ -284,11 +285,19 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         timeout = min(self._operation_timeout, remaining)
         return httpx.Timeout(timeout, connect=min(timeout, 15.0))
 
-    def _validate_request(self, *, size: tuple[int, int], n: int) -> None:
-        if self._required_size is not None and size != self._required_size:
-            raise ValueError(f"{self.name} requires size {self._required_size}")
-        if self._required_count is not None and n != self._required_count:
-            raise ValueError(f"{self.name} requires n={self._required_count}")
+    def _validate_request(
+        self,
+        *,
+        size: tuple[int, int],
+        n: int,
+        has_references: bool,
+    ) -> None:
+        if self._api_contract is not None:
+            self._api_contract.validate_request(
+                size=size,
+                count=n,
+                has_references=has_references,
+            )
 
     def _retry_sleep(self, attempt: int) -> float:
         # 退避+抖动（_openai_common 单一事实源）：并发撞 429 时错峰去相关，max_sleep 封顶。

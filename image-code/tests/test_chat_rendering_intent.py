@@ -152,7 +152,7 @@ def test_4k_with_unsupported_ratio_preserves_supported_ratio_message() -> None:
     assert decision.render_tier is RenderTier.FOUR_K
     with pytest.raises(
         UnsupportedChatRatio,
-        match="当前支持的图片比例是 1:1 / 3:4 / 4:3 / 9:16 / 16:9",
+        match="当前支持的图片比例是 1:1 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9",
     ):
         decision.ratio.require_supported()
 

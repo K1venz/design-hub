@@ -200,9 +200,6 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
         timeout=1800.0,
         max_retries=5,
         retry_max_elapsed=1800.0,
-        required_size=(3840, 2160),
-        required_quality="high",
-        required_count=1,
     )
 
     with pytest.raises(ProviderTimeout):
@@ -261,9 +258,6 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
         retry_backoff=0.0,
         retry_max_sleep=0.0,
         retry_max_elapsed=1800.0,
-        required_size=(3840, 2160),
-        required_quality="high",
-        required_count=1,
     )
 
     with pytest.raises(ProviderTimeout):
@@ -323,9 +317,6 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
         timeout=3600.0,
         max_retries=0,
         retry_max_elapsed=1800.0,
-        required_size=(3840, 2160),
-        required_quality="high",
-        required_count=1,
     )
 
     with pytest.raises(ProviderTimeout):

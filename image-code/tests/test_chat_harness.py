@@ -53,7 +53,7 @@ def test_chat_knowledge_removes_stale_capability_claims() -> None:
         "以页面当前显示的可用模型为准",
         "钱包与价格信息目前暂未公开",
         "仅商品套图任务支持一键复用",
-        "当前工作台选择器暂未提供 4:3",
+        "GPT Image 2.0 标准档提供 1:1（1024×1024）与 3:2（1536×1024）",
         "暂无专用按钮、画笔、蒙版",
         "通用自然语言生图",
     ):
@@ -81,7 +81,7 @@ def test_default_system_prompt_embeds_real_knowledge() -> None:
 
 def test_build_system_prompt_uses_determined_ratio_without_asking() -> None:
     prompt = build_system_prompt("KB")
-    assert "1:1 / 3:4 / 4:3 / 9:16 / 16:9" in prompt
+    assert "1:1 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9" in prompt
     assert "本轮确定比例" in prompt
     assert "不要追问比例" in prompt
     assert "未明确套图或张数时，按单图 n=1" in prompt

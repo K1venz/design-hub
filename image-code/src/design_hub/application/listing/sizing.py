@@ -4,6 +4,7 @@ from design_hub.domain.tasking import RenderTier
 # 其余比例 → fail-fast（ISSUE-0024 缺陷③：不收录超集）。
 _RATIO_TO_SIZE: dict[str, tuple[int, int]] = {
     "1:1": (1024, 1024),
+    "3:2": (1536, 1024),
     "3:4": (1152, 1536),
     "4:3": (1536, 1152),
     "9:16": (864, 1536),
