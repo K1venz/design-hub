@@ -1112,10 +1112,13 @@ def test_4k_conflicting_ratio_stops_before_cost_pending_or_job(tmp_path) -> None
 
         session_id = _first(events, "session")["session_id"]
         event_types = [event_type for event_type, _data in events]
-        assert [data["text"] for event_type, data in events if event_type == "assistant_delta"] == [
-            "4K 当前仅支持 16:9 横版（3840×2160）。"
-            "你可以选择继续生成 4K 16:9，或取消 4K 后按本次指定比例生成。"
-        ]
+        text = "".join(
+            data["text"]
+            for event_type, data in events
+            if event_type == "assistant_delta"
+        )
+        assert "gpt-image-2 4k 不支持 4:3" in text
+        assert "16:9" in text
         assert "tool_call" not in event_types
         assert "generation_confirm" not in event_types
         assert session_id not in inf.pending._pending
@@ -1137,7 +1140,8 @@ def test_4k_with_standard_only_ratio_uses_4k_constraint_message(tmp_path) -> Non
         text = "".join(
             data["text"] for event_type, data in events if event_type == "assistant_delta"
         )
-        assert "4K 当前仅支持 16:9" in text
+        assert "gpt-image-2 4k 不支持 2:3" in text
+        assert "16:9" in text
         assert "tool_call" not in [event_type for event_type, _data in events]
         assert "generation_confirm" not in [event_type for event_type, _data in events]
 
@@ -1150,7 +1154,7 @@ def test_explicit_4k_note_reaches_llm_before_write_tool_selection(tmp_path) -> N
         llm = CapturingTextLLM()
         events = await _drain(inf.orch(llm).handle_message(USER, None, "4K 可以做成 4:3 吗？", []))
 
-        assert "本轮确定比例=16:9" in llm.messages[-1].content
+        assert "本轮确定比例=4:3" in llm.messages[-1].content
         assert "4K 当前仅支持" not in "".join(
             data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
         )
@@ -1247,7 +1251,7 @@ def test_non_gpt_model_cannot_be_used_for_4k(tmp_path) -> None:
         text = "".join(
             data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
         )
-        assert "4K 当前仅支持 GPT Image 2.0" in text
+        assert "unsupported image model: seedream-5" in text
         assert "generation_confirm" not in event_types
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0

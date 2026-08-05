@@ -2,9 +2,6 @@ import pytest
 
 from design_hub.application.chat.image_options import AUTO_CHAT_IMAGE_OPTIONS
 from design_hub.application.chat.rendering_intent import (
-    ChatRenderingConflict,
-)
-from design_hub.application.chat.rendering_intent import (
     decide_chat_ratio_note as _decide_chat_ratio_note,
 )
 from design_hub.application.chat.rendering_intent import (
@@ -30,7 +27,7 @@ def test_explicit_4k_generation_selects_4k(message: str) -> None:
 
     assert decision.render_tier is RenderTier.FOUR_K
     assert decision.render_tier is RenderTier.FOUR_K
-    assert decision.ratio.ratio == "16:9"
+    assert decision.ratio.ratio == "1:1"
 
 
 @pytest.mark.parametrize(
@@ -57,7 +54,7 @@ def test_positive_4k_clause_is_not_vetoed_by_a_separate_negated_clause() -> None
     )
 
     assert decision.render_tier is RenderTier.FOUR_K
-    assert decision.ratio.ratio == "16:9"
+    assert decision.ratio.ratio == "1:1"
 
 
 @pytest.mark.parametrize(
@@ -112,7 +109,7 @@ def test_contrast_clause_preserves_the_later_positive_4k_request(message: str) -
     decision = decide_chat_rendering(message, auto_ratio="1:1")
 
     assert decision.render_tier is RenderTier.FOUR_K
-    assert decision.ratio.ratio == "16:9"
+    assert decision.ratio.ratio == "1:1"
 
 
 def test_4k_ratio_ignores_ratio_before_an_unpunctuated_contrast() -> None:
@@ -126,9 +123,13 @@ def test_4k_ratio_ignores_ratio_before_an_unpunctuated_contrast() -> None:
 
 
 @pytest.mark.parametrize("ratio", ["1:1", "3:4", "4:3", "9:16"])
-def test_4k_conflicting_ratio_is_rejected_before_cost_confirm(ratio: str) -> None:
-    with pytest.raises(ChatRenderingConflict, match="4K 当前仅支持 16:9 横版"):
-        decide_chat_rendering(f"生成 4K，比例 {ratio}", auto_ratio="1:1")
+def test_4k_preserves_explicit_ratio_for_model_validation(ratio: str) -> None:
+    decision = decide_chat_rendering(
+        f"生成 4K，比例 {ratio}", auto_ratio="1:1"
+    )
+
+    assert decision.render_tier is RenderTier.FOUR_K
+    assert decision.ratio.ratio == ratio
 
 
 def test_explicit_4k_accepts_explicit_sixteen_by_nine() -> None:
@@ -142,18 +143,18 @@ def test_four_k_resolution_is_not_treated_as_an_unsupported_ratio() -> None:
     decision = decide_chat_rendering("生成 3840x2160 图片", auto_ratio="3:4")
 
     assert decision.render_tier is RenderTier.FOUR_K
-    assert decision.ratio.require_supported() == "16:9"
+    assert decision.ratio.require_supported() == "3:4"
 
 
-def test_4k_with_standard_only_ratio_reports_the_4k_constraint() -> None:
-    with pytest.raises(
-        ChatRenderingConflict,
-        match="4K 当前仅支持 16:9",
-    ):
-        decide_chat_rendering("生成 4K，比例 2:3", auto_ratio="1:1")
+def test_4k_with_model_specific_ratio_is_deferred_to_model_validation() -> None:
+    decision = decide_chat_rendering(
+        "生成 4K，比例 2:3", auto_ratio="1:1"
+    )
+
+    assert decision.ratio.require_supported() == "2:3"
 
 
-def test_explicit_4k_ratio_note_is_sixteen_by_nine_before_tool_selection() -> None:
+def test_explicit_4k_ratio_note_preserves_requested_ratio() -> None:
     decision = decide_chat_ratio_note("生成 4K，比例 4:3", auto_ratio="1:1")
 
-    assert decision.ratio == "16:9"
+    assert decision.ratio == "4:3"

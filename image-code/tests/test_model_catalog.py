@@ -43,8 +43,8 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         )
         await service.create(
             actor_id=7,
-            name="active",
-            display_name="Active",
+            name="gpt-image-2",
+            display_name="GPT Image 2.0",
             model_type=ModelType.IMAGE,
             provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
             base_url="https://images.example.test/v1",
@@ -55,12 +55,41 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
             extra={},
             verification_proof=service.verifier.issue(
                 manager_id="7",
-                model_id="active",
+                model_id="gpt-image-2",
                 model_type=ModelType.IMAGE,
                 fingerprint=fingerprint,
             ),
         )
-        await service.set_default(actor_id=7, name="active")
+        await service.set_default(actor_id=7, name="gpt-image-2")
+
+        nano_plaintext = "nano-catalog-key"
+        nano_fingerprint = connection_fingerprint(
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+            base_url="https://gemini.example.test",
+            upstream_model="gemini-3.1-flash-image",
+            extra={},
+            credentials_plaintext={"api_keys": (nano_plaintext,)},
+        )
+        await service.create(
+            actor_id=7,
+            name="nano-banana-2",
+            display_name="Nano Banana 2",
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+            base_url="https://gemini.example.test",
+            model="gemini-3.1-flash-image",
+            credentials={"api_keys": [cipher.encrypt(nano_plaintext)]},
+            unit_cost=Decimal("0.1"),
+            enabled=True,
+            extra={},
+            verification_proof=service.verifier.issue(
+                manager_id="7",
+                model_id="nano-banana-2",
+                model_type=ModelType.IMAGE,
+                fingerprint=nano_fingerprint,
+            ),
+        )
 
         chat_plaintext = "chat-catalog-key"
         chat_fingerprint = connection_fingerprint(
@@ -95,8 +124,27 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
 
     service, engine = asyncio.run(run())
     try:
-        assert asyncio.run(service.catalog(ModelType.IMAGE)) == [
-            {"id": "active", "display_name": "Active", "is_default": True}
+        image_catalog = asyncio.run(service.catalog(ModelType.IMAGE))
+        assert [item["id"] for item in image_catalog] == [
+            "gpt-image-2",
+            "nano-banana-2",
+        ]
+        gpt_capabilities = image_catalog[0]["image_capabilities"]
+        nano_capabilities = image_catalog[1]["image_capabilities"]
+        assert isinstance(gpt_capabilities, dict)
+        assert isinstance(nano_capabilities, dict)
+        assert [tier["id"] for tier in gpt_capabilities["render_tiers"]] == [
+            "standard",
+            "4k",
+        ]
+        assert [tier["id"] for tier in nano_capabilities["render_tiers"]] == [
+            "standard",
+            "2k",
+            "4k",
+        ]
+        assert nano_capabilities["render_tiers"][1]["ratios"] == [
+            "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1",
+            "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
         ]
         assert asyncio.run(service.catalog(ModelType.CHAT)) == [
             {
@@ -116,7 +164,19 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         )
         response = client.get("/models/image")
         assert response.status_code == 200
-        assert response.json() == [{"id": "active", "display_name": "Active", "is_default": True}]
+        image_json = response.json()
+        assert [item["id"] for item in image_json] == [
+            "gpt-image-2",
+            "nano-banana-2",
+        ]
+        assert image_json[1]["image_capabilities"]["render_tiers"][1] == {
+            "id": "2k",
+            "label": "2K 高清",
+            "ratios": [
+                "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1",
+                "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
+            ],
+        }
         assert "unit_cost" not in response.text
         assert "base_url" not in response.text
         assert "catalog-key" not in response.text

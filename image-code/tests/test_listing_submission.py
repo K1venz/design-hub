@@ -161,6 +161,32 @@ def test_generate_plan_freezes_each_image_prompt_and_reference_key() -> None:
     ]
 
 
+def test_nano_banana_plan_uses_selected_model_two_k_dimensions() -> None:
+    request = ListingGenerateRequest(
+        image_model="nano-banana-2",
+        upload_ids=["1/front.png"],
+        prompt="product poster",
+        ratio="4:5",
+        n=1,
+    )
+
+    submission = _planner().plan_generate(
+        user_id="1",
+        request=request,
+        job_id="job-nano",
+        idempotency_key="idem-nano",
+        trace_id="trace-nano",
+        request_id="request-nano",
+        model_id="nano-banana-2",
+        unit_cost=Decimal("0.10"),
+        render_tier=RenderTier.TWO_K,
+    )
+
+    assert submission.items[0].render_tier is RenderTier.TWO_K
+    assert submission.items[0].ratio == "4:5"
+    assert submission.items[0].size == (1856, 2304)
+
+
 def test_request_fingerprint_is_stable_across_generated_ids_and_changes_with_input() -> None:
     planner = _planner()
     request = ListingGenerateRequest(

@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from design_hub.domain.enums import ModelType, ProviderType
 from design_hub.domain.errors import NotFoundError
+from design_hub.domain.image_capabilities import image_model_capabilities
 from design_hub.domain.model_config import PROVIDER_RULES, CredentialValue, connection_fingerprint
 from design_hub.ports.model_config_repository import ModelConfigRecord, ModelConfigRepository
 from design_hub.ports.model_verification import ModelVerificationService
@@ -205,9 +206,9 @@ class ModelConfigService:
 
     async def catalog(
         self, model_type: ModelType
-    ) -> BuiltinList[dict[str, str | bool]]:
+    ) -> BuiltinList[dict[str, object]]:
         default_name = await self.repo.get_default(model_type)
-        catalog: BuiltinList[dict[str, str | bool]] = []
+        catalog: BuiltinList[dict[str, object]] = []
         for record in await self.repo.list_all():
             if (
                 record.model_type is model_type
@@ -215,13 +216,31 @@ class ModelConfigService:
                 and record.verified_at is not None
                 and record.verified_fingerprint == _record_fingerprint(self.cipher, record)
             ):
-                catalog.append(
-                    {
-                        "id": record.name,
-                        "display_name": record.display_name,
-                        "is_default": record.name == default_name,
+                item: dict[str, object] = {
+                    "id": record.name,
+                    "display_name": record.display_name,
+                    "is_default": record.name == default_name,
+                }
+                if model_type is ModelType.IMAGE:
+                    capabilities = image_model_capabilities(record.name)
+                    labels = {
+                        "standard": "1K 标准",
+                        "2k": "2K 高清",
+                        "4k": "4K 超清",
                     }
-                )
+                    item["image_capabilities"] = {
+                        "render_tiers": [
+                            {
+                                "id": tier.value,
+                                "label": labels[tier.value],
+                                "ratios": list(capabilities.ratios(tier)),
+                            }
+                            for tier in capabilities.supported_tiers
+                        ],
+                        "max_count": capabilities.platform_max_count,
+                        "supports_references": capabilities.supports_references,
+                    }
+                catalog.append(item)
         return catalog
 
 
