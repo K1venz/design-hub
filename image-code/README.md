@@ -31,8 +31,11 @@ ignored `.env` file or the process environment.
 After applying the live-model migration, run the bootstrap once in the target
 environment. The process must already contain the persistent
 `AUTH_RSA_PRIVATE_KEY_PEM`, the existing `GPT_IMAGE_*` values, and the existing
-`TEXT_LLM_*` values. Confirm that the private vertical key/value Wan CSV is
-outside this repository, then pass its absolute path explicitly:
+`TEXT_LLM_*` values. Nano Banana 2 additionally reads
+`NANO_BANANA_BASE_URL`, `NANO_BANANA_API_KEYS` (comma-separated), and
+`NANO_BANANA_MODEL`; only the stable `gemini-3.1-flash-image` upstream model is
+accepted. Confirm that the private vertical key/value Wan CSV is outside this
+repository, then pass its absolute path explicitly:
 
 ```bash
 uv run python -m design_hub.cli.bootstrap_models \
@@ -49,6 +52,18 @@ After a successful bootstrap, remove local access to the CSV according to the
 operator's credential policy. Do not paste command output or the secret file
 into an issue, and never copy the CSV into the repository, an image, a test
 fixture, or a log.
+
+To run the paid Nano Banana provider acceptance check independently, expose
+`NANO_BANANA_API_KEYS` only in the current process and run:
+
+```bash
+uv run python scripts/smoke_nano_banana.py
+```
+
+The smoke check performs one text-to-image request and one reference-image edit
+through the platform provider. It writes only the resulting images to a chosen
+output directory and never persists credentials, request payloads, or inline
+image data.
 
 The fixed Redis names are:
 
