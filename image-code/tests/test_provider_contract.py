@@ -216,21 +216,38 @@ def test_fixed_4k_provider_rejects_wrong_size_or_count_before_http(
 
 
 @pytest.mark.parametrize("refs", [[], [b"product"]])
-def test_gpt_image_2_standard_rejects_undocumented_four_by_three_size_before_http(
-    refs: list[bytes],
+@pytest.mark.parametrize(
+    "size",
+    [
+        (1024, 1024),
+        (1536, 1024),
+        (1024, 1536),
+        (1152, 1536),
+        (1536, 1152),
+        (864, 1536),
+        (1536, 864),
+        (1024, 1280),
+        (1280, 1024),
+        (768, 1536),
+        (1536, 768),
+    ],
+)
+def test_gpt_image_2_standard_sends_every_live_verified_size(
+    size: tuple[int, int], refs: list[bytes],
 ) -> None:
     client = _CapturingClient()
 
-    with pytest.raises(ValueError, match="does not support size"):
-        asyncio.run(
-            _run_four_k(
-                _provider_with(client),
-                refs=refs,
-                size=(1536, 1152),
-            )
+    asyncio.run(
+        _run_four_k(
+            _provider_with(client),
+            refs=refs,
+            size=size,
         )
+    )
 
-    assert client.urls == []
+    payload = client.data_payload if refs else client.json_payload
+    assert payload is not None
+    assert payload["size"] == f"{size[0]}x{size[1]}"
 
 
 def test_gpt_image_2_standard_edit_sends_documented_landscape_size() -> None:

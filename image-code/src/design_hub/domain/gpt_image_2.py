@@ -1,4 +1,6 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from design_hub.domain.tasking import RenderTier
 
@@ -9,12 +11,27 @@ GPT_IMAGE_2_FOUR_K_MODEL = "gpt-image-2-4k"
 @dataclass(frozen=True)
 class GptImage2ApiContract:
     upstream_model: str
-    ratios: tuple[str, ...]
-    generation_sizes: frozenset[tuple[int, int]]
-    edit_sizes: frozenset[tuple[int, int]]
+    ratio_sizes: Mapping[str, tuple[int, int]]
     provider_max_count: int
     platform_max_count: int
     required_quality: str | None = None
+
+    @property
+    def ratios(self) -> tuple[str, ...]:
+        return tuple(self.ratio_sizes)
+
+    @property
+    def supported_sizes(self) -> frozenset[tuple[int, int]]:
+        return frozenset(self.ratio_sizes.values())
+
+    def size_for_ratio(self, ratio: str) -> tuple[int, int]:
+        try:
+            return self.ratio_sizes[ratio]
+        except KeyError:
+            options = " / ".join(self.ratios)
+            raise ValueError(
+                f"不支持的比例：{ratio}（可选 {options}）"
+            ) from None
 
     def validate_request(
         self,
@@ -23,8 +40,7 @@ class GptImage2ApiContract:
         count: int,
         has_references: bool,
     ) -> None:
-        supported_sizes = self.edit_sizes if has_references else self.generation_sizes
-        if size not in supported_sizes:
+        if size not in self.supported_sizes:
             endpoint = "edits" if has_references else "generations"
             raise ValueError(
                 f"{self.upstream_model} {endpoint} does not support size "
@@ -37,20 +53,36 @@ class GptImage2ApiContract:
             )
 
 
+GPT_IMAGE_2_STANDARD_RATIO_SIZES: Mapping[str, tuple[int, int]] = MappingProxyType(
+    {
+        "1:1": (1024, 1024),
+        "3:2": (1536, 1024),
+        "2:3": (1024, 1536),
+        "3:4": (1152, 1536),
+        "4:3": (1536, 1152),
+        "9:16": (864, 1536),
+        "16:9": (1536, 864),
+        "4:5": (1024, 1280),
+        "5:4": (1280, 1024),
+        "1:2": (768, 1536),
+        "2:1": (1536, 768),
+    }
+)
+
+GPT_IMAGE_2_FOUR_K_RATIO_SIZES: Mapping[str, tuple[int, int]] = MappingProxyType(
+    {"16:9": (3840, 2160)}
+)
+
 GPT_IMAGE_2_API_CONTRACTS: dict[RenderTier, GptImage2ApiContract] = {
     RenderTier.STANDARD: GptImage2ApiContract(
         upstream_model=GPT_IMAGE_2_MODEL_ID,
-        ratios=("1:1", "3:2"),
-        generation_sizes=frozenset({(1024, 1024)}),
-        edit_sizes=frozenset({(1024, 1024), (1536, 1024)}),
+        ratio_sizes=GPT_IMAGE_2_STANDARD_RATIO_SIZES,
         provider_max_count=1,
         platform_max_count=7,
     ),
     RenderTier.FOUR_K: GptImage2ApiContract(
         upstream_model=GPT_IMAGE_2_FOUR_K_MODEL,
-        ratios=("16:9",),
-        generation_sizes=frozenset({(3840, 2160)}),
-        edit_sizes=frozenset({(3840, 2160)}),
+        ratio_sizes=GPT_IMAGE_2_FOUR_K_RATIO_SIZES,
         provider_max_count=10,
         platform_max_count=7,
         required_quality="high",

@@ -51,14 +51,20 @@ function renderComposer(renderTier: 'standard' | '4k', count: 1 | 7) {
 }
 
 describe('ChatComposer GPT Image 2 parameters', () => {
-  it('renders only the documented standard ratios', () => {
+  it('renders every live-verified standard ratio', () => {
     const markup = renderComposer('standard', 1)
 
     expect(markup).toContain('<option value="1:1" selected="">1:1</option>')
     expect(markup).toContain('<option value="3:2">3:2</option>')
-    expect(markup).not.toContain('<option value="3:4">')
-    expect(markup).not.toContain('<option value="4:3">')
-    expect(markup).not.toContain('<option value="9:16">')
+    expect(markup).toContain('<option value="2:3">2:3</option>')
+    expect(markup).toContain('<option value="3:4">3:4</option>')
+    expect(markup).toContain('<option value="4:3">4:3</option>')
+    expect(markup).toContain('<option value="9:16">9:16</option>')
+    expect(markup).toContain('<option value="16:9">16:9</option>')
+    expect(markup).toContain('<option value="4:5">4:5</option>')
+    expect(markup).toContain('<option value="5:4">5:4</option>')
+    expect(markup).toContain('<option value="1:2">1:2</option>')
+    expect(markup).toContain('<option value="2:1">2:1</option>')
   })
 
   it('keeps batch count selectable in 4K mode', () => {

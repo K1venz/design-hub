@@ -224,7 +224,7 @@ export function ChatComposer({
                 {fourK
                   ? '4K 固定输出 3840×2160、16:9；数量可指定 1–7 张，仅 GPT Image 2.0 可用。'
                   : imageSelection.modelId === 'gpt-image-2'
-                    ? 'GPT Image 2 标准档支持 1:1（1024×1024）与 3:2（1536×1024）；数量可指定 1–7 张。'
+                    ? 'GPT Image 2 标准档支持 11 种实测比例；数量可指定 1–7 张。'
                     : '标准档数量可自动判断或指定 1–7 张。'}
               </span>
             </div>

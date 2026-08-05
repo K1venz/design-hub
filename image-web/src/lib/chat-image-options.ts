@@ -2,10 +2,15 @@ export const CHAT_IMAGE_RATIOS = [
   'auto',
   '1:1',
   '3:2',
+  '2:3',
   '3:4',
   '4:3',
   '9:16',
   '16:9',
+  '4:5',
+  '5:4',
+  '1:2',
+  '2:1',
 ] as const
 
 export type ChatImageRatio = (typeof CHAT_IMAGE_RATIOS)[number]
@@ -35,6 +40,15 @@ const GPT_IMAGE_2_STANDARD_RATIOS: readonly ChatImageRatio[] = [
   'auto',
   '1:1',
   '3:2',
+  '2:3',
+  '3:4',
+  '4:3',
+  '9:16',
+  '16:9',
+  '4:5',
+  '5:4',
+  '1:2',
+  '2:1',
 ]
 const GPT_IMAGE_2_FOUR_K_RATIOS: readonly ChatImageRatio[] = ['16:9']
 

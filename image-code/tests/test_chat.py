@@ -1124,7 +1124,7 @@ def test_4k_conflicting_ratio_stops_before_cost_pending_or_job(tmp_path) -> None
     asyncio.run(_impl())
 
 
-def test_4k_unsupported_ratio_uses_supported_ratio_message(tmp_path) -> None:
+def test_4k_with_standard_only_ratio_uses_4k_constraint_message(tmp_path) -> None:
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
@@ -1137,8 +1137,7 @@ def test_4k_unsupported_ratio_uses_supported_ratio_message(tmp_path) -> None:
         text = "".join(
             data["text"] for event_type, data in events if event_type == "assistant_delta"
         )
-        assert "当前支持的图片比例是 1:1 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9" in text
-        assert "4K 当前仅支持" not in text
+        assert "4K 当前仅支持 16:9" in text
         assert "tool_call" not in [event_type for event_type, _data in events]
         assert "generation_confirm" not in [event_type for event_type, _data in events]
 
@@ -1429,7 +1428,7 @@ def test_mock_text_llm_uses_first_upload_ratio_in_generation_confirm(tmp_path) -
             inf.orch(MockTextLLMProvider()).handle_message(USER, None, "给商品出一张图", [uid])
         )
 
-        assert _first(events, "generation_confirm")["args"]["ratio"] == "1:1"
+        assert _first(events, "generation_confirm")["args"]["ratio"] == "9:16"
 
     asyncio.run(_impl())
 
@@ -1792,7 +1791,7 @@ def test_validate_rejects_bad_ratio(tmp_path) -> None:
         inf = await _infra(str(tmp_path))
         uid = await _stage(inf)
         req = ListingGenerateRequest(
-            image_model="gpt-image-2", upload_ids=[uid], prompt="p", ratio="2:3", n=1
+            image_model="gpt-image-2", upload_ids=[uid], prompt="p", ratio="21:9", n=1
         )
         with pytest.raises(ValueError):
             inf.submission.validate(USER.user_id, req)
