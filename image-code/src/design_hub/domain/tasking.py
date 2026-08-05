@@ -15,6 +15,7 @@ class OperationType(StrEnum):
 
 class RenderTier(StrEnum):
     STANDARD = "standard"
+    TWO_K = "2k"
     FOUR_K = "4k"
 
 
