@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ModelSelection } from '@/components/models/model-selection'
 import {
+  chatImageRatiosFor,
   resolveChatImageOptions,
   type ChatImageOptionDraft,
 } from '@/lib/chat-image-options'
@@ -48,6 +49,25 @@ describe('resolveChatImageOptions', () => {
       count: null,
       ratio: 'auto',
     })
+  })
+})
+
+describe('chatImageRatiosFor', () => {
+  it('returns every live-verified GPT Image 2 standard ratio', () => {
+    expect(chatImageRatiosFor('gpt-image-2', 'standard')).toEqual([
+      'auto',
+      '1:1',
+      '3:2',
+      '2:3',
+      '3:4',
+      '4:3',
+      '9:16',
+      '16:9',
+      '4:5',
+      '5:4',
+      '1:2',
+      '2:1',
+    ])
   })
 })
 

@@ -16,7 +16,20 @@ from design_hub.domain.models import (
 
 class ChatImageOptionsRequest(BaseModel):
     render_tier: ChatRenderTier
-    ratio: Literal["auto", "1:1", "3:2", "3:4", "4:3", "9:16", "16:9"]
+    ratio: Literal[
+        "auto",
+        "1:1",
+        "3:2",
+        "2:3",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "4:5",
+        "5:4",
+        "1:2",
+        "2:1",
+    ]
     count: int | None = Field(ge=1, le=7)
 
     @model_validator(mode="after")

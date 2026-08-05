@@ -2,7 +2,10 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-SUPPORTED_CHAT_RATIOS = ("1:1", "3:2", "3:4", "4:3", "9:16", "16:9")
+from design_hub.domain.gpt_image_2 import gpt_image_2_contract
+from design_hub.domain.tasking import RenderTier
+
+SUPPORTED_CHAT_RATIOS = gpt_image_2_contract(RenderTier.STANDARD).ratios
 _SUPPORTED_SET = frozenset(SUPPORTED_CHAT_RATIOS)
 _EXPLICIT_RATIO_RE = re.compile(
     r"(?<!\d)([1-9]\d*)\s*(?:[:：/xX×]|比)\s*([1-9]\d*)(?!\d)"

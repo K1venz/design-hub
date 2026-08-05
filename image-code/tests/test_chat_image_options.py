@@ -68,27 +68,33 @@ def test_invalid_four_k_options_fail_fast(ratio: str, count: int) -> None:
         )
 
 
-def test_gpt_image_2_standard_accepts_only_documented_chat_ratios() -> None:
+@pytest.mark.parametrize(
+    "ratio",
+    ["1:1", "3:2", "2:3", "3:4", "4:3", "9:16", "16:9", "4:5", "5:4", "1:2", "2:1"],
+)
+def test_gpt_image_2_standard_accepts_live_verified_chat_ratios(ratio: str) -> None:
     ChatImageOptions(
         render_tier=ChatRenderTier.STANDARD,
-        ratio="3:2",
+        ratio=ratio,
         count=3,
     ).validate_for(
         model_id="gpt-image-2",
         render_tier=RenderTier.STANDARD,
-        resolved_ratio="3:2",
+        resolved_ratio=ratio,
         resolved_count=3,
     )
 
-    with pytest.raises(ValueError, match="1:1 / 3:2"):
+
+def test_gpt_image_2_standard_rejects_unverified_chat_ratio() -> None:
+    with pytest.raises(ValueError, match="21:9"):
         ChatImageOptions(
             render_tier=ChatRenderTier.STANDARD,
-            ratio="4:3",
+            ratio="21:9",
             count=1,
         ).validate_for(
             model_id="gpt-image-2",
             render_tier=RenderTier.STANDARD,
-            resolved_ratio="4:3",
+            resolved_ratio="21:9",
             resolved_count=1,
         )
 

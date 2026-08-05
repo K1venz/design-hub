@@ -1,7 +1,6 @@
 import pytest
 
 from design_hub.application.chat.image_options import AUTO_CHAT_IMAGE_OPTIONS
-from design_hub.application.chat.ratio_intent import UnsupportedChatRatio
 from design_hub.application.chat.rendering_intent import (
     ChatRenderingConflict,
 )
@@ -146,15 +145,12 @@ def test_four_k_resolution_is_not_treated_as_an_unsupported_ratio() -> None:
     assert decision.ratio.require_supported() == "16:9"
 
 
-def test_4k_with_unsupported_ratio_preserves_supported_ratio_message() -> None:
-    decision = decide_chat_rendering("生成 4K，比例 2:3", auto_ratio="1:1")
-
-    assert decision.render_tier is RenderTier.FOUR_K
+def test_4k_with_standard_only_ratio_reports_the_4k_constraint() -> None:
     with pytest.raises(
-        UnsupportedChatRatio,
-        match="当前支持的图片比例是 1:1 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9",
+        ChatRenderingConflict,
+        match="4K 当前仅支持 16:9",
     ):
-        decision.ratio.require_supported()
+        decide_chat_rendering("生成 4K，比例 2:3", auto_ratio="1:1")
 
 
 def test_explicit_4k_ratio_note_is_sixteen_by_nine_before_tool_selection() -> None:
