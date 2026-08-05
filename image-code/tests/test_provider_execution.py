@@ -4,7 +4,9 @@ from decimal import Decimal
 import pytest
 
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.execution import ProviderExecutionAdapter
 from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import (
@@ -38,7 +40,11 @@ def _request() -> ProviderRequest:
         ),
         prompt="faithful product",
         reference_images=(ReferenceImage(data=b"product"),),
-        size=(1024, 1024),
+        output=ImageOutputSpec(
+            ratio="1:1",
+            render_tier=RenderTier.STANDARD,
+            size=(1024, 1024),
+        ),
         seed=0,
         quality=None,
     )
@@ -59,12 +65,13 @@ class _ImmediateProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
         del context
+        self.output = output
         self.calls += 1
         if self.error is not None:
             raise self.error
@@ -116,6 +123,7 @@ def test_immediate_provider_returns_image_and_cannot_resume() -> None:
 
         assert result == ImmediateResult(image=_image())
         assert provider.calls == 1
+        assert provider.output == _request().output
         with pytest.raises(UnsupportedProviderResume):
             await executor.resume("provider-task-1", _request())
 

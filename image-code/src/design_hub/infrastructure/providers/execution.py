@@ -39,7 +39,7 @@ class ProviderExecutionAdapter:
                 prompt=request.prompt,
                 negative_prompt="",
                 reference_images=list(request.reference_images),
-                size=request.size,
+                output=request.output,
                 n=1,
                 seed=request.seed,
                 quality=request.quality,

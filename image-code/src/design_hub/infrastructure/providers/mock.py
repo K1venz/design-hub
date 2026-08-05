@@ -1,6 +1,7 @@
 import asyncio
 from decimal import Decimal
 
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import AbstractModelProvider, ProviderTimeout
@@ -31,12 +32,12 @@ class MockModelProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
-        del context
+        del context, output
         await asyncio.sleep(self._latency_ms / 1000)
         if self._fail:
             raise ProviderTimeout(f"{self.name} mock failure")

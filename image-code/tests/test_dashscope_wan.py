@@ -11,7 +11,9 @@ from model_call_fakes import RecordingModelCallRecorder
 from PIL import Image
 
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.dashscope_wan import (
     DashScopeWanImageProvider,
 )
@@ -50,7 +52,11 @@ def _request(
         ),
         prompt="render a neutral red product",
         reference_images=refs,
-        size=size,
+        output=ImageOutputSpec(
+            ratio="3:2",
+            render_tier=RenderTier.STANDARD,
+            size=size,
+        ),
         seed=3,
         quality=None,
     )

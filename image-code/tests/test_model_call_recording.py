@@ -15,7 +15,9 @@ from sqlalchemy.ext.asyncio import (
 
 from design_hub.domain.admin import ModelCallStatus, ModelOperation
 from design_hub.domain.errors import DataInvariantError
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.models import ModelCallRow
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
@@ -243,7 +245,11 @@ def test_each_gpt_image_retry_is_recorded_with_upstream_usage() -> None:
             prompt="edit",
             negative_prompt="",
             reference_images=[ReferenceImage(data=b"product")],
-            size=(1024, 1024),
+            output=ImageOutputSpec(
+                ratio="1:1",
+                render_tier=RenderTier.STANDARD,
+                size=(1024, 1024),
+            ),
             n=1,
         )
 
@@ -282,7 +288,11 @@ def test_recorder_start_failure_prevents_upstream_image_request() -> None:
                 prompt="generate",
                 negative_prompt="",
                 reference_images=[],
-                size=(1024, 1024),
+                output=ImageOutputSpec(
+                    ratio="1:1",
+                    render_tier=RenderTier.STANDARD,
+                    size=(1024, 1024),
+                ),
                 n=1,
             )
 
