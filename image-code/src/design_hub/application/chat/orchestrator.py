@@ -27,6 +27,7 @@ from design_hub.application.chat.ratio_intent import (
 )
 from design_hub.application.chat.rendering_intent import (
     ChatRenderingConflict,
+    ChatRenderingDecision,
     decide_chat_ratio_note,
     decide_chat_rendering,
 )
@@ -87,12 +88,6 @@ logger = logging.getLogger(__name__)
 # DB 转录仍全量存，仅裁 LLM 输入控 token/成本。约 20 轮 user+assistant ≈ 40 条。
 _CONTEXT_MAX_MESSAGES = 40
 _CONTEXT_HEAD = 1
-_FOUR_K_MAX_COUNT = 1
-_FOUR_K_COUNT_LIMIT_MESSAGE = (
-    "4K 每次只能生成 1 张，请将本次数量调整为 1 张。"
-)
-
-
 @dataclass(frozen=True)
 class ChatEvent:
     """对话流事件（路由序列化为 SSE：event: <type>\\ndata: <json>）。"""
@@ -491,6 +486,14 @@ class ChatOrchestrator:
             yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
             try:
                 rendering = decide_chat_rendering(message, auto_ratio, image_options)
+                rendering = ChatRenderingDecision(
+                    rendering.render_tier,
+                    image_options.resolve_ratio_for(
+                        model_id=image_model,
+                        render_tier=rendering.render_tier,
+                        decision=rendering.ratio,
+                    ),
+                )
                 if (
                     call.name == "replace_background"
                     and rendering.render_tier is RenderTier.FOUR_K
@@ -545,21 +548,13 @@ class ChatOrchestrator:
                 yield ChatEvent("assistant_end", {"status": "complete"})
                 return
             count = self._count(call.name, req)
-            if (
-                rendering.render_tier is RenderTier.FOUR_K
-                and count > _FOUR_K_MAX_COUNT
-            ):
-                yield ChatEvent(
-                    "assistant_delta", {"text": _FOUR_K_COUNT_LIMIT_MESSAGE}
-                )
-                await self.chat_repo.append_message(
-                    session_id=session_id,
-                    role="assistant",
-                    content=_FOUR_K_COUNT_LIMIT_MESSAGE,
-                )
-                yield ChatEvent("assistant_end", {"status": "complete"})
-                return
             try:
+                image_options.validate_for(
+                    model_id=image_model,
+                    render_tier=rendering.render_tier,
+                    resolved_ratio=rendering.ratio.require_supported(),
+                    resolved_count=count,
+                )
                 # 与出图同一校验源（#884⑤/护栏②）：非法参数进费用闸前拦下转澄清；文案已是用户话术。
                 if isinstance(req, BackgroundReplaceRequest):
                     await self.submission.validate_background_replace(

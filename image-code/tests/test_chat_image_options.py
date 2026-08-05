@@ -43,11 +43,11 @@ def test_standard_auto_ratio_still_understands_the_prompt() -> None:
     assert decision.ratio.ratio == "4:3"
 
 
-def test_four_k_options_are_fixed_to_one_landscape_image() -> None:
+def test_four_k_options_are_fixed_to_landscape_and_allow_platform_batch_count() -> None:
     options = ChatImageOptions(
         render_tier=ChatRenderTier.FOUR_K,
         ratio="16:9",
-        count=1,
+        count=7,
     )
     decision = decide_chat_rendering("生成海报", auto_ratio="3:4", options=options)
 
@@ -57,7 +57,7 @@ def test_four_k_options_are_fixed_to_one_landscape_image() -> None:
 
 @pytest.mark.parametrize(
     ("ratio", "count"),
-    [("3:4", 1), ("16:9", 2)],
+    [("3:4", 1), ("16:9", 8)],
 )
 def test_invalid_four_k_options_fail_fast(ratio: str, count: int) -> None:
     with pytest.raises(ValueError):
@@ -66,6 +66,44 @@ def test_invalid_four_k_options_fail_fast(ratio: str, count: int) -> None:
             ratio=ratio,
             count=count,
         )
+
+
+def test_gpt_image_2_standard_accepts_only_documented_chat_ratios() -> None:
+    ChatImageOptions(
+        render_tier=ChatRenderTier.STANDARD,
+        ratio="3:2",
+        count=3,
+    ).validate_for(
+        model_id="gpt-image-2",
+        render_tier=RenderTier.STANDARD,
+        resolved_ratio="3:2",
+        resolved_count=3,
+    )
+
+    with pytest.raises(ValueError, match="1:1 / 3:2"):
+        ChatImageOptions(
+            render_tier=ChatRenderTier.STANDARD,
+            ratio="4:3",
+            count=1,
+        ).validate_for(
+            model_id="gpt-image-2",
+            render_tier=RenderTier.STANDARD,
+            resolved_ratio="4:3",
+            resolved_count=1,
+        )
+
+
+def test_gpt_image_2_four_k_accepts_seven_results_at_fixed_ratio() -> None:
+    ChatImageOptions(
+        render_tier=ChatRenderTier.FOUR_K,
+        ratio="16:9",
+        count=7,
+    ).validate_for(
+        model_id="gpt-image-2",
+        render_tier=RenderTier.FOUR_K,
+        resolved_ratio="16:9",
+        resolved_count=7,
+    )
 
 
 class _StubRenderingResolver:

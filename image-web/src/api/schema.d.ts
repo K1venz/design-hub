@@ -1104,7 +1104,7 @@ export interface components {
              * Ratio
              * @enum {string}
              */
-            ratio: "auto" | "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
+            ratio: "auto" | "1:1" | "3:2" | "3:4" | "4:3" | "9:16" | "16:9";
             /** Count */
             count: number | null;
         };

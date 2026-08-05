@@ -134,9 +134,6 @@ def _four_k_provider(client: object) -> OpenAICompatImageProvider:
         client=client,  # type: ignore[arg-type]
         image_store=_RecordingImageStore(),
         recorder=RecordingModelCallRecorder(),
-        required_size=(3840, 2160),
-        required_quality="high",
-        required_count=1,
     )
 
 
@@ -206,7 +203,7 @@ def test_fixed_4k_provider_sends_immutable_generation_and_edit_contract(refs: li
     assert payload["n"] == 1
 
 
-@pytest.mark.parametrize("size,n", [((1024, 1024), 1), ((3840, 2160), 2)])
+@pytest.mark.parametrize("size,n", [((1024, 1024), 1), ((3840, 2160), 11)])
 def test_fixed_4k_provider_rejects_wrong_size_or_count_before_http(
     size: tuple[int, int], n: int,
 ) -> None:
@@ -216,6 +213,41 @@ def test_fixed_4k_provider_rejects_wrong_size_or_count_before_http(
         asyncio.run(_run_four_k(_four_k_provider(client), refs=[], size=size, n=n))
 
     assert client.urls == []
+
+
+@pytest.mark.parametrize("refs", [[], [b"product"]])
+def test_gpt_image_2_standard_rejects_undocumented_four_by_three_size_before_http(
+    refs: list[bytes],
+) -> None:
+    client = _CapturingClient()
+
+    with pytest.raises(ValueError, match="does not support size"):
+        asyncio.run(
+            _run_four_k(
+                _provider_with(client),
+                refs=refs,
+                size=(1536, 1152),
+            )
+        )
+
+    assert client.urls == []
+
+
+def test_gpt_image_2_standard_edit_sends_documented_landscape_size() -> None:
+    client = _CapturingClient()
+
+    asyncio.run(
+        _run_four_k(
+            _provider_with(client),
+            refs=[b"product"],
+            size=(1536, 1024),
+        )
+    )
+
+    assert client.data_payload is not None
+    assert client.data_payload["model"] == "gpt-image-2"
+    assert client.data_payload["size"] == "1536x1024"
+    assert client.data_payload["n"] == 1
 
 
 def test_edits_sends_input_fidelity_and_response_format() -> None:

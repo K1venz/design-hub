@@ -231,13 +231,14 @@ def test_image_resolver_queries_every_call_and_caches_exact_revision_and_tier() 
         assert standard_1 is standard_2
         assert standard_1 is not four_k
         assert standard_1.provider.name == record.name
-        assert standard_1.provider._model == "upstream-image-v2"
+        assert standard_1.provider._model == "gpt-image-2"
         assert standard_1.provider._key_pool.key_for(0, 0) == "standard-a"
         assert four_k.provider.name == record.name
+        assert four_k.provider._model == "gpt-image-2-4k"
         assert four_k.provider._key_pool.key_for(0, 0) == "four-k"
-        assert four_k.provider._required_size == (3840, 2160)
-        assert four_k.provider._required_quality == "high"
-        assert four_k.provider._required_count == 1
+        assert four_k.provider._api_contract is not None
+        assert four_k.provider._api_contract.required_quality == "high"
+        assert four_k.provider._api_contract.provider_max_count == 10
 
         repo.records[record.name] = replace(record, revision=2)
         revised = await resolver.resolve(record.name, RenderTier.STANDARD)

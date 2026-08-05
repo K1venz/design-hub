@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-SUPPORTED_CHAT_RATIOS = ("1:1", "3:4", "4:3", "9:16", "16:9")
+SUPPORTED_CHAT_RATIOS = ("1:1", "3:2", "3:4", "4:3", "9:16", "16:9")
 _SUPPORTED_SET = frozenset(SUPPORTED_CHAT_RATIOS)
 _EXPLICIT_RATIO_RE = re.compile(
     r"(?<!\d)([1-9]\d*)\s*(?:[:：/xX×]|比)\s*([1-9]\d*)(?!\d)"

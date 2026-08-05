@@ -2,6 +2,10 @@ from collections.abc import Mapping
 
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ProviderType
+from design_hub.domain.gpt_image_2 import (
+    GPT_IMAGE_2_MODEL_ID,
+    gpt_image_2_contract,
+)
 from design_hub.domain.model_config import CredentialValue
 from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
@@ -56,20 +60,18 @@ def build_image_provider(
     if record.provider_type is not ProviderType.OPENAI_COMPAT_IMAGE:
         raise ValueError("unsupported image provider")
 
+    if record.name != GPT_IMAGE_2_MODEL_ID:
+        raise ValueError("OpenAI-compatible image model has no API contract")
+    api_contract = gpt_image_2_contract(render_tier)
+
     if render_tier is RenderTier.FOUR_K:
         key_pool = ApiKeyPool((_required_secret(credentials, "four_k_api_key"),))
-        required_size = (3840, 2160)
-        required_quality = "high"
-        required_count = 1
         timeout = settings.gpt_image_4k_timeout
         retry_max_elapsed = settings.gpt_image_4k_timeout
     else:
         key_pool = ApiKeyPool(
             _required_secret_tuple(credentials, "standard_api_keys")
         )
-        required_size = None
-        required_quality = None
-        required_count = None
         timeout = settings.gpt_image_request_timeout
         retry_max_elapsed = settings.gpt_image_retry_max_elapsed
 
@@ -78,7 +80,7 @@ def build_image_provider(
         unit_cost=record.unit_cost,
         base_url=record.base_url,
         key_pool=key_pool,
-        model=record.model,
+        model=api_contract.upstream_model,
         recorder=recorder,
         input_fidelity=_optional_string(record.extra, "input_fidelity"),
         response_format=_optional_string(record.extra, "response_format"),
@@ -89,9 +91,6 @@ def build_image_provider(
         retry_backoff=settings.gpt_image_retry_backoff,
         retry_max_sleep=settings.gpt_image_retry_max_sleep,
         retry_max_elapsed=retry_max_elapsed,
-        required_size=required_size,
-        required_quality=required_quality,
-        required_count=required_count,
     )
 
 
