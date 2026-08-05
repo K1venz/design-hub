@@ -1,13 +1,35 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
+from design_hub.application.chat.image_options import (
+    ChatImageOptions,
+    ChatRenderTier,
+)
 from design_hub.domain.models import (
     ChatMessageRecord,
     ChatSessionSummary,
     ChatTranscript,
 )
+
+
+class ChatImageOptionsRequest(BaseModel):
+    render_tier: ChatRenderTier
+    ratio: Literal["auto", "1:1", "3:4", "4:3", "9:16", "16:9"]
+    count: int | None = Field(ge=1, le=7)
+
+    @model_validator(mode="after")
+    def validate_four_k(self) -> "ChatImageOptionsRequest":
+        self.to_application()
+        return self
+
+    def to_application(self) -> ChatImageOptions:
+        return ChatImageOptions(
+            render_tier=self.render_tier,
+            ratio=self.ratio,
+            count=self.count,
+        )
 
 
 class ChatMessageRequest(BaseModel):
@@ -23,6 +45,7 @@ class ChatMessageRequest(BaseModel):
         str,
         StringConstraints(strip_whitespace=True, min_length=1),
     ]
+    image_options: ChatImageOptionsRequest
     upload_ids: list[str] = Field(default_factory=list)  # 来自现有 POST /uploads（带图路径）
     edit_source_image_key: str | None = None
 

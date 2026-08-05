@@ -54,6 +54,8 @@ export interface GenerationConfirm {
   count: number
   modelId: string
   modelDisplayName: string
+  renderTier: 'standard' | '4k'
+  ratio: string
 }
 
 export interface ChatStep {
@@ -99,6 +101,8 @@ export function parseChatEvent(type: string, rawData: string): ChatEvent {
           count: Number(d.count ?? 0),
           modelId: String(d.image_model ?? ''),
           modelDisplayName: String(d.model_display_name ?? ''),
+          renderTier: String(d.render_tier ?? 'standard') as 'standard' | '4k',
+          ratio: String(d.ratio ?? ''),
         },
       }
     case 'assistant_end':

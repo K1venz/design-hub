@@ -10,6 +10,11 @@ describe('buildChatMessageBody', () => {
         message: '做一张主图',
         chatModel: 'deepseek-v4-flash',
         imageModel: 'wan2.7-image-pro',
+        imageOptions: {
+          render_tier: 'standard',
+          count: 3,
+          ratio: '3:4',
+        },
         uploadIds: ['u1'],
       }),
     ).toEqual({
@@ -17,6 +22,11 @@ describe('buildChatMessageBody', () => {
       message: '做一张主图',
       chat_model: 'deepseek-v4-flash',
       image_model: 'wan2.7-image-pro',
+      image_options: {
+        render_tier: 'standard',
+        count: 3,
+        ratio: '3:4',
+      },
       upload_ids: ['u1'],
     })
   })
@@ -28,6 +38,11 @@ describe('buildChatMessageBody', () => {
         message: '背景换成海边',
         chatModel: 'doubao-chat',
         imageModel: 'gpt-image-2',
+        imageOptions: {
+          render_tier: '4k',
+          count: 1,
+          ratio: '16:9',
+        },
         editSourceImageKey: 'result.png',
       }),
     ).toEqual({
@@ -35,6 +50,11 @@ describe('buildChatMessageBody', () => {
       message: '背景换成海边',
       chat_model: 'doubao-chat',
       image_model: 'gpt-image-2',
+      image_options: {
+        render_tier: '4k',
+        count: 1,
+        ratio: '16:9',
+      },
       upload_ids: [],
       edit_source_image_key: 'result.png',
     })

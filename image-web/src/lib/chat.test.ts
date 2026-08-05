@@ -108,7 +108,7 @@ describe('parseChatEvent', () => {
   it('maps generation_confirm with a stable model snapshot and no price data', () => {
     const e = parseChatEvent(
       'generation_confirm',
-      '{"confirm_token":"ct_1","tool":"generate","count":5,"image_model":"wan2.7-image-pro","model_display_name":"Wan 2.7"}',
+      '{"confirm_token":"ct_1","tool":"generate","count":5,"image_model":"wan2.7-image-pro","model_display_name":"Wan 2.7","render_tier":"standard","ratio":"3:4"}',
     )
     expect(e).toEqual({
       kind: 'generation_confirm',
@@ -118,6 +118,8 @@ describe('parseChatEvent', () => {
         count: 5,
         modelId: 'wan2.7-image-pro',
         modelDisplayName: 'Wan 2.7',
+        renderTier: 'standard',
+        ratio: '3:4',
       },
     })
     expect(parseChatEvent('cost_confirm', '{}')).toEqual({ kind: 'unknown' })
@@ -229,6 +231,8 @@ describe('applyChatEvent reducer', () => {
           count: 5,
           modelId: 'wan2.7-image-pro',
           modelDisplayName: 'Wan 2.7',
+          renderTier: 'standard',
+          ratio: '3:4',
         },
       },
       { kind: 'assistant_end', status: 'awaiting_confirm' },
@@ -252,6 +256,8 @@ describe('applyChatEvent reducer', () => {
         count: 3,
         modelId: 'gpt-image-2',
         modelDisplayName: 'GPT Image 2',
+        renderTier: 'standard',
+        ratio: '1:1',
       },
     }
     s = clearAwaiting(s)

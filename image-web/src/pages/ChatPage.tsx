@@ -4,15 +4,12 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   ArrowRightIcon,
-  ImagePlusIcon,
   Loader2Icon,
-  ScanSearchIcon,
-  SendIcon,
   SparklesIcon,
   WandSparklesIcon,
-  XIcon,
 } from 'lucide-react'
 
+import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
@@ -23,7 +20,6 @@ import {
   useImageModelSelection,
 } from '@/components/models/image-model-context'
 import { requireSelectedModel } from '@/components/models/model-selection'
-import { UnifiedChatModelSelector } from '@/components/models/UnifiedChatModelSelector'
 import { useModelSelection } from '@/components/models/use-model-selection'
 import { useChatModels } from '@/api/models'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
@@ -31,10 +27,16 @@ import { useListingJob, useUploadImage } from '@/api/listing'
 import {
   applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, consumeChatEditSource,
   initialChatState, pushUserMessage,
-  sessionMessagesToBubbles, shouldShowChatWelcome, shouldSubmitChatInput,
+  sessionMessagesToBubbles, shouldShowChatWelcome,
   type ChatBubble, type ChatEditSource, type ChatPreviewImage, type ChatState,
   type ChatActionCard, type GenerationConfirm,
 } from '@/lib/chat'
+import {
+  INITIAL_CHAT_IMAGE_OPTIONS,
+  resolveChatImageOptions,
+  type ChatImageOptionDraft,
+} from '@/lib/chat-image-options'
+import { decorateChatImageModelSelection } from '@/lib/chat-image-model-selection'
 import type { ImageToolSource } from '@/lib/image-tools'
 import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
 import { uploadIdPreviewUrl, uploadPreviewUrl } from '@/lib/upload'
@@ -62,6 +64,9 @@ export function ChatPage() {
   const chatModelSelection = useModelSelection('chat', chatModelsQuery)
   const [state, setState] = useState<ChatState>(initialChatState)
   const [draft, setDraft] = useState('')
+  const [imageOptions, setImageOptions] = useState<ChatImageOptionDraft>(
+    INITIAL_CHAT_IMAGE_OPTIONS,
+  )
   const [attached, setAttached] = useState<UploadedImage[]>([])
   const [selectedEditSource, setSelectedEditSource] = useState<ChatEditSource | null>(null)
   const [previewImage, setPreviewImage] = useState<ChatPreviewImage | null>(null)
@@ -74,7 +79,6 @@ export function ChatPage() {
   useEffect(() => {
     stateRef.current = state
   }, [state])
-  const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingSeedRef = useRef<string | null>(null)
   const pendingSendRef = useRef<{
@@ -82,6 +86,7 @@ export function ChatPage() {
     draft: string
     attached: UploadedImage[]
     selectedEditSource: ChatEditSource | null
+    imageOptions: ChatImageOptionDraft
   } | null>(null)
 
   const on = (event: Parameters<typeof applyChatEvent>[1]) => {
@@ -95,6 +100,7 @@ export function ChatPage() {
         setDraft(pending.draft)
         setAttached(pending.attached)
         setSelectedEditSource(pending.selectedEditSource)
+        setImageOptions(pending.imageOptions)
         pendingSendRef.current = null
       } else {
         setState((current) => applyChatEvent(current, event))
@@ -128,6 +134,7 @@ export function ChatPage() {
     if (id === stateRef.current.sessionId || loadSession.isPending) return
     abortRef.current?.abort()
     setSelectedEditSource(null)
+    setImageOptions(INITIAL_CHAT_IMAGE_OPTIONS)
     setPreviewImage(null)
     setReverseSource(null)
     loadSession.mutate(id)
@@ -196,6 +203,7 @@ export function ChatPage() {
       draft: text,
       attached,
       selectedEditSource,
+      imageOptions,
     }
     setState((prev) =>
       pushUserMessage(
@@ -218,6 +226,7 @@ export function ChatPage() {
         message: text,
         chatModel,
         imageModel,
+        imageOptions: resolveChatImageOptions(imageOptions),
         uploadIds,
         editSourceImageKey: consumed.editSourceImageKey,
       }, on, ac.signal)
@@ -309,13 +318,22 @@ export function ChatPage() {
         toast.error(err instanceof Error ? err.message : '图片上传失败')
       }
     }
-    if (fileRef.current) fileRef.current.value = ''
   }
 
   const busy = state.streaming || state.awaiting !== null
   const modelsReady =
     imageModelSelection.state === 'ready' &&
     chatModelSelection.state === 'ready'
+  const composerImageModelSelection = decorateChatImageModelSelection(
+    imageModelSelection,
+    () => {
+      setImageOptions((current) =>
+        current.renderTier === '4k'
+          ? { ...current, renderTier: 'standard' }
+          : current,
+      )
+    },
+  )
 
   return (
     <AppShell>
@@ -326,7 +344,7 @@ export function ChatPage() {
           onSelect={selectSession}
           onNew={newSession}
         />
-        <div className="mx-auto flex h-full max-w-3xl flex-1 flex-col">
+        <div className="mx-auto flex h-full min-w-0 max-w-3xl flex-1 flex-col">
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto px-2 py-4">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-wb-ink-2">
               <span className="grid size-7 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white">
@@ -390,121 +408,35 @@ export function ChatPage() {
             )}
           </div>
 
-          {/* 输入区 */}
-          <div className="glass-panel rounded-[20px] p-3">
-            {selectedEditSource && (
-              <div className="mb-2 flex items-center gap-2 rounded-xl border border-wb-brand-soft bg-wb-tint-3 p-2">
-                <img
-                  src={selectedEditSource.url}
-                  alt=""
-                  className="size-12 rounded-lg border border-wb-line-1 object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12.5px] font-semibold text-wb-brand-deep">
-                    正在基于此图编辑
-                  </p>
-                  <p className="truncate text-[11.5px] text-wb-ink-6">
-                    输入需要修改的内容，发送后确认生成
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedEditSource(null)}
-                  aria-label="取消继续编辑"
-                  className="grid size-7 place-items-center rounded-full text-wb-ink-5 hover:bg-white"
-                >
-                  <XIcon className="size-4" />
-                </button>
-              </div>
-            )}
-            {attached.length > 0 && (
-              <div className="mb-1.5 flex gap-2 px-1">
-                {attached.map((a, i) => (
-                  <span key={a.id} className="relative">
-                    <img src={uploadPreviewUrl(a.url, token)} alt="" className="size-12 rounded-lg border border-wb-line-1 object-cover" />
-                    <button
-                      onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
-                      className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-wb-ink-2 text-white"
-                    >
-                      <XIcon className="size-2.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <textarea
-              value={draft}
-              onChange={(e) => {
-                pendingSeedRef.current = null
-                setDraft(e.target.value)
-              }}
-              onKeyDown={(e) => {
-                if (!shouldSubmitChatInput({
-                  key: e.key,
-                  shiftKey: e.shiftKey,
-                  isComposing: e.nativeEvent.isComposing,
-                })) return
-                e.preventDefault()
-                void send(draft, attached.map((a) => a.id))
-              }}
-              disabled={busy}
-              placeholder={
-                state.awaiting
-                  ? '请先确认或取消上面的出图…'
-                  : selectedEditSource
-                    ? '描述你希望如何修改这张图片…'
-                    : '描述你的产品和想要的效果…'
-              }
-              className="h-[72px] w-full resize-none bg-transparent px-3 py-2 text-[14px] leading-relaxed text-wb-ink-2 outline-none placeholder:text-wb-faint-1 disabled:opacity-60"
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => fileRef.current?.click()}
-                  disabled={busy || attached.length >= 3}
-                  className="flex items-center gap-1.5 rounded-full border border-wb-line-1 bg-white/70 px-3 py-1.5 text-[12.5px] font-medium text-wb-ink-4 transition-colors hover:border-wb-brand-soft hover:text-wb-brand-deep disabled:opacity-50"
-                >
-                  {upload.isPending ? <Loader2Icon className="size-4 animate-spin" /> : <ImagePlusIcon className="size-4" />}
-                  添加图片
-                </button>
-                {attached.length === 1 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void send('反推这张图的提示词', [attached[0].id])
-                    }
-                    disabled={busy || !modelsReady}
-                    className="flex items-center gap-1.5 rounded-full border border-wb-brand-soft bg-wb-tint-3 px-3 py-1.5 text-[12.5px] font-medium text-wb-brand-deep disabled:opacity-50"
-                  >
-                    <ScanSearchIcon className="size-4" /> 反推提示词
-                  </button>
-                )}
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                hidden
-                onChange={(e) => void onPickFiles(e.target.files)}
-              />
-              <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-                <UnifiedChatModelSelector
-                  chatSelection={chatModelSelection}
-                  imageSelection={imageModelSelection}
-                  disabled={busy}
-                />
-                <button
-                  onClick={() => void send(draft, attached.map((a) => a.id))}
-                  disabled={busy || !modelsReady || !draft.trim()}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-wb-grad-from to-wb-grad-to text-[13px] font-semibold text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.6)] transition-opacity disabled:opacity-45"
-                  aria-label="发送"
-                >
-                  <SendIcon className="size-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
+          <ChatComposer
+            draft={draft}
+            onDraftChange={(value) => {
+              pendingSeedRef.current = null
+              setDraft(value)
+            }}
+            attached={attached}
+            selectedEditSource={selectedEditSource}
+            token={token}
+            busy={busy}
+            modelsReady={modelsReady}
+            uploadPending={upload.isPending}
+            imageOptions={imageOptions}
+            onImageOptionsChange={setImageOptions}
+            chatSelection={chatModelSelection}
+            imageSelection={composerImageModelSelection}
+            onPickFiles={(files) => void onPickFiles(files)}
+            onRemoveAttachment={(index) =>
+              setAttached((current) => current.filter((_, itemIndex) => itemIndex !== index))
+            }
+            onCancelEdit={() => setSelectedEditSource(null)}
+            onReversePrompt={() => void send('反推这张图的提示词', [attached[0].id])}
+            onClear={() => {
+              setDraft('')
+              setAttached([])
+              setSelectedEditSource(null)
+            }}
+            onSend={() => void send(draft, attached.map((image) => image.id))}
+          />
         </div>
       </main>
       <ChatImagePreviewDialog
@@ -620,6 +552,10 @@ function GenerationCard({
           {confirmation.count}
         </span>
         张图片
+      </p>
+      <p className="mt-1 text-[11px] text-wb-ink-6">
+        {confirmation.renderTier === '4k' ? '4K 超高清 · 3840×2160' : '标准档'}
+        {confirmation.ratio ? ` · ${confirmation.ratio}` : ''}
       </p>
       {active ? (
         <div className="mt-2.5 flex gap-2">

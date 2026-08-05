@@ -1,12 +1,25 @@
 import pytest
 
+from design_hub.application.chat.image_options import AUTO_CHAT_IMAGE_OPTIONS
 from design_hub.application.chat.ratio_intent import UnsupportedChatRatio
 from design_hub.application.chat.rendering_intent import (
     ChatRenderingConflict,
-    decide_chat_ratio_note,
-    decide_chat_rendering,
+)
+from design_hub.application.chat.rendering_intent import (
+    decide_chat_ratio_note as _decide_chat_ratio_note,
+)
+from design_hub.application.chat.rendering_intent import (
+    decide_chat_rendering as _decide_chat_rendering,
 )
 from design_hub.domain.tasking import RenderTier
+
+
+def decide_chat_rendering(message: str, auto_ratio: str):
+    return _decide_chat_rendering(message, auto_ratio, AUTO_CHAT_IMAGE_OPTIONS)
+
+
+def decide_chat_ratio_note(message: str, auto_ratio: str):
+    return _decide_chat_ratio_note(message, auto_ratio, AUTO_CHAT_IMAGE_OPTIONS)
 
 
 @pytest.mark.parametrize(
