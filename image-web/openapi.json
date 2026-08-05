@@ -4500,16 +4500,21 @@
             "enum": [
               "auto",
               "1:1",
+              "1:4",
+              "1:8",
               "3:2",
               "2:3",
               "3:4",
               "4:3",
+              "4:1",
               "9:16",
               "16:9",
               "4:5",
               "5:4",
+              "8:1",
               "1:2",
-              "2:1"
+              "2:1",
+              "21:9"
             ],
             "title": "Ratio"
           },
@@ -4641,6 +4646,7 @@
         "enum": [
           "auto",
           "standard",
+          "2k",
           "4k"
         ],
         "title": "ChatRenderTier"
@@ -4878,6 +4884,32 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "ImageModelCapabilitiesOut": {
+        "properties": {
+          "render_tiers": {
+            "items": {
+              "$ref": "#/components/schemas/ImageRenderTierOut"
+            },
+            "type": "array",
+            "title": "Render Tiers"
+          },
+          "max_count": {
+            "type": "integer",
+            "title": "Max Count"
+          },
+          "supports_references": {
+            "type": "boolean",
+            "title": "Supports References"
+          }
+        },
+        "type": "object",
+        "required": [
+          "render_tiers",
+          "max_count",
+          "supports_references"
+        ],
+        "title": "ImageModelCapabilitiesOut"
+      },
       "ImageModerationUpdate": {
         "properties": {
           "status": {
@@ -4911,6 +4943,31 @@
           "status"
         ],
         "title": "ImageModerationUpdate"
+      },
+      "ImageRenderTierOut": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/RenderTier"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "ratios": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ratios"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "ratios"
+        ],
+        "title": "ImageRenderTierOut"
       },
       "ListingGenerateRequest": {
         "properties": {
@@ -5972,6 +6029,16 @@
           "is_default": {
             "type": "boolean",
             "title": "Is Default"
+          },
+          "image_capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageModelCapabilitiesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -6489,6 +6556,7 @@
         "type": "string",
         "enum": [
           "openai_compat_image",
+          "gemini_native_image",
           "dashscope_wan_image",
           "openai_compat_chat"
         ],
@@ -6599,6 +6667,15 @@
           "name"
         ],
         "title": "RegisterRequest"
+      },
+      "RenderTier": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "2k",
+          "4k"
+        ],
+        "title": "RenderTier"
       },
       "ReversePromptRequest": {
         "properties": {

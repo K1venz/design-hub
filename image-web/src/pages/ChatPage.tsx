@@ -327,9 +327,9 @@ export function ChatPage() {
     chatModelSelection.state === 'ready'
   const composerImageModelSelection = decorateChatImageModelSelection(
     imageModelSelection,
-    (modelId) => {
+    (model) => {
       setImageOptions((current) =>
-        normalizeChatImageOptionsForModel(current, modelId),
+        normalizeChatImageOptionsForModel(current, model),
       )
     },
   )

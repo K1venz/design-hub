@@ -1104,7 +1104,7 @@ export interface components {
              * Ratio
              * @enum {string}
              */
-            ratio: "auto" | "1:1" | "3:2" | "2:3" | "3:4" | "4:3" | "9:16" | "16:9" | "4:5" | "5:4" | "1:2" | "2:1";
+            ratio: "auto" | "1:1" | "1:4" | "1:8" | "3:2" | "2:3" | "3:4" | "4:3" | "4:1" | "9:16" | "16:9" | "4:5" | "5:4" | "8:1" | "1:2" | "2:1" | "21:9";
             /** Count */
             count: number | null;
         };
@@ -1147,7 +1147,7 @@ export interface components {
          * ChatRenderTier
          * @enum {string}
          */
-        ChatRenderTier: "auto" | "standard" | "4k";
+        ChatRenderTier: "auto" | "standard" | "2k" | "4k";
         /**
          * ChatSessionSummaryOut
          * @description GET /chat/sessions 列表项（侧栏，updated_at 倒序）。
@@ -1261,12 +1261,29 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** ImageModelCapabilitiesOut */
+        ImageModelCapabilitiesOut: {
+            /** Render Tiers */
+            render_tiers: components["schemas"]["ImageRenderTierOut"][];
+            /** Max Count */
+            max_count: number;
+            /** Supports References */
+            supports_references: boolean;
+        };
         /** ImageModerationUpdate */
         ImageModerationUpdate: {
             status: components["schemas"]["ModerationStatus"];
             reason?: components["schemas"]["ModerationReason"] | null;
             /** Note */
             note?: string | null;
+        };
+        /** ImageRenderTierOut */
+        ImageRenderTierOut: {
+            id: components["schemas"]["RenderTier"];
+            /** Label */
+            label: string;
+            /** Ratios */
+            ratios: string[];
         };
         /**
          * ListingGenerateRequest
@@ -1580,6 +1597,7 @@ export interface components {
             display_name: string;
             /** Is Default */
             is_default: boolean;
+            image_capabilities?: components["schemas"]["ImageModelCapabilitiesOut"] | null;
         };
         /** ModelConfigCreate */
         ModelConfigCreate: {
@@ -1747,7 +1765,7 @@ export interface components {
          * ProviderType
          * @enum {string}
          */
-        ProviderType: "openai_compat_image" | "dashscope_wan_image" | "openai_compat_chat";
+        ProviderType: "openai_compat_image" | "gemini_native_image" | "dashscope_wan_image" | "openai_compat_chat";
         /**
          * PubKeyResponse
          * @description GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。
@@ -1805,6 +1823,11 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * RenderTier
+         * @enum {string}
+         */
+        RenderTier: "standard" | "2k" | "4k";
         /** ReversePromptRequest */
         ReversePromptRequest: {
             /** Source */
