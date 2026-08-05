@@ -168,7 +168,18 @@ class GeminiNativeImageProvider(AbstractModelProvider):
                 raise ProviderError(
                     f"{self.name} returned invalid image response"
                 ) from exc
-            stored = await self._image_store.save(image_data, suffix=suffix)
+            try:
+                stored = await self._image_store.save(image_data, suffix=suffix)
+            except asyncio.CancelledError:
+                await self._recorder.interrupt(call_id)
+                raise
+            except Exception:
+                await self._recorder.fail(
+                    call_id,
+                    code="storage_failed",
+                    detail=f"{self.name} image storage failed",
+                )
+                raise
             await self._recorder.succeed(
                 call_id,
                 usage=self._usage(body),

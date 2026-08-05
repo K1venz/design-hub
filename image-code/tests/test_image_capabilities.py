@@ -100,6 +100,29 @@ def test_gpt_image_two_rejects_two_k() -> None:
         contract.output_for(RenderTier.TWO_K, "1:1")
 
 
+def test_wan_preserves_the_existing_standard_output_contract() -> None:
+    contract = image_model_capabilities("wan2.7-image-pro")
+
+    assert contract.supported_tiers == (RenderTier.STANDARD,)
+    assert contract.ratios(RenderTier.STANDARD) == (
+        "1:1",
+        "3:2",
+        "2:3",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "4:5",
+        "5:4",
+        "1:2",
+        "2:1",
+    )
+    assert contract.output_for(RenderTier.STANDARD, "4:5").size == (1024, 1280)
+    assert contract.platform_max_count == 7
+    assert contract.provider_max_count == 1
+    assert contract.supports_references is True
+
+
 def test_unknown_image_model_has_no_implicit_fallback() -> None:
     with pytest.raises(ValueError, match="unsupported image model"):
         image_model_capabilities("missing-image-model")
