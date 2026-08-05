@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     # Provider credentials, endpoints, upstream model names, and protocol options are
     # database-only. Environment settings contain operational network budgets only.
     gpt_image_request_timeout: float = Field(default=300.0, gt=0)
+    nano_banana_request_timeout: float = Field(default=300.0, gt=0)
+    nano_banana_max_retries: int = Field(default=1, ge=0, le=10)
     text_llm_request_timeout: float = Field(default=120.0, gt=0)
     # 对话会话级出图闸（#884②）：单会话最多出图单数，保守默认 5，可配。
     chat_session_max_jobs: int = 5

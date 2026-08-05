@@ -245,7 +245,7 @@ def _validate_ciphertext_credentials(
         raise ValueError("invalid provider credential fields")
     validated: CiphertextCredentials = {}
     for field, value in credentials.items():
-        if field == "standard_api_keys":
+        if field in {"standard_api_keys", "api_keys"}:
             if (
                 not isinstance(value, list)
                 or not value

@@ -8,6 +8,7 @@ class ModelType(StrEnum):
 
 class ProviderType(StrEnum):
     OPENAI_COMPAT_IMAGE = "openai_compat_image"
+    GEMINI_NATIVE_IMAGE = "gemini_native_image"
     DASHSCOPE_WAN_IMAGE = "dashscope_wan_image"
     OPENAI_COMPAT_CHAT = "openai_compat_chat"
 

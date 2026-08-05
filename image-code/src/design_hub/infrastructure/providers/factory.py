@@ -7,10 +7,17 @@ from design_hub.domain.gpt_image_2 import (
     gpt_image_2_contract,
 )
 from design_hub.domain.model_config import CredentialValue
+from design_hub.domain.nano_banana import (
+    NANO_BANANA_2_MODEL_ID,
+    NANO_BANANA_UPSTREAM_MODEL,
+)
 from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.dashscope_wan import (
     DashScopeWanImageProvider,
+)
+from design_hub.infrastructure.providers.gemini_native import (
+    GeminiNativeImageProvider,
 )
 from design_hub.infrastructure.providers.openai_compat import (
     OpenAICompatImageProvider,
@@ -34,6 +41,24 @@ def build_image_provider(
     image_store: ImageStore,
     settings: Settings,
 ) -> AbstractModelProvider:
+    if record.provider_type is ProviderType.GEMINI_NATIVE_IMAGE:
+        if (
+            record.name != NANO_BANANA_2_MODEL_ID
+            or record.model != NANO_BANANA_UPSTREAM_MODEL
+        ):
+            raise ValueError("Gemini image model has no API contract")
+        return GeminiNativeImageProvider(
+            name=record.name,
+            unit_cost=record.unit_cost,
+            base_url=record.base_url,
+            key_pool=ApiKeyPool(_required_secret_tuple(credentials, "api_keys")),
+            model=record.model,
+            image_store=image_store,
+            recorder=recorder,
+            timeout=settings.nano_banana_request_timeout,
+            trust_env=False,
+            max_retries=settings.nano_banana_max_retries,
+        )
     if record.provider_type is ProviderType.DASHSCOPE_WAN_IMAGE:
         if render_tier is RenderTier.FOUR_K:
             raise ValueError("Wan does not support the 4K render tier")
