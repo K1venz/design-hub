@@ -51,8 +51,10 @@ class ImageModelCapabilities:
         try:
             size = sizes[ratio]
         except KeyError:
+            options = " / ".join(sizes)
             raise ValueError(
-                f"{self.model_id} does not support ratio {ratio} at {render_tier.value}"
+                f"{self.model_id} {render_tier.value} 不支持 {ratio}，"
+                f"可选比例：{options}"
             ) from None
         return ImageOutputSpec(ratio=ratio, render_tier=render_tier, size=size)
 
@@ -91,3 +93,12 @@ def image_model_capabilities(model_id: str) -> ImageModelCapabilities:
         return _CAPABILITIES[model_id]
     except KeyError:
         raise ValueError(f"unsupported image model: {model_id}") from None
+
+
+def supported_image_ratios() -> tuple[str, ...]:
+    ordered: dict[str, None] = {}
+    for capabilities in _CAPABILITIES.values():
+        for tier in capabilities.supported_tiers:
+            for ratio in capabilities.ratios(tier):
+                ordered.setdefault(ratio, None)
+    return tuple(ordered)

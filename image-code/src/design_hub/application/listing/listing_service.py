@@ -152,7 +152,7 @@ class ListingGenerationService:
             self.type_registry,
             category=category, n=n, plan=plan, overlay_texts=overlay_texts,
         )
-        size = generation_size(render_tier, ratio)
+        size = generation_size(model, render_tier, ratio)
         provider = self.registry.get(model)
         estimate = provider.unit_cost * len(tasks)
         await self.guard.precheck_and_reserve(user_id, estimate)
@@ -247,7 +247,7 @@ class ListingGenerationService:
             category=category, card_registry=self.card_registry,
             clone_registry=self.clone_registry, clone_mode=clone_mode,
         )
-        size = generation_size(render_tier, ratio)
+        size = generation_size(model, render_tier, ratio)
         provider = self.registry.get(model)
         estimate = provider.unit_cost  # 一次出 1 张
         await self.guard.precheck_and_reserve(user_id, estimate)
@@ -312,7 +312,7 @@ class ListingGenerationService:
             prompt, modifiers, self.modifier_registry,
             edit_registry=self.edit_registry, edit_mode=edit_mode,
         )
-        size = generation_size(render_tier, ratio)
+        size = generation_size(model, render_tier, ratio)
         provider = self.registry.get(model)
         estimate = provider.unit_cost  # 一次出 1 张（Q-ε）
         await self.guard.precheck_and_reserve(user_id, estimate)

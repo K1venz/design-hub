@@ -99,7 +99,7 @@ def test_build_listing_prompts_fail_fast(kw: dict) -> None:
 def test_ratio_to_size_message_is_user_facing() -> None:
     # 无效比例报错=用户话术：含无效值+可选项、不吐内部字段名 "ratio"（P3-#5）。
     with pytest.raises(ValueError) as ei:
-        ratio_to_size("5:5")
+        ratio_to_size("gpt-image-2", "5:5")
     msg = str(ei.value)
     assert "5:5" in msg and "1:1" in msg
     assert "ratio" not in msg
@@ -124,20 +124,24 @@ def test_ratio_to_size_message_is_user_facing() -> None:
 def test_ratio_to_size_preserves_requested_aspect_ratio(
     ratio: str, expected: tuple[int, int]
 ) -> None:
-    assert ratio_to_size(ratio) == expected
+    assert ratio_to_size("gpt-image-2", ratio) == expected
 
 
 def test_generation_size_uses_standard_dimensions_for_any_standard_provider() -> None:
-    assert sizing.generation_size(RenderTier.STANDARD, "4:3") == (1536, 1152)
+    assert sizing.generation_size(
+        "gpt-image-2", RenderTier.STANDARD, "4:3"
+    ) == (1536, 1152)
 
 
 def test_generation_size_uses_native_4k_dimensions_from_render_tier() -> None:
-    assert sizing.generation_size(RenderTier.FOUR_K, "16:9") == (3840, 2160)
+    assert sizing.generation_size(
+        "gpt-image-2", RenderTier.FOUR_K, "16:9"
+    ) == (3840, 2160)
 
 
 def test_generation_size_rejects_non_widescreen_ratio_for_4k_render_tier() -> None:
     with pytest.raises(ValueError, match="16:9"):
-        sizing.generation_size(RenderTier.FOUR_K, "4:3")
+        sizing.generation_size("gpt-image-2", RenderTier.FOUR_K, "4:3")
 
 
 def test_single_mode_no_image_type_block() -> None:

@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 from enum import StrEnum
+from math import log
 
 from design_hub.application.chat.ratio_intent import (
-    SUPPORTED_CHAT_RATIOS,
     ChatRatioDecision,
     ChatRatioSource,
 )
-from design_hub.domain.gpt_image_2 import (
-    GPT_IMAGE_2_MODEL_ID,
-    gpt_image_2_contract,
+from design_hub.domain.image_capabilities import (
+    image_model_capabilities,
+    supported_image_ratios,
 )
 from design_hub.domain.tasking import RenderTier
 
@@ -16,6 +16,7 @@ from design_hub.domain.tasking import RenderTier
 class ChatRenderTier(StrEnum):
     AUTO = "auto"
     STANDARD = "standard"
+    TWO_K = "2k"
     FOUR_K = "4k"
 
 
@@ -26,13 +27,10 @@ class ChatImageOptions:
     count: int | None
 
     def __post_init__(self) -> None:
-        if self.ratio != "auto" and self.ratio not in SUPPORTED_CHAT_RATIOS:
+        if self.ratio != "auto" and self.ratio not in supported_image_ratios():
             raise ValueError(f"不支持的图片比例：{self.ratio}")
         if self.count is not None and not 1 <= self.count <= 7:
-            raise ValueError("标准档单次只能生成 1–7 张图片。")
-        if self.render_tier is ChatRenderTier.FOUR_K:
-            if self.ratio != "16:9":
-                raise ValueError("4K 当前仅支持 16:9 横版（3840×2160）。")
+            raise ValueError("单次只能生成 1–7 张图片。")
 
     def validate_for(
         self,
@@ -42,17 +40,18 @@ class ChatImageOptions:
         resolved_ratio: str,
         resolved_count: int,
     ) -> None:
-        if model_id != GPT_IMAGE_2_MODEL_ID:
-            return
-        contract = gpt_image_2_contract(render_tier)
-        if resolved_ratio not in contract.ratios:
-            options = " / ".join(contract.ratios)
+        capabilities = image_model_capabilities(model_id)
+        ratios = capabilities.ratios(render_tier)
+        if resolved_ratio not in ratios:
+            options = " / ".join(ratios)
             raise ValueError(
-                f"GPT Image 2 {render_tier.value} 当前支持的比例是 {options}。"
+                f"{model_id} {render_tier.value} 不支持 {resolved_ratio}，"
+                f"可选比例是 {options}。"
             )
-        if not 1 <= resolved_count <= contract.platform_max_count:
+        if not 1 <= resolved_count <= capabilities.platform_max_count:
             raise ValueError(
-                f"GPT Image 2 单次只能生成 1–{contract.platform_max_count} 张图片。"
+                f"{model_id} 单次只能生成 "
+                f"1–{capabilities.platform_max_count} 张图片。"
             )
 
     def resolve_ratio_for(
@@ -62,24 +61,30 @@ class ChatImageOptions:
         render_tier: RenderTier,
         decision: ChatRatioDecision,
     ) -> ChatRatioDecision:
-        if model_id != GPT_IMAGE_2_MODEL_ID or decision.ratio is None:
+        if decision.ratio is None:
             return decision
-        contract = gpt_image_2_contract(render_tier)
-        if decision.ratio in contract.ratios:
+        ratios = image_model_capabilities(model_id).ratios(render_tier)
+        if decision.ratio in ratios:
             return decision
-        if (
-            render_tier is RenderTier.STANDARD
-            and self.ratio == "auto"
-            and decision.source in {ChatRatioSource.AUTO, ChatRatioSource.ORIENTATION}
-        ):
-            width, height = (int(part) for part in decision.ratio.split(":"))
-            mapped_ratio = "3:2" if width > height else "1:1"
+        if self.ratio == "auto" and decision.source in {
+            ChatRatioSource.AUTO,
+            ChatRatioSource.ORIENTATION,
+        }:
+            closest = _closest_ratio(decision.ratio, ratios)
             return ChatRatioDecision(
-                mapped_ratio,
-                decision.source,
+                closest,
+                (
+                    ChatRatioSource.EXPLICIT
+                    if closest != decision.ratio
+                    else decision.source
+                ),
                 decision.requested,
             )
-        return decision
+        options = " / ".join(ratios)
+        raise ValueError(
+            f"{model_id} {render_tier.value} 不支持 {decision.ratio}，"
+            f"可选比例是 {options}。"
+        )
 
     @property
     def fixed_render_tier(self) -> RenderTier | None:
@@ -87,7 +92,22 @@ class ChatImageOptions:
             return None
         if self.render_tier is ChatRenderTier.STANDARD:
             return RenderTier.STANDARD
+        if self.render_tier is ChatRenderTier.TWO_K:
+            return RenderTier.TWO_K
         return RenderTier.FOUR_K
+
+
+def _closest_ratio(ratio: str, candidates: tuple[str, ...]) -> str:
+    width, height = (int(part) for part in ratio.split(":"))
+    target = width / height
+
+    def distance(candidate: str) -> float:
+        candidate_width, candidate_height = (
+            int(part) for part in candidate.split(":")
+        )
+        return abs(log(target / (candidate_width / candidate_height)))
+
+    return min(candidates, key=distance)
 
 
 AUTO_CHAT_IMAGE_OPTIONS = ChatImageOptions(

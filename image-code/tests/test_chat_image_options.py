@@ -55,16 +55,26 @@ def test_four_k_options_are_fixed_to_landscape_and_allow_platform_batch_count() 
     assert decision.ratio.ratio == "16:9"
 
 
-@pytest.mark.parametrize(
-    ("ratio", "count"),
-    [("3:4", 1), ("16:9", 8)],
-)
-def test_invalid_four_k_options_fail_fast(ratio: str, count: int) -> None:
+def test_invalid_count_fails_fast() -> None:
     with pytest.raises(ValueError):
         ChatImageOptions(
             render_tier=ChatRenderTier.FOUR_K,
-            ratio=ratio,
-            count=count,
+            ratio="16:9",
+            count=8,
+        )
+
+
+def test_gpt_four_k_rejects_ratio_outside_its_model_contract() -> None:
+    with pytest.raises(ValueError, match="16:9"):
+        ChatImageOptions(
+            render_tier=ChatRenderTier.FOUR_K,
+            ratio="3:4",
+            count=1,
+        ).validate_for(
+            model_id="gpt-image-2",
+            render_tier=RenderTier.FOUR_K,
+            resolved_ratio="3:4",
+            resolved_count=1,
         )
 
 
@@ -110,6 +120,37 @@ def test_gpt_image_2_four_k_accepts_seven_results_at_fixed_ratio() -> None:
         resolved_ratio="16:9",
         resolved_count=7,
     )
+
+
+def test_nano_banana_accepts_two_k_four_by_five() -> None:
+    options = ChatImageOptions(
+        render_tier=ChatRenderTier.TWO_K,
+        ratio="4:5",
+        count=1,
+    )
+
+    options.validate_for(
+        model_id="nano-banana-2",
+        render_tier=RenderTier.TWO_K,
+        resolved_ratio="4:5",
+        resolved_count=1,
+    )
+
+
+def test_gpt_image_2_rejects_two_k() -> None:
+    options = ChatImageOptions(
+        render_tier=ChatRenderTier.TWO_K,
+        ratio="4:5",
+        count=1,
+    )
+
+    with pytest.raises(ValueError, match="2k"):
+        options.validate_for(
+            model_id="gpt-image-2",
+            render_tier=RenderTier.TWO_K,
+            resolved_ratio="4:5",
+            resolved_count=1,
+        )
 
 
 class _StubRenderingResolver:

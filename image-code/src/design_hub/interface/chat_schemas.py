@@ -19,16 +19,21 @@ class ChatImageOptionsRequest(BaseModel):
     ratio: Literal[
         "auto",
         "1:1",
+        "1:4",
+        "1:8",
         "3:2",
         "2:3",
         "3:4",
         "4:3",
+        "4:1",
         "9:16",
         "16:9",
         "4:5",
         "5:4",
+        "8:1",
         "1:2",
         "2:1",
+        "21:9",
     ]
     count: int | None = Field(ge=1, le=7)
 
