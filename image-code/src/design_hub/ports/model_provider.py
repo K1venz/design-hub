@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from typing import Literal
 
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.model_calls import ModelCallContext
 
@@ -35,7 +36,7 @@ class AbstractModelProvider(ABC):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,

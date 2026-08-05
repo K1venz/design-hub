@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from design_hub.application.tasking.worker import GenerationWorker
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ListingJobStart, ReferenceImage
 from design_hub.domain.tasking import (
     GenerationItemSpec,
@@ -307,6 +308,11 @@ def test_immediate_result_commits_terminal_before_ack(caplog) -> None:
             operation=ModelOperation.IMAGE_EDIT,
             job_id="job-1",
             generation_item_id="item-1",
+        )
+        assert executor.last_request.output == ImageOutputSpec(
+            ratio="1:1",
+            render_tier=RenderTier.STANDARD,
+            size=(1024, 1024),
         )
 
     asyncio.run(run())

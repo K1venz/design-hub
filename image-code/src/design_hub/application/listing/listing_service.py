@@ -18,6 +18,7 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.listing.sizing import generation_size
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
 from design_hub.domain.tasking import RenderTier
 from design_hub.ports.model_calls import ModelCallContext
@@ -175,7 +176,11 @@ class ListingGenerationService:
                     prompt=final_prompt,
                     negative_prompt="",
                     reference_images=ref,
-                    size=size,
+                    output=ImageOutputSpec(
+                        ratio=ratio,
+                        render_tier=render_tier,
+                        size=size,
+                    ),
                     n=1,
                     seed=seed,
                     quality=quality,
@@ -255,7 +260,11 @@ class ListingGenerationService:
                 prompt=final_prompt,
                 negative_prompt="",
                 reference_images=[product_image, *reference_images],  # 序=角色契约
-                size=size,
+                output=ImageOutputSpec(
+                    ratio=ratio,
+                    render_tier=render_tier,
+                    size=size,
+                ),
                 n=1,
                 seed=0,
             )
@@ -316,7 +325,11 @@ class ListingGenerationService:
                 prompt=final_prompt,
                 negative_prompt="",
                 reference_images=[source_image, *anchor_images],  # 序=角色契约（源图第 1）
-                size=size,
+                output=ImageOutputSpec(
+                    ratio=ratio,
+                    render_tier=render_tier,
+                    size=size,
+                ),
                 n=1,
                 seed=0,
             )

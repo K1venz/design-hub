@@ -10,6 +10,7 @@ import httpx
 from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
 from design_hub.domain.errors import DomainError
 from design_hub.domain.gpt_image_2 import gpt_image_2_contract_for_upstream_model
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
     raise_for_status,
@@ -95,20 +96,20 @@ class OpenAICompatImageProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
     ) -> list[GeneratedImage]:
         self._validate_request(
-            size=size,
+            size=output.size,
             n=n,
             has_references=bool(reference_images),
         )
         composed = compose_image_api_prompt(prompt, negative_prompt)
         # 模态解引用（ISSUE-0065）：同步走字节；worker 按 reference_mode 已物化 data，缺=装配错。
         ref_bytes = [self._require_bytes(r) for r in reference_images]
-        size_str = f"{size[0]}x{size[1]}"
+        size_str = f"{output.size[0]}x{output.size[1]}"
         if self._api_contract is not None:
             quality = self._api_contract.required_quality or quality
         start_key_index = self._key_pool.reserve()

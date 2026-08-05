@@ -10,7 +10,9 @@ import pytest
 from model_call_fakes import RecordingModelCallRecorder
 
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.apinebula_async import AsyncImageTasksProvider
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
@@ -131,7 +133,11 @@ async def _gen(
         prompt="生成红色水杯",
         negative_prompt=negative_prompt,
         reference_images=refs,
-        size=(1536, 1024),
+        output=ImageOutputSpec(
+            ratio="3:2",
+            render_tier=RenderTier.STANDARD,
+            size=(1536, 1024),
+        ),
         n=1,
     )
 
@@ -155,7 +161,11 @@ def test_submit_task_returns_id_before_poll_and_resume_never_resubmits() -> None
         ),
         prompt="生成红色水杯",
         reference_images=(ReferenceImage(url="https://sig/u1.png"),),
-        size=(1536, 1024),
+        output=ImageOutputSpec(
+            ratio="3:2",
+            render_tier=RenderTier.STANDARD,
+            size=(1536, 1024),
+        ),
         seed=0,
         quality=None,
     )
@@ -280,7 +290,11 @@ def test_shared_pool_assigns_first_requests_to_different_providers() -> None:
             prompt="normal request",
             negative_prompt="",
             reference_images=[],
-            size=(1024, 1024),
+            output=ImageOutputSpec(
+                ratio="1:1",
+                render_tier=RenderTier.STANDARD,
+                size=(1024, 1024),
+            ),
             n=1,
         )
         await _gen(tasks, [])

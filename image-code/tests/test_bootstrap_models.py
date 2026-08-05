@@ -23,6 +23,7 @@ from design_hub.cli.bootstrap_models import (
     load_bootstrap_plan,
 )
 from design_hub.domain.enums import ModelType, ProviderType
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.model_config import DOUBAO_CHAT, GPT_IMAGE_2, WAN_2_7_IMAGE_PRO
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.db.base import Base
@@ -102,7 +103,7 @@ class _ImageProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,

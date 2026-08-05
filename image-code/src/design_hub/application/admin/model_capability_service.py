@@ -21,7 +21,9 @@ from design_hub.application.admin.model_config_service import (
 from design_hub.config.settings import Settings
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelType, ProviderType
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.factory import (
     build_image_provider,
     build_text_provider,
@@ -356,7 +358,11 @@ class ModelCapabilityService:
                 prompt=_PROBE_PROMPT,
                 negative_prompt="",
                 reference_images=references,
-                size=(1024, 1024),
+                output=ImageOutputSpec(
+                    ratio="1:1",
+                    render_tier=RenderTier.STANDARD,
+                    size=(1024, 1024),
+                ),
                 n=1,
                 seed=0,
             )
