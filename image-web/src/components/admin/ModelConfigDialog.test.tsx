@@ -49,6 +49,7 @@ describe('typed model provider form', () => {
   it('defines only the GPT, Wan, and Doubao initial model identities', () => {
     expect(BUILT_IN_MODEL_IDS).toEqual([
       'gpt-image-2',
+      'nano-banana-2',
       'wan2.7-image-pro',
       'doubao-chat',
     ])
@@ -57,6 +58,7 @@ describe('typed model provider form', () => {
   it('filters providers by model type and exposes exact allowlisted fields', () => {
     expect(providersForModelType('image')).toEqual([
       'openai_compat_image',
+      'gemini_native_image',
       'dashscope_wan_image',
     ])
     expect(providersForModelType('chat')).toEqual([
@@ -69,6 +71,10 @@ describe('typed model provider form', () => {
     expect(PROVIDER_FORM_DEFINITIONS.dashscope_wan_image).toMatchObject({
       credentialFields: ['apiKey'],
       extraFields: ['watermark'],
+    })
+    expect(PROVIDER_FORM_DEFINITIONS.gemini_native_image).toMatchObject({
+      credentialFields: ['apiKeys'],
+      extraFields: [],
     })
     expect(PROVIDER_FORM_DEFINITIONS.openai_compat_chat).toMatchObject({
       credentialFields: ['apiKey'],
@@ -94,6 +100,22 @@ describe('typed model provider form', () => {
     ])
     expect(encrypt).not.toHaveBeenCalledWith('key-a\nkey-b')
     expect(fields.standardApiKeys).toBe('key-a\nkey-b')
+  })
+
+  it('encrypts every Gemini key line independently', async () => {
+    const encrypt = vi.fn(async (secret: string) => `cipher:${secret}`)
+    const fields = withFields({
+      providerType: 'gemini_native_image',
+      apiKeys: 'nano-a\n\nnano-b',
+    })
+
+    await expect(encryptModelCredentials(fields, encrypt)).resolves.toEqual({
+      api_keys: ['cipher:nano-a', 'cipher:nano-b'],
+    })
+    expect(encrypt.mock.calls.map(([secret]) => secret)).toEqual([
+      'nano-a',
+      'nano-b',
+    ])
   })
 
   it('keeps replacement secrets blank in edit mode and shows configured state', () => {

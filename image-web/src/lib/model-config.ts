@@ -7,6 +7,7 @@ export type ProviderType = components['schemas']['ProviderType']
 
 export const BUILT_IN_MODEL_IDS = [
   'gpt-image-2',
+  'nano-banana-2',
   'wan2.7-image-pro',
   'doubao-chat',
 ] as const
@@ -16,6 +17,7 @@ export interface ProviderFormDefinition {
   modelType: ModelType
   credentialFields: readonly (
     | 'standardApiKeys'
+    | 'apiKeys'
     | 'fourKApiKey'
     | 'apiKey'
   )[]
@@ -36,6 +38,12 @@ export const PROVIDER_FORM_DEFINITIONS: Record<
     modelType: 'image',
     credentialFields: ['standardApiKeys', 'fourKApiKey'],
     extraFields: ['inputFidelity', 'responseFormat'],
+  },
+  gemini_native_image: {
+    label: 'Google Gemini 原生图片',
+    modelType: 'image',
+    credentialFields: ['apiKeys'],
+    extraFields: [],
   },
   dashscope_wan_image: {
     label: '阿里云百炼 Wan',
@@ -67,6 +75,7 @@ export interface ModelFormFields {
   unitCost: string
   enabled: boolean
   standardApiKeys: string
+  apiKeys: string
   fourKApiKey: string
   apiKey: string
   inputFidelity: string
@@ -76,26 +85,20 @@ export interface ModelFormFields {
 }
 
 export function providerDefaults(providerType: ProviderType) {
-  return providerType === 'openai_compat_image'
-    ? {
-        inputFidelity: 'high',
-        responseFormat: 'b64_json',
-        watermark: false,
-        thinkingDisabled: false,
-      }
-    : providerType === 'dashscope_wan_image'
-      ? {
-          inputFidelity: '',
-          responseFormat: '',
-          watermark: false,
-          thinkingDisabled: false,
-        }
-      : {
-          inputFidelity: '',
-          responseFormat: '',
-          watermark: false,
-          thinkingDisabled: true,
-        }
+  if (providerType === 'openai_compat_image') {
+    return {
+      inputFidelity: 'high',
+      responseFormat: 'b64_json',
+      watermark: false,
+      thinkingDisabled: false,
+    }
+  }
+  return {
+    inputFidelity: '',
+    responseFormat: '',
+    watermark: false,
+    thinkingDisabled: providerType === 'openai_compat_chat',
+  }
 }
 
 export function modelFormFields(model?: ModelConfig): ModelFormFields {
@@ -111,6 +114,7 @@ export function modelFormFields(model?: ModelConfig): ModelFormFields {
     unitCost: model?.unit_cost ?? '0',
     enabled: model?.enabled ?? false,
     standardApiKeys: '',
+    apiKeys: '',
     fourKApiKey: '',
     apiKey: '',
     inputFidelity: String(
@@ -167,6 +171,13 @@ export function plaintextCredentials(
       ...(fourKApiKey ? { four_k_api_key: fourKApiKey } : {}),
     }
   }
+  if (fields.providerType === 'gemini_native_image') {
+    const apiKeys = fields.apiKeys
+      .split('\n')
+      .map((key) => key.trim())
+      .filter(Boolean)
+    return apiKeys.length > 0 ? { api_keys: apiKeys } : undefined
+  }
   const apiKey = fields.apiKey.trim()
   return apiKey ? { api_key: apiKey } : undefined
 }
@@ -195,6 +206,8 @@ export function modelExtra(fields: ModelFormFields): Record<string, unknown> {
       }
     case 'dashscope_wan_image':
       return { watermark: fields.watermark }
+    case 'gemini_native_image':
+      return {}
     case 'openai_compat_chat':
       return { thinking_disabled: fields.thinkingDisabled }
   }

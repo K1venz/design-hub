@@ -7,6 +7,10 @@ interface Brand {
 
 const KNOWN_BRANDS: Array<{ match: RegExp; brand: Brand }> = [
   {
+    match: /nano[- ]?banana|gemini/i,
+    brand: { name: 'Google Gemini', logoPath: '/model-brands/gemini.svg' },
+  },
+  {
     match: /deepseek/i,
     brand: { name: 'DeepSeek', logoPath: '/model-brands/deepseek.svg' },
   },
