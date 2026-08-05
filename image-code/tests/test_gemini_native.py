@@ -35,6 +35,16 @@ class _Store(ImageStore):
         raise AssertionError("Gemini result storage must not load images")
 
 
+class _FailingStore(_Store):
+    def __init__(self, error: BaseException) -> None:
+        super().__init__()
+        self.error = error
+
+    async def save(self, data: bytes, *, suffix: str = ".png") -> StoredImage:
+        del data, suffix
+        raise self.error
+
+
 def _png(color: tuple[int, int, int]) -> bytes:
     output = BytesIO()
     Image.new("RGB", (8, 8), color).save(output, format="PNG")
@@ -348,5 +358,83 @@ def test_rejects_output_outside_nano_banana_contract_before_network() -> None:
         finally:
             await client.aclose()
         assert calls == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("storage_error", "expected_terminal"),
+    [
+        (OSError("disk unavailable"), "failed"),
+        (asyncio.CancelledError(), "interrupted"),
+    ],
+)
+def test_storage_failure_finishes_the_model_call_record(
+    storage_error: BaseException,
+    expected_terminal: str,
+) -> None:
+    result = _png((90, 100, 110))
+
+    async def run() -> None:
+        recorder = RecordingModelCallRecorder()
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200,
+                    json={
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [
+                                        {
+                                            "inlineData": {
+                                                "mimeType": "image/png",
+                                                "data": base64.b64encode(result).decode(),
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                )
+            )
+        )
+        provider = GeminiNativeImageProvider(
+            name=NANO_BANANA_2_MODEL_ID,
+            unit_cost=Decimal("0.10"),
+            base_url="https://api.example.test",
+            key_pool=ApiKeyPool(("key-a",)),
+            model="gemini-3.1-flash-image",
+            image_store=_FailingStore(storage_error),
+            recorder=recorder,
+            client=client,
+        )
+        try:
+            with pytest.raises(type(storage_error)):
+                await provider.generate(
+                    context=ModelCallContext(
+                        user_id="7",
+                        operation=ModelOperation.IMAGE_GENERATION,
+                    ),
+                    prompt="Generate a product image",
+                    negative_prompt="",
+                    reference_images=[],
+                    output=ImageOutputSpec(
+                        ratio="1:1",
+                        render_tier=RenderTier.STANDARD,
+                        size=(1024, 1024),
+                    ),
+                    n=1,
+                )
+        finally:
+            await client.aclose()
+        assert recorder.succeeded == []
+        if expected_terminal == "failed":
+            assert recorder.failed[0].code == "storage_failed"
+            assert recorder.interrupted == []
+        else:
+            assert recorder.failed == []
+            assert recorder.interrupted == ["call-1"]
 
     asyncio.run(run())

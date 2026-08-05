@@ -327,7 +327,8 @@ def test_immediate_result_commits_terminal_before_ack(caplog) -> None:
     assert started.chain == "image_generation"
     assert started.action == "开始调用图片模型"
     assert started.model == "gpt-image-2"
-    assert started.prompt == "faithful product"
+    assert not hasattr(started, "prompt")
+    assert "faithful product" not in caplog.text
     completed = records["generation_item_completed"]
     assert completed.action == "保存图片并完成任务"
 

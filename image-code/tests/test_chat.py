@@ -645,6 +645,63 @@ def test_prepare_edit_args_rejects_missing_ui_selection() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        (
+            "clone",
+            {
+                "product_upload_ids": ["product"],
+                "reference_upload_ids": ["reference"],
+                "clone_mode": "参考风格",
+                "ratio": "1:1",
+            },
+        ),
+        (
+            "edit",
+            {
+                "source_image_key": "selected.png",
+                "prompt": "调整光线",
+                "edit_mode": "delta",
+            },
+        ),
+        (
+            "replace_background",
+            {
+                "source": {"kind": "upload", "upload_id": "product"},
+                "background": {"kind": "description", "description": "暖色背景"},
+            },
+        ),
+    ],
+)
+def test_non_generate_tools_reject_multi_image_selection(
+    tool: str,
+    args: dict,
+) -> None:
+    with pytest.raises(ValueError, match="一次只生成 1 张"):
+        ChatOrchestrator._prepare_write_args(
+            tool,
+            args,
+            decide_chat_ratio("保持原图", "1:1"),
+            "selected.png",
+            2,
+        )
+
+
+def test_background_replace_rejects_explicit_ratio_selection() -> None:
+    with pytest.raises(ValueError, match="保持源图比例"):
+        ChatOrchestrator._prepare_write_args(
+            "replace_background",
+            {
+                "source": {"kind": "upload", "upload_id": "product"},
+                "background": {"kind": "description", "description": "暖色背景"},
+            },
+            decide_chat_ratio("改成 4:5", "1:1"),
+            None,
+            1,
+        )
+
+
 def test_chat_generate_converts_to_category_free_listing_request() -> None:
     req = ChatOrchestrator._parse_req(
         "generate",

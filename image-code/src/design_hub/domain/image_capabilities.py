@@ -7,6 +7,7 @@ from design_hub.domain.gpt_image_2 import (
     GPT_IMAGE_2_MODEL_ID,
     GPT_IMAGE_2_STANDARD_RATIO_SIZES,
 )
+from design_hub.domain.model_config import WAN_2_7_IMAGE_PRO
 from design_hub.domain.nano_banana import (
     NANO_BANANA_2_MODEL_ID,
     NANO_BANANA_RATIO_SIZES,
@@ -68,6 +69,12 @@ _GPT_TIER_RATIO_SIZES: Mapping[
     }
 )
 
+_WAN_TIER_RATIO_SIZES: Mapping[
+    RenderTier, Mapping[str, tuple[int, int]]
+] = MappingProxyType(
+    {RenderTier.STANDARD: GPT_IMAGE_2_STANDARD_RATIO_SIZES}
+)
+
 _CAPABILITIES: Mapping[str, ImageModelCapabilities] = MappingProxyType(
     {
         GPT_IMAGE_2_MODEL_ID: ImageModelCapabilities(
@@ -80,6 +87,13 @@ _CAPABILITIES: Mapping[str, ImageModelCapabilities] = MappingProxyType(
         NANO_BANANA_2_MODEL_ID: ImageModelCapabilities(
             model_id=NANO_BANANA_2_MODEL_ID,
             tier_ratio_sizes=NANO_BANANA_RATIO_SIZES,
+            platform_max_count=7,
+            provider_max_count=1,
+            supports_references=True,
+        ),
+        WAN_2_7_IMAGE_PRO: ImageModelCapabilities(
+            model_id=WAN_2_7_IMAGE_PRO,
+            tier_ratio_sizes=_WAN_TIER_RATIO_SIZES,
             platform_max_count=7,
             provider_max_count=1,
             supports_references=True,

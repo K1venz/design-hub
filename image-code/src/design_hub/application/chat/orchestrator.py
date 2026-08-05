@@ -867,7 +867,15 @@ class ChatOrchestrator:
         normalized = dict(args)
         if "image_model" in normalized:
             raise ValueError("模型只能使用本轮已选择的配置。")
+        if tool != "generate" and count not in {None, 1}:
+            raise ValueError(
+                "当前操作一次只生成 1 张图片，请将数量设为 1 张或自适应。"
+            )
         if tool == "replace_background":
+            if ratio.changes_edit_ratio:
+                raise ValueError(
+                    "换背景会保持源图比例，请将比例设为自适应。"
+                )
             return normalized
         if tool in {"generate", "clone"}:
             normalized["ratio"] = ratio.require_supported()

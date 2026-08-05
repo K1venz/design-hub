@@ -91,6 +91,35 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
             ),
         )
 
+        wan_plaintext = "wan-catalog-key"
+        wan_fingerprint = connection_fingerprint(
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.DASHSCOPE_WAN_IMAGE,
+            base_url="https://dashscope.example.test/api/v1",
+            upstream_model="wan2.7-image-pro",
+            extra={"watermark": False},
+            credentials_plaintext={"api_key": wan_plaintext},
+        )
+        await service.create(
+            actor_id=7,
+            name="wan2.7-image-pro",
+            display_name="Wan 2.7 Image Pro",
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.DASHSCOPE_WAN_IMAGE,
+            base_url="https://dashscope.example.test/api/v1",
+            model="wan2.7-image-pro",
+            credentials={"api_key": cipher.encrypt(wan_plaintext)},
+            unit_cost=Decimal("0.5"),
+            enabled=True,
+            extra={"watermark": False},
+            verification_proof=service.verifier.issue(
+                manager_id="7",
+                model_id="wan2.7-image-pro",
+                model_type=ModelType.IMAGE,
+                fingerprint=wan_fingerprint,
+            ),
+        )
+
         chat_plaintext = "chat-catalog-key"
         chat_fingerprint = connection_fingerprint(
             model_type=ModelType.CHAT,
@@ -128,11 +157,14 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         assert [item["id"] for item in image_catalog] == [
             "gpt-image-2",
             "nano-banana-2",
+            "wan2.7-image-pro",
         ]
         gpt_capabilities = image_catalog[0]["image_capabilities"]
         nano_capabilities = image_catalog[1]["image_capabilities"]
+        wan_capabilities = image_catalog[2]["image_capabilities"]
         assert isinstance(gpt_capabilities, dict)
         assert isinstance(nano_capabilities, dict)
+        assert isinstance(wan_capabilities, dict)
         assert [tier["id"] for tier in gpt_capabilities["render_tiers"]] == [
             "standard",
             "4k",
@@ -141,6 +173,9 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
             "standard",
             "2k",
             "4k",
+        ]
+        assert [tier["id"] for tier in wan_capabilities["render_tiers"]] == [
+            "standard",
         ]
         assert nano_capabilities["render_tiers"][1]["ratios"] == [
             "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1",
@@ -168,6 +203,7 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         assert [item["id"] for item in image_json] == [
             "gpt-image-2",
             "nano-banana-2",
+            "wan2.7-image-pro",
         ]
         assert image_json[1]["image_capabilities"]["render_tiers"][1] == {
             "id": "2k",

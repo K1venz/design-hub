@@ -267,7 +267,6 @@ class GenerationWorker:
                     "chain": "image_generation",
                     "action": "开始调用图片模型",
                     "model": work.spec.model,
-                    "prompt": work.spec.final_prompt,
                     "status": "started",
                 },
             )
