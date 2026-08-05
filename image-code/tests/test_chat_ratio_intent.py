@@ -40,21 +40,18 @@ def test_accepts_common_explicit_ratio_separators(text: str) -> None:
 
 
 def test_unsupported_explicit_ratio_is_preserved_as_user_facing_error() -> None:
-    decision = decide_chat_ratio("按 21:9 出图", "1:1")
+    decision = decide_chat_ratio("按 7:11 出图", "1:1")
 
     with pytest.raises(
         UnsupportedChatRatio,
-        match=(
-            "1:1 / 3:2 / 2:3 / 3:4 / 4:3 / 9:16 / 16:9 / "
-            "4:5 / 5:4 / 1:2 / 2:1"
-        ),
+        match="7:11",
     ):
         decision.require_supported()
 
 
 def test_invalid_auto_ratio_fails_fast() -> None:
     with pytest.raises(ValueError, match="无效自动比例"):
-        decide_chat_ratio("做一张主图", "21:9")
+        decide_chat_ratio("做一张主图", "7:11")
 
 
 @pytest.mark.parametrize("separator", ["x", "X", "×"])

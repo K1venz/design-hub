@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import signal
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -31,6 +32,60 @@ from design_hub.interface import worker as worker_entrypoint
 from design_hub.interface.api import asgi
 from design_hub.ports.generation_work import GenerationWorkItem
 from design_hub.ports.task_broker import Delivery
+
+
+class _SignalLoop:
+    def __init__(self) -> None:
+        self.async_handlers: list[tuple[signal.Signals, object]] = []
+        self.threadsafe_callbacks: list[object] = []
+
+    def add_signal_handler(self, signum: signal.Signals, callback: object) -> None:
+        self.async_handlers.append((signum, callback))
+
+    def call_soon_threadsafe(self, callback: object) -> None:
+        self.threadsafe_callbacks.append(callback)
+
+
+def test_worker_registers_native_async_signal_handlers_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop = _SignalLoop()
+    stop = asyncio.Event()
+    monkeypatch.setattr(worker_entrypoint.signal, "signal", lambda *_args: pytest.fail())
+
+    worker_entrypoint._register_shutdown_signals(  # type: ignore[attr-defined]
+        stop,
+        loop=loop,  # type: ignore[arg-type]
+        platform="linux",
+    )
+
+    assert [signum for signum, _callback in loop.async_handlers] == [
+        signal.SIGTERM,
+        signal.SIGINT,
+    ]
+
+
+def test_worker_registers_windows_signal_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+    loop = _SignalLoop()
+    stop = asyncio.Event()
+    handlers: dict[signal.Signals, object] = {}
+
+    def capture(signum: signal.Signals, callback: object) -> None:
+        handlers[signum] = callback
+
+    monkeypatch.setattr(worker_entrypoint.signal, "signal", capture)
+
+    worker_entrypoint._register_shutdown_signals(  # type: ignore[attr-defined]
+        stop,
+        loop=loop,  # type: ignore[arg-type]
+        platform="win32",
+    )
+
+    assert set(handlers) == {signal.SIGTERM, signal.SIGINT}
+    handler = handlers[signal.SIGTERM]
+    assert callable(handler)
+    handler(signal.SIGTERM, None)
+    assert loop.threadsafe_callbacks == [stop.set]
 
 
 def _delivery(sequence: int) -> Delivery:

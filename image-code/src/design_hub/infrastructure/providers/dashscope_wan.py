@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 from design_hub.application.image_generation.prompt_policy import (
     compose_image_api_prompt,
 )
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_calls import (
@@ -116,7 +117,7 @@ class DashScopeWanImageProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
@@ -127,7 +128,7 @@ class DashScopeWanImageProvider(AbstractModelProvider):
             context=context,
             prompt=compose_image_api_prompt(prompt, negative_prompt),
             reference_images=tuple(reference_images),
-            size=size,
+            output=output,
             seed=seed or 0,
             quality=quality,
         )
@@ -168,7 +169,7 @@ class DashScopeWanImageProvider(AbstractModelProvider):
                 ]
             },
             "parameters": {
-                "size": f"{request.size[0]}*{request.size[1]}",
+                "size": f"{request.output.size[0]}*{request.output.size[1]}",
                 "n": 1,
                 "watermark": self._watermark,
             },
@@ -452,7 +453,7 @@ class DashScopeWanImageProvider(AbstractModelProvider):
 
     @classmethod
     def _validate_request(cls, request: ProviderRequest) -> None:
-        width, height = request.size
+        width, height = request.output.size
         if (
             width < 240
             or width > 8000

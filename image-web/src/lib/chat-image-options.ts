@@ -1,21 +1,11 @@
-export const CHAT_IMAGE_RATIOS = [
-  'auto',
-  '1:1',
-  '3:2',
-  '2:3',
-  '3:4',
-  '4:3',
-  '9:16',
-  '16:9',
-  '4:5',
-  '5:4',
-  '1:2',
-  '2:1',
-] as const
+import type { ModelCatalogItem } from '@/api/models'
+import type { components } from '@/api/schema'
 
-export type ChatImageRatio = (typeof CHAT_IMAGE_RATIOS)[number]
+type ChatImageOptionsRequest = components['schemas']['ChatImageOptionsRequest']
+
+export type ChatImageRatio = ChatImageOptionsRequest['ratio']
 export type ChatImageCount = 'auto' | 1 | 2 | 3 | 4 | 5 | 6 | 7
-export type ChatRenderTier = 'auto' | 'standard' | '4k'
+export type ChatRenderTier = ChatImageOptionsRequest['render_tier']
 
 export interface ChatImageOptionDraft {
   renderTier: ChatRenderTier
@@ -23,10 +13,11 @@ export interface ChatImageOptionDraft {
   ratio: ChatImageRatio
 }
 
-export interface ChatImageOptionsPayload {
-  render_tier: ChatRenderTier
-  count: number | null
-  ratio: ChatImageRatio
+export type ChatImageOptionsPayload = ChatImageOptionsRequest
+
+export interface ChatRenderTierOption {
+  id: ChatRenderTier
+  label: string
 }
 
 export const INITIAL_CHAT_IMAGE_OPTIONS: ChatImageOptionDraft = {
@@ -35,63 +26,67 @@ export const INITIAL_CHAT_IMAGE_OPTIONS: ChatImageOptionDraft = {
   ratio: 'auto',
 }
 
-const GPT_IMAGE_2_MODEL_ID = 'gpt-image-2'
-const GPT_IMAGE_2_STANDARD_RATIOS: readonly ChatImageRatio[] = [
-  'auto',
-  '1:1',
-  '3:2',
-  '2:3',
-  '3:4',
-  '4:3',
-  '9:16',
-  '16:9',
-  '4:5',
-  '5:4',
-  '1:2',
-  '2:1',
-]
-const GPT_IMAGE_2_FOUR_K_RATIOS: readonly ChatImageRatio[] = ['16:9']
+export function chatRenderTiersFor(
+  model: ModelCatalogItem | null,
+): readonly ChatRenderTierOption[] {
+  return [
+    { id: 'auto', label: '自动判断' },
+    ...(model?.image_capabilities?.render_tiers ?? []).map((tier) => ({
+      id: tier.id,
+      label: tier.label,
+    })),
+  ]
+}
 
 export function chatImageRatiosFor(
-  modelId: string | null,
+  model: ModelCatalogItem | null,
   renderTier: ChatRenderTier,
 ): readonly ChatImageRatio[] {
-  if (renderTier === '4k') return GPT_IMAGE_2_FOUR_K_RATIOS
-  if (modelId === GPT_IMAGE_2_MODEL_ID) return GPT_IMAGE_2_STANDARD_RATIOS
-  return CHAT_IMAGE_RATIOS
+  const tiers = model?.image_capabilities?.render_tiers ?? []
+  const ratios =
+    renderTier === 'auto'
+      ? unique(tiers.flatMap((tier) => tier.ratios))
+      : (tiers.find((tier) => tier.id === renderTier)?.ratios ?? [])
+  return ['auto', ...ratios] as ChatImageRatio[]
+}
+
+export function chatImageCountsFor(
+  model: ModelCatalogItem | null,
+): readonly ChatImageCount[] {
+  const maxCount = Math.min(model?.image_capabilities?.max_count ?? 1, 7)
+  return [
+    'auto',
+    ...Array.from({ length: maxCount }, (_, index) =>
+      (index + 1) as ChatImageCount,
+    ),
+  ]
 }
 
 export function normalizeChatImageOptionsForModel(
   draft: ChatImageOptionDraft,
-  modelId: string,
+  model: ModelCatalogItem,
 ): ChatImageOptionDraft {
-  if (modelId !== GPT_IMAGE_2_MODEL_ID) {
-    return draft.renderTier === '4k'
-      ? { ...draft, renderTier: 'standard' }
-      : draft
-  }
-  if (
-    draft.renderTier !== '4k' &&
-    !GPT_IMAGE_2_STANDARD_RATIOS.includes(draft.ratio)
-  ) {
-    return { ...draft, ratio: 'auto' }
-  }
-  return draft
+  const tiers = chatRenderTiersFor(model)
+  const renderTier = tiers.some((tier) => tier.id === draft.renderTier)
+    ? draft.renderTier
+    : 'auto'
+  const ratios = chatImageRatiosFor(model, renderTier)
+  const ratio = ratios.includes(draft.ratio) ? draft.ratio : 'auto'
+  const counts = chatImageCountsFor(model)
+  const count = counts.includes(draft.count) ? draft.count : 'auto'
+  return { renderTier, ratio, count }
 }
 
 export function resolveChatImageOptions(
   draft: ChatImageOptionDraft,
 ): ChatImageOptionsPayload {
-  if (draft.renderTier === '4k') {
-    return {
-      render_tier: '4k',
-      count: draft.count === 'auto' ? null : draft.count,
-      ratio: '16:9',
-    }
-  }
   return {
     render_tier: draft.renderTier,
     count: draft.count === 'auto' ? null : draft.count,
     ratio: draft.ratio,
   }
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)]
 }

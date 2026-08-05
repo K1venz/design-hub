@@ -3,6 +3,8 @@ import os
 import re
 import signal
 import socket
+import sys
+from types import FrameType
 from typing import cast
 
 from redis.asyncio import Redis
@@ -52,6 +54,24 @@ _SAFE_WORKER_ID = re.compile(r"[^A-Za-z0-9._-]")
 def _worker_id() -> str:
     raw = f"{socket.gethostname()}-{os.getpid()}"
     return _SAFE_WORKER_ID.sub("-", raw)[:128]
+
+
+def _register_shutdown_signals(
+    stop: asyncio.Event,
+    *,
+    loop: asyncio.AbstractEventLoop,
+    platform: str = sys.platform,
+) -> None:
+    signals = (signal.SIGTERM, signal.SIGINT)
+    if platform == "win32":
+        def request_stop(_signum: int, _frame: FrameType | None) -> None:
+            loop.call_soon_threadsafe(stop.set)
+
+        for signum in signals:
+            signal.signal(signum, request_stop)
+        return
+    for signum in signals:
+        loop.add_signal_handler(signum, stop.set)
 
 
 async def run_worker(settings: Settings | None = None) -> None:
@@ -135,8 +155,7 @@ async def run_worker(settings: Settings | None = None) -> None:
     )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(signum, stop.set)
+    _register_shutdown_signals(stop, loop=loop)
     try:
         await runtime.run(stop)
     finally:

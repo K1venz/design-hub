@@ -33,6 +33,12 @@ PROVIDER_RULES = {
         required_credential_fields=("api_key",),
         extra_fields=("watermark",),
     ),
+    ProviderType.GEMINI_NATIVE_IMAGE: ProviderRule(
+        model_type=ModelType.IMAGE,
+        credential_fields=("api_keys",),
+        required_credential_fields=("api_keys",),
+        extra_fields=(),
+    ),
     ProviderType.OPENAI_COMPAT_CHAT: ProviderRule(
         model_type=ModelType.CHAT,
         credential_fields=("api_key",),
@@ -70,6 +76,9 @@ def validate_connection_fields(
             or "four_k_api_key" in credentials_plaintext
             and not _is_nonempty_secret(credentials_plaintext["four_k_api_key"])
         ):
+            raise ValueError("invalid provider credential fields")
+    elif provider_type is ProviderType.GEMINI_NATIVE_IMAGE:
+        if not _is_nonempty_secret_tuple(credentials_plaintext["api_keys"]):
             raise ValueError("invalid provider credential fields")
     elif not _is_nonempty_secret(credentials_plaintext["api_key"]):
         raise ValueError("invalid provider credential fields")

@@ -21,14 +21,14 @@ import {
   type ChatImageOptionDraft,
   type ChatImageRatio,
   type ChatRenderTier,
+  chatImageCountsFor,
   chatImageRatiosFor,
+  chatRenderTiersFor,
 } from '@/lib/chat-image-options'
 import { shouldSubmitChatInput, type ChatEditSource } from '@/lib/chat'
 import type { UploadedImage } from '@/lib/listing'
 import { uploadPreviewUrl } from '@/lib/upload'
 import { cn } from '@/lib/utils'
-
-const COUNTS: ChatImageCount[] = ['auto', 1, 2, 3, 4, 5, 6, 7]
 
 interface ChatComposerProps {
   draft: string
@@ -75,16 +75,27 @@ export function ChatComposer({
   const [collapsed, setCollapsed] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [enterToSend, setEnterToSend] = useState(true)
-  const fourKAvailable = imageSelection.modelId === 'gpt-image-2'
-  const fourK = imageOptions.renderTier === '4k'
+  const imageModel =
+    imageSelection.models.find(
+      (model) => model.id === imageSelection.modelId,
+    ) ?? null
+  const renderTiers = chatRenderTiersFor(imageModel)
+  const counts = chatImageCountsFor(imageModel)
   const ratios = chatImageRatiosFor(
-    imageSelection.modelId,
+    imageModel,
     imageOptions.renderTier,
   )
   const canSend = !busy && modelsReady && draft.trim().length > 0
 
   function updateRenderTier(renderTier: ChatRenderTier) {
-    onImageOptionsChange({ ...imageOptions, renderTier })
+    const nextRatios = chatImageRatiosFor(imageModel, renderTier)
+    onImageOptionsChange({
+      ...imageOptions,
+      renderTier,
+      ratio: nextRatios.includes(imageOptions.ratio)
+        ? imageOptions.ratio
+        : 'auto',
+    })
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -130,7 +141,9 @@ export function ChatComposer({
         <header className="flex min-h-9 items-center gap-2 border-b border-wb-line-1 px-3.5">
           <span className="size-2 rounded-full bg-wb-brand shadow-[0_0_0_4px_var(--wb-tint-1)]" />
           <span className="text-[12.5px] font-semibold text-wb-ink-2">图片创作</span>
-          <span className="text-[10.5px] text-wb-ink-6">支持 1–3 张参考图</span>
+          <span className="text-[10.5px] text-wb-ink-6">
+            {imageModel?.display_name ?? '图片模型'}
+          </span>
           <span className="ml-auto hidden rounded-full bg-wb-amber-tint px-2 py-0.5 text-[10px] font-medium text-wb-amber sm:inline">
             参数随分辨率联动
           </span>
@@ -221,11 +234,9 @@ export function ChatComposer({
             <div className="mx-3.5 flex items-center gap-2 rounded-lg bg-wb-surface-2 px-3 py-1.5 text-[10.5px] text-wb-ink-6">
               <InfoIcon className="size-3 shrink-0 text-wb-brand" />
               <span className="truncate">
-                {fourK
-                  ? '4K 固定输出 3840×2160、16:9；数量可指定 1–7 张，仅 GPT Image 2.0 可用。'
-                  : imageSelection.modelId === 'gpt-image-2'
-                    ? 'GPT Image 2 标准档支持 11 种实测比例；数量可指定 1–7 张。'
-                    : '标准档数量可自动判断或指定 1–7 张。'}
+                {imageModel?.image_capabilities
+                  ? `${renderTiers.length - 1} 档清晰度 · ${ratios.length - 1} 种当前比例 · 最多 ${imageModel.image_capabilities.max_count} 张`
+                  : '模型能力加载完成后可选择清晰度与比例'}
               </span>
             </div>
           </>
@@ -243,9 +254,11 @@ export function ChatComposer({
             disabled={busy}
             onChange={(value) => updateRenderTier(value as ChatRenderTier)}
           >
-            <option value="auto">自动判断</option>
-            <option value="standard">标准档</option>
-            <option value="4k" disabled={!fourKAvailable}>4K 超高清</option>
+            {renderTiers.map((tier) => (
+              <option key={tier.id} value={tier.id}>
+                {tier.label}
+              </option>
+            ))}
           </ParameterSelect>
           <ParameterSelect
             ariaLabel="生成数量"
@@ -258,7 +271,7 @@ export function ChatComposer({
               })
             }
           >
-            {COUNTS.map((count) => (
+            {counts.map((count) => (
               <option key={count} value={count}>
                 {count === 'auto' ? '数量自适应' : `${count} 张`}
               </option>
@@ -266,8 +279,8 @@ export function ChatComposer({
           </ParameterSelect>
           <ParameterSelect
             ariaLabel="图片比例"
-            value={fourK ? '16:9' : imageOptions.ratio}
-            disabled={busy || fourK}
+            value={imageOptions.ratio}
+            disabled={busy}
             onChange={(value) =>
               onImageOptionsChange({ ...imageOptions, ratio: value as ChatImageRatio })
             }

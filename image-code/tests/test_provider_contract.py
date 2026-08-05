@@ -10,7 +10,9 @@ import pytest
 from model_call_fakes import RecordingModelCallRecorder
 
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore, StoredImage
@@ -158,7 +160,13 @@ async def _run_prompt(
             ),
         ),
         prompt=prompt, negative_prompt=negative_prompt,
-        reference_images=[ReferenceImage(data=b) for b in refs], size=(1024, 1024), n=1,
+        reference_images=[ReferenceImage(data=b) for b in refs],
+        output=ImageOutputSpec(
+            ratio="1:1",
+            render_tier=RenderTier.STANDARD,
+            size=(1024, 1024),
+        ),
+        n=1,
     )
 
 
@@ -181,7 +189,11 @@ async def _run_four_k(
         prompt="p",
         negative_prompt="",
         reference_images=[ReferenceImage(data=data) for data in refs],
-        size=size,
+        output=ImageOutputSpec(
+            ratio="16:9",
+            render_tier=RenderTier.FOUR_K,
+            size=size,
+        ),
         n=n,
     )
 

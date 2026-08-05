@@ -79,7 +79,7 @@ class ListingTaskPlanner:
             plan=request.plan,
             overlay_texts=overlay_texts,
         )
-        size = generation_size(render_tier, request.ratio)
+        size = generation_size(model_id, render_tier, request.ratio)
         references = tuple(
             ReferenceSnapshot(
                 source=ReferenceSource.UPLOAD,
@@ -157,7 +157,7 @@ class ListingTaskPlanner:
             clone_registry=self.clone_registry,
             clone_mode=request.clone_mode,
         )
-        size = generation_size(render_tier, request.ratio)
+        size = generation_size(model_id, render_tier, request.ratio)
         keys = (*request.product_upload_ids, *request.reference_upload_ids)
         roles = ("product",) + ("reference",) * len(request.reference_upload_ids)
         references = tuple(
@@ -233,7 +233,7 @@ class ListingTaskPlanner:
             edit_registry=self.edit_registry,
             edit_mode=request.edit_mode,
         )
-        size = generation_size(render_tier, ratio)
+        size = generation_size(model_id, render_tier, ratio)
         references = (
             ReferenceSnapshot(
                 source=ReferenceSource.GENERATED,
@@ -354,7 +354,7 @@ class ListingTaskPlanner:
             input_roles.append("background")
 
         final_prompt = compose_background_replace_prompt(request.background)
-        size = generation_size(render_tier, ratio)
+        size = generation_size(model_id, render_tier, ratio)
         item = self._item(
             sequence=1,
             image_type=None,

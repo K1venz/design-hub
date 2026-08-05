@@ -8,7 +8,11 @@ from design_hub.interface.model_schemas import ModelCatalogItemOut
 router = APIRouter(prefix="/models", tags=["models"])
 
 
-@router.get("/image", response_model=list[ModelCatalogItemOut])
+@router.get(
+    "/image",
+    response_model=list[ModelCatalogItemOut],
+    response_model_exclude_none=True,
+)
 async def list_image_models(
     _user: CurrentUserDep,
     svc: ModelConfigServiceDep,
@@ -19,7 +23,11 @@ async def list_image_models(
     ]
 
 
-@router.get("/chat", response_model=list[ModelCatalogItemOut])
+@router.get(
+    "/chat",
+    response_model=list[ModelCatalogItemOut],
+    response_model_exclude_none=True,
+)
 async def list_chat_models(
     _user: CurrentUserDep,
     svc: ModelConfigServiceDep,
