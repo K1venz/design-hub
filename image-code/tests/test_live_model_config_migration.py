@@ -172,6 +172,7 @@ def test_live_model_domain_and_orm_use_stable_typed_model_ids() -> None:
     assert [model_type.value for model_type in ModelType] == ["image", "chat"]
     assert [provider.value for provider in ProviderType] == [
         "openai_compat_image",
+        "gemini_native_image",
         "dashscope_wan_image",
         "openai_compat_chat",
     ]

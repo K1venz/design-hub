@@ -9,7 +9,14 @@ from model_call_fakes import RecordingModelCallRecorder
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelType, ProviderType
 from design_hub.domain.model_config import connection_fingerprint
+from design_hub.domain.nano_banana import (
+    NANO_BANANA_2_MODEL_ID,
+    NANO_BANANA_UPSTREAM_MODEL,
+)
 from design_hub.domain.tasking import RenderTier
+from design_hub.infrastructure.providers.gemini_native import (
+    GeminiNativeImageProvider,
+)
 from design_hub.infrastructure.providers.live_resolution import (
     LiveImageExecutorResolver,
     LiveTextLLMResolver,
@@ -196,6 +203,31 @@ def _wan_record() -> ModelConfigRecord:
     )
 
 
+def _nano_record() -> ModelConfigRecord:
+    credentials = {"api_keys": ("nano-a", "nano-b")}
+    fingerprint = connection_fingerprint(
+        model_type=ModelType.IMAGE,
+        provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+        base_url="https://gemini.example.test",
+        upstream_model=NANO_BANANA_UPSTREAM_MODEL,
+        extra={},
+        credentials_plaintext=credentials,
+    )
+    return ModelConfigRecord(
+        name=NANO_BANANA_2_MODEL_ID,
+        display_name="Nano Banana 2",
+        model_type=ModelType.IMAGE,
+        provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+        base_url="https://gemini.example.test",
+        model=NANO_BANANA_UPSTREAM_MODEL,
+        credentials_ciphertext={"api_keys": ["enc-nano-a", "enc-nano-b"]},
+        unit_cost=Decimal("0.10"),
+        enabled=True,
+        revision=1,
+        verified_at=datetime.now(UTC),
+        verified_fingerprint=fingerprint,
+        extra={},
+    )
 def _image_resolver(
     repo: _Repo,
     *,
@@ -373,5 +405,29 @@ def test_image_resolver_constructs_recoverable_wan_only_for_standard_tier() -> N
         assert executor.reference_mode == "url"
         with pytest.raises(ModelUnavailableError, match="model unavailable"):
             await resolver.resolve(record.name, RenderTier.FOUR_K)
+
+    asyncio.run(run())
+
+
+def test_image_resolver_constructs_nano_banana_for_every_supported_tier() -> None:
+    async def run() -> None:
+        record = _nano_record()
+        resolver = _image_resolver(
+            _Repo({record.name: record}),
+            cipher=_Cipher(
+                {"enc-nano-a": "nano-a", "enc-nano-b": "nano-b"}
+            ),
+        )
+
+        for tier in (
+            RenderTier.STANDARD,
+            RenderTier.TWO_K,
+            RenderTier.FOUR_K,
+        ):
+            executor = await resolver.resolve(record.name, tier)
+            assert isinstance(executor.provider, GeminiNativeImageProvider)
+            assert executor.reference_mode == "bytes"
+            assert executor.provider._model == NANO_BANANA_UPSTREAM_MODEL
+            assert executor.provider._key_pool.key_for(0, 0) == "nano-a"
 
     asyncio.run(run())
