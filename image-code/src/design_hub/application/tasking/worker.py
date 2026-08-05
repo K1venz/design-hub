@@ -6,6 +6,7 @@ from typing import Protocol, TypeVar
 
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import DataInvariantError, DomainError
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.domain.tasking import (
     GenerationItemStatus,
@@ -203,7 +204,11 @@ class GenerationWorker:
             ),
             prompt=work.spec.final_prompt,
             reference_images=references,
-            size=work.spec.size,
+            output=ImageOutputSpec(
+                ratio=work.spec.ratio,
+                render_tier=work.spec.render_tier,
+                size=work.spec.size,
+            ),
             seed=work.spec.seed,
             quality=work.spec.quality,
         )
@@ -262,7 +267,6 @@ class GenerationWorker:
                     "chain": "image_generation",
                     "action": "开始调用图片模型",
                     "model": work.spec.model,
-                    "prompt": work.spec.final_prompt,
                     "status": "started",
                 },
             )

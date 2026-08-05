@@ -26,7 +26,6 @@ from design_hub.application.chat.ratio_intent import (
     UnsupportedChatRatio,
 )
 from design_hub.application.chat.rendering_intent import (
-    ChatRenderingConflict,
     ChatRenderingDecision,
     decide_chat_ratio_note,
     decide_chat_rendering,
@@ -60,7 +59,6 @@ from design_hub.application.tasking.health import (
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.errors import DomainError, NotFoundError
-from design_hub.domain.model_config import GPT_IMAGE_2
 from design_hub.domain.models import AuthUser, ChatTranscript
 from design_hub.domain.tasking import RenderTier
 from design_hub.ports.chat_repository import ChatSessionRepository
@@ -494,11 +492,6 @@ class ChatOrchestrator:
                         decision=rendering.ratio,
                     ),
                 )
-                if (
-                    call.name == "replace_background"
-                    and rendering.render_tier is RenderTier.FOUR_K
-                ):
-                    raise ValueError("换背景当前只支持普通分辨率，不支持 4K。")
                 normalized_args = self._prepare_write_args(
                     call.name,
                     call.arguments,
@@ -506,14 +499,6 @@ class ChatOrchestrator:
                     edit_source_image_key,
                     image_options.count,
                 )
-            except ChatRenderingConflict as exc:
-                clar = str(exc)
-                yield ChatEvent("assistant_delta", {"text": clar})
-                await self.chat_repo.append_message(
-                    session_id=session_id, role="assistant", content=clar
-                )
-                yield ChatEvent("assistant_end", {"status": "complete"})
-                return
             except UnsupportedChatRatio as exc:
                 clar = str(exc)
                 yield ChatEvent("assistant_delta", {"text": clar})
@@ -570,13 +555,6 @@ class ChatOrchestrator:
                 config = await self.model_config.require_available_image(
                     image_model
                 )
-                if (
-                    rendering.render_tier is RenderTier.FOUR_K
-                    and config.name != GPT_IMAGE_2
-                ):
-                    raise DomainError(
-                        "4K 当前仅支持 GPT Image 2.0。"
-                    )
             except (DomainError, ValueError, NotFoundError) as exc:
                 if str(exc) == "image model unavailable":
                     yield ChatEvent(
@@ -889,7 +867,15 @@ class ChatOrchestrator:
         normalized = dict(args)
         if "image_model" in normalized:
             raise ValueError("模型只能使用本轮已选择的配置。")
+        if tool != "generate" and count not in {None, 1}:
+            raise ValueError(
+                "当前操作一次只生成 1 张图片，请将数量设为 1 张或自适应。"
+            )
         if tool == "replace_background":
+            if ratio.changes_edit_ratio:
+                raise ValueError(
+                    "换背景会保持源图比例，请将比例设为自适应。"
+                )
             return normalized
         if tool in {"generate", "clone"}:
             normalized["ratio"] = ratio.require_supported()

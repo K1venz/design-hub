@@ -15,6 +15,7 @@ const chatModels = [
 ]
 const imageModels = [
   { id: 'gpt-image-2', display_name: 'GPT Image 2.0', is_default: true },
+  { id: 'nano-banana-2', display_name: 'Nano Banana 2', is_default: false },
   { id: 'wan2.7-image-pro', display_name: 'Wan 2.7', is_default: false },
 ]
 
@@ -73,6 +74,13 @@ describe('UnifiedChatModelSelector', () => {
     expect(modelBrand('custom-private-model')).toEqual({
       name: '其他',
       logoPath: null,
+    })
+  })
+
+  it('maps Nano Banana to Gemini branding', () => {
+    expect(modelBrand('nano-banana-2')).toEqual({
+      name: 'Google Gemini',
+      logoPath: '/model-brands/gemini.svg',
     })
   })
 

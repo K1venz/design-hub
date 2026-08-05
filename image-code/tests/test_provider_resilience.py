@@ -26,7 +26,9 @@ from design_hub.application.listing.prompt_composer import (
 from design_hub.application.registry import ProviderRegistry
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import DomainError
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.domain.tasking import RenderTier
 from design_hub.infrastructure.providers.api_key_pool import ApiKeyPool
 from design_hub.infrastructure.providers.openai_compat import OpenAICompatImageProvider
 from design_hub.ports.image_store import ImageStore, StoredImage
@@ -110,7 +112,13 @@ async def _gen(provider: OpenAICompatImageProvider) -> list[GeneratedImage]:
             operation=ModelOperation.IMAGE_EDIT,
         ),
         prompt="p", negative_prompt="",
-        reference_images=[ReferenceImage(data=b"img")], size=(1024, 1024), n=1,
+        reference_images=[ReferenceImage(data=b"img")],
+        output=ImageOutputSpec(
+            ratio="1:1",
+            render_tier=RenderTier.STANDARD,
+            size=(1024, 1024),
+        ),
+        n=1,
     )
 
 
@@ -212,7 +220,11 @@ def test_wall_clock_budget_does_not_start_second_4k_request_after_first_uses_it(
                 prompt="p",
                 negative_prompt="",
                 reference_images=[],
-                size=(3840, 2160),
+                output=ImageOutputSpec(
+                    ratio="16:9",
+                    render_tier=RenderTier.FOUR_K,
+                    size=(3840, 2160),
+                ),
                 n=1,
             )
         )
@@ -270,7 +282,11 @@ def test_retry_request_timeout_is_limited_to_the_remaining_4k_wall_clock_budget(
                 prompt="p",
                 negative_prompt="",
                 reference_images=[],
-                size=(3840, 2160),
+                output=ImageOutputSpec(
+                    ratio="16:9",
+                    render_tier=RenderTier.FOUR_K,
+                    size=(3840, 2160),
+                ),
                 n=1,
             )
         )
@@ -329,7 +345,11 @@ def test_first_request_timeout_is_limited_to_remaining_wall_clock_budget(
                 prompt="p",
                 negative_prompt="",
                 reference_images=[],
-                size=(3840, 2160),
+                output=ImageOutputSpec(
+                    ratio="16:9",
+                    render_tier=RenderTier.FOUR_K,
+                    size=(3840, 2160),
+                ),
                 n=1,
             )
         )
@@ -384,7 +404,11 @@ def test_absolute_deadline_interrupts_an_active_http_await(
                 prompt="p",
                 negative_prompt="",
                 reference_images=reference_images,
-                size=(1024, 1024),
+                output=ImageOutputSpec(
+                    ratio="1:1",
+                    render_tier=RenderTier.STANDARD,
+                    size=(1024, 1024),
+                ),
                 n=1,
             )
         )
@@ -485,7 +509,7 @@ class _ConcurrencyProbeProvider:
     async def generate(
         self, *, context: ModelCallContext, prompt: str, negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int], n: int, seed: int | None = None, quality: str | None = None,
+        output: ImageOutputSpec, n: int, seed: int | None = None, quality: str | None = None,
     ) -> list[GeneratedImage]:
         del context
         self.inflight += 1

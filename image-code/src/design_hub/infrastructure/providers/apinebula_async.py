@@ -22,6 +22,7 @@ import httpx
 
 from design_hub.application.image_generation.prompt_policy import compose_image_api_prompt
 from design_hub.domain.errors import DomainError
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.infrastructure.providers._openai_common import (
     raise_for_status,
@@ -96,7 +97,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
@@ -104,7 +105,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         composed = compose_image_api_prompt(prompt, negative_prompt)
         # 模态解引用（ISSUE-0065）：异步走现签 URL；worker 按 reference_mode 物化 url，缺=装配错。
         image_urls = [self._require_url(r) for r in reference_images]
-        size_str = f"{size[0]}x{size[1]}"
+        size_str = f"{output.size[0]}x{output.size[1]}"
         start = time.perf_counter()
         start_key_index = self._key_pool.reserve()
         task_id, successful_key_offset = await self._submit(
@@ -130,7 +131,7 @@ class AsyncImageTasksProvider(AbstractModelProvider):
         """Submit one task and return its durable upstream identifier before polling."""
         composed = compose_image_api_prompt(request.prompt, "")
         image_urls = [self._require_url(ref) for ref in request.reference_images]
-        size = f"{request.size[0]}x{request.size[1]}"
+        size = f"{request.output.size[0]}x{request.output.size[1]}"
         start_key_index = self._key_pool.reserve()
         task_id, _key_offset = await self._submit(
             composed,

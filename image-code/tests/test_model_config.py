@@ -27,6 +27,28 @@ from design_hub.ports.model_config_repository import ModelConfigRecord
 ACTOR_ID = 7
 
 
+def test_gemini_native_image_requires_a_nonempty_key_pool() -> None:
+    fingerprint = connection_fingerprint(
+        model_type=ModelType.IMAGE,
+        provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+        base_url="https://api.example.test",
+        upstream_model="gemini-3.1-flash-image",
+        extra={},
+        credentials_plaintext={"api_keys": ("key-a", "key-b")},
+    )
+
+    assert len(fingerprint) == 64
+    with pytest.raises(ValueError, match="credential fields"):
+        connection_fingerprint(
+            model_type=ModelType.IMAGE,
+            provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+            base_url="https://api.example.test",
+            upstream_model="gemini-3.1-flash-image",
+            extra={},
+            credentials_plaintext={"api_key": "wrong-shape"},
+        )
+
+
 async def _service() -> tuple[
     ModelConfigService, async_sessionmaker[AsyncSession], AsyncEngine, RsaSecretCipher
 ]:
@@ -284,8 +306,9 @@ def test_disabling_the_active_default_is_rejected() -> None:
             await service.set_default(actor_id=ACTOR_ID, name="gpt-image")
             with pytest.raises(DomainError, match="active default"):
                 await service.update(actor_id=ACTOR_ID, name="gpt-image", enabled=False)
-            catalog = await service.catalog(ModelType.IMAGE)
-            assert catalog == [{"id": "gpt-image", "display_name": "GPT Image", "is_default": True}]
+            current = await service.repo.get("gpt-image")
+            assert current is not None
+            assert current.enabled is True
         finally:
             await engine.dispose()
 

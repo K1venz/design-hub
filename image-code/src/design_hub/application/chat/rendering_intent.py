@@ -11,11 +11,6 @@ from design_hub.application.chat.ratio_intent import (
 )
 from design_hub.domain.tasking import RenderTier
 
-FOUR_K_RATIO_CONFLICT_MESSAGE = (
-    "4K 当前仅支持 16:9 横版（3840×2160）。"
-    "你可以选择继续生成 4K 16:9，或取消 4K 后按本次指定比例生成。"
-)
-
 _FOUR_K_TOKEN = (
     r"(?:(?<!\d)4\s*[kK](?![A-Za-z0-9])|(?<!\d)3840\s*[xX×]\s*2160(?!\d))"
 )
@@ -37,10 +32,6 @@ class _FourKIntent:
 class ChatRenderingDecision:
     render_tier: RenderTier
     ratio: ChatRatioDecision
-
-
-class ChatRenderingConflict(ValueError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -92,7 +83,9 @@ class NaturalLanguageChatRenderingResolver:
     def ratio_note(self, context: ChatRenderingContext) -> ChatRatioDecision:
         intent = _resolve_four_k_intent(context.message)
         if intent.requested is True:
-            return ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9")
+            return extract_explicit_chat_ratio(intent.scope_text) or ChatRatioDecision(
+                context.auto_ratio, ChatRatioSource.AUTO
+            )
         return decide_chat_ratio(intent.scope_text, context.auto_ratio)
 
     def resolve(self, context: ChatRenderingContext) -> ChatRenderingDecision:
@@ -104,13 +97,10 @@ class NaturalLanguageChatRenderingResolver:
             )
 
         explicit_ratio = extract_explicit_chat_ratio(intent.scope_text)
-        if explicit_ratio is not None and explicit_ratio.ratio is None:
-            return ChatRenderingDecision(RenderTier.FOUR_K, explicit_ratio)
-        if explicit_ratio is not None and explicit_ratio.ratio != "16:9":
-            raise ChatRenderingConflict(FOUR_K_RATIO_CONFLICT_MESSAGE)
         return ChatRenderingDecision(
             RenderTier.FOUR_K,
-            ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9"),
+            explicit_ratio
+            or ChatRatioDecision(context.auto_ratio, ChatRatioSource.AUTO),
         )
 
 
@@ -123,34 +113,22 @@ class SelectedChatImageOptionsDecorator:
         selected_ratio = _option_ratio(self.options)
         if selected_ratio is not None:
             return selected_ratio
-        if self.options.fixed_render_tier is RenderTier.FOUR_K:
-            return ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9")
-        if self.options.fixed_render_tier is RenderTier.STANDARD:
+        if self.options.fixed_render_tier is not None:
             return decide_chat_ratio(context.message, context.auto_ratio)
         return self.wrapped.ratio_note(context)
 
     def resolve(self, context: ChatRenderingContext) -> ChatRenderingDecision:
         selected_ratio = _option_ratio(self.options)
         fixed_tier = self.options.fixed_render_tier
-        if fixed_tier is RenderTier.STANDARD:
+        if fixed_tier is not None:
             return ChatRenderingDecision(
-                RenderTier.STANDARD,
+                fixed_tier,
                 selected_ratio or decide_chat_ratio(context.message, context.auto_ratio),
-            )
-        if fixed_tier is RenderTier.FOUR_K:
-            return ChatRenderingDecision(
-                RenderTier.FOUR_K,
-                ChatRatioDecision("16:9", ChatRatioSource.EXPLICIT, "16:9"),
             )
 
         decision = self.wrapped.resolve(context)
         if selected_ratio is None:
             return decision
-        if (
-            decision.render_tier is RenderTier.FOUR_K
-            and selected_ratio.ratio != "16:9"
-        ):
-            raise ChatRenderingConflict(FOUR_K_RATIO_CONFLICT_MESSAGE)
         return ChatRenderingDecision(decision.render_tier, selected_ratio)
 
 

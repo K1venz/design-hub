@@ -28,7 +28,7 @@ from design_hub.application.tasking.health import (
     RedisHealthState,
 )
 from design_hub.domain.errors import DomainError, NotFoundError
-from design_hub.domain.model_config import GPT_IMAGE_2
+from design_hub.domain.image_capabilities import image_model_capabilities
 from design_hub.domain.tasking import RenderTier
 from design_hub.ports.generation_work import (
     GenerationWorkRepository,
@@ -274,7 +274,7 @@ class ListingSubmissionService:
                     f"请上传 1–3 张图片（当前 {len(request.upload_ids)} 张）"
                 )
             self._require_owned_uploads(user_id, tuple(request.upload_ids))
-            generation_size(render_tier, request.ratio)
+            generation_size(request.image_model, render_tier, request.ratio)
             build_listing_prompts(
                 request.prompt,
                 request.modifiers,
@@ -303,7 +303,7 @@ class ListingSubmissionService:
                     *request.reference_upload_ids,
                 ),
             )
-            generation_size(render_tier, request.ratio)
+            generation_size(request.image_model, render_tier, request.ratio)
             compose_clone_prompt(
                 request.prompt,
                 request.modifiers,
@@ -320,7 +320,7 @@ class ListingSubmissionService:
                 "微调会沿用原图比例，如需修改比例请改用「重做」"
             )
         if request.ratio is not None:
-            generation_size(render_tier, request.ratio)
+            generation_size(request.image_model, render_tier, request.ratio)
 
     async def _resolve_image_model(
         self,
@@ -347,24 +347,24 @@ class ListingSubmissionService:
                 },
             )
             raise
-        if render_tier is RenderTier.FOUR_K:
-            if config.name != GPT_IMAGE_2:
-                raise DomainError(
-                    "4K is available only for GPT Image 2.0"
-                )
-            count = (
-                request.n
+        capabilities = image_model_capabilities(config.name)
+        capabilities.ratios(render_tier)
+        count = (
+            request.n
+            if isinstance(request, ListingGenerateRequest)
+            and request.n is not None
+            else (
+                sum(request.plan.values())
                 if isinstance(request, ListingGenerateRequest)
-                and request.n is not None
-                else (
-                    sum(request.plan.values())
-                    if isinstance(request, ListingGenerateRequest)
-                    and request.plan is not None
-                    else 1
-                )
+                and request.plan is not None
+                else 1
             )
-            if count != 1:
-                raise DomainError("4K requires exactly one image")
+        )
+        if not 1 <= count <= capabilities.platform_max_count:
+            raise DomainError(
+                f"{config.display_name} 单次最多生成 "
+                f"{capabilities.platform_max_count} 张图片"
+            )
         return config
 
     async def _admit(self) -> AdmissionResult:

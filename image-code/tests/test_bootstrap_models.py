@@ -23,8 +23,13 @@ from design_hub.cli.bootstrap_models import (
     load_bootstrap_plan,
 )
 from design_hub.domain.enums import ModelType, ProviderType
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.model_config import DOUBAO_CHAT, GPT_IMAGE_2, WAN_2_7_IMAGE_PRO
 from design_hub.domain.models import GeneratedImage, ReferenceImage
+from design_hub.domain.nano_banana import (
+    NANO_BANANA_2_MODEL_ID,
+    NANO_BANANA_UPSTREAM_MODEL,
+)
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.models import ModelConfig, ModelDefault
@@ -46,7 +51,12 @@ from design_hub.ports.text_llm import (
     ToolSpec,
 )
 
-_MODEL_IDS = (GPT_IMAGE_2, WAN_2_7_IMAGE_PRO, DOUBAO_CHAT)
+_MODEL_IDS = (
+    GPT_IMAGE_2,
+    NANO_BANANA_2_MODEL_ID,
+    WAN_2_7_IMAGE_PRO,
+    DOUBAO_CHAT,
+)
 _WAN_HOST = "https://dashscope.aliyuncs.com"
 _WAN_PATH = "/api/v1"
 
@@ -69,6 +79,9 @@ def _environment(private_key_pem: str) -> dict[str, str]:
         "GPT_IMAGE_MODEL": "gpt-upstream",
         "GPT_IMAGE_INPUT_FIDELITY": "high",
         "GPT_IMAGE_RESPONSE_FORMAT": "b64_json",
+        "NANO_BANANA_BASE_URL": "https://gemini.example.test/",
+        "NANO_BANANA_API_KEYS": "nano-first,nano-second",
+        "NANO_BANANA_MODEL": NANO_BANANA_UPSTREAM_MODEL,
         "TEXT_LLM_BASE_URL": "https://chat.example.test/v1/",
         "TEXT_LLM_API_KEY": "doubao-secret",
         "TEXT_LLM_MODEL": "doubao-upstream",
@@ -102,7 +115,7 @@ class _ImageProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
@@ -186,6 +199,21 @@ async def _services(
     async with sessions() as session:
         session.add_all(
             [
+                ModelConfig(
+                    name=NANO_BANANA_2_MODEL_ID,
+                    display_name="Nano Banana 2",
+                    model_type=ModelType.IMAGE.value,
+                    provider_type=ProviderType.GEMINI_NATIVE_IMAGE.value,
+                    base_url="",
+                    model=NANO_BANANA_UPSTREAM_MODEL,
+                    credentials_ciphertext={},
+                    unit_cost=Decimal("0.10"),
+                    enabled=False,
+                    revision=1,
+                    verified_at=None,
+                    verified_fingerprint=None,
+                    extra={},
+                ),
                 ModelConfig(
                     name=GPT_IMAGE_2,
                     display_name="GPT Image",
@@ -339,7 +367,19 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
                     "response_format": "b64_json",
                 },
             )
-            wan_record, wan_credentials = factory.connections[1]
+            nano_record, nano_credentials = factory.connections[1]
+            assert (
+                nano_record.base_url,
+                nano_record.model,
+                nano_credentials,
+                nano_record.extra,
+            ) == (
+                "https://gemini.example.test",
+                NANO_BANANA_UPSTREAM_MODEL,
+                {"api_keys": ("nano-first", "nano-second")},
+                {},
+            )
+            wan_record, wan_credentials = factory.connections[2]
             assert (
                 wan_record.base_url,
                 wan_record.model,
@@ -351,7 +391,7 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
                 {"api_key": "wan-secret"},
                 {"watermark": False},
             )
-            chat_record, chat_credentials = factory.connections[2]
+            chat_record, chat_credentials = factory.connections[3]
             assert (
                 chat_record.base_url,
                 chat_record.model,
@@ -380,6 +420,8 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
                 "gpt-standard-first",
                 "gpt-standard-second",
                 "gpt-four-k",
+                "nano-first",
+                "nano-second",
                 "wan-secret",
                 "doubao-secret",
             ]
@@ -390,6 +432,16 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
                     "standard_api_keys"
                 ]
             ] == ["gpt-standard-first", "gpt-standard-second"]
+            assert plan.cipher.decrypt(
+                by_name[NANO_BANANA_2_MODEL_ID].credentials_ciphertext[
+                    "api_keys"
+                ][0]
+            ) == "nano-first"
+            assert plan.cipher.decrypt(
+                by_name[NANO_BANANA_2_MODEL_ID].credentials_ciphertext[
+                    "api_keys"
+                ][1]
+            ) == "nano-second"
             assert plan.cipher.decrypt(
                 by_name[GPT_IMAGE_2].credentials_ciphertext["four_k_api_key"]
             ) == "gpt-four-k"
@@ -403,6 +455,7 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
             streams = capsys.readouterr()
             assert streams.out.splitlines() == [
                 "gpt-image-2: success",
+                "nano-banana-2: success",
                 "wan2.7-image-pro: success",
                 "doubao-chat: success",
             ]
@@ -446,16 +499,19 @@ def test_failed_real_check_stops_and_keeps_failing_model_disabled(
             records = await repository.list_all()
             by_name = {record.name: record for record in records}
             assert by_name[GPT_IMAGE_2].enabled is True
+            assert by_name[NANO_BANANA_2_MODEL_ID].enabled is True
             assert by_name[WAN_2_7_IMAGE_PRO].enabled is False
             assert by_name[DOUBAO_CHAT].enabled is False
             assert [record.name for record, _credentials in factory.connections] == [
                 GPT_IMAGE_2,
+                NANO_BANANA_2_MODEL_ID,
                 WAN_2_7_IMAGE_PRO,
             ]
 
             streams = capsys.readouterr()
             assert streams.out.splitlines() == [
                 "gpt-image-2: success",
+                "nano-banana-2: success",
                 "wan2.7-image-pro: failure",
             ]
             assert streams.err == ""
@@ -467,6 +523,8 @@ def test_failed_real_check_stops_and_keeps_failing_model_disabled(
                     "gpt-standard-first",
                     "gpt-standard-second",
                     "gpt-four-k",
+                    "nano-first",
+                    "nano-second",
                     "wan-secret",
                     "doubao-secret",
                 ],
@@ -540,6 +598,8 @@ def test_invalid_bootstrap_input_fails_fast_without_exposing_input(
         "gpt-standard-first",
         "gpt-standard-second",
         "gpt-four-k",
+        "nano-first",
+        "nano-second",
         "doubao-secret",
     ):
         assert secret not in rendered
@@ -584,8 +644,27 @@ def test_main_sanitizes_unexpected_errors(
             "gpt-standard-first",
             "gpt-standard-second",
             "gpt-four-k",
+            "nano-first",
+            "nano-second",
             "wan-secret",
             "doubao-secret",
         ],
         ciphertext=[],
     )
+
+
+@pytest.mark.parametrize(
+    "upstream_model",
+    ["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"],
+)
+def test_bootstrap_rejects_preview_nano_models(
+    tmp_path: Path,
+    upstream_model: str,
+) -> None:
+    csv_path = tmp_path / "private-wan.csv"
+    _write_wan_csv(csv_path)
+    environment = _environment(_private_key_pem())
+    environment["NANO_BANANA_MODEL"] = upstream_model
+
+    with pytest.raises(BootstrapInputError):
+        load_bootstrap_plan(wan_csv=csv_path, environ=environment)

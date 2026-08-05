@@ -98,6 +98,7 @@ export function ModelConfigDialog(props: Props) {
         modelType,
         providerType,
         standardApiKeys: '',
+        apiKeys: '',
         fourKApiKey: '',
         apiKey: '',
         ...providerDefaults(providerType),
@@ -112,6 +113,7 @@ export function ModelConfigDialog(props: Props) {
         ...fieldsRef.current,
         providerType,
         standardApiKeys: '',
+        apiKeys: '',
         fourKApiKey: '',
         apiKey: '',
         ...providerDefaults(providerType),
@@ -491,6 +493,22 @@ export function ProviderFields({
             </Field>
           </div>
         </>
+      ) : fields.providerType === 'gemini_native_image' ? (
+        <Field label="Gemini API Key 池" htmlFor="mc-gemini-keys">
+          <textarea
+            id="mc-gemini-keys"
+            value={fields.apiKeys}
+            onChange={(event) =>
+              onRuntimeChange('apiKeys', event.target.value)
+            }
+            placeholder="每行一个 API Key"
+            autoComplete="off"
+            className="min-h-24 w-full rounded-xl border border-input bg-transparent px-3 py-2 font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            {configuredLabel('api_keys')}；每个 Key 独立加密并自动轮换。
+          </p>
+        </Field>
       ) : (
         <Field label="API Key" htmlFor="mc-api-key">
           <Input

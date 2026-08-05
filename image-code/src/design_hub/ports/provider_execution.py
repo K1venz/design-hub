@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.model_calls import ModelCallContext
 from design_hub.ports.model_provider import ReferenceMode
@@ -19,7 +20,7 @@ class ProviderRequest:
     context: ModelCallContext
     prompt: str
     reference_images: tuple[ReferenceImage, ...]
-    size: tuple[int, int]
+    output: ImageOutputSpec
     seed: int
     quality: str | None
 

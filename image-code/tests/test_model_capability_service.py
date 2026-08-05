@@ -12,6 +12,7 @@ from design_hub.application.admin.model_capability_service import (
     ModelCapabilityService,
 )
 from design_hub.domain.enums import ModelType, ProviderType
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.interface.admin_schemas import (
     ModelCapabilityTestIn,
@@ -150,7 +151,7 @@ class _ImageProvider(AbstractModelProvider):
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,

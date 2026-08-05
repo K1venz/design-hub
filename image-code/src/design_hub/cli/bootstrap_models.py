@@ -23,6 +23,10 @@ from design_hub.application.admin.model_config_service import (
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelType, ProviderType
 from design_hub.domain.model_config import DOUBAO_CHAT, GPT_IMAGE_2, WAN_2_7_IMAGE_PRO
+from design_hub.domain.nano_banana import (
+    NANO_BANANA_2_MODEL_ID,
+    NANO_BANANA_UPSTREAM_MODEL,
+)
 from design_hub.infrastructure.db.model_call_repo import SqlAlchemyModelCallRecorder
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
@@ -33,7 +37,14 @@ from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
 
 _BOOTSTRAP_ACTOR_ID = 0
 _MAX_CSV_BYTES = 64 * 1024
-_MODEL_IDS = frozenset((GPT_IMAGE_2, WAN_2_7_IMAGE_PRO, DOUBAO_CHAT))
+_MODEL_IDS = frozenset(
+    (
+        GPT_IMAGE_2,
+        NANO_BANANA_2_MODEL_ID,
+        WAN_2_7_IMAGE_PRO,
+        DOUBAO_CHAT,
+    )
+)
 _WAN_API_HOST = "https://dashscope.aliyuncs.com"
 _WAN_API_HOSTNAME = "dashscope.aliyuncs.com"
 _WAN_API_PATH = "/api/v1"
@@ -137,7 +148,7 @@ def load_bootstrap_plan(
         cipher = RsaSecretCipher.from_pem(
             _required_environment(values, "AUTH_RSA_PRIVATE_KEY_PEM")
         )
-        standard_api_keys = _standard_api_keys(
+        standard_api_keys = _api_keys(
             _required_environment(values, "GPT_IMAGE_API_KEY")
         )
         gpt_credentials: CiphertextCredentials = {
@@ -153,6 +164,17 @@ def load_bootstrap_plan(
                 _required_environment(values, "TEXT_LLM_API_KEY")
             )
         }
+        nano_credentials: CiphertextCredentials = {
+            "api_keys": [
+                cipher.encrypt(api_key)
+                for api_key in _api_keys(
+                    _required_environment(values, "NANO_BANANA_API_KEYS")
+                )
+            ]
+        }
+        nano_model = _required_environment(values, "NANO_BANANA_MODEL")
+        if nano_model != NANO_BANANA_UPSTREAM_MODEL:
+            raise BootstrapInputError()
         wan = _read_wan_csv(wan_csv)
         wan_credentials: CiphertextCredentials = {
             "api_key": cipher.encrypt(wan["apiKey"])
@@ -176,6 +198,16 @@ def load_bootstrap_plan(
                 credentials=gpt_credentials,
                 extra=gpt_extra,
                 make_default=True,
+            ),
+            BootstrapModel(
+                name=NANO_BANANA_2_MODEL_ID,
+                display_name="Nano Banana 2",
+                model_type=ModelType.IMAGE,
+                provider_type=ProviderType.GEMINI_NATIVE_IMAGE,
+                base_url=_required_environment(values, "NANO_BANANA_BASE_URL"),
+                model=nano_model,
+                credentials=nano_credentials,
+                extra={},
             ),
             BootstrapModel(
                 name=WAN_2_7_IMAGE_PRO,
@@ -274,7 +306,7 @@ def _required_environment(values: Mapping[str, str], name: str) -> str:
     return value.strip()
 
 
-def _standard_api_keys(value: str) -> tuple[str, ...]:
+def _api_keys(value: str) -> tuple[str, ...]:
     keys = tuple(part.strip() for part in value.split(","))
     if not keys or any(not key for key in keys):
         raise BootstrapInputError()

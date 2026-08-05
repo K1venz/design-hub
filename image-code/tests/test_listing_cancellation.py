@@ -13,6 +13,7 @@ from design_hub.application.listing.prompt_composer import (
     PromptModifierRegistry,
 )
 from design_hub.application.registry import ProviderRegistry
+from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ListingResult, ReferenceImage
 from design_hub.ports.model_calls import ModelCallContext
 
@@ -50,7 +51,7 @@ class _BlockingProvider:
         prompt: str,
         negative_prompt: str,
         reference_images: list[ReferenceImage],
-        size: tuple[int, int],
+        output: ImageOutputSpec,
         n: int,
         seed: int | None = None,
         quality: str | None = None,
