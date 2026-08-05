@@ -18,6 +18,7 @@ from typing import Any
 
 from structlog.contextvars import get_contextvars
 
+from design_hub.application.chat.image_options import ChatImageOptions
 from design_hub.application.chat.image_ratio import detect_supported_ratio
 from design_hub.application.chat.pending_store import PendingAction, PendingStore
 from design_hub.application.chat.ratio_intent import (
@@ -266,6 +267,7 @@ class ChatOrchestrator:
         *,
         chat_model: str,
         image_model: str,
+        image_options: ChatImageOptions,
         edit_source_image_key: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         if session_id is None:
@@ -288,7 +290,7 @@ class ChatOrchestrator:
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         assert transcript is not None  # 刚 owner-check + append，必存在
         auto_ratio = await self._auto_ratio(user, upload_ids)
-        ratio_decision = decide_chat_ratio_note(message, auto_ratio)
+        ratio_decision = decide_chat_ratio_note(message, auto_ratio, image_options)
         llm_messages = [
             ChatMessage(role="system", content=self.system_prompt),
             *_to_llm_messages(
@@ -488,14 +490,18 @@ class ChatOrchestrator:
             # 写工具（generate/clone/edit）→ 费用闸（护栏①：不给 LLM 绕闸的路）
             yield ChatEvent("step", {"phase": "planning", "detail": "正在规划出图参数"})
             try:
-                rendering = decide_chat_rendering(message, auto_ratio)
+                rendering = decide_chat_rendering(message, auto_ratio, image_options)
                 if (
                     call.name == "replace_background"
                     and rendering.render_tier is RenderTier.FOUR_K
                 ):
                     raise ValueError("换背景当前只支持普通分辨率，不支持 4K。")
                 normalized_args = self._prepare_write_args(
-                    call.name, call.arguments, rendering.ratio, edit_source_image_key
+                    call.name,
+                    call.arguments,
+                    rendering.ratio,
+                    edit_source_image_key,
+                    image_options.count,
                 )
             except ChatRenderingConflict as exc:
                 clar = str(exc)
@@ -615,6 +621,8 @@ class ChatOrchestrator:
                     "count": count,
                     "image_model": config.name,
                     "model_display_name": config.display_name,
+                    "render_tier": rendering.render_tier.value,
+                    "ratio": rendering.ratio.require_supported(),
                 },
             )
             yield ChatEvent("assistant_end", {"status": "awaiting_confirm"})
@@ -881,6 +889,7 @@ class ChatOrchestrator:
         args: dict[str, Any],
         ratio: ChatRatioDecision,
         edit_source_image_key: str | None,
+        count: int | None,
     ) -> dict[str, Any]:
         normalized = dict(args)
         if "image_model" in normalized:
@@ -889,6 +898,9 @@ class ChatOrchestrator:
             return normalized
         if tool in {"generate", "clone"}:
             normalized["ratio"] = ratio.require_supported()
+            if tool == "generate" and count is not None:
+                normalized["n"] = count
+                normalized.pop("plan", None)
             return normalized
         if tool != "edit":
             return normalized

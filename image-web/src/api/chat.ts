@@ -3,6 +3,7 @@ import { api } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import type { components } from '@/api/schema'
 import { useAuthStore } from '@/stores/auth-store'
+import type { ChatImageOptionsPayload } from '@/lib/chat-image-options'
 
 /** 从一个 SSE 帧（event:/data: 行块）取出事件名与 data JSON。 */
 function parseFrame(frame: string): { event: string; data: string } | null {
@@ -62,6 +63,7 @@ export interface SendMessageInput {
   message: string
   chatModel: string
   imageModel: string
+  imageOptions: ChatImageOptionsPayload
   uploadIds?: string[]
   editSourceImageKey?: string
 }
@@ -74,6 +76,7 @@ export function buildChatMessageBody(input: SendMessageInput): ChatMessageBody {
     message: input.message,
     chat_model: input.chatModel,
     image_model: input.imageModel,
+    image_options: input.imageOptions,
     upload_ids: input.uploadIds ?? [],
   }
   if (input.editSourceImageKey) {

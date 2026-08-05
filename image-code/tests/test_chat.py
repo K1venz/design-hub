@@ -23,6 +23,10 @@ import pytest
 from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from design_hub.application.chat.image_options import (
+    AUTO_CHAT_IMAGE_OPTIONS,
+    ChatImageOptions,
+)
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
 from design_hub.application.chat.ratio_intent import decide_chat_ratio
@@ -585,6 +589,7 @@ def test_prepare_generate_args_forces_deterministic_landscape_ratio() -> None:
         {"upload_ids": ["u"], "prompt": "主图", "ratio": "1:1", "n": 1},
         decide_chat_ratio("做横版主图", "3:4"),
         None,
+        None,
     )
 
     assert args["ratio"] == "4:3"
@@ -601,6 +606,7 @@ def test_prepare_edit_args_uses_selected_key_and_inherits_ratio_for_delta() -> N
         },
         decide_chat_ratio("背景换成海边", "1:1"),
         "selected.png",
+        None,
     )
 
     assert args == {
@@ -620,6 +626,7 @@ def test_prepare_edit_args_promotes_ratio_change_to_full() -> None:
         },
         decide_chat_ratio("改成横版", "1:1"),
         "selected.png",
+        None,
     )
 
     assert args["source_image_key"] == "selected.png"
@@ -633,6 +640,7 @@ def test_prepare_edit_args_rejects_missing_ui_selection() -> None:
             "edit",
             {"source_image_key": "guessed.png", "prompt": "改暖色", "edit_mode": "delta"},
             decide_chat_ratio("改暖色", "1:1"),
+            None,
             None,
         )
 
@@ -741,6 +749,7 @@ class _TestChatOrchestrator(ChatOrchestrator):
         *,
         chat_model: str = "doubao-chat",
         image_model: str = "gpt-image-2",
+        image_options: ChatImageOptions = AUTO_CHAT_IMAGE_OPTIONS,
         edit_source_image_key: str | None = None,
     ) -> AsyncIterator:
         async for event in super().handle_message(
@@ -750,6 +759,7 @@ class _TestChatOrchestrator(ChatOrchestrator):
             upload_ids,
             chat_model=chat_model,
             image_model=image_model,
+            image_options=image_options,
             edit_source_image_key=edit_source_image_key,
         ):
             yield event

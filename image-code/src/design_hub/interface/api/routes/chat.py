@@ -93,6 +93,7 @@ async def chat_messages(
         req.upload_ids,
         chat_model=req.chat_model,
         image_model=req.image_model,
+        image_options=req.image_options.to_application(),
         edit_source_image_key=req.edit_source_image_key,
     )
     return StreamingResponse(

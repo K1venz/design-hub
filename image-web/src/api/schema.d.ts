@@ -1097,6 +1097,17 @@ export interface components {
              */
             action: string;
         };
+        /** ChatImageOptionsRequest */
+        ChatImageOptionsRequest: {
+            render_tier: components["schemas"]["ChatRenderTier"];
+            /**
+             * Ratio
+             * @enum {string}
+             */
+            ratio: "auto" | "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
+            /** Count */
+            count: number | null;
+        };
         /**
          * ChatMessageOut
          * @description 回显消息。job_id 非空→前端 useListingJob(job_id) 现签取图（取舍②，后端不内联 URL）。
@@ -1126,11 +1137,17 @@ export interface components {
             chat_model: string;
             /** Image Model */
             image_model: string;
+            image_options: components["schemas"]["ChatImageOptionsRequest"];
             /** Upload Ids */
             upload_ids?: string[];
             /** Edit Source Image Key */
             edit_source_image_key?: string | null;
         };
+        /**
+         * ChatRenderTier
+         * @enum {string}
+         */
+        ChatRenderTier: "auto" | "standard" | "4k";
         /**
          * ChatSessionSummaryOut
          * @description GET /chat/sessions 列表项（侧栏，updated_at 倒序）。
