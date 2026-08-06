@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 from redis.exceptions import ConnectionError
 
 from design_hub.application.tasking.health import (
@@ -12,6 +13,7 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.application.tasking.runtime import GenerationWorkerRuntime
+from design_hub.config.settings import Settings
 from design_hub.domain.tasking import (
     GenerationItemSpec,
     GenerationItemStatus,
@@ -162,6 +164,15 @@ def test_api_and_worker_have_separate_composition_roots() -> None:
     assert "GenerationWorkerRuntime" not in api_source
     assert "LiveImageExecutorResolver" in worker_source
     assert "GenerationWorkerRuntime" in worker_source
+
+
+def test_worker_heartbeat_must_precede_delivery_reclaim() -> None:
+    with pytest.raises(ValidationError, match="worker heartbeat must be shorter"):
+        Settings(
+            _env_file=None,
+            worker_heartbeat_seconds=15,
+            worker_reclaim_idle_ms=15_000,
+        )
 
 
 def test_worker_has_no_eager_executor_registry() -> None:

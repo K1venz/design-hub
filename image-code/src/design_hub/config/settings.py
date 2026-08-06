@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     worker_read_count: int = Field(default=8, gt=0, le=100)
     worker_read_block_ms: int = Field(default=1000, gt=0, le=30_000)
     worker_reclaim_idle_ms: int = Field(default=30_000, gt=0)
+    worker_heartbeat_seconds: float = Field(default=15.0, gt=0)
     worker_dispatch_interval_seconds: float = Field(default=0.2, gt=0)
     worker_shutdown_timeout_seconds: float = Field(default=30, gt=0, le=120)
     queue_rolling_item_seconds: float = Field(default=60, gt=0)
@@ -97,6 +98,12 @@ class Settings(BaseSettings):
     # prod 不配即闭、忘配=安全。qa/本地要浏览文档在各自 gitignored .env 设
     # DOCS_ENABLED=true；勿写进 .env.development（会随镜像带上 prod）。
     docs_enabled: bool = False
+
+    @model_validator(mode="after")
+    def validate_worker_lease_timing(self) -> "Settings":
+        if self.worker_heartbeat_seconds * 1000 >= self.worker_reclaim_idle_ms:
+            raise ValueError("worker heartbeat must be shorter than delivery reclaim idle")
+        return self
 
     # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储
     tos_access_key: SecretStr = SecretStr("")
