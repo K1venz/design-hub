@@ -6374,7 +6374,8 @@
         "type": "string",
         "enum": [
           "image",
-          "chat"
+          "chat",
+          "vision"
         ],
         "title": "ModelType"
       },

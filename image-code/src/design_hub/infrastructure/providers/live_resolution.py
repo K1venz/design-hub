@@ -90,23 +90,27 @@ class LiveTextLLMResolver:
         self._cipher = cipher
         self._recorder = recorder
         self._settings = settings
-        self._cache: dict[tuple[str, int], TextLLMPort] = {}
+        self._cache: dict[tuple[str, int, ModelType], TextLLMPort] = {}
 
-    async def resolve_default(self) -> TextLLMPort:
-        default_name = await self._repository.get_default(ModelType.CHAT)
+    async def resolve_default(self, model_type: ModelType) -> TextLLMPort:
+        default_name = await self._repository.get_default(model_type)
         if default_name is None:
             raise ModelUnavailableError(_UNAVAILABLE)
-        return await self.resolve(default_name)
+        return await self.resolve(default_name, model_type)
 
-    async def resolve(self, model_id: str) -> TextLLMPort:
+    async def resolve(
+        self,
+        model_id: str,
+        model_type: ModelType,
+    ) -> TextLLMPort:
         record = await self._repository.get(_required_model_id(model_id))
         credentials = _require_record(
             record,
-            expected_type=ModelType.CHAT,
+            expected_type=model_type,
             cipher=self._cipher,
         )
         assert record is not None
-        key = (record.name, record.revision)
+        key = (record.name, record.revision, model_type)
         cached = self._cache.get(key)
         if cached is not None:
             return cached

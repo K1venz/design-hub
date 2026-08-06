@@ -129,7 +129,8 @@ class ModelConfigService:
         )
         verified_at: datetime | None
         verified_fingerprint: str | None
-        if connection_changed:
+        fingerprint: str | None = None
+        if connection_changed or verification_proof is not None:
             fingerprint = _fingerprint(
                 model_type=next_model_type,
                 provider_type=next_provider_type,
@@ -154,14 +155,18 @@ class ModelConfigService:
             verified_fingerprint = current.verified_fingerprint
         next_enabled = enabled if enabled is not None else current.enabled
         if next_enabled and not current.enabled:
-            fingerprint = _fingerprint(
-                model_type=next_model_type,
-                provider_type=next_provider_type,
-                base_url=next_base_url,
-                model=next_model,
-                extra=next_extra,
-                credentials=_decrypt_credentials(self.cipher, next_credentials),
-            )
+            if fingerprint is None:
+                fingerprint = _fingerprint(
+                    model_type=next_model_type,
+                    provider_type=next_provider_type,
+                    base_url=next_base_url,
+                    model=next_model,
+                    extra=next_extra,
+                    credentials=_decrypt_credentials(
+                        self.cipher,
+                        next_credentials,
+                    ),
+                )
             if verified_at is None or verified_fingerprint != fingerprint:
                 raise ValueError("model must be verified before enabling")
         return await self.repo.update(
