@@ -1,0 +1,93 @@
+# 生成任务消息租约续期设计
+
+## 背景
+
+图片 Worker 从 Redis Stream 消费任务后，数据库中的任务租约会定期续期，Provider 并发槽位也会定期续期，但 Redis Pending Entries List 中消息的 idle 时间不会刷新。
+
+当同步图片模型调用超过 `WORKER_RECLAIM_IDLE_MS` 时，`XAUTOCLAIM` 会把仍在正常执行的消息视为失联消息并再次投递。重复执行随后在数据库 `claim()` 阶段发现原 Worker 租约仍然有效，抛出 `ConcurrentTaskMutation`。Nano Banana 2 的调用时间较长，因此比 GPT Image 2 更容易暴露该问题；万象 2.7 和任何后续长耗时模型都存在相同风险。
+
+## 目标
+
+- 正常运行的 Worker 必须持续维护 Redis 消息所有权，避免长耗时模型任务被重复投递。
+- 方案必须与模型无关，同时覆盖 Nano Banana 2、万象 2.7 及未来模型。
+- 不改变现有用户并发上限、Worker 并发度或按模型与清晰度划分的 Provider 槽位。
+- Worker 真正失联后，消息仍能在现有回收窗口后被其他 Worker 接管。
+- 不允许同一生成条目重复调用 Provider、重复扣费或重复保存结果。
+
+## 非目标
+
+- 不调整用户当前的任务提交策略或套图内部调度策略。
+- 不通过延长 `WORKER_RECLAIM_IDLE_MS` 掩盖问题。
+- 不为 Nano Banana 2 或万象 2.7 增加模型专属分支。
+- 不在本次改动中增加执行中任务的取消能力。
+
+## 设计
+
+### Redis 消息租约接口
+
+`TaskBroker` 增加显式的消息租约续期操作。续期输入包括当前 consumer 和 Redis message ID，语义是：
+
+1. 仅续期仍存在于当前 consumer group Pending Entries List 中的消息；
+2. 将消息的 idle 时间重置为零；
+3. 不增加消息的投递重试计数；
+4. 返回消息是否仍由调用方成功持有。
+
+Redis 实现使用 `XCLAIM` 的 `JUSTID` 形式重置 idle 时间。返回列表必须包含目标 message ID，否则视为消息租约已经丢失。
+
+### 单任务所有权心跳
+
+每个正在执行的 delivery 独立运行心跳。一次心跳依次完成：
+
+1. 续期数据库中的任务所有权；
+2. 续期该 delivery 的 Redis 消息所有权。
+
+两层存储无法形成分布式原子事务，因此采用协调式 fail-fast 语义：任一续期失败，守护任务立即失败并取消当前 Provider 操作。数据库租约和 Redis idle 窗口随后自然到期，由现有回收流程接管。
+
+心跳周期必须严格小于 Redis 回收窗口。启动时验证该配置不变量，非法配置直接失败，避免部署后静默产生重复执行风险。
+
+Provider 槽位续期继续作为独立守护条件。同步 Provider 提交阶段同时维护数据库租约、Redis 消息租约和 Provider 槽位；异步 Provider 进入轮询阶段并释放提交槽位后，仍维护数据库和 Redis 消息租约。
+
+### 并发行为
+
+租约按 Redis message ID 和 generation item ID 隔离，不增加 Worker 级或用户级全局锁。
+
+- 两个合法并发条目分别续期，不互相等待。
+- 用户最多两个执行中条目的数据库约束保持不变。
+- Worker 的 `read_count` 并发上限保持不变。
+- Provider 槽位继续按“模型＋清晰度”分区；Nano Banana 2 和万象 2.7 使用不同槽位键。
+- 同一条 Redis 消息只有其数据库所有者能够继续执行 Provider 操作。
+
+### 生命周期与异常
+
+- 正常完成或明确失败：先完成现有数据库状态转换，再 ACK Redis 消息；心跳任务随操作结束停止。
+- 排队取消：尚未执行的消息不启动心跳，沿用现有取消与退款流程。
+- Worker 优雅关闭：活动操作在关闭预算内完成；被取消的操作停止续期，之后可被回收。
+- Worker 崩溃或网络隔离：续期停止，Redis 消息超过回收窗口后由其他 Worker 领取；数据库租约也必须到期后才能恢复执行。
+- Redis 消息租约丢失：取消当前 Provider 操作并暴露错误，不继续以不确定所有权执行。
+
+## 测试策略
+
+### Broker 单元测试
+
+- Redis 消息续期调用使用正确的 stream、group、consumer、message ID 和 `JUSTID` 语义。
+- 目标 ID 存在时返回成功，不存在时返回失败。
+
+### Worker 单元测试
+
+- 长耗时 Provider 操作期间同时发生数据库心跳、Redis 消息续期和 Provider 槽位续期。
+- Redis 消息续期失败时取消 Provider 操作并让错误传播。
+- 异步 Provider 轮询阶段继续维护 Redis 消息租约。
+
+### Runtime 回归测试
+
+- Provider 执行时间超过回收窗口时，同一 delivery 只被调度一次，数据库只领取一次，Provider 只调用一次。
+- 两个长耗时 delivery 并行时分别续期并完成，不发生串行化或交叉所有权。
+- Worker 停止续期后，delivery 能由另一个 consumer 回收。
+- Nano Banana 2 和万象 2.7 的模型选择不改变上述行为；测试通过通用 Worker 路径验证，不复制模型专属测试实现。
+
+## 验收标准
+
+- 超过 30 秒的正常图片生成不再每 30 秒产生 `ConcurrentTaskMutation`。
+- 同一生成条目没有重复 Provider 调用、重复扣费或重复结果落库。
+- 现有用户并发和 Provider 并发测试保持通过。
+- Redis、Worker、数据库仓储及集成测试全部通过。
