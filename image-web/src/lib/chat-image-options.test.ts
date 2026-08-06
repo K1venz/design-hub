@@ -17,14 +17,14 @@ const gpt: ModelCatalogItem = {
   is_default: true,
   image_capabilities: {
     max_count: 7,
-    supports_references: true,
     render_tiers: [
       {
         id: 'standard',
         label: '1K 标准',
         ratios: ['1:1', '3:2', '2:3', '4:5'],
+        supports_references: true,
       },
-      { id: '4k', label: '4K 超清', ratios: ['16:9'] },
+      { id: '4k', label: '4K 超清', ratios: ['16:9'], supports_references: true },
     ],
   },
 }
@@ -35,23 +35,39 @@ const nano: ModelCatalogItem = {
   is_default: false,
   image_capabilities: {
     max_count: 7,
-    supports_references: true,
     render_tiers: [
       {
         id: 'standard',
         label: '1K 标准',
         ratios: ['1:1', '1:4', '1:8', '2:3', '3:2', '3:4', '4:1', '4:3', '4:5', '5:4', '8:1', '9:16', '16:9', '21:9'],
+        supports_references: true,
       },
       {
         id: '2k',
         label: '2K 高清',
         ratios: ['1:1', '1:4', '1:8', '2:3', '3:2', '3:4', '4:1', '4:3', '4:5', '5:4', '8:1', '9:16', '16:9', '21:9'],
+        supports_references: true,
       },
       {
         id: '4k',
         label: '4K 超清',
         ratios: ['1:1', '1:4', '1:8', '2:3', '3:2', '3:4', '4:1', '4:3', '4:5', '5:4', '8:1', '9:16', '16:9', '21:9'],
+        supports_references: true,
       },
+    ],
+  },
+}
+
+const wan: ModelCatalogItem = {
+  id: 'wan2.7-image-pro',
+  display_name: 'Wan 2.7 Image Pro',
+  is_default: false,
+  image_capabilities: {
+    max_count: 7,
+    render_tiers: [
+      { id: 'standard', label: '1K 标准', ratios: ['1:1', '1:4'], supports_references: true },
+      { id: '2k', label: '2K 高清', ratios: ['1:1', '1:4'], supports_references: true },
+      { id: '4k', label: '4K 超清', ratios: ['1:1', '1:4'], supports_references: false },
     ],
   },
 }
@@ -74,13 +90,13 @@ describe('model-driven image options', () => {
   })
 
   it('derives all tiers and ratios from the selected catalog model', () => {
-    expect(chatRenderTiersFor(nano).map((tier) => tier.id)).toEqual([
+    expect(chatRenderTiersFor(nano, false).map((tier) => tier.id)).toEqual([
       'auto',
       'standard',
       '2k',
       '4k',
     ])
-    expect(chatImageRatiosFor(nano, '2k')).toEqual([
+    expect(chatImageRatiosFor(nano, '2k', false)).toEqual([
       'auto',
       '1:1', '1:4', '1:8', '2:3', '3:2', '3:4', '4:1',
       '4:3', '4:5', '5:4', '8:1', '9:16', '16:9', '21:9',
@@ -92,8 +108,33 @@ describe('model-driven image options', () => {
       normalizeChatImageOptionsForModel(
         { renderTier: '2k', count: 1, ratio: '21:9' },
         gpt,
+        false,
       ),
     ).toEqual({ renderTier: 'auto', count: 1, ratio: 'auto' })
+  })
+
+  it('filters Wan 4K whenever the operation includes a reference', () => {
+    expect(chatRenderTiersFor(wan, false).map((tier) => tier.id)).toEqual([
+      'auto',
+      'standard',
+      '2k',
+      '4k',
+    ])
+    expect(chatRenderTiersFor(wan, true).map((tier) => tier.id)).toEqual([
+      'auto',
+      'standard',
+      '2k',
+    ])
+  })
+
+  it('normalizes a selected Wan 4K tier after adding a reference', () => {
+    expect(
+      normalizeChatImageOptionsForModel(
+        { renderTier: '4k', count: 1, ratio: '1:4' },
+        wan,
+        true,
+      ),
+    ).toEqual({ renderTier: 'auto', count: 1, ratio: '1:4' })
   })
 
   it('keeps supported standard output settings', () => {

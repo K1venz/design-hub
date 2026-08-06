@@ -7,6 +7,7 @@ import type { ModelSelection } from '@/components/models/model-selection'
 
 function selection(modelId: string): ModelSelection {
   const isNano = modelId === 'nano-banana-2'
+  const isWan = modelId === 'wan2.7-image-pro'
   return {
     modelId,
     models: [
@@ -19,16 +20,21 @@ function selection(modelId: string): ModelSelection {
           : {
               image_capabilities: {
                 max_count: 7,
-                supports_references: true,
                 render_tiers: isNano
                   ? [
-                      { id: 'standard' as const, label: '1K 标准', ratios: ['1:1', '4:5'] },
-                      { id: '2k' as const, label: '2K 高清', ratios: ['1:1', '4:5', '21:9'] },
-                      { id: '4k' as const, label: '4K 超清', ratios: ['1:1', '4:5', '21:9'] },
+                      { id: 'standard' as const, label: '1K 标准', ratios: ['1:1', '4:5'], supports_references: true },
+                      { id: '2k' as const, label: '2K 高清', ratios: ['1:1', '4:5', '21:9'], supports_references: true },
+                      { id: '4k' as const, label: '4K 超清', ratios: ['1:1', '4:5', '21:9'], supports_references: true },
                     ]
+                  : isWan
+                    ? [
+                        { id: 'standard' as const, label: '1K 标准', ratios: ['1:1', '1:4'], supports_references: true },
+                        { id: '2k' as const, label: '2K 高清', ratios: ['1:1', '1:4'], supports_references: true },
+                        { id: '4k' as const, label: '4K 超清', ratios: ['1:1', '1:4'], supports_references: false },
+                      ]
                   : [
-                      { id: 'standard' as const, label: '1K 标准', ratios: ['1:1', '3:2', '2:3', '3:4', '4:3', '9:16', '16:9', '4:5', '5:4', '1:2', '2:1'] },
-                      { id: '4k' as const, label: '4K 超清', ratios: ['16:9'] },
+                      { id: 'standard' as const, label: '1K 标准', ratios: ['1:1', '3:2', '2:3', '3:4', '4:3', '9:16', '16:9', '4:5', '5:4', '1:2', '2:1'], supports_references: true },
+                      { id: '4k' as const, label: '4K 超清', ratios: ['16:9'], supports_references: true },
                     ],
               },
             }),
@@ -128,5 +134,18 @@ describe('ChatComposer GPT Image 2 parameters', () => {
     expect(markup).toContain('图片上传中')
     expect(sendButton).toBeDefined()
     expect(sendButton).toContain('disabled=""')
+  })
+
+  it('hides Wan 4K when an edit source is selected', () => {
+    const textToImage = renderComposer('standard', 1, 'wan2.7-image-pro')
+    const edit = renderComposer('standard', 1, 'wan2.7-image-pro', {
+      selectedEditSource: {
+        url: '/generated/source.png',
+        imageKey: 'generated/source.png',
+      },
+    })
+
+    expect(textToImage).toContain('<option value="4k">4K 超清</option>')
+    expect(edit).not.toContain('<option value="4k">4K 超清</option>')
   })
 })

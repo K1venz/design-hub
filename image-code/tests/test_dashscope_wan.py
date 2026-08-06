@@ -191,6 +191,41 @@ def test_submit_contract_and_restart_safe_resume_store_one_result() -> None:
     assert len(recorder.succeeded) == 1
 
 
+def test_submit_sends_extreme_4k_dimensions_verbatim() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={"output": {"task_id": "task-4k"}})
+
+    provider, client, _store, _recorder = _provider(handler)
+    request = ProviderRequest(
+        context=ModelCallContext(
+            user_id="7",
+            operation=ModelOperation.IMAGE_GENERATION,
+            generation_item_id="item-4k",
+        ),
+        prompt="extreme vertical poster",
+        reference_images=(),
+        output=ImageOutputSpec(
+            ratio="1:8",
+            render_tier=RenderTier.FOUR_K,
+            size=(1408, 11264),
+        ),
+        seed=4,
+        quality=None,
+    )
+
+    async def run() -> None:
+        assert await provider.submit_task(request, operation_id="operation-4k") == (
+            "task-4k"
+        )
+        await client.aclose()
+
+    asyncio.run(run())
+    assert payloads[0]["parameters"]["size"] == "1408*11264"
+
+
 def test_resume_does_not_submit_again_after_worker_restart() -> None:
     methods: list[str] = []
 
