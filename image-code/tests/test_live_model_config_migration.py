@@ -164,12 +164,18 @@ def test_live_model_domain_and_orm_use_stable_typed_model_ids() -> None:
     from design_hub.domain.enums import ModelType, ProviderType
     from design_hub.domain.model_config import (
         DOUBAO_CHAT,
+        DOUBAO_VISION,
+        DOUBAO_VISION_UPSTREAM_MODEL,
         GPT_IMAGE_2,
         WAN_2_7_IMAGE_PRO,
     )
     from design_hub.infrastructure.db.models import ModelConfig, ModelDefault
 
-    assert [model_type.value for model_type in ModelType] == ["image", "chat"]
+    assert [model_type.value for model_type in ModelType] == [
+        "image",
+        "chat",
+        "vision",
+    ]
     assert [provider.value for provider in ProviderType] == [
         "openai_compat_image",
         "gemini_native_image",
@@ -180,6 +186,10 @@ def test_live_model_domain_and_orm_use_stable_typed_model_ids() -> None:
         "gpt-image-2",
         "wan2.7-image-pro",
         "doubao-chat",
+    )
+    assert (DOUBAO_VISION, DOUBAO_VISION_UPSTREAM_MODEL) == (
+        "doubao-vision",
+        "doubao-seed-2-0-lite-260428",
     )
     assert "ModelName" not in __import__("design_hub.domain.enums", fromlist=["*"]).__dict__
     assert set(ModelConfig.__table__.columns.keys()) == {
