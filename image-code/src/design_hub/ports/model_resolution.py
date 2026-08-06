@@ -1,5 +1,6 @@
 from typing import Protocol
 
+from design_hub.domain.enums import ModelType
 from design_hub.domain.tasking import RenderTier
 from design_hub.ports.provider_execution import ProviderExecutor
 from design_hub.ports.text_llm import TextLLMPort
@@ -16,6 +17,13 @@ class ImageExecutorResolver(Protocol):
 
 
 class TextLLMResolver(Protocol):
-    async def resolve(self, model_id: str) -> TextLLMPort: ...
+    async def resolve(
+        self,
+        model_id: str,
+        model_type: ModelType,
+    ) -> TextLLMPort: ...
 
-    async def resolve_default(self) -> TextLLMPort: ...
+    async def resolve_default(
+        self,
+        model_type: ModelType,
+    ) -> TextLLMPort: ...

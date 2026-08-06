@@ -396,6 +396,49 @@ def test_disabled_connection_still_needs_proof_and_enable_checks_stored_fingerpr
     asyncio.run(run())
 
 
+def test_existing_unverified_connection_accepts_exact_proof_without_field_changes() -> None:
+    async def run() -> None:
+        service, _sessions, engine, cipher = await _service()
+        try:
+            await service.repo.create(
+                actor_id=ACTOR_ID,
+                record=ModelConfigRecord(
+                    name="unverified-image",
+                    display_name="Unverified image",
+                    model_type=ModelType.IMAGE,
+                    provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+                    base_url="https://images.example.test/v1",
+                    model="upstream-image",
+                    credentials_ciphertext=_ciphertext(cipher),
+                    unit_cost=Decimal("0"),
+                    enabled=False,
+                    revision=1,
+                    verified_at=None,
+                    verified_fingerprint=None,
+                    extra={"response_format": "b64_json"},
+                ),
+            )
+
+            updated = await service.update(
+                actor_id=ACTOR_ID,
+                name="unverified-image",
+                enabled=True,
+                verification_proof=_proof(
+                    service,
+                    _fingerprint(),
+                    name="unverified-image",
+                ),
+            )
+
+            assert updated.enabled is True
+            assert updated.verified_at is not None
+            assert updated.verified_fingerprint == _fingerprint()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
 def test_default_and_deletion_rules_are_transactional_and_secret_safe() -> None:
     async def run() -> None:
         service, sessions, engine, cipher = await _service()
