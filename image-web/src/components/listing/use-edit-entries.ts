@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { useListingJob } from '@/api/listing'
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import type { ResultSlot } from '@/lib/listing'
 import { mergeSlotsWithDetail } from '@/lib/listing'
 
 /**

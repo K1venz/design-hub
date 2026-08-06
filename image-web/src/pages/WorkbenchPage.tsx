@@ -14,7 +14,7 @@ import {
 } from '@/api/listing'
 import { ListingConfigPanel } from '@/components/listing/ListingConfigPanel'
 import { RecipeDrawer } from '@/components/listing/RecipeDrawer'
-import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
+import { ResultGallery } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import {
   requireSelectedImageModel,
@@ -28,6 +28,7 @@ import {
   type ListingConfig,
   type ListingJobDetail,
   type ListingJobSummary,
+  type ResultSlot,
 } from '@/lib/listing'
 import { useWorkbenchStore } from '@/stores/workbench-store'
 

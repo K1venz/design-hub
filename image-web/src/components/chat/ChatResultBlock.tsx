@@ -6,7 +6,7 @@ import {
   WallpaperIcon,
 } from 'lucide-react'
 
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import type { ResultSlot } from '@/lib/listing'
 import { downloadImage } from '@/lib/download'
 import {
   editSourceFromSlot,

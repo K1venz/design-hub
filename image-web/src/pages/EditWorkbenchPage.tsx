@@ -9,7 +9,7 @@ import {
   useListingJob,
 } from '@/api/listing'
 import { EditConfigPanel, type EditConfig, type EditSource } from '@/components/listing/EditConfigPanel'
-import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
+import { ResultGallery } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import { useEditEntries } from '@/components/listing/use-edit-entries'
 import {
@@ -19,7 +19,7 @@ import {
 import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import {
   DEFAULT_EDIT_MODE, DEFAULT_LISTING_CONFIG, IMAGE_SUCCESS_STATUS, RATIOS,
-  type ListingJobDetail, type Ratio,
+  type ListingJobDetail, type Ratio, type ResultSlot,
 } from '@/lib/listing'
 
 /** 编辑表单种子：ratio/modifiers 预填父 job（「不动 = 继承」），无父时退全局默认。 */
