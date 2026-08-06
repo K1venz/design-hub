@@ -134,7 +134,7 @@ async def run_worker(settings: Settings | None = None) -> None:
         slots_for=slots_for,
         worker_id=worker_id,
         lease_seconds=settings.provider_slot_lease_seconds,
-        heartbeat_seconds=15,
+        heartbeat_seconds=settings.worker_heartbeat_seconds,
         slot_refresh_seconds=settings.provider_slot_refresh_seconds,
     )
     runtime = GenerationWorkerRuntime(
