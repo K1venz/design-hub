@@ -3,12 +3,15 @@ import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
 from decimal import Decimal
+from io import BytesIO
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from design_hub.application.admin.model_capability_service import (
     CapabilityTestBusy,
+    CapabilityTestFailed,
     ModelCapabilityService,
 )
 from design_hub.domain.enums import ModelType, ProviderType
@@ -203,17 +206,55 @@ class _ChatProvider(TextLLMPort):
         return chunks()
 
 
+class _VisionProvider(TextLLMPort):
+    def __init__(self, arguments: dict[str, object] | None) -> None:
+        self.arguments = arguments
+        self.messages: list[ChatMessage] = []
+        self.tools: list[ToolSpec] = []
+
+    def complete(
+        self,
+        *,
+        context: ModelCallContext,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
+    ) -> AsyncIterator[LLMChunk]:
+        self.messages = messages
+        self.tools = tools
+
+        async def chunks() -> AsyncIterator[LLMChunk]:
+            if self.arguments is not None:
+                yield ToolCallChunk(
+                    (
+                        ToolCall(
+                            id="vision-probe",
+                            name="model_configuration_probe",
+                            arguments=self.arguments,
+                        ),
+                    )
+                )
+
+        return chunks()
+
+
 class _Factory:
     def __init__(
         self,
         *,
         entered: asyncio.Event | None = None,
         release: asyncio.Event | None = None,
+        vision_arguments: dict[str, object] | None = None,
     ) -> None:
         self.image: _ImageProvider | None = None
         self.chat: _ChatProvider | None = None
+        self.vision: _VisionProvider | None = None
         self.entered = entered
         self.release = release
+        self.vision_arguments = (
+            {"dominant_color": "red"}
+            if vision_arguments is None
+            else vision_arguments
+        )
 
     def build_image(
         self,
@@ -235,6 +276,9 @@ class _Factory:
         record: ModelConfigRecord,
         credentials: dict[str, str | tuple[str, ...]],
     ) -> TextLLMPort:
+        if record.model_type is ModelType.VISION:
+            self.vision = _VisionProvider(self.vision_arguments)
+            return self.vision
         self.chat = _ChatProvider()
         return self.chat
 
@@ -314,6 +358,64 @@ def test_chat_probe_requires_streamed_text_and_named_tool() -> None:
     assert factory.chat is not None
     assert [len(tools) for tools in factory.chat.calls] == [0, 1]
     assert factory.chat.calls[1][0].required is True
+
+
+def test_vision_probe_requires_image_understanding_and_named_tool() -> None:
+    service, verifier, factory = _service()
+
+    result = asyncio.run(
+        service.test(
+            manager_id="7",
+            name="doubao-vision",
+            model_type=ModelType.VISION,
+            provider_type=ProviderType.OPENAI_COMPAT_CHAT,
+            base_url="https://ark.example.test/api/v3",
+            model="doubao-seed-2-0-lite-260428",
+            credentials={"api_key": "enc-chat"},
+            extra={"thinking_disabled": True},
+        )
+    )
+
+    assert result.checks == ("image_understanding", "tool_call")
+    assert verifier.issued[0]["model_type"] is ModelType.VISION
+    assert factory.vision is not None
+    assert len(factory.vision.messages) == 2
+    assert len(factory.vision.messages[-1].images) == 1
+    image = factory.vision.messages[-1].images[0]
+    assert image.media_type == "image/png"
+    with Image.open(BytesIO(image.data)) as probe:
+        assert probe.getpixel((0, 0)) == (255, 0, 0)
+    assert len(factory.vision.tools) == 1
+    assert factory.vision.tools[0].required is True
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"dominant_color": "blue"},
+    ],
+)
+def test_vision_probe_rejects_missing_or_incorrect_image_result(
+    arguments: dict[str, object],
+) -> None:
+    service, _verifier, _factory = _service(
+        factory=_Factory(vision_arguments=arguments)
+    )
+
+    with pytest.raises(CapabilityTestFailed):
+        asyncio.run(
+            service.test(
+                manager_id="7",
+                name="doubao-vision",
+                model_type=ModelType.VISION,
+                provider_type=ProviderType.OPENAI_COMPAT_CHAT,
+                base_url="https://ark.example.test/api/v3",
+                model="doubao-seed-2-0-lite-260428",
+                credentials={"api_key": "enc-chat"},
+                extra={"thinking_disabled": True},
+            )
+        )
 
 
 def test_omitted_credentials_reuse_only_the_named_existing_record() -> None:
