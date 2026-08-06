@@ -15,6 +15,7 @@ from pydantic import (
 from design_hub.application.listing.requests import ImageSource
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.enums import ModelType
 from design_hub.domain.errors import NotFoundError
 from design_hub.ports.image_store import ImageStore
 from design_hub.ports.listing_query import ListingHistoryQuery
@@ -120,7 +121,9 @@ class ReversePromptService:
             required=True,
         )
         try:
-            text_llm = await self.text_llm_resolver.resolve_default()
+            text_llm = await self.text_llm_resolver.resolve_default(
+                ModelType.VISION
+            )
             calls = await _collect_tool_calls(
                 text_llm.complete(
                     context=ModelCallContext(

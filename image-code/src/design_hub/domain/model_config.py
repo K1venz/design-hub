@@ -8,13 +8,15 @@ from design_hub.domain.enums import ModelType, ProviderType
 GPT_IMAGE_2 = "gpt-image-2"
 WAN_2_7_IMAGE_PRO = "wan2.7-image-pro"
 DOUBAO_CHAT = "doubao-chat"
+DOUBAO_VISION = "doubao-vision"
+DOUBAO_VISION_UPSTREAM_MODEL = "doubao-seed-2-0-lite-260428"
 
 CredentialValue = str | tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class ProviderRule:
-    model_type: ModelType
+    model_types: frozenset[ModelType]
     credential_fields: tuple[str, ...]
     required_credential_fields: tuple[str, ...]
     extra_fields: tuple[str, ...]
@@ -22,25 +24,25 @@ class ProviderRule:
 
 PROVIDER_RULES = {
     ProviderType.OPENAI_COMPAT_IMAGE: ProviderRule(
-        model_type=ModelType.IMAGE,
+        model_types=frozenset({ModelType.IMAGE}),
         credential_fields=("standard_api_keys", "four_k_api_key"),
         required_credential_fields=("standard_api_keys",),
         extra_fields=("input_fidelity", "response_format"),
     ),
     ProviderType.DASHSCOPE_WAN_IMAGE: ProviderRule(
-        model_type=ModelType.IMAGE,
+        model_types=frozenset({ModelType.IMAGE}),
         credential_fields=("api_key",),
         required_credential_fields=("api_key",),
         extra_fields=("watermark",),
     ),
     ProviderType.GEMINI_NATIVE_IMAGE: ProviderRule(
-        model_type=ModelType.IMAGE,
+        model_types=frozenset({ModelType.IMAGE}),
         credential_fields=("api_keys",),
         required_credential_fields=("api_keys",),
         extra_fields=(),
     ),
     ProviderType.OPENAI_COMPAT_CHAT: ProviderRule(
-        model_type=ModelType.CHAT,
+        model_types=frozenset({ModelType.CHAT, ModelType.VISION}),
         credential_fields=("api_key",),
         required_credential_fields=("api_key",),
         extra_fields=("thinking_disabled",),
@@ -59,7 +61,7 @@ def validate_connection_fields(
 ) -> None:
     """Validate one complete, decrypted runtime connection before it is fingerprinted."""
     rule = PROVIDER_RULES[provider_type]
-    if model_type is not rule.model_type:
+    if model_type not in rule.model_types:
         raise ValueError("invalid provider model type")
     if not base_url.strip() or not upstream_model.strip():
         raise ValueError("invalid provider connection")
