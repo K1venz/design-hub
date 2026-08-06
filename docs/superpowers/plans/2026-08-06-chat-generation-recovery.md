@@ -1,5 +1,7 @@
 # Chat Generation Recovery Implementation Plan
 
+> **Status: Superseded.** Do not execute this plan. Its polling-based result path conflicts with the approved zero-polling SSE architecture in `2026-08-06-unified-sse-image-feedback-design.md`. Use `2026-08-06-unified-sse-image-feedback.md` instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让仍在生图的历史会话在刷新或重新进入后恢复完整占位槽、逐张结果和旋转动画，并在任务终态自动停止刷新。
