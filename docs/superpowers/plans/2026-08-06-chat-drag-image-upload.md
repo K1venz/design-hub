@@ -25,7 +25,7 @@
 
 **Files:**
 - Create: `image-web/src/components/chat/ChatImageDropZone.tsx`
-- Create: `image-web/src/components/chat/ChatImageDropZone.test.tsx`
+- Create: `image-web/src/components/chat/ChatImageDropZone.test.ts`
 - Modify: `image-web/package.json`
 - Modify: `image-web/package-lock.json`
 
@@ -47,10 +47,11 @@ Expected: `jsdom` and `@testing-library/react` are added to `devDependencies`, a
 
 - [ ] **Step 2: Write failing selection and interaction tests**
 
-Create `ChatImageDropZone.test.tsx` with a jsdom environment. Cover the pure format/limit contract and the real React drag events:
+Create `ChatImageDropZone.test.ts` with a jsdom environment. This project collects only `*.test.ts`, so use `createElement` instead of JSX. Cover the pure format/limit contract and the real React drag events:
 
-```tsx
+```ts
 // @vitest-environment jsdom
+import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -77,15 +78,11 @@ it('keeps supported images within the remaining attachment slots', () => {
 it('shows the receiving state and submits dropped files', () => {
   const onSelection = vi.fn()
   const file = png('product.png')
-  const { container } = render(
-    <ChatImageDropZone
-      disabled={false}
-      remainingSlots={2}
-      onSelection={onSelection}
-    >
-      <section>composer</section>
-    </ChatImageDropZone>,
-  )
+  const { container } = render(createElement(
+    ChatImageDropZone,
+    { disabled: false, remainingSlots: 2, onSelection },
+    createElement('section', null, 'composer'),
+  ))
   const zone = container.querySelector('[data-chat-image-drop-zone]')!
   const dataTransfer = { types: ['Files'], files: [file] }
 
@@ -105,7 +102,7 @@ it('shows the receiving state and submits dropped files', () => {
 
 Add these exact cases in the same file:
 
-```tsx
+```ts
 it('keeps the overlay while leaving only a nested child', () => {
   const { container } = renderDropZone({ remainingSlots: 2 })
   const zone = container.querySelector('[data-chat-image-drop-zone]')!
@@ -150,10 +147,10 @@ it('reports a full attachment list without showing the overlay', () => {
 Run:
 
 ```bash
-npm test -- src/components/chat/ChatImageDropZone.test.tsx
+npm test -- src/components/chat/ChatImageDropZone.test.ts
 ```
 
-Expected: FAIL because `ChatImageDropZone.tsx` does not exist.
+Expected: FAIL because `ChatImageDropZone.tsx` does not exist, and the output lists the new test instead of only the previous 27 files.
 
 - [ ] **Step 4: Implement the minimal decorator and selection function**
 
@@ -197,7 +194,7 @@ Use a `dragDepthRef` to keep the receiving state stable across child elements. P
 Run:
 
 ```bash
-npm test -- src/components/chat/ChatImageDropZone.test.tsx
+npm test -- src/components/chat/ChatImageDropZone.test.ts
 ```
 
 Expected: all drop-zone tests PASS with no React act warnings.
@@ -207,7 +204,7 @@ Expected: all drop-zone tests PASS with no React act warnings.
 ```bash
 git add image-web/package.json image-web/package-lock.json \
   image-web/src/components/chat/ChatImageDropZone.tsx \
-  image-web/src/components/chat/ChatImageDropZone.test.tsx
+  image-web/src/components/chat/ChatImageDropZone.test.ts
 git commit -m "feat: add chat image drop zone"
 ```
 
@@ -220,7 +217,7 @@ Commit body: explain the nested drag-depth handling, shared format/limit contrac
 **Files:**
 - Modify: `image-web/src/components/chat/ChatComposer.tsx`
 - Modify: `image-web/src/components/chat/ChatComposer.test.ts`
-- Create: `image-web/src/components/chat/ChatComposer.interactions.test.tsx`
+- Create: `image-web/src/components/chat/ChatComposer.interactions.test.ts`
 - Modify: `image-web/src/pages/ChatPage.tsx`
 
 **Interfaces:**
@@ -246,16 +243,17 @@ it('locks sending and shows progress while an attachment is uploading', () => {
 })
 ```
 
-Create `ChatComposer.interactions.test.tsx` with `// @vitest-environment jsdom`, Testing Library, and a local `composerProps(overrides)` factory containing the same ready Chat and image selections used by the existing static test. Verify the keyboard lock and decorator integration with real events:
+Create `ChatComposer.interactions.test.ts` with `// @vitest-environment jsdom`, `createElement`, Testing Library, and a local `composerProps(overrides)` factory containing the same ready Chat and image selections used by the existing static test. Verify the keyboard lock and decorator integration with real events:
 
-```tsx
+```ts
+import { createElement } from 'react'
+
 it('does not send with Enter while an image upload is pending', () => {
   const onSend = vi.fn()
-  render(
-    <ChatComposer
-      {...composerProps({ uploadPending: true, onSend })}
-    />,
-  )
+  render(createElement(
+    ChatComposer,
+    composerProps({ uploadPending: true, onSend }),
+  ))
 
   fireEvent.keyDown(screen.getByLabelText('图片创作提示词'), {
     key: 'Enter',
@@ -268,11 +266,10 @@ it('does not send with Enter while an image upload is pending', () => {
 it('forwards a dropped image through the unified file selection action', () => {
   const onPickFiles = vi.fn()
   const onFileSelection = vi.fn()
-  const { container } = render(
-    <ChatComposer
-      {...composerProps({ onPickFiles, onFileSelection })}
-    />,
-  )
+  const { container } = render(createElement(
+    ChatComposer,
+    composerProps({ onPickFiles, onFileSelection }),
+  ))
   const file = new File(['png'], 'product.png', { type: 'image/png' })
   fireEvent.drop(container.querySelector('[data-chat-image-drop-zone]')!, {
     dataTransfer: { types: ['Files'], files: [file] },
@@ -293,7 +290,7 @@ it('forwards a dropped image through the unified file selection action', () => {
 Run:
 
 ```bash
-npm test -- src/components/chat/ChatComposer.test.ts src/components/chat/ChatComposer.interactions.test.tsx
+npm test -- src/components/chat/ChatComposer.test.ts src/components/chat/ChatComposer.interactions.test.ts
 ```
 
 Expected: FAIL because `uploadPending` does not currently lock `canSend`, the keyboard handler bypasses that lock, and no upload placeholder is rendered beside existing attachments.
@@ -339,9 +336,9 @@ Keep `setSelectedEditSource(null)` immediately before accepted uploads and prese
 Run:
 
 ```bash
-npm test -- src/components/chat/ChatImageDropZone.test.tsx \
+npm test -- src/components/chat/ChatImageDropZone.test.ts \
   src/components/chat/ChatComposer.test.ts \
-  src/components/chat/ChatComposer.interactions.test.tsx
+  src/components/chat/ChatComposer.interactions.test.ts
 ```
 
 Expected: all focused tests PASS; no upload can trigger a send before completion.
@@ -351,7 +348,7 @@ Expected: all focused tests PASS; no upload can trigger a send before completion
 ```bash
 git add image-web/src/components/chat/ChatComposer.tsx \
   image-web/src/components/chat/ChatComposer.test.ts \
-  image-web/src/components/chat/ChatComposer.interactions.test.tsx \
+  image-web/src/components/chat/ChatComposer.interactions.test.ts \
   image-web/src/pages/ChatPage.tsx
 git commit -m "feat: upload dropped images from chat"
 ```
@@ -416,10 +413,10 @@ Start the local frontend and verify at desktop width:
 
 ```bash
 git add image-web/src/components/chat/ChatImageDropZone.tsx \
-  image-web/src/components/chat/ChatImageDropZone.test.tsx \
+  image-web/src/components/chat/ChatImageDropZone.test.ts \
   image-web/src/components/chat/ChatComposer.tsx \
   image-web/src/components/chat/ChatComposer.test.ts \
-  image-web/src/components/chat/ChatComposer.interactions.test.tsx \
+  image-web/src/components/chat/ChatComposer.interactions.test.ts \
   image-web/src/pages/ChatPage.tsx
 git commit -m "fix: close chat drag upload review gaps"
 ```
