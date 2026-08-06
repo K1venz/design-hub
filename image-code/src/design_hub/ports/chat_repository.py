@@ -29,8 +29,19 @@ class ChatSessionRepository(ABC):
         content: str,
         job_id: str | None = None,
         attachment_upload_ids: tuple[str, ...] = (),
+    ) -> str:
+        """Append a transcript message and return its stable message id."""
+        ...
+
+    @abstractmethod
+    async def update_assistant_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        content: str,
     ) -> None:
-        """追加一条转录消息（分配会话内 seq）+ bump 会话 updated_at（列表倒序）。"""
+        """Update one assistant message without changing its seq or job id."""
         ...
 
     @abstractmethod
