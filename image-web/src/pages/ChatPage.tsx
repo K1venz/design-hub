@@ -609,7 +609,7 @@ function JobResult({
   onBackground: (source: ChatEditSource) => void
   onReversePrompt: (source: ChatEditSource) => void
 }) {
-  const query = useListingJob(jobId)
+  const query = useListingJob(jobId, 'interactive')
   if (query.isLoading) {
     return (
       <div className="glass-lite flex max-w-[88%] items-center gap-2 rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
@@ -653,7 +653,7 @@ function CurrentJobResult({
   onReversePrompt: (source: ChatEditSource) => void
 }) {
   const stableJobId = !state.streaming ? state.activeJobId ?? undefined : undefined
-  const job = useListingJob(stableJobId)
+  const job = useListingJob(stableJobId, 'interactive')
   const slots = job.data ? detailToResultSlots(job.data) : state.slots
   const done = slots.filter(
     (slot) => slot.url || slot.unavailable,
