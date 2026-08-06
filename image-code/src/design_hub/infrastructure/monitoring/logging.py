@@ -54,6 +54,7 @@ _ALLOWED_LOG_KEYS = frozenset(
         "error_type",
         "error_summary",
         "duration_ms",
+        "endpoint_kind",
         "queue_depth",
         "outbox_age_seconds",
         "publish_attempts",

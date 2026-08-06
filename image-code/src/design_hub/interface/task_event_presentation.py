@@ -1,8 +1,17 @@
+import logging
 from collections.abc import Mapping
+from typing import Literal
 
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.errors import DataInvariantError
 from design_hub.ports.media_url_signer import MediaUrlSigner
+
+logger = logging.getLogger(__name__)
+
+SSE_RESPONSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
 
 
 def _required_text(data: Mapping[str, object], field: str) -> str:
@@ -27,3 +36,24 @@ def present_task_event_data(
     elif event_type == TaskEventType.IMAGE_FAILED:
         _required_text(data, "item_id")
     return presented
+
+
+def log_sse_image_emitted(
+    *,
+    job_id: str,
+    item_id: str,
+    redis_id: str,
+    endpoint_kind: Literal["listing", "chat"],
+) -> None:
+    logger.info(
+        "generation_sse_image_emitted",
+        extra={
+            "chain": "image_generation",
+            "action": "发送图片实时事件",
+            "status": "emitted",
+            "job_id": job_id,
+            "item_id": item_id,
+            "redis_id": redis_id,
+            "endpoint_kind": endpoint_kind,
+        },
+    )

@@ -1536,7 +1536,12 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
         types = [t for t, _ in conf]
         assert "job_started" in types
         assert _first(conf, "job_started")["plan"] == _PLAN
-        je = [d["type"] for t, d in conf if t == "job_event"]
+        job_events = [d for t, d in conf if t == "job_event"]
+        assert all(
+            isinstance(event["redis_id"], str) and event["redis_id"]
+            for event in job_events
+        )
+        je = [d["type"] for d in job_events]
         assert "task_started" in je
         assert je.count("image_generated") == 5
         assert "task_completed" in je
