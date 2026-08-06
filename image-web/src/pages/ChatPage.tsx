@@ -89,6 +89,11 @@ export function ChatPage() {
     selectedEditSource: ChatEditSource | null
     imageOptions: ChatImageOptionDraft
   } | null>(null)
+  const selectedImageModel =
+    imageModelSelection.models.find(
+      (model) => model.id === imageModelSelection.modelId,
+    ) ?? null
+  const hasReferences = attached.length > 0 || selectedEditSource !== null
 
   const on = (event: Parameters<typeof applyChatEvent>[1]) => {
     if (event.kind === 'error' && event.code === 'model_unavailable') {
@@ -157,6 +162,11 @@ export function ChatPage() {
       toast.info('请等待当前对话完成后再继续编辑')
       return
     }
+    if (selectedImageModel) {
+      setImageOptions((current) =>
+        normalizeChatImageOptionsForModel(current, selectedImageModel, true),
+      )
+    }
     setAttached([])
     setSelectedEditSource(source)
   }
@@ -198,13 +208,21 @@ export function ChatPage() {
     }
     const imageModel = requireSelectedImageModel(imageModelSelection)
     const chatModel = requireSelectedModel(chatModelSelection, '文本')
+    if (!selectedImageModel) {
+      throw new Error('图片模型目录与当前选择不一致')
+    }
+    const normalizedImageOptions = normalizeChatImageOptionsForModel(
+      imageOptions,
+      selectedImageModel,
+      Boolean(uploadIds?.length || selectedEditSource),
+    )
     const consumed = consumeChatEditSource(selectedEditSource)
     pendingSendRef.current = {
       state: stateRef.current,
       draft: text,
       attached,
       selectedEditSource,
-      imageOptions,
+      imageOptions: normalizedImageOptions,
     }
     setState((prev) =>
       pushUserMessage(
@@ -227,7 +245,7 @@ export function ChatPage() {
         message: text,
         chatModel,
         imageModel,
-        imageOptions: resolveChatImageOptions(imageOptions),
+        imageOptions: resolveChatImageOptions(normalizedImageOptions),
         uploadIds,
         editSourceImageKey: consumed.editSourceImageKey,
       }, on, ac.signal)
@@ -314,6 +332,11 @@ export function ChatPage() {
     for (const f of Array.from(files).slice(0, 3 - attached.length)) {
       try {
         const up = await upload.mutateAsync(f)
+        if (selectedImageModel) {
+          setImageOptions((current) =>
+            normalizeChatImageOptionsForModel(current, selectedImageModel, true),
+          )
+        }
         setAttached((prev) => [...prev, up])
       } catch (err) {
         toast.error(err instanceof Error ? err.message : '图片上传失败')
@@ -329,7 +352,7 @@ export function ChatPage() {
     imageModelSelection,
     (model) => {
       setImageOptions((current) =>
-        normalizeChatImageOptionsForModel(current, model),
+        normalizeChatImageOptionsForModel(current, model, hasReferences),
       )
     },
   )
