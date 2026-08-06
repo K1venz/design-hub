@@ -683,6 +683,12 @@ class ChatOrchestrator:
             yield ChatEvent("error", {"code": self._err_code(exc), "message": str(exc)})
             yield ChatEvent("assistant_end", {"status": "error"})
             return
+        job_message_id = await self.chat_repo.append_message(
+            session_id=session_id,
+            role="assistant",
+            content="生图任务详情如下：",
+            job_id=job_id,
+        )
         plan = pending.req.plan if isinstance(pending.req, ListingGenerateRequest) else None
         yield ChatEvent(
             "job_started",
@@ -746,9 +752,10 @@ class ChatOrchestrator:
         except (ModelUnavailableError, TextLLMError):
             closing = "已完成，可在结果区查看。" if completed else "很抱歉，出图未成功，请重试。"
             yield ChatEvent("assistant_delta", {"text": closing})
-        # 落 assistant 最终答复（+job_id，回显时 job_id→image_key→现签图，取舍②）
-        await self.chat_repo.append_message(
-            session_id=session_id, role="assistant", content=closing, job_id=job_id
+        await self.chat_repo.update_assistant_message(
+            session_id=session_id,
+            message_id=job_message_id,
+            content=closing,
         )
         yield ChatEvent("assistant_end", {"status": "complete"})
 

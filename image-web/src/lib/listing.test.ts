@@ -10,6 +10,7 @@ import {
   buildModifiers,
   buildListingBody,
   buildSetListingBody,
+  countProcessedSlots,
   detailToResultSlots,
   editModeLabel,
   mergeSlotsWithDetail,
@@ -359,9 +360,31 @@ describe('detailToResultSlots（恢复最近一单：终态详情 → 结果槽�
     ])
   })
 
-  it('空（新账号 / 无图非失败 / 进行中无图）：空数组', () => {
+  it('空（新账号 / 无图非失败）：空数组', () => {
     expect(detailToResultSlots(detail({ status: JOB_STATUS.done, images: [] }))).toEqual([])
-    expect(detailToResultSlots(detail({ status: JOB_STATUS.generating, images: [] }))).toEqual([])
+  })
+
+  it('生成中零结果：按 n 恢复完整等待槽', () => {
+    expect(
+      detailToResultSlots(detail({ status: JOB_STATUS.generating, n: 3, images: [] })),
+    ).toEqual([{ url: null }, { url: null }, { url: null }])
+  })
+
+  it('生成中部分结果：保留成功和失败并补齐剩余等待槽', () => {
+    const slots = detailToResultSlots(detail({
+      status: JOB_STATUS.generating,
+      n: 4,
+      error: '场景：provider 500',
+      images: [okImg('k1', '白底'), failImg('场景')],
+    }))
+
+    expect(slots).toEqual([
+      { url: 'http://x/k1.png', imageType: '白底', imageKey: 'k1' },
+      { url: null, imageType: '场景', error: '场景：provider 500' },
+      { url: null },
+      { url: null },
+    ])
+    expect(countProcessedSlots(slots)).toBe(2)
   })
 })
 
