@@ -426,6 +426,13 @@ def test_async_provider_resume_and_commit_before_ack_are_recoverable() -> None:
             types = [entry.event.type for entry in job_events]
             assert TaskEventType.IMAGE_GENERATED in types
             assert types.count(TaskEventType.TASK_COMPLETED) == 1
+            image_index = types.index(TaskEventType.IMAGE_GENERATED)
+            terminal_index = types.index(TaskEventType.TASK_COMPLETED)
+            assert image_index < terminal_index
+            image_event = job_events[image_index].event
+            assert image_event.data["item_id"]
+            assert image_event.data["image_key"]
+            assert "url" not in image_event.data
         finally:
             await _cleanup(sessions, redis, run_id)
             await redis.aclose()
