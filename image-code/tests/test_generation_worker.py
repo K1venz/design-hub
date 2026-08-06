@@ -39,6 +39,7 @@ from design_hub.ports.generation_work import (
     JobSubmission,
 )
 from design_hub.ports.model_calls import ModelCallContext
+from design_hub.ports.model_provider import ProviderError
 from design_hub.ports.provider_execution import (
     ImmediateResult,
     ProviderRequest,
@@ -182,9 +183,13 @@ class _Broker:
         self.acks: list[str] = []
         self.renewals: list[tuple[str, str]] = []
         self.renewed = True
+        self.renew_signal: asyncio.Event | None = None
 
     async def renew(self, *, consumer: str, redis_id: str) -> bool:
         self.renewals.append((consumer, redis_id))
+        if self.renew_signal is not None:
+            self.renew_signal.set()
+            await asyncio.sleep(0)
         return self.renewed
 
     async def ack(self, redis_id: str) -> None:
@@ -207,13 +212,17 @@ class _Executor:
         error: Exception | None = None,
         delay_seconds: float = 0,
         resume_delay_seconds: float = 0,
+        submit_gate: asyncio.Event | None = None,
     ) -> None:
         self.result = result or ImmediateResult(_image())
         self.error = error
         self.delay_seconds = delay_seconds
         self.resume_delay_seconds = resume_delay_seconds
+        self.submit_gate = submit_gate
         self.submits = 0
         self.resumes = 0
+        self.submit_cancelled = False
+        self.submit_completed = False
         self.last_request: ProviderRequest | None = None
 
     async def submit(
@@ -221,11 +230,18 @@ class _Executor:
     ) -> SubmittedTask | ImmediateResult:
         self.submits += 1
         self.last_request = request
-        if self.delay_seconds:
-            await asyncio.sleep(self.delay_seconds)
-        if self.error is not None:
-            raise self.error
-        return self.result
+        try:
+            if self.submit_gate is not None:
+                await self.submit_gate.wait()
+            if self.delay_seconds:
+                await asyncio.sleep(self.delay_seconds)
+            self.submit_completed = True
+            if self.error is not None:
+                raise self.error
+            return self.result
+        except asyncio.CancelledError:
+            self.submit_cancelled = True
+            raise
 
     async def resume(
         self, provider_task_id: str, request: ProviderRequest
@@ -513,7 +529,7 @@ def test_long_provider_submit_refreshes_database_and_slot_leases() -> None:
 def test_lost_delivery_lease_cancels_provider_operation() -> None:
     async def run() -> None:
         repository = _Repository(_work())
-        executor = _Executor(delay_seconds=0.03)
+        executor = _Executor(submit_gate=asyncio.Event())
         worker, broker, slots = _worker(
             repository,
             executor,
@@ -525,8 +541,40 @@ def test_lost_delivery_lease_cancels_provider_operation() -> None:
             await worker.process(_delivery())
 
         assert executor.submits == 1
+        assert executor.submit_cancelled
+        assert not executor.submit_completed
         assert broker.acks == []
         assert "complete" not in repository.actions
+        assert slots.actions[-1] == "release"
+
+    asyncio.run(run())
+
+
+def test_lost_delivery_lease_wins_same_tick_provider_error() -> None:
+    async def run() -> None:
+        provider_error_gate = asyncio.Event()
+        repository = _Repository(_work())
+        executor = _Executor(
+            error=ProviderError("provider failed"),
+            submit_gate=provider_error_gate,
+        )
+        worker, broker, slots = _worker(
+            repository,
+            executor,
+            heartbeat_seconds=0.005,
+        )
+        broker.renewed = False
+        broker.renew_signal = provider_error_gate
+
+        with pytest.raises(DataInvariantError, match="delivery lease lost"):
+            await worker.process(_delivery())
+
+        assert executor.submits == 1
+        assert executor.submit_completed
+        assert not executor.submit_cancelled
+        assert broker.acks == []
+        assert "complete" not in repository.actions
+        assert not any(action.startswith("failed:") for action in repository.actions)
         assert slots.actions[-1] == "release"
 
     asyncio.run(run())

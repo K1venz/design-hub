@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from typing import Protocol, TypeVar
 
 from design_hub.domain.admin import ModelOperation
@@ -411,8 +410,7 @@ class GenerationWorker:
             operation_task.cancel()
             for task in guard_tasks:
                 task.cancel()
-            with suppress(asyncio.CancelledError):
-                await operation_task
+            await asyncio.gather(operation_task, return_exceptions=True)
             await asyncio.gather(*guard_tasks, return_exceptions=True)
 
     async def _heartbeat_loop(
