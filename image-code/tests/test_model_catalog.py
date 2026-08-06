@@ -9,6 +9,7 @@ from design_hub.application.admin.model_config_service import ModelConfigService
 from design_hub.domain.enums import ModelType, ProviderType, Role
 from design_hub.domain.model_config import connection_fingerprint
 from design_hub.domain.models import AuthUser
+from design_hub.domain.wan_image import WAN_RATIOS
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.security.model_verification import PyJwtModelVerificationService
@@ -176,7 +177,25 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         ]
         assert [tier["id"] for tier in wan_capabilities["render_tiers"]] == [
             "standard",
+            "2k",
+            "4k",
         ]
+        assert all(
+            tier["ratios"] == list(WAN_RATIOS)
+            for tier in wan_capabilities["render_tiers"]
+        )
+        assert [
+            tier["supports_references"]
+            for tier in wan_capabilities["render_tiers"]
+        ] == [True, True, False]
+        assert [
+            tier["supports_references"]
+            for tier in gpt_capabilities["render_tiers"]
+        ] == [True, True]
+        assert [
+            tier["supports_references"]
+            for tier in nano_capabilities["render_tiers"]
+        ] == [True, True, True]
         assert nano_capabilities["render_tiers"][1]["ratios"] == [
             "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1",
             "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
@@ -208,11 +227,13 @@ def test_image_catalog_exposes_only_active_verified_models() -> None:
         assert image_json[1]["image_capabilities"]["render_tiers"][1] == {
             "id": "2k",
             "label": "2K 高清",
+            "supports_references": True,
             "ratios": [
                 "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1",
                 "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
             ],
         }
+        assert "supports_references" not in image_json[2]["image_capabilities"]
         assert "unit_cost" not in response.text
         assert "base_url" not in response.text
         assert "catalog-key" not in response.text

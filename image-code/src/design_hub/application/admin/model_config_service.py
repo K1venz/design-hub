@@ -234,11 +234,13 @@ class ModelConfigService:
                                 "id": tier.value,
                                 "label": labels[tier.value],
                                 "ratios": list(capabilities.ratios(tier)),
+                                "supports_references": (
+                                    capabilities.supports_references_for(tier)
+                                ),
                             }
                             for tier in capabilities.supported_tiers
                         ],
                         "max_count": capabilities.platform_max_count,
-                        "supports_references": capabilities.supports_references,
                     }
                 catalog.append(item)
         return catalog
