@@ -79,16 +79,22 @@ export function ChatComposer({
     imageSelection.models.find(
       (model) => model.id === imageSelection.modelId,
     ) ?? null
-  const renderTiers = chatRenderTiersFor(imageModel)
+  const hasReferences = attached.length > 0 || selectedEditSource !== null
+  const renderTiers = chatRenderTiersFor(imageModel, hasReferences)
   const counts = chatImageCountsFor(imageModel)
   const ratios = chatImageRatiosFor(
     imageModel,
     imageOptions.renderTier,
+    hasReferences,
   )
   const canSend = !busy && modelsReady && draft.trim().length > 0
 
   function updateRenderTier(renderTier: ChatRenderTier) {
-    const nextRatios = chatImageRatiosFor(imageModel, renderTier)
+    const nextRatios = chatImageRatiosFor(
+      imageModel,
+      renderTier,
+      hasReferences,
+    )
     onImageOptionsChange({
       ...imageOptions,
       renderTier,

@@ -4896,17 +4896,12 @@
           "max_count": {
             "type": "integer",
             "title": "Max Count"
-          },
-          "supports_references": {
-            "type": "boolean",
-            "title": "Supports References"
           }
         },
         "type": "object",
         "required": [
           "render_tiers",
-          "max_count",
-          "supports_references"
+          "max_count"
         ],
         "title": "ImageModelCapabilitiesOut"
       },
@@ -4959,13 +4954,18 @@
             },
             "type": "array",
             "title": "Ratios"
+          },
+          "supports_references": {
+            "type": "boolean",
+            "title": "Supports References"
           }
         },
         "type": "object",
         "required": [
           "id",
           "label",
-          "ratios"
+          "ratios",
+          "supports_references"
         ],
         "title": "ImageRenderTierOut"
       },
