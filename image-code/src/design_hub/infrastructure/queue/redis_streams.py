@@ -26,6 +26,8 @@ class RedisStreamClient(Protocol):
 
     async def xautoclaim(self, *args: object, **kwargs: object) -> object: ...
 
+    async def xclaim(self, *args: object, **kwargs: object) -> object: ...
+
     async def xack(self, *args: object, **kwargs: object) -> int: ...
 
     async def xread(self, *args: object, **kwargs: object) -> object: ...
@@ -112,6 +114,22 @@ class RedisTaskBroker:
             raise TypeError("Redis XAUTOCLAIM response is malformed")
         messages = response[1]
         return self._deliveries(_stream_messages([(_GENERATION_STREAM, messages)]))
+
+    async def renew(self, *, consumer: str, redis_id: str) -> bool:
+        response = await self._client.xclaim(
+            _GENERATION_STREAM,
+            _GENERATION_GROUP,
+            consumer,
+            0,
+            (redis_id,),
+            idle=0,
+            justid=True,
+        )
+        if not isinstance(response, Sequence) or isinstance(response, (str, bytes)):
+            raise TypeError("Redis XCLAIM response must be a sequence")
+        if not all(isinstance(message_id, str) for message_id in response):
+            raise TypeError("Redis XCLAIM response contains an invalid message id")
+        return redis_id in response
 
     async def ack(self, redis_id: str) -> None:
         await self._client.xack(
