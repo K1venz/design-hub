@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import DataInvariantError, DomainError
@@ -53,6 +53,85 @@ class ProviderSlots(Protocol):
     async def release(self, *, worker_id: str, item_id: str) -> bool: ...
 
     async def refresh(self, *, worker_id: str, item_id: str) -> bool: ...
+
+
+class _OwnershipGuard:
+    def __init__(
+        self,
+        *,
+        repository: GenerationWorkRepository,
+        broker: TaskBroker,
+        work: GenerationWorkItem,
+        delivery: Delivery,
+        worker_id: str,
+        lease_seconds: int,
+        heartbeat_seconds: float,
+    ) -> None:
+        self._repository = repository
+        self._broker = broker
+        self._work = work
+        self._delivery = delivery
+        self._worker_id = worker_id
+        self._lease_seconds = lease_seconds
+        self._heartbeat_seconds = heartbeat_seconds
+        self._renew_lock = asyncio.Lock()
+        self._failure: Exception | None = None
+
+    async def run(self, operation: Callable[[], Awaitable[_T]]) -> _T:
+        await self.checkpoint()
+        operation_task: asyncio.Future[_T] = asyncio.ensure_future(operation())
+        heartbeat_task: asyncio.Task[None] = asyncio.create_task(
+            self._heartbeat_loop()
+        )
+        wait_tasks: set[asyncio.Future[Any]] = {
+            operation_task,
+            heartbeat_task,
+        }
+        try:
+            done, _pending = await asyncio.wait(
+                wait_tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if heartbeat_task in done:
+                await heartbeat_task
+                raise DataInvariantError("ownership guard stopped unexpectedly")
+            return await operation_task
+        finally:
+            operation_task.cancel()
+            heartbeat_task.cancel()
+            await asyncio.gather(
+                operation_task,
+                heartbeat_task,
+                return_exceptions=True,
+            )
+
+    async def checkpoint(self) -> None:
+        async with self._renew_lock:
+            if self._failure is not None:
+                raise self._failure
+            try:
+                await self._repository.heartbeat(
+                    self._work.spec.item_id,
+                    self._worker_id,
+                    self._lease_seconds,
+                )
+                renewed = await self._broker.renew(
+                    consumer=self._worker_id,
+                    redis_id=self._delivery.redis_id,
+                )
+                if not renewed:
+                    raise DataInvariantError(
+                        "delivery lease lost for generation item "
+                        f"{self._work.spec.item_id}"
+                    )
+            except Exception as exc:
+                self._failure = exc
+                raise
+
+    async def _heartbeat_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self._heartbeat_seconds)
+            await self.checkpoint()
 
 
 class GenerationWorker:
@@ -124,6 +203,25 @@ class GenerationWorker:
                 "model": work.spec.model,
             },
         )
+        ownership = _OwnershipGuard(
+            repository=self._repository,
+            broker=self._broker,
+            work=work,
+            delivery=delivery,
+            worker_id=self._worker_id,
+            lease_seconds=self._lease_seconds,
+            heartbeat_seconds=self._heartbeat_seconds,
+        )
+        await ownership.run(
+            lambda: self._process_claimed(work, delivery, ownership)
+        )
+
+    async def _process_claimed(
+        self,
+        work: GenerationWorkItem,
+        delivery: Delivery,
+        ownership: _OwnershipGuard,
+    ) -> None:
         if work.status is GenerationItemStatus.STORING:
             await self._repository.fail_item(
                 work.spec.item_id,
@@ -229,7 +327,7 @@ class GenerationWorker:
                 image = await self._guard_operation(
                     executor.resume(work.provider_task_id, request),
                     work,
-                    delivery,
+                    ownership,
                     slots=None,
                 )
             except DataInvariantError:
@@ -282,7 +380,7 @@ class GenerationWorker:
                             operation_id=work.spec.operation_id,
                         ),
                         work,
-                        delivery,
+                        ownership,
                         slots=slots,
                     )
                 finally:
@@ -347,7 +445,7 @@ class GenerationWorker:
                     image = await self._guard_operation(
                         executor.resume(outcome.provider_task_id, request),
                         work,
-                        delivery,
+                        ownership,
                         slots=None,
                     )
                 except DataInvariantError:
@@ -381,14 +479,12 @@ class GenerationWorker:
         self,
         operation: Awaitable[_T],
         work: GenerationWorkItem,
-        delivery: Delivery,
+        ownership: _OwnershipGuard,
         *,
         slots: ProviderSlots | None,
     ) -> _T:
         operation_task = asyncio.ensure_future(operation)
-        guard_tasks = {
-            asyncio.create_task(self._heartbeat_loop(work, delivery)),
-        }
+        guard_tasks: set[asyncio.Task[None]] = set()
         if slots is not None:
             guard_tasks.add(
                 asyncio.create_task(self._slot_refresh_loop(work, slots))
@@ -405,6 +501,7 @@ class GenerationWorker:
             if completed_guard is not None:
                 await completed_guard
                 raise DataInvariantError("lease guard stopped unexpectedly")
+            await ownership.checkpoint()
             return await operation_task
         finally:
             operation_task.cancel()
@@ -412,27 +509,6 @@ class GenerationWorker:
                 task.cancel()
             await asyncio.gather(operation_task, return_exceptions=True)
             await asyncio.gather(*guard_tasks, return_exceptions=True)
-
-    async def _heartbeat_loop(
-        self,
-        work: GenerationWorkItem,
-        delivery: Delivery,
-    ) -> None:
-        while True:
-            await asyncio.sleep(self._heartbeat_seconds)
-            await self._repository.heartbeat(
-                work.spec.item_id,
-                self._worker_id,
-                self._lease_seconds,
-            )
-            renewed = await self._broker.renew(
-                consumer=self._worker_id,
-                redis_id=delivery.redis_id,
-            )
-            if not renewed:
-                raise DataInvariantError(
-                    f"delivery lease lost for generation item {work.spec.item_id}"
-                )
 
     async def _slot_refresh_loop(
         self,

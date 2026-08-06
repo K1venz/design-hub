@@ -183,13 +183,33 @@ class _Broker:
         self.acks: list[str] = []
         self.renewals: list[tuple[str, str]] = []
         self.renewed = True
+        self.renew_results: tuple[bool, ...] | None = None
         self.renew_signal: asyncio.Event | None = None
+        self.renew_signal_call = 1
+        self.renew_started = asyncio.Event()
+        self.second_renew_started = asyncio.Event()
+        self.renew_gate: asyncio.Event | None = None
+        self.renew_gate_call = 1
+        self.renew_cancellation_resistant = False
 
     async def renew(self, *, consumer: str, redis_id: str) -> bool:
         self.renewals.append((consumer, redis_id))
-        if self.renew_signal is not None:
+        self.renew_started.set()
+        call_number = len(self.renewals)
+        if call_number == 2:
+            self.second_renew_started.set()
+        if self.renew_gate is not None and call_number == self.renew_gate_call:
+            try:
+                await self.renew_gate.wait()
+            except asyncio.CancelledError:
+                if not self.renew_cancellation_resistant:
+                    raise
+                await self.renew_gate.wait()
+        if self.renew_signal is not None and call_number == self.renew_signal_call:
             self.renew_signal.set()
             await asyncio.sleep(0)
+        if self.renew_results is not None:
+            return self.renew_results[call_number - 1]
         return self.renewed
 
     async def ack(self, redis_id: str) -> None:
@@ -223,6 +243,8 @@ class _Executor:
         self.resumes = 0
         self.submit_cancelled = False
         self.submit_completed = False
+        self.submit_started = asyncio.Event()
+        self.submit_finished = asyncio.Event()
         self.last_request: ProviderRequest | None = None
 
     async def submit(
@@ -230,12 +252,14 @@ class _Executor:
     ) -> SubmittedTask | ImmediateResult:
         self.submits += 1
         self.last_request = request
+        self.submit_started.set()
         try:
             if self.submit_gate is not None:
                 await self.submit_gate.wait()
             if self.delay_seconds:
                 await asyncio.sleep(self.delay_seconds)
             self.submit_completed = True
+            self.submit_finished.set()
             if self.error is not None:
                 raise self.error
             return self.result
@@ -253,9 +277,16 @@ class _Executor:
 
 
 class _Materializer:
+    def __init__(self, gate: asyncio.Event | None = None) -> None:
+        self.gate = gate
+        self.started = asyncio.Event()
+
     async def materialize(
         self, work: GenerationWorkItem, reference_mode: str
     ) -> tuple[ReferenceImage, ...]:
+        self.started.set()
+        if self.gate is not None:
+            await self.gate.wait()
         return (ReferenceImage(data=b"product"),)
 
 
@@ -294,6 +325,7 @@ def _worker(
     *,
     heartbeat_seconds: float = 15,
     slot_refresh_seconds: float = 10,
+    materializer: _Materializer | None = None,
 ) -> tuple[GenerationWorker, _Broker, _Slots]:
     broker = _Broker(repository)
     slots = _Slots()
@@ -301,7 +333,7 @@ def _worker(
         repository=repository,
         broker=broker,
         executor_resolver=_ExecutorResolver(executor),
-        materializer=_Materializer(),
+        materializer=materializer or _Materializer(),
         slots_for=lambda _model, _tier: slots,
         worker_id="worker-1",
         lease_seconds=30,
@@ -323,7 +355,9 @@ def test_immediate_result_commits_terminal_before_ack(caplog) -> None:
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "submitting",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -371,9 +405,12 @@ def test_submitted_task_is_persisted_then_resumed_without_second_submit() -> Non
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "submitting",
+            "heartbeat",
             "submitted",
             "processing",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -420,7 +457,9 @@ def test_ambiguous_sync_timeout_marks_uncertain_and_never_retries() -> None:
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "submitting",
+            "heartbeat",
             "uncertain",
         ]
         assert executor.submits == 1
@@ -440,7 +479,9 @@ def test_stale_claim_is_taken_over_before_provider_submit() -> None:
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "submitting",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -466,7 +507,9 @@ def test_persisted_provider_task_resumes_without_resubmission() -> None:
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "processing",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -493,6 +536,7 @@ def test_stale_storing_item_fails_closed_without_second_provider_call() -> None:
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "failed:storage_commit_uncertain",
         ]
         assert executor.submits == 0
@@ -528,6 +572,7 @@ def test_long_provider_submit_refreshes_database_and_slot_leases() -> None:
 
 def test_lost_delivery_lease_cancels_provider_operation() -> None:
     async def run() -> None:
+        renew_gate = asyncio.Event()
         repository = _Repository(_work())
         executor = _Executor(submit_gate=asyncio.Event())
         worker, broker, slots = _worker(
@@ -535,10 +580,17 @@ def test_lost_delivery_lease_cancels_provider_operation() -> None:
             executor,
             heartbeat_seconds=0.005,
         )
+        broker.renew_gate = renew_gate
+        broker.renew_gate_call = 2
+
+        process_task = asyncio.create_task(worker.process(_delivery()))
+        await executor.submit_started.wait()
+        await broker.second_renew_started.wait()
         broker.renewed = False
+        renew_gate.set()
 
         with pytest.raises(DataInvariantError, match="delivery lease lost"):
-            await worker.process(_delivery())
+            await process_task
 
         assert executor.submits == 1
         assert executor.submit_cancelled
@@ -563,8 +615,9 @@ def test_lost_delivery_lease_wins_same_tick_provider_error() -> None:
             executor,
             heartbeat_seconds=0.005,
         )
-        broker.renewed = False
+        broker.renew_results = (True, False)
         broker.renew_signal = provider_error_gate
+        broker.renew_signal_call = 2
 
         with pytest.raises(DataInvariantError, match="delivery lease lost"):
             await worker.process(_delivery())
@@ -576,6 +629,71 @@ def test_lost_delivery_lease_wins_same_tick_provider_error() -> None:
         assert "complete" not in repository.actions
         assert not any(action.startswith("failed:") for action in repository.actions)
         assert slots.actions[-1] == "release"
+
+    asyncio.run(run())
+
+
+def test_inflight_delivery_renewal_failure_wins_provider_completion() -> None:
+    async def run() -> None:
+        provider_gate = asyncio.Event()
+        renew_gate = asyncio.Event()
+        repository = _Repository(_work())
+        executor = _Executor(submit_gate=provider_gate)
+        worker, broker, slots = _worker(
+            repository,
+            executor,
+            heartbeat_seconds=0.005,
+        )
+        broker.renew_gate = renew_gate
+        broker.renew_gate_call = 2
+        broker.renew_cancellation_resistant = True
+
+        process_task = asyncio.create_task(worker.process(_delivery()))
+        await executor.submit_started.wait()
+        await broker.second_renew_started.wait()
+        broker.renewed = False
+        provider_gate.set()
+        await executor.submit_finished.wait()
+        await asyncio.sleep(0)
+        renew_gate.set()
+
+        with pytest.raises(DataInvariantError, match="delivery lease lost"):
+            await process_task
+
+        assert executor.submits == 1
+        assert executor.submit_completed
+        assert broker.acks == []
+        assert "complete" not in repository.actions
+        assert not any(action.startswith("failed:") for action in repository.actions)
+        assert slots.actions[-1] == "release"
+
+    asyncio.run(run())
+
+
+def test_ownership_heartbeat_starts_before_provider_preparation() -> None:
+    async def run() -> None:
+        materializer_gate = asyncio.Event()
+        materializer = _Materializer(materializer_gate)
+        repository = _Repository(_work())
+        executor = _Executor()
+        worker, broker, _slots = _worker(
+            repository,
+            executor,
+            heartbeat_seconds=0.005,
+            materializer=materializer,
+        )
+
+        process_task = asyncio.create_task(worker.process(_delivery()))
+        await materializer.started.wait()
+        try:
+            await asyncio.wait_for(broker.second_renew_started.wait(), timeout=1)
+            assert repository.actions.count("heartbeat") >= 2
+            assert len(broker.renewals) >= 2
+            assert set(broker.renewals) == {("worker-1", "10-0")}
+            assert executor.submits == 0
+        finally:
+            materializer_gate.set()
+            await process_task
 
     asyncio.run(run())
 

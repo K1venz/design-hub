@@ -8,13 +8,42 @@ from redis.exceptions import ResponseError
 from design_hub.domain.tasking import InvalidTaskMessage, OperationType, TaskMessage
 from design_hub.infrastructure.queue.redis_streams import RedisTaskBroker
 
+_RENEW_IF_OWNER_SCRIPT = """
+local pending = redis.call(
+    "XPENDING",
+    KEYS[1],
+    ARGV[1],
+    ARGV[3],
+    ARGV[3],
+    1
+)
+if #pending ~= 1 or pending[1][2] ~= ARGV[2] then
+    return 0
+end
+local renewed = redis.call(
+    "XCLAIM",
+    KEYS[1],
+    ARGV[1],
+    ARGV[2],
+    0,
+    ARGV[3],
+    "IDLE",
+    0,
+    "JUSTID"
+)
+if #renewed ~= 1 or renewed[1] ~= ARGV[3] then
+    return 0
+end
+return 1
+""".strip()
+
 
 class _FakeRedis:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
         self.read_result: object = []
         self.claim_result: object = ("0-0", [], [])
-        self.renew_result: object = []
+        self.renew_result: object = 0
         self.group_error: ResponseError | None = None
         self.closed = False
 
@@ -35,8 +64,8 @@ class _FakeRedis:
         self.calls.append(("xautoclaim", args, kwargs))
         return self.claim_result
 
-    async def xclaim(self, *args: object, **kwargs: object) -> Any:
-        self.calls.append(("xclaim", args, kwargs))
+    async def eval(self, *args: object, **kwargs: object) -> Any:
+        self.calls.append(("eval", args, kwargs))
         return self.renew_result
 
     async def xack(self, *args: object, **kwargs: object) -> int:
@@ -158,21 +187,22 @@ def test_malformed_delivery_fails_without_ack() -> None:
 def test_renew_resets_pending_delivery_idle_without_incrementing_retries() -> None:
     async def run() -> None:
         redis = _FakeRedis()
-        redis.renew_result = ["10-0"]
+        redis.renew_result = 1
         broker = RedisTaskBroker(redis)
 
         assert await broker.renew(consumer="worker-1", redis_id="10-0") is True
         assert redis.calls == [
             (
-                "xclaim",
+                "eval",
                 (
+                    _RENEW_IF_OWNER_SCRIPT,
+                    1,
                     "design-hub:generation:v1",
                     "generation-workers-v1",
                     "worker-1",
-                    0,
-                    ("10-0",),
+                    "10-0",
                 ),
-                {"idle": 0, "justid": True},
+                {},
             )
         ]
 
@@ -185,8 +215,9 @@ def test_renew_reports_lost_delivery_and_rejects_malformed_response() -> None:
         broker = RedisTaskBroker(redis)
         assert await broker.renew(consumer="worker-1", redis_id="10-0") is False
 
-        redis.renew_result = [1]
-        with pytest.raises(TypeError, match="XCLAIM response"):
-            await broker.renew(consumer="worker-1", redis_id="10-0")
+        for malformed in (None, "1", 2, [], True):
+            redis.renew_result = malformed
+            with pytest.raises(TypeError, match="Redis renewal response"):
+                await broker.renew(consumer="worker-1", redis_id="10-0")
 
     asyncio.run(run())
