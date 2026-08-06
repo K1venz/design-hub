@@ -246,11 +246,11 @@ describe('applyChatEvent reducer', () => {
     expect(s.streaming).toBe(false)
   })
 
-  it('confirm flow: job_started prefills slots, job images fill by image_type', () => {
-    let s: ChatState = {
-      ...initialChatState(),
-      sessionId: 's1',
-      awaiting: {
+  it('confirm flow: job_started anchors the job to its assistant bubble', () => {
+    let s = pushUserMessage(initialChatState(), '生成三张图')
+    s = applyChatEvent(s, {
+      kind: 'generation_confirm',
+      confirm: {
         confirmToken: 'ct_1',
         tool: 'generate',
         count: 3,
@@ -259,22 +259,28 @@ describe('applyChatEvent reducer', () => {
         renderTier: 'standard',
         ratio: '1:1',
       },
-    }
+    })
+    s = applyChatEvent(s, {
+      kind: 'assistant_end',
+      status: 'awaiting_confirm',
+    })
     s = clearAwaiting(s)
+    s = applyChatEvent(s, {
+      kind: 'job_started',
+      jobId: 'j1',
+      tool: 'generate',
+      count: 3,
+    })
     expect(s.awaiting).toBeNull()
-    s = feed(s, [{ kind: 'job_started', jobId: 'j1', tool: 'generate', count: 3 }])
-    expect(s.activeJobId).toBe('j1')
-    expect(s.slots).toHaveLength(3)
-    expect(s.jobTotal).toBe(3)
-    // 三张陆续到达
-    s = feed(s, [
-      { kind: 'job', jobId: 'j1', inner: { kind: 'image', url: 'http://x/a.png', imageType: '白底' }, imageType: '白底' },
-      { kind: 'job', jobId: 'j1', inner: { kind: 'image', url: 'http://x/b.png', imageType: '场景' }, imageType: '场景' },
-      { kind: 'job', jobId: 'j1', inner: { kind: 'image_failed', imageType: '场景', error: '失败' }, imageType: undefined },
-    ])
-    expect(s.jobDone).toBe(2)
-    expect(s.slots.filter((x) => x.url).length).toBe(2)
-    expect(s.slots.some((x) => x.error === '失败')).toBe(true)
+    expect(s.bubbles.at(-1)?.jobId).toBe('j1')
+
+    const afterImageEvent = applyChatEvent(s, {
+      kind: 'job',
+      jobId: 'j1',
+      inner: { kind: 'image', url: 'http://x/a.png', imageType: '白底' },
+      imageType: '白底',
+    })
+    expect(afterImageEvent).toBe(s)
   })
 
   it('error event stops streaming and records code', () => {

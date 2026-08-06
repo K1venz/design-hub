@@ -152,19 +152,13 @@ export interface ChatBubble {
   generation?: GenerationConfirm
   action?: ChatActionCard
   ended?: boolean
-  /** 回显专用：该 assistant 气泡对应的出图 job（转录只存 job_id，图靠 useListingJob 现签）。 */
+  /** 该 assistant 气泡对应的出图 job；实时与历史统一靠任务详情渲染。 */
   jobId?: string
 }
 
 export interface ChatState {
   sessionId: string | null
   bubbles: ChatBubble[]
-  /** 当前出图结果槽（job_event 填充，复用工作台槽模型）。 */
-  slots: ResultSlot[]
-  /** 当前实时出图任务；任务结束后据此补拉稳定 image_key。 */
-  activeJobId: string | null
-  jobDone: number
-  jobTotal: number
   /** 有 awaiting confirm 时非空——UI 据此渲染确认卡并禁用输入。 */
   awaiting: GenerationConfirm | null
   streaming: boolean
@@ -192,10 +186,6 @@ export function initialChatState(): ChatState {
   return {
     sessionId: null,
     bubbles: [],
-    slots: [],
-    activeJobId: null,
-    jobDone: 0,
-    jobTotal: 0,
     awaiting: null,
     streaming: false,
     error: null,
@@ -262,33 +252,15 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
     }
     case 'error':
       return { ...state, streaming: false, error: { code: ev.code, message: ev.message } }
-    case 'job_started':
-      return {
-        ...state,
-        awaiting: null,
-        slots: Array.from({ length: ev.count }, () => ({ url: null }) as ResultSlot),
-        activeJobId: ev.jobId,
-        jobDone: 0,
-        jobTotal: ev.count,
-      }
-    case 'job': {
-      // chat 的 job_started 只给 count、槽无预设图型，故按到达序填首个空槽，
-      // 用事件自带的 image_type 给槽打标（结果卡展示用）。
-      const e = ev.inner
-      if (e.kind === 'image') {
-        const slots = [...state.slots]
-        const j = slots.findIndex((s) => s.url === null && !s.error)
-        if (j >= 0) slots[j] = { ...slots[j], url: e.url, imageType: e.imageType ?? slots[j].imageType }
-        return { ...state, slots, jobDone: state.jobDone + 1 }
-      }
-      if (e.kind === 'image_failed') {
-        const slots = [...state.slots]
-        const j = slots.findIndex((s) => s.url === null && !s.error)
-        if (j >= 0) slots[j] = { ...slots[j], error: e.error, imageType: e.imageType ?? slots[j].imageType }
-        return { ...state, slots }
-      }
-      return state
+    case 'job_started': {
+      const index = lastAssistant(state.bubbles)
+      if (index < 0) throw new Error('job_started requires an assistant bubble')
+      const bubbles = [...state.bubbles]
+      bubbles[index] = { ...bubbles[index], jobId: ev.jobId }
+      return { ...state, bubbles, awaiting: null }
     }
+    case 'job':
+      return state
     default:
       return state
   }

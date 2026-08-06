@@ -12,7 +12,7 @@ import {
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import type { ChatImageFileSelection } from '@/components/chat/chat-image-files'
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
-import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
+import { ChatJobResult } from '@/components/chat/ChatJobResult'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
 import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialog'
 import { AppShell } from '@/components/layout/AppShell'
@@ -24,7 +24,7 @@ import { requireSelectedModel } from '@/components/models/model-selection'
 import { useModelSelection } from '@/components/models/use-model-selection'
 import { useChatModels } from '@/api/models'
 import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from '@/api/chat'
-import { useListingJob, useUploadImage } from '@/api/listing'
+import { listingJobQueryKey, useUploadImage } from '@/api/listing'
 import {
   applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, consumeChatEditSource,
   initialChatState, pushUserMessage,
@@ -40,7 +40,7 @@ import {
 } from '@/lib/chat-image-options'
 import { decorateChatImageModelSelection } from '@/lib/chat-image-model-selection'
 import type { ImageToolSource } from '@/lib/image-tools'
-import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
+import type { UploadedImage } from '@/lib/listing'
 import { uploadIdPreviewUrl, uploadPreviewUrl } from '@/lib/upload'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -92,6 +92,9 @@ export function ChatPage() {
   } | null>(null)
 
   const on = (event: Parameters<typeof applyChatEvent>[1]) => {
+    if (event.kind === 'job') {
+      void qc.invalidateQueries({ queryKey: listingJobQueryKey(event.jobId) })
+    }
     if (event.kind === 'error' && event.code === 'model_unavailable') {
       const pending = pendingSendRef.current
       if (pending) {
@@ -308,7 +311,7 @@ export function ChatPage() {
   // 新内容滚到底
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [state.bubbles, state.slots, state.awaiting])
+  }, [state.bubbles, state.awaiting])
 
   async function onPickFiles(files: readonly File[]) {
     if (files.length === 0) return
@@ -386,7 +389,7 @@ export function ChatPage() {
                   onOpenAction={openActionCard}
                 />
                 {b.jobId && (
-                  <JobResult
+                  <ChatJobResult
                     jobId={b.jobId}
                     onPreview={setPreviewImage}
                     onEdit={selectEditSource}
@@ -396,16 +399,6 @@ export function ChatPage() {
                 )}
               </Fragment>
             ))}
-
-            {state.jobTotal > 0 && (
-              <CurrentJobResult
-                state={state}
-                onPreview={setPreviewImage}
-                onEdit={selectEditSource}
-                onBackground={openBackground}
-                onReversePrompt={reverseGeneratedImage}
-              />
-            )}
 
             {state.streaming && !state.awaiting && (
               <div className="flex items-center gap-2 px-1 text-[12.5px] text-wb-ink-6">
@@ -589,85 +582,5 @@ function GenerationCard({
         <p className="mt-2 text-[11.5px] font-medium text-wb-ink-5">已处理</p>
       )}
     </div>
-  )
-}
-
-/**
- * 回显出图卡：转录只存 job_id，进页按需 useListingJob(job_id) 现签取终态图（取舍②）。
- * 与实时流的 ResultBlock 同渲染——只是数据源从 SSE 槽换成详情快照。
- */
-function JobResult({
-  jobId,
-  onPreview,
-  onEdit,
-  onBackground,
-  onReversePrompt,
-}: {
-  jobId: string
-  onPreview: (image: ChatPreviewImage) => void
-  onEdit: (source: ChatEditSource) => void
-  onBackground: (source: ChatEditSource) => void
-  onReversePrompt: (source: ChatEditSource) => void
-}) {
-  const query = useListingJob(jobId)
-  if (query.isLoading) {
-    return (
-      <div className="glass-lite flex max-w-[88%] items-center gap-2 rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
-        <Loader2Icon className="size-3.5 animate-spin" /> 正在载入出图结果…
-      </div>
-    )
-  }
-  if (query.error || !query.data) {
-    return (
-      <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md px-4 py-3 text-[12.5px] text-wb-ink-6">
-        出图结果已失效或无法载入
-      </div>
-    )
-  }
-  const slots = detailToResultSlots(query.data)
-  if (slots.length === 0) return null
-  return (
-    <ChatResultBlock
-      slots={slots}
-      done={slots.filter((slot) => slot.url || slot.unavailable).length}
-      total={slots.length}
-      onPreview={onPreview}
-      onEdit={onEdit}
-      onBackground={onBackground}
-      onReversePrompt={onReversePrompt}
-    />
-  )
-}
-
-function CurrentJobResult({
-  state,
-  onPreview,
-  onEdit,
-  onBackground,
-  onReversePrompt,
-}: {
-  state: ChatState
-  onPreview: (image: ChatPreviewImage) => void
-  onEdit: (source: ChatEditSource) => void
-  onBackground: (source: ChatEditSource) => void
-  onReversePrompt: (source: ChatEditSource) => void
-}) {
-  const stableJobId = !state.streaming ? state.activeJobId ?? undefined : undefined
-  const job = useListingJob(stableJobId)
-  const slots = job.data ? detailToResultSlots(job.data) : state.slots
-  const done = slots.filter(
-    (slot) => slot.url || slot.unavailable,
-  ).length
-
-  return (
-    <ChatResultBlock
-      slots={slots}
-      done={job.data ? done : state.jobDone}
-      total={job.data ? slots.length : state.jobTotal}
-      onPreview={onPreview}
-      onEdit={onEdit}
-      onBackground={onBackground}
-      onReversePrompt={onReversePrompt}
-    />
   )
 }
