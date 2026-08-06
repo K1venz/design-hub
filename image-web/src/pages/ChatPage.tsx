@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 
 import { ChatComposer } from '@/components/chat/ChatComposer'
+import type { ChatImageFileSelection } from '@/components/chat/chat-image-files'
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
@@ -192,7 +193,8 @@ export function ChatPage() {
       stateRef.current.streaming ||
       stateRef.current.awaiting ||
       imageModelSelection.state !== 'ready' ||
-      chatModelSelection.state !== 'ready'
+      chatModelSelection.state !== 'ready' ||
+      upload.isPending
     ) {
       return
     }
@@ -308,16 +310,27 @@ export function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [state.bubbles, state.slots, state.awaiting])
 
-  async function onPickFiles(files: FileList | null) {
-    if (!files?.length) return
+  async function onPickFiles(files: readonly File[]) {
+    if (files.length === 0) return
     setSelectedEditSource(null)
-    for (const f of Array.from(files).slice(0, 3 - attached.length)) {
+    for (const f of files) {
       try {
         const up = await upload.mutateAsync(f)
         setAttached((prev) => [...prev, up])
       } catch (err) {
         toast.error(err instanceof Error ? err.message : '图片上传失败')
       }
+    }
+  }
+
+  function onFileSelection(selection: ChatImageFileSelection) {
+    if (selection.unsupportedCount > 0) {
+      toast.error('仅支持 PNG、JPG、WebP 图片')
+    }
+    if (selection.full) {
+      toast.info('最多添加 3 张图片，请先删除已有图片')
+    } else if (selection.overflowCount > 0) {
+      toast.info(`最多添加 3 张图片，${selection.overflowCount} 张未添加`)
     }
   }
 
@@ -424,6 +437,7 @@ export function ChatPage() {
             chatSelection={chatModelSelection}
             imageSelection={composerImageModelSelection}
             onPickFiles={(files) => void onPickFiles(files)}
+            onFileSelection={onFileSelection}
             onRemoveAttachment={(index) =>
               setAttached((current) => current.filter((_, itemIndex) => itemIndex !== index))
             }
