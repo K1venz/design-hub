@@ -41,6 +41,7 @@ from design_hub.ports.model_provider import AbstractModelProvider
 from design_hub.ports.model_verification import ModelVerificationService
 from design_hub.ports.secret_cipher import SecretCipher
 from design_hub.ports.text_llm import (
+    ChatImage,
     ChatMessage,
     TextChunk,
     TextLLMPort,
@@ -223,13 +224,24 @@ class ModelCapabilityService:
                 verified_fingerprint=None,
                 extra=dict(extra),
             )
-            checks = (
-                await self._probe_image(record, plaintext, manager_id)
-                if model_type is ModelType.IMAGE
-                else await self._probe_chat(
-                    record, plaintext, manager_id
+            if model_type is ModelType.IMAGE:
+                checks = await self._probe_image(
+                    record,
+                    plaintext,
+                    manager_id,
                 )
-            )
+            elif model_type is ModelType.VISION:
+                checks = await self._probe_vision(
+                    record,
+                    plaintext,
+                    manager_id,
+                )
+            else:
+                checks = await self._probe_chat(
+                    record,
+                    plaintext,
+                    manager_id,
+                )
             tested_at = datetime.now(UTC)
             proof = self.verifier.issue(
                 manager_id=manager_id,
@@ -469,6 +481,79 @@ class ModelCapabilityService:
             )
         return ("streamed_text", "tool_call")
 
+    async def _probe_vision(
+        self,
+        record: ModelConfigRecord,
+        credentials: dict[str, str | tuple[str, ...]],
+        manager_id: str,
+    ) -> tuple[str, ...]:
+        try:
+            provider = self.providers.build_text(
+                record=record,
+                credentials=credentials,
+            )
+            valid_tool_seen = False
+            async for chunk in provider.complete(
+                context=ModelCallContext(
+                    user_id=manager_id,
+                    operation=ModelOperation.REVERSE_PROMPT,
+                ),
+                messages=[
+                    ChatMessage(
+                        role="system",
+                        content=(
+                            "Inspect the supplied image and call the required "
+                            "configuration probe tool."
+                        ),
+                    ),
+                    ChatMessage(
+                        role="user",
+                        content="Return the dominant color of this image.",
+                        images=(
+                            ChatImage(
+                                data=_deterministic_red_png(),
+                                media_type="image/png",
+                            ),
+                        ),
+                    ),
+                ],
+                tools=[
+                    ToolSpec(
+                        name=_PROBE_TOOL,
+                        description="Return the dominant image color.",
+                        parameters={
+                            "type": "object",
+                            "properties": {
+                                "dominant_color": {
+                                    "type": "string",
+                                    "enum": ["red", "other"],
+                                }
+                            },
+                            "required": ["dominant_color"],
+                            "additionalProperties": False,
+                        },
+                        required=True,
+                    )
+                ],
+            ):
+                if isinstance(chunk, ToolCallChunk):
+                    valid_tool_seen = any(
+                        call.name == _PROBE_TOOL
+                        and call.arguments == {"dominant_color": "red"}
+                        for call in chunk.tool_calls
+                    )
+        except Exception:
+            raise CapabilityTestFailed(
+                protocol=record.provider_type.value,
+                check="vision_protocol",
+            ) from None
+        if not valid_tool_seen:
+            raise CapabilityTestFailed(
+                protocol=record.provider_type.value,
+                check="image_understanding_tool_call",
+            )
+        return ("image_understanding", "tool_call")
+
 
 class _ProbeImageStore(ImageStore):
     def __init__(self) -> None:
@@ -493,6 +578,12 @@ def _deterministic_png() -> bytes:
         output,
         format="PNG",
     )
+    return output.getvalue()
+
+
+def _deterministic_red_png() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (16, 16), (255, 0, 0)).save(output, format="PNG")
     return output.getvalue()
 
 
