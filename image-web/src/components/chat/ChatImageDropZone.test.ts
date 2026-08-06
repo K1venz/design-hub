@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ChatImageDropZone,
+} from '@/components/chat/ChatImageDropZone'
+import {
   type ChatImageFileSelection,
   selectChatImageFiles,
-} from '@/components/chat/ChatImageDropZone'
+} from '@/components/chat/chat-image-files'
 
 const png = (name: string) =>
   new File(['png'], name, { type: 'image/png' })
@@ -33,12 +35,12 @@ function renderDropZone(
         disabled: overrides.disabled ?? false,
         remainingSlots: overrides.remainingSlots ?? 2,
         onSelection,
+        children: createElement(
+          'section',
+          { 'data-testid': 'composer-child' },
+          'composer',
+        ),
       },
-      createElement(
-        'section',
-        { 'data-testid': 'composer-child' },
-        'composer',
-      ),
     ),
   )
   const zone = rendered.container.querySelector(

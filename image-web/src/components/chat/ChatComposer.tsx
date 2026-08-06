@@ -16,9 +16,11 @@ import {
 
 import {
   ChatImageDropZone,
+} from '@/components/chat/ChatImageDropZone'
+import {
   type ChatImageFileSelection,
   selectChatImageFiles,
-} from '@/components/chat/ChatImageDropZone'
+} from '@/components/chat/chat-image-files'
 import { UnifiedChatModelSelector } from '@/components/models/UnifiedChatModelSelector'
 import type { ModelSelection } from '@/components/models/model-selection'
 import {

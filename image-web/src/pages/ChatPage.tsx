@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 
 import { ChatComposer } from '@/components/chat/ChatComposer'
-import type { ChatImageFileSelection } from '@/components/chat/ChatImageDropZone'
+import type { ChatImageFileSelection } from '@/components/chat/chat-image-files'
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
