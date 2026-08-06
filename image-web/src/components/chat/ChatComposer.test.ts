@@ -1,4 +1,4 @@
-import { createElement } from 'react'
+import { createElement, type ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -44,6 +44,7 @@ function renderComposer(
   renderTier: 'standard' | '2k' | '4k',
   count: 1 | 7,
   modelId = 'gpt-image-2',
+  overrides: Partial<ComponentProps<typeof ChatComposer>> = {},
 ) {
   return renderToStaticMarkup(
     createElement(ChatComposer, {
@@ -69,6 +70,7 @@ function renderComposer(
       onReversePrompt: vi.fn(),
       onClear: vi.fn(),
       onSend: vi.fn(),
+      ...overrides,
     }),
   )
 }
@@ -106,5 +108,24 @@ describe('ChatComposer GPT Image 2 parameters', () => {
     expect(markup).toContain('<option value="4:5">4:5</option>')
     expect(markup).toContain('<option value="21:9">21:9</option>')
     expect(markup).toContain('Nano Banana 2')
+  })
+
+  it('locks sending and shows progress while an attachment is uploading', () => {
+    const markup = renderComposer('standard', 1, 'gpt-image-2', {
+      attached: [
+        {
+          id: 'u/one.png',
+          url: '/uploads/u/one.png',
+        },
+      ],
+      uploadPending: true,
+    })
+    const sendButton = markup.match(
+      /<button[^>]*aria-label="发送并生成"[^>]*>/,
+    )?.[0]
+
+    expect(markup).toContain('图片上传中')
+    expect(sendButton).toBeDefined()
+    expect(sendButton).toContain('disabled=""')
   })
 })

@@ -14,6 +14,11 @@ import {
   XIcon,
 } from 'lucide-react'
 
+import {
+  ChatImageDropZone,
+  type ChatImageFileSelection,
+  selectChatImageFiles,
+} from '@/components/chat/ChatImageDropZone'
 import { UnifiedChatModelSelector } from '@/components/models/UnifiedChatModelSelector'
 import type { ModelSelection } from '@/components/models/model-selection'
 import {
@@ -43,7 +48,8 @@ interface ChatComposerProps {
   onImageOptionsChange: (options: ChatImageOptionDraft) => void
   chatSelection: ModelSelection
   imageSelection: ModelSelection
-  onPickFiles: (files: FileList | null) => void
+  onPickFiles: (files: readonly File[]) => void
+  onFileSelection: (selection: ChatImageFileSelection) => void
   onRemoveAttachment: (index: number) => void
   onCancelEdit: () => void
   onReversePrompt: () => void
@@ -65,6 +71,7 @@ export function ChatComposer({
   chatSelection,
   imageSelection,
   onPickFiles,
+  onFileSelection,
   onRemoveAttachment,
   onCancelEdit,
   onReversePrompt,
@@ -85,7 +92,9 @@ export function ChatComposer({
     imageModel,
     imageOptions.renderTier,
   )
-  const canSend = !busy && modelsReady && draft.trim().length > 0
+  const remainingSlots = Math.max(0, 3 - attached.length)
+  const canSend =
+    !busy && !uploadPending && modelsReady && draft.trim().length > 0
 
   function updateRenderTier(renderTier: ChatRenderTier) {
     const nextRatios = chatImageRatiosFor(imageModel, renderTier)
@@ -108,7 +117,17 @@ export function ChatComposer({
       : event.key === 'Enter' && event.ctrlKey && !event.nativeEvent.isComposing
     if (!submit) return
     event.preventDefault()
+    if (!canSend) return
     onSend()
+  }
+
+  function handleFileSelection(selection: ChatImageFileSelection) {
+    onFileSelection(selection)
+    if (selection.accepted.length > 0) onPickFiles(selection.accepted)
+  }
+
+  function handleCandidateFiles(files: readonly File[]) {
+    handleFileSelection(selectChatImageFiles(files, remainingSlots))
   }
 
   const textarea = (
@@ -134,10 +153,15 @@ export function ChatComposer({
 
   return (
     <>
-      <section
-        data-testid="chat-composer"
-        className="w-full min-w-0 overflow-hidden rounded-[20px] border border-wb-brand-soft bg-white/92 shadow-[0_24px_70px_-34px_rgba(39,45,88,.45)] backdrop-blur-xl"
+      <ChatImageDropZone
+        disabled={collapsed || busy || uploadPending}
+        remainingSlots={remainingSlots}
+        onSelection={handleFileSelection}
       >
+        <section
+          data-testid="chat-composer"
+          className="w-full min-w-0 overflow-hidden rounded-[20px] border border-wb-brand-soft bg-white/92 shadow-[0_24px_70px_-34px_rgba(39,45,88,.45)] backdrop-blur-xl"
+        >
         <header className="flex min-h-9 items-center gap-2 border-b border-wb-line-1 px-3.5">
           <span className="size-2 rounded-full bg-wb-brand shadow-[0_0_0_4px_var(--wb-tint-1)]" />
           <span className="text-[12.5px] font-semibold text-wb-ink-2">图片创作</span>
@@ -183,10 +207,11 @@ export function ChatComposer({
                         key={image.id}
                         src={uploadPreviewUrl(image.url, token)}
                         label={index === 0 ? '参考图' : `${index + 1}`}
-                        compact={attached.length > 1}
+                        compact={attached.length > 1 || uploadPending}
                         onRemove={() => onRemoveAttachment(index)}
                       />
                     ))}
+                    {uploadPending && <UploadPendingThumbnail compact />}
                   </div>
                 ) : (
                   <button
@@ -200,7 +225,11 @@ export function ChatComposer({
                   </button>
                 )}
                 <span className="text-[10px] text-wb-ink-6">
-                  {selectedEditSource ? '编辑底图' : '参考图'}
+                  {uploadPending
+                    ? '图片上传中'
+                    : selectedEditSource
+                      ? '编辑底图'
+                      : '参考图'}
                 </span>
               </div>
 
@@ -221,7 +250,7 @@ export function ChatComposer({
                     <button
                       type="button"
                       onClick={onReversePrompt}
-                      disabled={busy || !modelsReady}
+                      disabled={busy || uploadPending || !modelsReady}
                       className="inline-flex items-center gap-1 rounded-full border border-wb-brand-soft bg-wb-tint-3 px-2.5 py-1 text-[10.5px] font-medium text-wb-brand-deep disabled:opacity-45"
                     >
                       <ScanSearchIcon className="size-3" /> 反推提示词
@@ -321,7 +350,8 @@ export function ChatComposer({
             </button>
           </div>
         </footer>
-      </section>
+        </section>
+      </ChatImageDropZone>
 
       <input
         ref={fileRef}
@@ -330,7 +360,7 @@ export function ChatComposer({
         multiple
         hidden
         onChange={(event) => {
-          onPickFiles(event.target.files)
+          handleCandidateFiles(Array.from(event.target.files ?? []))
           event.target.value = ''
         }}
       />
@@ -357,6 +387,21 @@ export function ChatComposer({
         </div>
       )}
     </>
+  )
+}
+
+function UploadPendingThumbnail({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      role="status"
+      aria-label="图片上传中"
+      className={cn(
+        'grid place-items-center rounded-xl border border-dashed border-wb-brand-soft bg-wb-tint-3 text-wb-brand-deep',
+        compact ? 'size-7' : 'h-16 w-14',
+      )}
+    >
+      <Loader2Icon className="size-3.5 animate-spin" />
+    </span>
   )
 }
 
