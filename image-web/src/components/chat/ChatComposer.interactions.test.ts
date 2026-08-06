@@ -21,12 +21,12 @@ function selection(modelId: string): ModelSelection {
           : {
               image_capabilities: {
                 max_count: 7,
-                supports_references: true,
                 render_tiers: [
                   {
                     id: 'standard' as const,
                     label: '1K 标准',
                     ratios: ['1:1', '4:5'],
+                    supports_references: true,
                   },
                 ],
               },

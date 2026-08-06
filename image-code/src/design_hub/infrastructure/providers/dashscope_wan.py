@@ -14,7 +14,10 @@ from PIL import Image, UnidentifiedImageError
 from design_hub.application.image_generation.prompt_policy import (
     compose_image_api_prompt,
 )
-from design_hub.domain.image_capabilities import ImageOutputSpec
+from design_hub.domain.image_capabilities import (
+    ImageOutputSpec,
+    image_model_capabilities,
+)
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.ports.image_store import ImageStore, StoredImage
 from design_hub.ports.model_calls import (
@@ -451,23 +454,23 @@ class DashScopeWanImageProvider(AbstractModelProvider):
             raise ProviderError("Wan submission returned no valid task ID")
         return task_id
 
-    @classmethod
-    def _validate_request(cls, request: ProviderRequest) -> None:
-        width, height = request.output.size
-        if (
-            width < 240
-            or width > 8000
-            or height < 240
-            or height > 8000
-        ):
-            raise ValueError("Wan dimensions must be 240..8000")
-        ratio = width / height
-        if ratio < 1 / 8 or ratio > 8:
-            raise ValueError("Wan aspect ratio must be within 1:8..8:1")
+    def _validate_request(self, request: ProviderRequest) -> None:
+        capabilities = image_model_capabilities(self.name)
+        capabilities.validate_operation(
+            request.output.render_tier,
+            request.output.ratio,
+            has_references=bool(request.reference_images),
+        )
+        expected = capabilities.output_for(
+            request.output.render_tier,
+            request.output.ratio,
+        )
+        if request.output.size != expected.size:
+            raise ValueError("Wan output size does not match its capability contract")
         if len(request.reference_images) > 9:
             raise ValueError("Wan accepts at most 9 reference images")
         for reference in request.reference_images:
-            cls._reference_url(reference)
+            self._reference_url(reference)
             if (
                 reference.data is not None
                 and len(reference.data) > _MAX_REFERENCE_BYTES

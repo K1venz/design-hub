@@ -28,21 +28,27 @@ export const INITIAL_CHAT_IMAGE_OPTIONS: ChatImageOptionDraft = {
 
 export function chatRenderTiersFor(
   model: ModelCatalogItem | null,
+  hasReferences: boolean,
 ): readonly ChatRenderTierOption[] {
   return [
     { id: 'auto', label: '自动判断' },
-    ...(model?.image_capabilities?.render_tiers ?? []).map((tier) => ({
-      id: tier.id,
-      label: tier.label,
-    })),
+    ...(model?.image_capabilities?.render_tiers ?? [])
+      .filter((tier) => !hasReferences || tier.supports_references)
+      .map((tier) => ({
+        id: tier.id,
+        label: tier.label,
+      })),
   ]
 }
 
 export function chatImageRatiosFor(
   model: ModelCatalogItem | null,
   renderTier: ChatRenderTier,
+  hasReferences: boolean,
 ): readonly ChatImageRatio[] {
-  const tiers = model?.image_capabilities?.render_tiers ?? []
+  const tiers = (model?.image_capabilities?.render_tiers ?? []).filter(
+    (tier) => !hasReferences || tier.supports_references,
+  )
   const ratios =
     renderTier === 'auto'
       ? unique(tiers.flatMap((tier) => tier.ratios))
@@ -65,12 +71,13 @@ export function chatImageCountsFor(
 export function normalizeChatImageOptionsForModel(
   draft: ChatImageOptionDraft,
   model: ModelCatalogItem,
+  hasReferences: boolean,
 ): ChatImageOptionDraft {
-  const tiers = chatRenderTiersFor(model)
+  const tiers = chatRenderTiersFor(model, hasReferences)
   const renderTier = tiers.some((tier) => tier.id === draft.renderTier)
     ? draft.renderTier
     : 'auto'
-  const ratios = chatImageRatiosFor(model, renderTier)
+  const ratios = chatImageRatiosFor(model, renderTier, hasReferences)
   const ratio = ratios.includes(draft.ratio) ? draft.ratio : 'auto'
   const counts = chatImageCountsFor(model)
   const count = counts.includes(draft.count) ? draft.count : 'auto'

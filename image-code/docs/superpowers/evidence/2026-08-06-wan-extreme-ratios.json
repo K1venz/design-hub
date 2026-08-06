@@ -1,0 +1,54 @@
+{
+  "model": "wan2.7-image-pro",
+  "render_tier": "standard",
+  "environment": "production-provider-smoke",
+  "passed": true,
+  "ratio_tolerance": 0.03,
+  "results": [
+    {
+      "ratio": "1:4",
+      "requested_size": [640, 2560],
+      "task_id": "831448d4-e4a4-46f8-abe1-8b74850c98b6",
+      "status": "passed",
+      "actual_size": [640, 2560],
+      "ratio_error": 0.0,
+      "latency_ms": 1239,
+      "latency_note": "Resume polling only; the initial successful generation was recovered after a local artifact-directory failure.",
+      "artifact_path": "exports/wan-capability-smoke/wan-1x4.png",
+      "sha256": "9b42e7c1c3c0bea7924014b5407868c50f7143893f90e7d03f8aaa8b01d637d2"
+    },
+    {
+      "ratio": "4:1",
+      "requested_size": [2560, 640],
+      "task_id": "cca91e1b-2af1-4dcc-a395-3085496eac9d",
+      "status": "passed",
+      "actual_size": [2560, 640],
+      "ratio_error": 0.0,
+      "latency_ms": 13200,
+      "artifact_path": "exports/wan-capability-smoke/wan-4x1.png",
+      "sha256": "e357024d33e697a0d9d8f6ead02cc465507ab00f80ea7e81bcb534f1a0577314"
+    },
+    {
+      "ratio": "1:8",
+      "requested_size": [448, 3584],
+      "task_id": "268f6f6b-46be-467b-bbf8-015573d3d3d3d9",
+      "status": "passed",
+      "actual_size": [448, 3584],
+      "ratio_error": 0.0,
+      "latency_ms": 13463,
+      "artifact_path": "exports/wan-capability-smoke/wan-1x8.png",
+      "sha256": "32f8ec97bfe8061b0517b2f5dbfc1a53fab6ef98480f9fb149740b4c87ea044a"
+    },
+    {
+      "ratio": "8:1",
+      "requested_size": [3584, 448],
+      "task_id": "7dd3aecb-601e-4cf2-966d-2129a00e3a57",
+      "status": "passed",
+      "actual_size": [3584, 448],
+      "ratio_error": 0.0,
+      "latency_ms": 19518,
+      "artifact_path": "exports/wan-capability-smoke/wan-8x1.png",
+      "sha256": "f9447a8ad594897936233757899ed27dc737d8dce6b08ef25a3b70f84d753841"
+    }
+  ]
+}

@@ -640,13 +640,20 @@ class _Snapshots:
 
 
 class _ModelConfigs:
+    def __init__(self, name: str = "gpt-image-2") -> None:
+        self.name = name
+
     async def require_available_image(self, name: str) -> ModelConfigRecord:
-        assert name == "gpt-image-2"
+        assert name == self.name
         return ModelConfigRecord(
             name=name,
-            display_name="GPT Image 2.0",
+            display_name=name,
             model_type=ModelType.IMAGE,
-            provider_type=ProviderType.OPENAI_COMPAT_IMAGE,
+            provider_type=(
+                ProviderType.DASHSCOPE_WAN_IMAGE
+                if name == "wan2.7-image-pro"
+                else ProviderType.OPENAI_COMPAT_IMAGE
+            ),
             base_url="https://example.invalid",
             model="upstream",
             credentials_ciphertext={"standard_api_keys": ["encrypted"]},
@@ -663,6 +670,8 @@ def _submission_service(
     repository: _SubmissionRepository,
     health: RedisHealthState,
     snapshots: _Snapshots,
+    *,
+    model_name: str = "gpt-image-2",
 ) -> ListingSubmissionService:
     ids = iter(("job-first", "job-replay", "job-tier-changed", "job-changed"))
     return ListingSubmissionService(
@@ -677,7 +686,7 @@ def _submission_service(
             confirm_wait_seconds=900,
             hard_depth=2000,
         ),
-        model_configs=_ModelConfigs(),  # type: ignore[arg-type]
+        model_configs=_ModelConfigs(model_name),  # type: ignore[arg-type]
         clock=lambda: 10,
         id_factory=lambda: next(ids),
     )
@@ -728,6 +737,124 @@ def test_submission_service_replays_same_key_and_rejects_changed_request() -> No
                 trace_id="trace-3",
                 request_id="request-3",
             )
+
+    asyncio.run(run())
+
+
+def test_wan_4k_accepts_reference_free_text_to_image() -> None:
+    async def run() -> None:
+        repository = _SubmissionRepository()
+        health = RedisHealthState(stale_after_seconds=6)
+        health.mark_healthy(now=10)
+        service = _submission_service(
+            repository,
+            health,
+            _Snapshots(),
+            model_name="wan2.7-image-pro",
+        )
+        request = ListingGenerateRequest(
+            image_model="wan2.7-image-pro",
+            upload_ids=[],
+            prompt="minimal product poster",
+            ratio="1:4",
+            n=1,
+        )
+
+        receipt = await service.submit_generate(
+            user_id="1",
+            request=request,
+            idempotency_key="wan-text-only",
+            trace_id="trace-wan-text-only",
+            request_id="request-wan-text-only",
+            render_tier=RenderTier.FOUR_K,
+        )
+
+        assert receipt.job_id == "job-first"
+        assert repository.calls == 1
+
+    asyncio.run(run())
+
+
+def test_wan_4k_rejects_every_reference_operation_before_enqueue() -> None:
+    async def run() -> None:
+        repository = _SubmissionRepository()
+        health = RedisHealthState(stale_after_seconds=6)
+        health.mark_healthy(now=10)
+        service = _submission_service(
+            repository,
+            health,
+            _Snapshots(),
+            model_name="wan2.7-image-pro",
+        )
+        generate = ListingGenerateRequest(
+            image_model="wan2.7-image-pro",
+            upload_ids=["1/product.png"],
+            prompt="poster",
+            ratio="1:1",
+            n=1,
+        )
+        clone = CloneRequest(
+            image_model="wan2.7-image-pro",
+            product_upload_ids=["1/product.png"],
+            reference_upload_ids=["1/reference.png"],
+            clone_mode="参考风格",
+            ratio="1:1",
+        )
+        edit = EditRequest(
+            image_model="wan2.7-image-pro",
+            source_image_key="generated/source.png",
+            prompt="make it blue",
+        )
+        background = BackgroundReplaceRequest.model_validate(
+            {
+                "image_model": "wan2.7-image-pro",
+                "source": {"kind": "upload", "upload_id": "1/product.png"},
+                "background": {"kind": "description", "description": "blue"},
+            }
+        )
+
+        calls = (
+            lambda: service.submit_generate(
+                user_id="1",
+                request=generate,
+                idempotency_key="wan-generate",
+                trace_id="trace-wan-generate",
+                request_id="request-wan-generate",
+                render_tier=RenderTier.FOUR_K,
+            ),
+            lambda: service.submit_clone(
+                user_id="1",
+                request=clone,
+                idempotency_key="wan-clone",
+                trace_id="trace-wan-clone",
+                request_id="request-wan-clone",
+                render_tier=RenderTier.FOUR_K,
+            ),
+            lambda: service.submit_edit(
+                user_id="1",
+                request=edit,
+                idempotency_key="wan-edit",
+                trace_id="trace-wan-edit",
+                request_id="request-wan-edit",
+                render_tier=RenderTier.FOUR_K,
+            ),
+            lambda: service.submit_background_replace(
+                user_id="1",
+                request=background,
+                idempotency_key="wan-background",
+                trace_id="trace-wan-background",
+                request_id="request-wan-background",
+                render_tier=RenderTier.FOUR_K,
+            ),
+        )
+        for call in calls:
+            with pytest.raises(
+                ValueError,
+                match="does not support references at 4k",
+            ):
+                await call()
+
+        assert repository.calls == 0
 
     asyncio.run(run())
 
