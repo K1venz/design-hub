@@ -1532,7 +1532,21 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
         msg = await _drain(orch.handle_message(USER, None, "出一套", [uid]))
         sid = _first(msg, "session")["session_id"]
         tok = _first(msg, "generation_confirm")["confirm_token"]
-        conf = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
+        stream = orch.handle_confirm(USER, sid, tok, "confirm")
+        prefix: list[tuple[str, dict]] = []
+        async for event in stream:
+            prefix.append((event.type, event.data))
+            if event.type == "job_started":
+                break
+
+        job_id = _first(prefix, "job_started")["job_id"]
+        running = await inf.chat_repo.get_transcript(sid, USER.user_id)
+        assert running is not None
+        assert [message.job_id for message in running.messages] == [None, job_id]
+        assert running.messages[1].content == "生图任务详情如下："
+
+        suffix = [(event.type, event.data) async for event in stream]
+        conf = [*prefix, *suffix]
         types = [t for t, _ in conf]
         assert "job_started" in types
         assert _first(conf, "job_started")["plan"] == _PLAN
@@ -1541,10 +1555,35 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
         assert je.count("image_generated") == 5
         assert "task_completed" in je
         assert conf[-1] == ("assistant_end", {"status": "complete"})
-        # 转录：user 消息 + assistant 最终答复(带 job_id);过程态不落
-        t = await inf.chat_repo.get_transcript(sid, USER.user_id)
-        assert t is not None and [m.role for m in t.messages] == ["user", "assistant"]
-        assert t.messages[1].job_id == _first(conf, "job_started")["job_id"]
+        completed = await inf.chat_repo.get_transcript(sid, USER.user_id)
+        assert completed is not None
+        assert [message.role for message in completed.messages] == ["user", "assistant"]
+        assert completed.messages[1].job_id == job_id
+        assert completed.messages[1].content == "已完成，可在结果区查看。"
+
+    asyncio.run(_impl())
+
+
+def test_confirm_does_not_emit_job_started_when_anchor_write_fails(
+    tmp_path, monkeypatch
+) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        uid = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        planned = await _drain(orch.handle_message(USER, None, "生成一张图", [uid]))
+        session_id = _first(planned, "session")["session_id"]
+        token = _first(planned, "generation_confirm")["confirm_token"]
+
+        async def fail_anchor(**_kwargs: object) -> str:
+            raise RuntimeError("anchor write failed")
+
+        monkeypatch.setattr(inf.chat_repo, "append_message", fail_anchor)
+        stream = orch.handle_confirm(USER, session_id, token, "confirm")
+        first = await anext(stream)
+        assert first.type == "session"
+        with pytest.raises(RuntimeError, match="anchor write failed"):
+            await anext(stream)
 
     asyncio.run(_impl())
 
@@ -1697,6 +1736,7 @@ def test_cancel_invalidates_token_no_job(tmp_path) -> None:
         after = await _drain(orch.handle_confirm(USER, sid, tok, "confirm"))
         assert any(t == "error" and d["code"] == "invalid_confirm_token" for t, d in after)
         assert inf.submission.calls == []
+        assert await inf.chat_repo.job_count(sid) == 0
 
     asyncio.run(_impl())
 
@@ -1793,6 +1833,64 @@ def test_clarify_turn_without_tool_completes(tmp_path) -> None:
 
 
 # ── 持久化(ISSUE-0051 验收)：刷新不丢 / owner 404 / CASCADE 删 ─────────────────
+
+
+def test_chat_repository_updates_the_same_assistant_message(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        session_id = uuid.uuid4().hex
+        await inf.chat_repo.create_session(
+            session_id=session_id,
+            user_id=USER.user_id,
+            title="恢复生图",
+        )
+        message_id = await inf.chat_repo.append_message(
+            session_id=session_id,
+            role="assistant",
+            content="生图任务详情如下：",
+            job_id="job-1",
+        )
+
+        await inf.chat_repo.update_assistant_message(
+            session_id=session_id,
+            message_id=message_id,
+            content="已完成，可在结果区查看。",
+        )
+
+        transcript = await inf.chat_repo.get_transcript(session_id, USER.user_id)
+        assert transcript is not None
+        assert len(transcript.messages) == 1
+        assert transcript.messages[0].content == "已完成，可在结果区查看。"
+        assert transcript.messages[0].job_id == "job-1"
+
+    asyncio.run(_impl())
+
+
+def test_running_job_anchors_remain_isolated_between_sessions(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        session_a = uuid.uuid4().hex
+        session_b = uuid.uuid4().hex
+        await inf.chat_repo.create_session(
+            session_id=session_a, user_id=USER.user_id, title="A"
+        )
+        await inf.chat_repo.create_session(
+            session_id=session_b, user_id=USER.user_id, title="B"
+        )
+        await inf.chat_repo.append_message(
+            session_id=session_a, role="assistant", content="任务 A", job_id="job-a"
+        )
+        await inf.chat_repo.append_message(
+            session_id=session_b, role="assistant", content="任务 B", job_id="job-b"
+        )
+
+        transcript_a = await inf.chat_repo.get_transcript(session_a, USER.user_id)
+        transcript_b = await inf.chat_repo.get_transcript(session_b, USER.user_id)
+        assert transcript_a is not None and transcript_b is not None
+        assert [message.job_id for message in transcript_a.messages] == ["job-a"]
+        assert [message.job_id for message in transcript_b.messages] == ["job-b"]
+
+    asyncio.run(_impl())
 
 
 def test_transcript_persists_across_new_orchestrator(tmp_path) -> None:

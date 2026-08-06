@@ -32,14 +32,15 @@ class SqlAlchemyChatSessionRepository(ChatSessionRepository):
         content: str,
         job_id: str | None = None,
         attachment_upload_ids: tuple[str, ...] = (),
-    ) -> None:
+    ) -> str:
         async with self._session_factory() as session:
             max_seq = await session.scalar(
                 select(func.max(ChatMessageRow.seq)).where(ChatMessageRow.session_id == session_id)
             )
+            message_id = uuid.uuid4().hex
             session.add(
                 ChatMessageRow(
-                    id=uuid.uuid4().hex,
+                    id=message_id,
                     session_id=session_id,
                     seq=0 if max_seq is None else int(max_seq) + 1,
                     role=role,
@@ -51,6 +52,31 @@ class SqlAlchemyChatSessionRepository(ChatSessionRepository):
             row = await session.get(ChatSessionRow, session_id)
             if row is not None:
                 row.updated_at = datetime.now(UTC)  # bump 列表倒序（子表 INSERT 不自动触发本表）
+            await session.commit()
+            return message_id
+
+    async def update_assistant_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        content: str,
+    ) -> None:
+        async with self._session_factory() as session:
+            message = (
+                await session.execute(
+                    select(ChatMessageRow).where(
+                        ChatMessageRow.id == message_id,
+                        ChatMessageRow.session_id == session_id,
+                        ChatMessageRow.role == "assistant",
+                    )
+                )
+            ).scalar_one()
+            message.content = content
+            chat_session = await session.get(ChatSessionRow, session_id)
+            if chat_session is None:
+                raise LookupError(f"chat session not found: {session_id}")
+            chat_session.updated_at = datetime.now(UTC)
             await session.commit()
 
     async def list_sessions(self, user_id: str) -> list[ChatSessionSummary]:
