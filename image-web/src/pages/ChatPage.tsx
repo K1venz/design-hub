@@ -13,6 +13,7 @@ import { ChatComposer } from '@/components/chat/ChatComposer'
 import type { ChatImageFileSelection } from '@/components/chat/chat-image-files'
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
+import { useTerminalJobReconciliation } from '@/components/listing/use-terminal-job-reconciliation'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
 import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialog'
 import { AppShell } from '@/components/layout/AppShell'
@@ -27,7 +28,7 @@ import { CHAT_SESSIONS_KEY, confirmChat, getChatSession, sendChatMessage } from 
 import { useListingJob, useUploadImage } from '@/api/listing'
 import {
   applyChatEvent, CHAT_WELCOME_COPY, clearAwaiting, consumeChatEditSource,
-  initialChatState, pushUserMessage,
+  initialChatState, interruptChatJob, pushUserMessage,
   sessionMessagesToBubbles, shouldShowChatWelcome,
   type ChatBubble, type ChatEditSource, type ChatPreviewImage, type ChatState,
   type ChatActionCard, type GenerationConfirm,
@@ -40,7 +41,12 @@ import {
 } from '@/lib/chat-image-options'
 import { decorateChatImageModelSelection } from '@/lib/chat-image-model-selection'
 import type { ImageToolSource } from '@/lib/image-tools'
-import { detailToResultSlots, type UploadedImage } from '@/lib/listing'
+import {
+  JOB_STATUS,
+  detailToResultSlots,
+  settledSlotCount,
+  type UploadedImage,
+} from '@/lib/listing'
 import { uploadIdPreviewUrl, uploadPreviewUrl } from '@/lib/upload'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -81,6 +87,22 @@ export function ChatPage() {
   useEffect(() => {
     stateRef.current = state
   }, [state])
+  function commitChatState(next: ChatState): void {
+    stateRef.current = next
+    setState(next)
+  }
+  const reconciliation = useTerminalJobReconciliation((detail) => {
+    if (detail.status === JOB_STATUS.generating) return
+    const current = stateRef.current
+    if (current.activeJobId !== detail.job_id) return
+    const slots = detailToResultSlots(detail)
+    commitChatState({
+      ...current,
+      slots,
+      jobStatus: detail.status === JOB_STATUS.failed ? 'failed' : 'completed',
+      jobTotal: slots.length,
+    })
+  })
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingSeedRef = useRef<string | null>(null)
   const pendingSendRef = useRef<{
@@ -95,7 +117,7 @@ export function ChatPage() {
     if (event.kind === 'error' && event.code === 'model_unavailable') {
       const pending = pendingSendRef.current
       if (pending) {
-        setState({
+        commitChatState({
           ...pending.state,
           error: { code: event.code, message: event.message },
         })
@@ -105,14 +127,22 @@ export function ChatPage() {
         setImageOptions(pending.imageOptions)
         pendingSendRef.current = null
       } else {
-        setState((current) => applyChatEvent(current, event))
+        commitChatState(applyChatEvent(stateRef.current, event))
       }
       imageModelSelection.retry()
       chatModelSelection.retry()
       toast.error('当前模型已不可用，内容已保留，请重新选择。')
       return
     }
-    setState((current) => applyChatEvent(current, event))
+    commitChatState(applyChatEvent(stateRef.current, event))
+    if (
+      event.kind === 'job' &&
+      (event.inner.kind === 'completed' || event.inner.kind === 'failed')
+    ) {
+      void reconciliation.reconcile(event.jobId).catch(() =>
+        toast.error('出图结果校准失败，请在历史记录中查看'),
+      )
+    }
   }
 
   // 一轮流结束后刷新会话列表（首轮新建会话入列、后续轮更新标题/时间/消息数）。
@@ -121,14 +151,16 @@ export function ChatPage() {
   // 选中历史会话 → 拉转录还原成气泡（过程态不落库故为空；出图靠 job_id 现签重渲）。
   const loadSession = useMutation({
     mutationFn: getChatSession,
-    onSuccess: (detail) =>
-      setState({
+    onSuccess: (detail) => {
+      reconciliation.reset()
+      commitChatState({
         ...initialChatState(),
         sessionId: detail.id,
         bubbles: sessionMessagesToBubbles(detail.messages, (id) =>
           uploadIdPreviewUrl(id, token),
         ),
-      }),
+      })
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : '加载会话失败'),
   })
 
@@ -145,7 +177,8 @@ export function ChatPage() {
   function newSession() {
     abortRef.current?.abort()
     loadSession.reset()
-    setState(initialChatState())
+    reconciliation.reset()
+    commitChatState(initialChatState())
     setDraft('')
     setAttached([])
     setSelectedEditSource(null)
@@ -208,9 +241,9 @@ export function ChatPage() {
       selectedEditSource,
       imageOptions,
     }
-    setState((prev) =>
+    commitChatState(
       pushUserMessage(
-        prev,
+        stateRef.current,
         text,
         uploadIds && uploadIds.length
           ? attached.map((image) => uploadPreviewUrl(image.url, token))
@@ -238,7 +271,7 @@ export function ChatPage() {
     } catch (err) {
       pendingSendRef.current = null
       if (!ac.signal.aborted) {
-        setState((prev) => ({ ...prev, streaming: false }))
+        commitChatState({ ...stateRef.current, streaming: false })
         toast.error(err instanceof Error ? err.message : '对话请求失败')
       }
     }
@@ -250,7 +283,7 @@ export function ChatPage() {
   ) {
     const sid = stateRef.current.sessionId
     if (!sid) return
-    setState((prev) => clearAwaiting(prev))
+    commitChatState(clearAwaiting(stateRef.current))
     abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
@@ -263,8 +296,22 @@ export function ChatPage() {
       refreshSessions()
     } catch (err) {
       if (!ac.signal.aborted) {
-        setState((prev) => ({ ...prev, streaming: false }))
-        toast.error(err instanceof Error ? err.message : '确认请求失败')
+        const current = stateRef.current
+        if (current.activeJobId && current.jobStatus === 'generating') {
+          const jobId = current.activeJobId
+          commitChatState(interruptChatJob(current))
+          toast.warning('连接已中断，任务仍在后台执行')
+          await reconciliation.reconcile(jobId).catch((reconcileError) => {
+            toast.error(
+              reconcileError instanceof Error
+                ? `出图结果校准失败：${reconcileError.message}`
+                : '出图结果校准失败',
+            )
+          })
+        } else {
+          commitChatState({ ...current, streaming: false })
+          toast.error(err instanceof Error ? err.message : '确认请求失败')
+        }
       }
     }
   }
@@ -629,7 +676,8 @@ function JobResult({
   return (
     <ChatResultBlock
       slots={slots}
-      done={slots.filter((slot) => slot.url || slot.unavailable).length}
+      status={query.data.status === JOB_STATUS.failed ? 'failed' : 'completed'}
+      done={settledSlotCount(slots)}
       total={slots.length}
       onPreview={onPreview}
       onEdit={onEdit}
@@ -652,18 +700,12 @@ function CurrentJobResult({
   onBackground: (source: ChatEditSource) => void
   onReversePrompt: (source: ChatEditSource) => void
 }) {
-  const stableJobId = !state.streaming ? state.activeJobId ?? undefined : undefined
-  const job = useListingJob(stableJobId, 'interactive')
-  const slots = job.data ? detailToResultSlots(job.data) : state.slots
-  const done = slots.filter(
-    (slot) => slot.url || slot.unavailable,
-  ).length
-
   return (
     <ChatResultBlock
-      slots={slots}
-      done={job.data ? done : state.jobDone}
-      total={job.data ? slots.length : state.jobTotal}
+      slots={state.slots}
+      status={state.jobStatus}
+      done={settledSlotCount(state.slots)}
+      total={state.jobTotal}
       onPreview={onPreview}
       onEdit={onEdit}
       onBackground={onBackground}
