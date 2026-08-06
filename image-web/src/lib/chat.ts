@@ -5,7 +5,6 @@
 import {
   applyListingEventToSlots,
   parseListingEvent,
-  settledSlotCount,
   type ListingEvent,
   type ResultSlot,
 } from '@/lib/listing'
@@ -168,13 +167,15 @@ export interface ChatState {
   slots: ResultSlot[]
   /** 当前实时出图任务；任务结束后据此补拉稳定 image_key。 */
   activeJobId: string | null
-  jobDone: number
+  jobStatus: ChatJobStatus
   jobTotal: number
   /** 有 awaiting confirm 时非空——UI 据此渲染确认卡并禁用输入。 */
   awaiting: GenerationConfirm | null
   streaming: boolean
   error: { code: string; message: string } | null
 }
+
+export type ChatJobStatus = 'idle' | 'generating' | 'completed' | 'failed' | 'interrupted'
 
 export const CHAT_WELCOME_COPY =
   '上传图片并告诉我想完成什么即可；你也可以直接问我平台目前支持哪些功能。'
@@ -199,7 +200,7 @@ export function initialChatState(): ChatState {
     bubbles: [],
     slots: [],
     activeJobId: null,
-    jobDone: 0,
+    jobStatus: 'idle',
     jobTotal: 0,
     awaiting: null,
     streaming: false,
@@ -273,17 +274,31 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
         awaiting: null,
         slots: Array.from({ length: ev.count }, () => ({ url: null }) as ResultSlot),
         activeJobId: ev.jobId,
-        jobDone: 0,
+        jobStatus: 'generating',
         jobTotal: ev.count,
+        streaming: true,
       }
     case 'job': {
+      if (ev.jobId !== state.activeJobId) return state
       const e = ev.inner
+      if (e.kind === 'completed') return { ...state, jobStatus: 'completed' }
+      if (e.kind === 'failed') return { ...state, jobStatus: 'failed' }
       if (e.kind !== 'image' && e.kind !== 'image_failed') return state
-      const slots = applyListingEventToSlots(state.slots, e)
-      return { ...state, slots, jobDone: settledSlotCount(slots) }
+      return { ...state, slots: applyListingEventToSlots(state.slots, e) }
     }
     default:
       return state
+  }
+}
+
+export function interruptChatJob(state: ChatState): ChatState {
+  return {
+    ...state,
+    streaming: false,
+    jobStatus:
+      state.activeJobId && state.jobStatus === 'generating'
+        ? 'interrupted'
+        : state.jobStatus,
   }
 }
 
