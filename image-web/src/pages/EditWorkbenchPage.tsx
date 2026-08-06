@@ -11,7 +11,7 @@ import {
 import { EditConfigPanel, type EditConfig, type EditSource } from '@/components/listing/EditConfigPanel'
 import { ResultGallery } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
-import { useEditEntries } from '@/components/listing/use-edit-entries'
+import { useTerminalJobReconciliation } from '@/components/listing/use-terminal-job-reconciliation'
 import {
   requireSelectedImageModel,
   useImageModelSelection,
@@ -19,6 +19,7 @@ import {
 import { ImageModelSelector } from '@/components/models/ImageModelSelector'
 import {
   DEFAULT_EDIT_MODE, DEFAULT_LISTING_CONFIG, IMAGE_SUCCESS_STATUS, RATIOS,
+  applyListingEventToSlots, mergeSlotsWithDetail, settledSlotCount,
   type ListingJobDetail, type Ratio, type ResultSlot,
 } from '@/lib/listing'
 
@@ -39,16 +40,19 @@ function seedConfig(d: ListingJobDetail | undefined): EditConfig {
  *  请求体只带 source_image_key（owner/parent 链服务端反解，终契约 #657/#659）。 */
 export function EditWorkbenchPage() {
   const { jobId, imageKey } = useParams<{ jobId: string; imageKey: string }>()
-  const parent = useListingJob(jobId)
+  const parent = useListingJob(jobId, 'interactive')
   const d = parent.data
 
   const [config, setConfig] = useState<EditConfig>(() => seedConfig(undefined))
   const [jobIdRunning, setJobIdRunning] = useState<string | null>(null)
   const [slots, setSlots] = useState<ResultSlot[]>([])
-  const [done, setDone] = useState(0)
+  const [completedJobId, setCompletedJobId] = useState<string>()
   const edit = useListingEdit()
   const modelSelection = useImageModelSelection()
-  const editEntries = useEditEntries(setSlots)
+  const reconciliation = useTerminalJobReconciliation((detail) => {
+    setSlots((current) => mergeSlotsWithDetail(current, detail.images))
+    setCompletedJobId(detail.job_id)
+  })
 
   // 父详情到达后按父值播种一次（per 父 job）；「新建任务」重置回同一种子（源图随路由保留）
   const seededFor = useRef<string | null>(null)
@@ -64,10 +68,10 @@ export function EditWorkbenchPage() {
         setConfig(seedConfig(parent.data))
         setJobIdRunning(null)
         setSlots([])
-        setDone(0)
-        editEntries.reset()
+        setCompletedJobId(undefined)
+        reconciliation.reset()
       }),
-    [parent.data, editEntries],
+    [parent.data, reconciliation],
   )
 
   // 仅成功张可作源（失败张前端无入口 + 后端 404 双层，Q-δ）
@@ -88,28 +92,32 @@ export function EditWorkbenchPage() {
         }
       : null
 
-  useListingEvents(jobIdRunning, (e) => {
-    if (e.kind === 'image') {
-      setSlots((prev) => (prev.length ? [{ ...prev[0], url: e.url }] : prev))
-      setDone(1)
-    } else if (e.kind === 'image_failed') {
-      setSlots((prev) => (prev.length ? [{ ...prev[0], error: e.error }] : prev))
-    } else if (e.kind === 'failed') {
-      toast.error(`编辑失败：${e.error}`)
+  useListingEvents(jobIdRunning, {
+    onEvent: (event) => {
+      if (event.kind === 'image' || event.kind === 'image_failed') {
+        setSlots((current) => applyListingEventToSlots(current, event))
+      } else if (event.kind === 'completed' || event.kind === 'failed') {
+        if (event.kind === 'failed') toast.error(`编辑失败：${event.error}`)
+        if (jobIdRunning) {
+          void reconciliation.reconcile(jobIdRunning).catch(() =>
+            toast.error('结果校准失败，请在历史记录中查看'),
+          )
+        }
+        setJobIdRunning(null)
+      }
+    },
+    onContractError: () => {
       setJobIdRunning(null)
-    } else if (e.kind === 'completed') {
-      // 编辑成品自己也可再编辑 → 连续迭代页内闭环
-      if (jobIdRunning) editEntries.markCompleted(jobIdRunning)
-      setJobIdRunning(null)
-    }
+      toast.error('图片事件格式异常')
+    },
   })
 
   async function onGenerate() {
     if (!imageKey) return
     const imageModel = requireSelectedImageModel(modelSelection)
-    editEntries.reset()
+    reconciliation.reset()
+    setCompletedJobId(undefined)
     setSlots([{ url: null }])
-    setDone(0)
     try {
       const { job_id } = await edit.mutateAsync({
         imageModel,
@@ -173,12 +181,12 @@ export function EditWorkbenchPage() {
       <ResultGallery
         title="二次编辑"
         slots={slots}
-        done={done}
+        done={settledSlotCount(slots)}
         total={slots.length}
         generating={generating}
         emptyHint="确认源图、写下新要求，点「开始编辑」"
         resultLabel="编辑成品"
-        editJobId={editEntries.completedJobId}
+        editJobId={completedJobId}
       />
     </>
   )

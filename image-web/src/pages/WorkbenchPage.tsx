@@ -25,6 +25,8 @@ import {
   detailToResultSlots,
   IMAGE_TYPE_FIELDS,
   JOB_STATUS,
+  applyListingEventToSlots,
+  settledSlotCount,
   type ListingConfig,
   type ListingJobDetail,
   type ListingJobSummary,
@@ -51,11 +53,9 @@ export function WorkbenchPage() {
   const resetKey = useWorkbenchStore((s) => s.resetKey)
   const activeJobId = useWorkbenchStore((s) => s.activeJobId)
   const activeSlots = useWorkbenchStore((s) => s.activeSlots)
-  const activeDone = useWorkbenchStore((s) => s.activeDone)
   const activeGenerating = useWorkbenchStore((s) => s.activeGenerating)
   const setActiveJobId = useWorkbenchStore((s) => s.setActiveJobId)
   const setActiveSlots = useWorkbenchStore((s) => s.setActiveSlots)
-  const setActiveDone = useWorkbenchStore((s) => s.setActiveDone)
   const setActiveGenerating = useWorkbenchStore((s) => s.setActiveGenerating)
   const startActive = useWorkbenchStore((s) => s.startActive)
   const adoptActive = useWorkbenchStore((s) => s.adoptActive)
@@ -84,7 +84,7 @@ export function WorkbenchPage() {
   // 视图 job：本会话进行中的一单优先（含接回态），否则回落服务端最近一单。
   const viewJobId = activeJobId ?? latestJob?.job_id
   // 续播态（本会话发起 or 已接回）由 SSE 驱动，不拉详情；其余态拉详情对账。
-  const detail = useListingJob(activeGenerating ? undefined : viewJobId)
+  const detail = useListingJob(activeGenerating ? undefined : viewJobId, 'single')
   const detailIsOwner404 = detail.error instanceof HttpError && detail.error.status === 404
 
   // 「新建任务」：清即时态；结果区回落最近一单/空态（不碰服务端历史）。
@@ -114,35 +114,20 @@ export function WorkbenchPage() {
   }, [activeGenerating, activeJobId, latestJob?.job_id, detail.data, clearActive])
 
   // 进行中单的 SSE 续播（仅本会话续播态订阅；完成/失败即停）。
-  useListingEvents(activeGenerating ? activeJobId : null, (e) => {
-    if (e.kind === 'image') {
-      // 套图带 image_type 填该组首个空槽；单图/接回态无标签占位按到达序填。
-      setActiveSlots((prev) => {
-        const i = prev.findIndex((s) => canFill(s, e.imageType))
-        if (i < 0) return prev
-        const next = [...prev]
-        next[i] = { ...next[i], url: e.url }
-        return next
-      })
-      setActiveDone((d) => d + 1)
-    } else if (e.kind === 'image_failed') {
-      // 单张失败：标记该组首个待出槽（原因可见；MVP 无单张重试）
-      setActiveSlots((prev) => {
-        const i = prev.findIndex((s) => canFill(s, e.imageType))
-        if (i < 0) return prev
-        const next = [...prev]
-        next[i] = { ...next[i], error: e.error }
-        return next
-      })
-    } else if (e.kind === 'failed') {
-      toast.error(`出图失败：${e.error}`)
+  useListingEvents(activeGenerating ? activeJobId : null, {
+    onEvent: (event) => {
+      if (event.kind === 'image' || event.kind === 'image_failed') {
+        setActiveSlots((current) => applyListingEventToSlots(current, event))
+      } else if (event.kind === 'completed' || event.kind === 'failed') {
+        if (event.kind === 'failed') toast.error(`出图失败：${event.error}`)
+        setActiveGenerating(false)
+        void qc.invalidateQueries({ queryKey: ['listing', 'jobs'] })
+      }
+    },
+    onContractError: () => {
       setActiveGenerating(false)
-      void qc.invalidateQueries({ queryKey: ['listing', 'jobs'] })
-    } else if (e.kind === 'completed') {
-      // 终态权威快照落库：停续播 + 失效最近一单 → 服务端详情接手（自带 image_key）
-      setActiveGenerating(false)
-      void qc.invalidateQueries({ queryKey: ['listing', 'jobs'] })
-    }
+      toast.error('图片事件格式异常')
+    },
   })
 
   async function onGenerate() {
@@ -193,7 +178,6 @@ export function WorkbenchPage() {
     activeGenerating,
     activeJobId,
     activeSlots,
-    activeDone,
     viewJobId,
     detail: detail.data,
     detailError: detail.isError,
@@ -237,20 +221,11 @@ export function WorkbenchPage() {
   )
 }
 
-/** SSE 到达的图能否落入某空槽：未出且未失败，且（图/槽任一无标签 或 标签相符）。
- *  套图本会话有标签占位 → 按型对位；接回态无标签占位 → 带型图按序填（不回填标签，
- *  保持无型 flat 展示，终态由详情重铺分组）。 */
-function canFill(slot: ResultSlot, imageType: string | undefined): boolean {
-  if (slot.url !== null || slot.error) return false
-  return imageType == null || slot.imageType == null || slot.imageType === imageType
-}
-
 /** 结果区槽位来源判定（续播即时态 / 服务端终态详情 / 恢复占位 / 空态），保持 ResultGallery 纯展示。 */
 function deriveView(args: {
   activeGenerating: boolean
   activeJobId: string | null
   activeSlots: ResultSlot[]
-  activeDone: number
   viewJobId: string | undefined
   detail: ListingJobDetail | undefined
   detailError: boolean
@@ -259,25 +234,25 @@ function deriveView(args: {
   latestLoading: boolean
 }): { slots: ResultSlot[]; done: number; editJobId: string | undefined } {
   const {
-    activeGenerating, activeJobId, activeSlots, activeDone, viewJobId,
+    activeGenerating, activeJobId, activeSlots, viewJobId,
     detail, detailError, detailIsOwner404, latestJob, latestLoading,
   } = args
   if (activeGenerating) {
     // 续播中（本会话发起 or 接回服务端进行中单）：进行中槽位 + 进度。
-    return { slots: activeSlots, done: activeDone, editJobId: undefined }
+    return { slots: activeSlots, done: settledSlotCount(activeSlots), editJobId: undefined }
   }
   if (detail && detail.job_id === viewJobId && detail.status !== JOB_STATUS.generating) {
     // 终态权威快照：完成/部分完成/失败（含失败张失败槽）。进行中详情不在此渲染（走接回续播）。
-    const slots = detailToResultSlots(detail) as ResultSlot[]
+    const slots = detailToResultSlots(detail)
     return {
       slots,
-      done: slots.filter((s) => s.url || s.unavailable).length,
+      done: settledSlotCount(slots),
       editJobId: detail.job_id,
     }
   }
   if (activeJobId) {
     // 本会话刚终态、详情接手前：保留已累积槽位桥接（避免闪回上一单/闪空），编辑入口待详情到达。
-    return { slots: activeSlots, done: activeSlots.filter((s) => s.url).length, editJobId: undefined }
+    return { slots: activeSlots, done: settledSlotCount(activeSlots), editJobId: undefined }
   }
   if (detailError && detailIsOwner404) {
     // 持久 404（owner 隔离 / 该单确不存在）→ fail-soft 空态，不白屏。
