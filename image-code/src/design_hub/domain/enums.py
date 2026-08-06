@@ -4,6 +4,7 @@ from enum import StrEnum
 class ModelType(StrEnum):
     IMAGE = "image"
     CHAT = "chat"
+    VISION = "vision"
 
 
 class ProviderType(StrEnum):
