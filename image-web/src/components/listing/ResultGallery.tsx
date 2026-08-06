@@ -13,19 +13,7 @@ import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialo
 import { PipelineBeam } from '@/components/listing/PipelineBeam'
 import { downloadImage } from '@/lib/download'
 import type { ImageToolSource } from '@/lib/image-tools'
-import { IMAGE_TYPE_FIELDS } from '@/lib/listing'
-
-export interface ResultSlot {
-  url: string | null // null = generating（或失败，见 error）
-  /** 套图流的图型标签（白底/场景/卖点）；单图流为空 → 不分组。 */
-  imageType?: string
-  /** 该张失败原因（image_failed 事件）；有值即失败槽。 */
-  error?: string
-  /** 完成态补拉后回填的稳定 handle（ISSUE-0040）——有值即可挂「基于此图再编辑」。 */
-  imageKey?: string
-  /** 普通用户只知道图片不可用，不接收审核原因或后台状态。 */
-  unavailable?: boolean
-}
+import { IMAGE_TYPE_FIELDS, type ResultSlot } from '@/lib/listing'
 
 interface ResultGalleryProps {
   title: string

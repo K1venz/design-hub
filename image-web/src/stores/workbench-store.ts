@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import type { ResultSlot } from '@/lib/listing'
 import { DEFAULT_LISTING_CONFIG, type ListingConfig, type UploadedImage } from '@/lib/listing'
 
 type Updater<T> = T | ((prev: T) => T)
@@ -13,7 +13,7 @@ function apply<T>(u: Updater<T>, prev: T): T {
  *
  * 降级后本 store 只兜**服务端无记录的即时态**——跳页返回不丢即可：
  *  - 未提交态：config（配置）、uploaded（已上传但还没点生成的预览）。
- *  - 进行中态：activeJobId/activeSlots/activeDone/activeGenerating —— 本会话刚发起、
+ *  - 进行中态：activeJobId/activeSlots/activeGenerating —— 本会话刚发起、
  *    尚在生成的那一单。后端在终态前**不落库**，服务端「最近一单」查询读不到进行中行，
  *    故靠此即时态跨页续播（组件卸载状态仍在 store）。
  *
@@ -30,7 +30,6 @@ interface WorkbenchState {
   /** 本会话进行中的一单（发起→SSE 续播）；终态后由服务端最近一单接手。 */
   activeJobId: string | null
   activeSlots: ResultSlot[]
-  activeDone: number
   /** true=SSE 仍在续播（未收到 completed/failed）。 */
   activeGenerating: boolean
 
@@ -38,7 +37,6 @@ interface WorkbenchState {
   setUploaded: (u: Updater<UploadedImage[]>) => void
   setActiveJobId: (u: Updater<string | null>) => void
   setActiveSlots: (u: Updater<ResultSlot[]>) => void
-  setActiveDone: (u: Updater<number>) => void
   setActiveGenerating: (u: Updater<boolean>) => void
   /** 发起新一单：预铺槽位、进入续播态（job_id 稍后由请求返回回填）。 */
   startActive: (slots: ResultSlot[]) => void
@@ -56,7 +54,6 @@ interface WorkbenchState {
 const EMPTY_ACTIVE = {
   activeJobId: null,
   activeSlots: [] as ResultSlot[],
-  activeDone: 0,
   activeGenerating: false,
 }
 
@@ -70,16 +67,14 @@ export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   setUploaded: (u) => set((s) => ({ uploaded: apply(u, s.uploaded) })),
   setActiveJobId: (u) => set((s) => ({ activeJobId: apply(u, s.activeJobId) })),
   setActiveSlots: (u) => set((s) => ({ activeSlots: apply(u, s.activeSlots) })),
-  setActiveDone: (u) => set((s) => ({ activeDone: apply(u, s.activeDone) })),
   setActiveGenerating: (u) => set((s) => ({ activeGenerating: apply(u, s.activeGenerating) })),
   startActive: (slots) =>
-    set({ activeJobId: null, activeSlots: slots, activeDone: 0, activeGenerating: true }),
+    set({ activeJobId: null, activeSlots: slots, activeGenerating: true }),
   adoptActive: (jobId, count) =>
     set({
       activeJobId: jobId,
       // 无计划分型信息，铺无标签占位；SSE 到达的带型图按序填入（详见 WorkbenchPage 匹配）。
       activeSlots: Array.from({ length: count }, () => ({ url: null }) as ResultSlot),
-      activeDone: 0,
       activeGenerating: true,
     }),
   clearActive: () => set({ ...EMPTY_ACTIVE }),

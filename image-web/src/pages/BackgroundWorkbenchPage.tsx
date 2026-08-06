@@ -5,9 +5,9 @@ import { toast } from 'sonner'
 import { useBackgroundReplace } from '@/api/image-tools'
 import { isModelUnavailableError, useListingEvents } from '@/api/listing'
 import { BackgroundConfigPanel } from '@/components/listing/BackgroundConfigPanel'
-import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
+import { ResultGallery } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
-import { useEditEntries } from '@/components/listing/use-edit-entries'
+import { useTerminalJobReconciliation } from '@/components/listing/use-terminal-job-reconciliation'
 import {
   requireSelectedImageModel,
   useImageModelSelection,
@@ -20,7 +20,13 @@ import {
   type BackgroundWorkbenchState,
 } from '@/lib/image-tools'
 import { uploadIdPreviewUrl, uploadPreviewUrl } from '@/lib/upload'
-import type { UploadedImage } from '@/lib/listing'
+import {
+  applyListingEventToSlots,
+  mergeSlotsWithDetail,
+  settledSlotCount,
+  type ResultSlot,
+  type UploadedImage,
+} from '@/lib/listing'
 import { useAuthStore } from '@/stores/auth-store'
 
 interface BackgroundRouteState {
@@ -41,10 +47,13 @@ export function BackgroundWorkbenchPage() {
   const [resetKey, setResetKey] = useState(0)
   const [jobId, setJobId] = useState<string | null>(null)
   const [slots, setSlots] = useState<ResultSlot[]>([])
-  const [done, setDone] = useState(0)
+  const [completedJobId, setCompletedJobId] = useState<string>()
   const replaceBackground = useBackgroundReplace()
   const modelSelection = useImageModelSelection()
-  const editEntries = useEditEntries(setSlots)
+  const reconciliation = useTerminalJobReconciliation((detail) => {
+    setSlots((current) => mergeSlotsWithDetail(current, detail.images))
+    setCompletedJobId(detail.job_id)
+  })
 
   useEffect(() => {
     if (location.state) {
@@ -62,33 +71,30 @@ export function BackgroundWorkbenchPage() {
         setResetKey((key) => key + 1)
         setJobId(null)
         setSlots([])
-        setDone(0)
-        editEntries.reset()
+        setCompletedJobId(undefined)
+        reconciliation.reset()
       }),
-    [editEntries],
+    [reconciliation],
   )
 
-  useListingEvents(jobId, (event) => {
-    if (event.kind === 'image') {
-      setSlots((current) =>
-        current.length
-          ? [{ ...current[0], url: event.url }]
-          : current,
-      )
-      setDone(1)
-    } else if (event.kind === 'image_failed') {
-      setSlots((current) =>
-        current.length
-          ? [{ ...current[0], error: event.error }]
-          : current,
-      )
-    } else if (event.kind === 'failed') {
-      toast.error(`换背景失败：${event.error}`)
+  useListingEvents(jobId, {
+    onEvent: (event) => {
+      if (event.kind === 'image' || event.kind === 'image_failed') {
+        setSlots((current) => applyListingEventToSlots(current, event))
+      } else if (event.kind === 'completed' || event.kind === 'failed') {
+        if (event.kind === 'failed') toast.error(`换背景失败：${event.error}`)
+        if (jobId) {
+          void reconciliation.reconcile(jobId).catch(() =>
+            toast.error('结果校准失败，请在历史记录中查看'),
+          )
+        }
+        setJobId(null)
+      }
+    },
+    onContractError: () => {
       setJobId(null)
-    } else if (event.kind === 'completed') {
-      if (jobId) editEntries.markCompleted(jobId)
-      setJobId(null)
-    }
+      toast.error('图片事件格式异常')
+    },
   })
 
   function setSourceUpload(image: UploadedImage | null) {
@@ -135,9 +141,9 @@ export function BackgroundWorkbenchPage() {
           : null
     if (!background) return
 
-    editEntries.reset()
+    reconciliation.reset()
+    setCompletedJobId(undefined)
     setSlots([{ url: null }])
-    setDone(0)
     try {
       const { job_id } = await replaceBackground.mutateAsync({
         imageModel,
@@ -185,12 +191,12 @@ export function BackgroundWorkbenchPage() {
       <ResultGallery
         title="换背景"
         slots={slots}
-        done={done}
+        done={settledSlotCount(slots)}
         total={slots.length}
         generating={generating}
         emptyHint="选择商品图和目标背景，点「开始换背景」"
         resultLabel="换背景成品"
-        editJobId={editEntries.completedJobId}
+        editJobId={completedJobId}
       />
     </>
   )

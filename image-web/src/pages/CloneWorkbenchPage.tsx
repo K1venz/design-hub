@@ -7,15 +7,23 @@ import {
   useListingEvents,
 } from '@/api/listing'
 import { CloneConfigPanel, type CloneConfig } from '@/components/listing/CloneConfigPanel'
-import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
+import { ResultGallery } from '@/components/listing/ResultGallery'
 import { newTaskBus } from '@/components/listing/new-task-bus'
-import { useEditEntries } from '@/components/listing/use-edit-entries'
+import { useTerminalJobReconciliation } from '@/components/listing/use-terminal-job-reconciliation'
 import {
   requireSelectedImageModel,
   useImageModelSelection,
 } from '@/components/models/image-model-context'
 import { ImageModelSelector } from '@/components/models/ImageModelSelector'
-import { DEFAULT_CLONE_MODE, DEFAULT_LISTING_CONFIG, type UploadedImage } from '@/lib/listing'
+import {
+  DEFAULT_CLONE_MODE,
+  DEFAULT_LISTING_CONFIG,
+  applyListingEventToSlots,
+  mergeSlotsWithDetail,
+  settledSlotCount,
+  type ResultSlot,
+  type UploadedImage,
+} from '@/lib/listing'
 
 const DEFAULT_CLONE_CONFIG: CloneConfig = {
   modifiers: DEFAULT_LISTING_CONFIG.modifiers,
@@ -32,10 +40,13 @@ export function CloneWorkbenchPage() {
   const [resetKey, setResetKey] = useState(0)
   const [jobId, setJobId] = useState<string | null>(null)
   const [slots, setSlots] = useState<ResultSlot[]>([])
-  const [done, setDone] = useState(0)
+  const [completedJobId, setCompletedJobId] = useState<string>()
   const clone = useListingClone()
   const modelSelection = useImageModelSelection()
-  const editEntries = useEditEntries(setSlots)
+  const reconciliation = useTerminalJobReconciliation((detail) => {
+    setSlots((current) => mergeSlotsWithDetail(current, detail.images))
+    setCompletedJobId(detail.job_id)
+  })
 
   useEffect(
     () =>
@@ -46,44 +57,37 @@ export function CloneWorkbenchPage() {
         setResetKey((k) => k + 1)
         setJobId(null)
         setSlots([])
-        setDone(0)
-        editEntries.reset()
+        setCompletedJobId(undefined)
+        reconciliation.reset()
       }),
-    [editEntries],
+    [reconciliation],
   )
 
-  useListingEvents(jobId, (e) => {
-    if (e.kind === 'image') {
-      setSlots((prev) => {
-        const i = prev.findIndex((s) => s.url === null && !s.error)
-        if (i < 0) return prev
-        const next = [...prev]
-        next[i] = { ...next[i], url: e.url }
-        return next
-      })
-      setDone((d) => d + 1)
-    } else if (e.kind === 'image_failed') {
-      setSlots((prev) => {
-        const i = prev.findIndex((s) => s.url === null && !s.error)
-        if (i < 0) return prev
-        const next = [...prev]
-        next[i] = { ...next[i], error: e.error }
-        return next
-      })
-    } else if (e.kind === 'failed') {
-      toast.error(`复刻失败：${e.error}`)
+  useListingEvents(jobId, {
+    onEvent: (event) => {
+      if (event.kind === 'image' || event.kind === 'image_failed') {
+        setSlots((current) => applyListingEventToSlots(current, event))
+      } else if (event.kind === 'completed' || event.kind === 'failed') {
+        if (event.kind === 'failed') toast.error(`复刻失败：${event.error}`)
+        if (jobId) {
+          void reconciliation.reconcile(jobId).catch(() =>
+            toast.error('结果校准失败，请在历史记录中查看'),
+          )
+        }
+        setJobId(null)
+      }
+    },
+    onContractError: () => {
       setJobId(null)
-    } else if (e.kind === 'completed') {
-      if (jobId) editEntries.markCompleted(jobId)
-      setJobId(null)
-    }
+      toast.error('图片事件格式异常')
+    },
   })
 
   async function onGenerate() {
     const imageModel = requireSelectedImageModel(modelSelection)
-    editEntries.reset()
+    reconciliation.reset()
+    setCompletedJobId(undefined)
     setSlots([{ url: null }])
-    setDone(0)
     try {
       const { job_id } = await clone.mutateAsync({
         imageModel,
@@ -131,12 +135,12 @@ export function CloneWorkbenchPage() {
       <ResultGallery
         title="爆款图复刻"
         slots={slots}
-        done={done}
+        done={settledSlotCount(slots)}
         total={slots.length}
         generating={generating}
         emptyHint="上传产品图与参考爆款图，点「开始复刻」"
         resultLabel="复刻成品"
-        editJobId={editEntries.completedJobId}
+        editJobId={completedJobId}
       />
     </>
   )

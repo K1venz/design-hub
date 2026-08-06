@@ -9,6 +9,7 @@ import {
   CHAT_WELCOME_COPY,
   editSourceFromSlot,
   initialChatState,
+  interruptChatJob,
   previewImageFromSlot,
   sessionMessagesToBubbles,
   shouldSubmitChatInput,
@@ -16,6 +17,7 @@ import {
   type ChatState,
   type ChatTranscriptMessage,
 } from '@/lib/chat'
+import { settledSlotCount } from '@/lib/listing'
 
 describe('chat input keyboard', () => {
   it('submits on Enter', () => {
@@ -176,22 +178,22 @@ describe('parseChatEvent', () => {
   it('unwraps job_event → inner listing event via parseListingEvent', () => {
     const e = parseChatEvent(
       'job_event',
-      '{"job_id":"j1","type":"image_generated","data":{"url":"http://x/1.png","seed":0,"image_type":"白底"}}',
+      '{"job_id":"j1","type":"image_generated","data":{"item_id":"i1","image_key":"a.png","url":"http://x/1.png","seed":0,"image_type":"白底"}}',
     )
     expect(e).toEqual({
       kind: 'job',
       jobId: 'j1',
-      inner: { kind: 'image', url: 'http://x/1.png', seed: 0, imageType: '白底' },
+      inner: { kind: 'image', itemId: 'i1', imageKey: 'a.png', url: 'http://x/1.png', seed: 0, imageType: '白底' },
       imageType: '白底',
     })
   })
 
   it('unwraps job_event image_failed', () => {
-    const e = parseChatEvent('job_event', '{"job_id":"j1","type":"image_failed","data":{"image_type":"场景","error":"provider 500"}}')
+    const e = parseChatEvent('job_event', '{"job_id":"j1","type":"image_failed","data":{"item_id":"i2","image_type":"场景","error":"provider 500"}}')
     expect(e).toEqual({
       kind: 'job',
       jobId: 'j1',
-      inner: { kind: 'image_failed', imageType: '场景', error: 'provider 500' },
+      inner: { kind: 'image_failed', itemId: 'i2', imageType: '场景', error: 'provider 500' },
       imageType: undefined,
     })
   })
@@ -273,14 +275,81 @@ describe('applyChatEvent reducer', () => {
     })
     expect(s.awaiting).toBeNull()
     expect(s.bubbles.at(-1)?.jobId).toBe('j1')
+    expect(s.activeJobId).toBe('j1')
+    expect(s.slots).toHaveLength(3)
+    expect(s.jobTotal).toBe(3)
+    // 三张陆续到达
+    s = feed(s, [
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image', itemId: 'i1', imageKey: 'a.png', url: 'http://x/a.png', imageType: '白底' }, imageType: '白底' },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image', itemId: 'i2', imageKey: 'b.png', url: 'http://x/b.png', imageType: '场景' }, imageType: '场景' },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image_failed', itemId: 'i3', imageType: '场景', error: '失败' }, imageType: undefined },
+    ])
+    expect(settledSlotCount(s.slots)).toBe(3)
+    expect(s.slots.filter((x) => x.url).length).toBe(2)
+    expect(s.slots.some((x) => x.error === '失败')).toBe(true)
+  })
 
-    const afterImageEvent = applyChatEvent(s, {
-      kind: 'job',
-      jobId: 'j1',
-      inner: { kind: 'image', url: 'http://x/a.png', imageType: '白底' },
-      imageType: '白底',
+  it('shows an image immediately and stops image generation before assistant_end', () => {
+    let state = feed(initialChatState(), [
+      { kind: 'job_started', jobId: 'j1', tool: 'generate', count: 1 },
+      {
+        kind: 'job', jobId: 'j1',
+        inner: {
+          kind: 'image', itemId: 'i1', imageKey: 'k1',
+          url: 'https://img.test/k1', imageType: '场景',
+        },
+        imageType: '场景',
+      },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'completed' } },
+    ])
+
+    expect(state.slots[0]).toMatchObject({ imageKey: 'k1', url: 'https://img.test/k1' })
+    expect(state.jobStatus).toBe('completed')
+    expect(state.streaming).toBe(true)
+
+    state = applyChatEvent(state, { kind: 'assistant_end', status: 'complete' })
+    expect(state.streaming).toBe(false)
+  })
+
+  it('replays a job image without changing settled count', () => {
+    const started = applyChatEvent(initialChatState(), {
+      kind: 'job_started', jobId: 'j1', tool: 'generate', count: 1,
     })
-    expect(afterImageEvent).toBe(s)
+    const event = {
+      kind: 'job', jobId: 'j1',
+      inner: {
+        kind: 'image', itemId: 'i1', imageKey: 'k1', url: 'https://img.test/k1',
+      },
+    } as const
+    const once = applyChatEvent(started, event)
+    const twice = applyChatEvent(once, event)
+    expect(settledSlotCount(twice.slots)).toBe(1)
+  })
+
+  it('marks task_failed as terminal without waiting for assistant_end', () => {
+    const started = applyChatEvent(initialChatState(), {
+      kind: 'job_started', jobId: 'j1', tool: 'generate', count: 1,
+    })
+    const state = applyChatEvent(started, {
+      kind: 'job', jobId: 'j1', inner: { kind: 'failed', error: '出图失败' },
+    })
+    expect(state.jobStatus).toBe('failed')
+    expect(state.streaming).toBe(true)
+  })
+
+  it('marks an active job interrupted while preserving its identity', () => {
+    const started = applyChatEvent(initialChatState(), {
+      kind: 'job_started', jobId: 'j1', tool: 'generate', count: 2,
+    })
+    expect(interruptChatJob(started)).toMatchObject({
+      activeJobId: 'j1', jobStatus: 'interrupted', streaming: false,
+    })
+  })
+
+  it('only ends text streaming when no image job has started', () => {
+    expect(interruptChatJob({ ...initialChatState(), streaming: true })).toMatchObject({
+      activeJobId: null, jobStatus: 'idle', streaming: false,
+    })
   })
 
   it('error event stops streaming and records code', () => {

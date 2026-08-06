@@ -6,7 +6,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from design_hub.application.chat.orchestrator import ChatEvent, ChatOrchestrator
-from design_hub.domain.errors import NotFoundError
+from design_hub.domain.enums import TaskEventType
+from design_hub.domain.errors import DataInvariantError, NotFoundError
 from design_hub.interface.api.deps import CurrentUserDep
 from design_hub.interface.chat_schemas import (
     ChatConfirmRequest,
@@ -14,7 +15,13 @@ from design_hub.interface.chat_schemas import (
     ChatSessionSummaryOut,
     ChatTranscriptOut,
 )
+from design_hub.interface.task_event_presentation import (
+    SSE_RESPONSE_HEADERS,
+    log_sse_image_emitted,
+    present_task_event_data,
+)
 from design_hub.ports.chat_repository import ChatSessionRepository
+from design_hub.ports.media_url_signer import MediaUrlSigner
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 _CHAT_HEARTBEAT_SECONDS = 20.0
@@ -36,12 +43,50 @@ def _sse(event: ChatEvent) -> str:
     return f"event: {event.type}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
 
 
+def _present_chat_event(
+    event: ChatEvent,
+    signer: MediaUrlSigner,
+) -> ChatEvent:
+    if event.type != "job_event":
+        return event
+    job_id = event.data.get("job_id")
+    redis_id = event.data.get("redis_id")
+    event_type_raw = event.data.get("type")
+    inner_data = event.data.get("data")
+    if not isinstance(job_id, str) or not job_id:
+        raise DataInvariantError("chat job event job_id must be a non-empty string")
+    if not isinstance(redis_id, str) or not redis_id:
+        raise DataInvariantError("chat job event redis_id must be a non-empty string")
+    if not isinstance(event_type_raw, str):
+        raise DataInvariantError("chat job event type must be a string")
+    if not isinstance(inner_data, dict):
+        raise DataInvariantError("chat job event data must be an object")
+    try:
+        event_type = TaskEventType(event_type_raw)
+    except ValueError as exc:
+        raise DataInvariantError(
+            f"unsupported chat job event type: {event_type_raw}"
+        ) from exc
+    presented = present_task_event_data(event_type, inner_data, signer)
+    if event_type == TaskEventType.IMAGE_GENERATED:
+        item_id = presented["item_id"]
+        assert isinstance(item_id, str)
+        log_sse_image_emitted(
+            job_id=job_id,
+            item_id=item_id,
+            redis_id=redis_id,
+            endpoint_kind="chat",
+        )
+    return ChatEvent(event.type, {**event.data, "data": presented})
+
+
 async def _next_chat_event(iterator: AsyncIterator[ChatEvent]) -> ChatEvent:
     return await iterator.__anext__()
 
 
 async def _stream_chat_events(
     events: AsyncIterator[ChatEvent],
+    signer: MediaUrlSigner,
     *,
     heartbeat_seconds: float = _CHAT_HEARTBEAT_SECONDS,
 ) -> AsyncIterator[str]:
@@ -62,7 +107,7 @@ async def _stream_chat_events(
                 pending = None
                 return
             pending = None
-            yield _sse(event)
+            yield _sse(_present_chat_event(event, signer))
     finally:
         if pending is not None and not pending.done():
             pending.cancel()
@@ -96,8 +141,11 @@ async def chat_messages(
         image_options=req.image_options.to_application(),
         edit_source_image_key=req.edit_source_image_key,
     )
+    signer: MediaUrlSigner = request.app.state.media_signer
     return StreamingResponse(
-        _stream_chat_events(events), media_type="text/event-stream"
+        _stream_chat_events(events, signer),
+        media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
     )
 
 
@@ -111,8 +159,11 @@ async def chat_confirm(
     events = orch.handle_confirm(
         user, req.session_id, req.confirm_token, req.action
     )
+    signer: MediaUrlSigner = request.app.state.media_signer
     return StreamingResponse(
-        _stream_chat_events(events), media_type="text/event-stream"
+        _stream_chat_events(events, signer),
+        media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
     )
 
 
