@@ -7,12 +7,12 @@ class ImageRenderTierOut(BaseModel):
     id: RenderTier
     label: str
     ratios: list[str]
+    supports_references: bool
 
 
 class ImageModelCapabilitiesOut(BaseModel):
     render_tiers: list[ImageRenderTierOut]
     max_count: int
-    supports_references: bool
 
 
 class ModelCatalogItemOut(BaseModel):
