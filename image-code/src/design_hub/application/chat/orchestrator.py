@@ -57,7 +57,7 @@ from design_hub.application.tasking.health import (
     RedisUnavailable,
 )
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import TaskEventType
+from design_hub.domain.enums import ModelType, TaskEventType
 from design_hub.domain.errors import DomainError, NotFoundError
 from design_hub.domain.models import AuthUser, ChatTranscript
 from design_hub.domain.tasking import RenderTier
@@ -315,7 +315,10 @@ class ChatOrchestrator:
                 },
             )
             try:
-                text_llm = await self.text_llm_resolver.resolve(chat_model)
+                text_llm = await self.text_llm_resolver.resolve(
+                    chat_model,
+                    ModelType.CHAT,
+                )
                 async for chunk in text_llm.complete(
                     context=llm_context,
                     messages=llm_messages,
@@ -729,7 +732,8 @@ class ChatOrchestrator:
         closing = ""
         try:
             text_llm = await self.text_llm_resolver.resolve(
-                pending.chat_model
+                pending.chat_model,
+                ModelType.CHAT,
             )
             async for chunk in text_llm.complete(
                 context=llm_context,

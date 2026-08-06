@@ -22,7 +22,13 @@ from design_hub.application.admin.model_config_service import (
 )
 from design_hub.config.settings import Settings
 from design_hub.domain.enums import ModelType, ProviderType
-from design_hub.domain.model_config import DOUBAO_CHAT, GPT_IMAGE_2, WAN_2_7_IMAGE_PRO
+from design_hub.domain.model_config import (
+    DOUBAO_CHAT,
+    DOUBAO_VISION,
+    DOUBAO_VISION_UPSTREAM_MODEL,
+    GPT_IMAGE_2,
+    WAN_2_7_IMAGE_PRO,
+)
 from design_hub.domain.nano_banana import (
     NANO_BANANA_2_MODEL_ID,
     NANO_BANANA_UPSTREAM_MODEL,
@@ -43,6 +49,7 @@ _MODEL_IDS = frozenset(
         NANO_BANANA_2_MODEL_ID,
         WAN_2_7_IMAGE_PRO,
         DOUBAO_CHAT,
+        DOUBAO_VISION,
     )
 )
 _WAN_API_HOST = "https://dashscope.aliyuncs.com"
@@ -226,6 +233,17 @@ def load_bootstrap_plan(
                 provider_type=ProviderType.OPENAI_COMPAT_CHAT,
                 base_url=_required_environment(values, "TEXT_LLM_BASE_URL"),
                 model=_required_environment(values, "TEXT_LLM_MODEL"),
+                credentials=chat_credentials,
+                extra=chat_extra,
+                make_default=True,
+            ),
+            BootstrapModel(
+                name=DOUBAO_VISION,
+                display_name="豆包 Seed 2.0 Lite 视觉",
+                model_type=ModelType.VISION,
+                provider_type=ProviderType.OPENAI_COMPAT_CHAT,
+                base_url=_required_environment(values, "TEXT_LLM_BASE_URL"),
+                model=DOUBAO_VISION_UPSTREAM_MODEL,
                 credentials=chat_credentials,
                 extra=chat_extra,
                 make_default=True,

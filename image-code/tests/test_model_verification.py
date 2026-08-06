@@ -122,6 +122,19 @@ def test_connection_fingerprint_hashes_secret_before_canonical_json() -> None:
     ]
 
 
+def test_openai_compatible_completion_provider_accepts_vision_models() -> None:
+    fingerprint = model_config.connection_fingerprint(
+        model_type=ModelType.VISION,
+        provider_type=ProviderType.OPENAI_COMPAT_CHAT,
+        base_url="https://ark.example.test/api/v3",
+        upstream_model="doubao-seed-2-0-lite-260428",
+        extra={"thinking_disabled": True},
+        credentials_plaintext={"api_key": "vision-key"},
+    )
+
+    assert len(fingerprint) == 64
+
+
 @pytest.mark.parametrize(
     ("model_type", "provider_type", "extra", "credentials"),
     [
