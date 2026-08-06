@@ -16,24 +16,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-
-type ModelFilter = 'all' | 'image' | 'chat'
-
-const FILTERS: { value: ModelFilter; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'image', label: '图片模型' },
-  { value: 'chat', label: 'Chat 模型' },
-]
+import {
+  filterModelsByType,
+  MODEL_FILTERS,
+  modelTypeLabel,
+  type ModelFilter,
+} from '@/lib/admin-models'
 
 export function AdminModelsPage() {
   const models = useModels()
   const [filter, setFilter] = useState<ModelFilter>('all')
 
   const rows = useMemo(() => {
-    const filtered =
-      filter === 'all'
-        ? models.data ?? []
-        : (models.data ?? []).filter((model) => model.model_type === filter)
+    const filtered = filterModelsByType(models.data ?? [], filter)
     return [...filtered].sort((left, right) => {
       const type = left.model_type.localeCompare(right.model_type)
       if (type !== 0) return type
@@ -52,7 +47,7 @@ export function AdminModelsPage() {
             模型配置
           </h1>
           <p className="mt-1 max-w-3xl text-xs text-wb-ink-6">
-            管理图片与 Chat 模型的运行时连接。配置必须通过真实能力测试，
+            管理图片、Chat 与视觉模型的运行时连接。配置必须通过真实能力测试，
             保存后立即生效。
           </p>
         </div>
@@ -71,7 +66,7 @@ export function AdminModelsPage() {
         aria-label="模型类型筛选"
         className="flex w-fit gap-1 rounded-xl border border-wb-line-1 bg-white/70 p-1"
       >
-        {FILTERS.map((item) => (
+        {MODEL_FILTERS.map((item) => (
           <button
             key={item.value}
             type="button"
@@ -135,7 +130,7 @@ export function AdminModelsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {model.model_type === 'image' ? '图片' : 'Chat'}
+                      {modelTypeLabel(model.model_type)}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {model.provider_type}

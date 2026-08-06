@@ -10,11 +10,12 @@ export const BUILT_IN_MODEL_IDS = [
   'nano-banana-2',
   'wan2.7-image-pro',
   'doubao-chat',
+  'doubao-vision',
 ] as const
 
 export interface ProviderFormDefinition {
   label: string
-  modelType: ModelType
+  modelTypes: readonly ModelType[]
   credentialFields: readonly (
     | 'standardApiKeys'
     | 'apiKeys'
@@ -35,25 +36,25 @@ export const PROVIDER_FORM_DEFINITIONS: Record<
 > = {
   openai_compat_image: {
     label: 'OpenAI 兼容图片',
-    modelType: 'image',
+    modelTypes: ['image'],
     credentialFields: ['standardApiKeys', 'fourKApiKey'],
     extraFields: ['inputFidelity', 'responseFormat'],
   },
   gemini_native_image: {
     label: 'Google Gemini 原生图片',
-    modelType: 'image',
+    modelTypes: ['image'],
     credentialFields: ['apiKeys'],
     extraFields: [],
   },
   dashscope_wan_image: {
     label: '阿里云百炼 Wan',
-    modelType: 'image',
+    modelTypes: ['image'],
     credentialFields: ['apiKey'],
     extraFields: ['watermark'],
   },
   openai_compat_chat: {
-    label: 'OpenAI 兼容 Chat',
-    modelType: 'chat',
+    label: 'OpenAI 兼容对话 / 视觉',
+    modelTypes: ['chat', 'vision'],
     credentialFields: ['apiKey'],
     extraFields: ['thinkingDisabled'],
   },
@@ -61,7 +62,7 @@ export const PROVIDER_FORM_DEFINITIONS: Record<
 
 export function providersForModelType(type: ModelType): ProviderType[] {
   return (Object.keys(PROVIDER_FORM_DEFINITIONS) as ProviderType[]).filter(
-    (provider) => PROVIDER_FORM_DEFINITIONS[provider].modelType === type,
+    (provider) => PROVIDER_FORM_DEFINITIONS[provider].modelTypes.includes(type),
   )
 }
 

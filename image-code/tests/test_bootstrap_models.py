@@ -24,7 +24,13 @@ from design_hub.cli.bootstrap_models import (
 )
 from design_hub.domain.enums import ModelType, ProviderType
 from design_hub.domain.image_capabilities import ImageOutputSpec
-from design_hub.domain.model_config import DOUBAO_CHAT, GPT_IMAGE_2, WAN_2_7_IMAGE_PRO
+from design_hub.domain.model_config import (
+    DOUBAO_CHAT,
+    DOUBAO_VISION,
+    DOUBAO_VISION_UPSTREAM_MODEL,
+    GPT_IMAGE_2,
+    WAN_2_7_IMAGE_PRO,
+)
 from design_hub.domain.models import GeneratedImage, ReferenceImage
 from design_hub.domain.nano_banana import (
     NANO_BANANA_2_MODEL_ID,
@@ -56,6 +62,7 @@ _MODEL_IDS = (
     NANO_BANANA_2_MODEL_ID,
     WAN_2_7_IMAGE_PRO,
     DOUBAO_CHAT,
+    DOUBAO_VISION,
 )
 _WAN_HOST = "https://dashscope.aliyuncs.com"
 _WAN_PATH = "/api/v1"
@@ -133,6 +140,9 @@ class _ImageProvider(AbstractModelProvider):
 
 
 class _ChatProvider(TextLLMPort):
+    def __init__(self, model_type: ModelType) -> None:
+        self.model_type = model_type
+
     def complete(
         self,
         *,
@@ -147,7 +157,11 @@ class _ChatProvider(TextLLMPort):
                     ToolCall(
                         id="probe",
                         name="model_configuration_probe",
-                        arguments={"ok": True},
+                        arguments=(
+                            {"dominant_color": "red"}
+                            if self.model_type is ModelType.VISION
+                            else {"ok": True}
+                        ),
                     ),
                 )
             )
@@ -183,7 +197,7 @@ class _CapabilityFactory(CapabilityProviderFactory):
         self.connections.append((record, credentials))
         if record.name == self.failing_model:
             raise RuntimeError("upstream body with doubao-secret")
-        return _ChatProvider()
+        return _ChatProvider(record.model_type)
 
 
 async def _services(
@@ -259,6 +273,21 @@ async def _services(
                     verified_fingerprint=None,
                     extra={},
                 ),
+                ModelConfig(
+                    name=DOUBAO_VISION,
+                    display_name="豆包 Seed 2.0 Lite 视觉",
+                    model_type=ModelType.VISION.value,
+                    provider_type=ProviderType.OPENAI_COMPAT_CHAT.value,
+                    base_url="",
+                    model=DOUBAO_VISION_UPSTREAM_MODEL,
+                    credentials_ciphertext={},
+                    unit_cost=Decimal("0"),
+                    enabled=False,
+                    revision=1,
+                    verified_at=None,
+                    verified_fingerprint=None,
+                    extra={},
+                ),
                 ModelDefault(
                     model_type=ModelType.IMAGE.value,
                     model_name=GPT_IMAGE_2,
@@ -266,6 +295,10 @@ async def _services(
                 ModelDefault(
                     model_type=ModelType.CHAT.value,
                     model_name=DOUBAO_CHAT,
+                ),
+                ModelDefault(
+                    model_type=ModelType.VISION.value,
+                    model_name=DOUBAO_VISION,
                 ),
             ]
         )
@@ -403,11 +436,24 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
                 {"api_key": "doubao-secret"},
                 {"thinking_disabled": True},
             )
+            vision_record, vision_credentials = factory.connections[4]
+            assert (
+                vision_record.base_url,
+                vision_record.model,
+                vision_credentials,
+                vision_record.extra,
+            ) == (
+                "https://chat.example.test/v1",
+                DOUBAO_VISION_UPSTREAM_MODEL,
+                {"api_key": "doubao-secret"},
+                {"thinking_disabled": True},
+            )
 
             assert all(by_name[name].enabled for name in _MODEL_IDS)
             assert all(by_name[name].verified_at is not None for name in _MODEL_IDS)
             assert await repository.get_default(ModelType.IMAGE) == GPT_IMAGE_2
             assert await repository.get_default(ModelType.CHAT) == DOUBAO_CHAT
+            assert await repository.get_default(ModelType.VISION) == DOUBAO_VISION
 
             stored_json = json.dumps(
                 {
@@ -451,6 +497,10 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
             assert plan.cipher.decrypt(
                 by_name[DOUBAO_CHAT].credentials_ciphertext["api_key"]
             ) == "doubao-secret"
+            assert (
+                by_name[DOUBAO_VISION].credentials_ciphertext
+                == by_name[DOUBAO_CHAT].credentials_ciphertext
+            )
 
             streams = capsys.readouterr()
             assert streams.out.splitlines() == [
@@ -458,6 +508,7 @@ def test_bootstrap_encrypts_each_connection_field_and_enables_verified_models(
                 "nano-banana-2: success",
                 "wan2.7-image-pro: success",
                 "doubao-chat: success",
+                "doubao-vision: success",
             ]
             assert streams.err == ""
             _assert_streams_are_secret_safe(
@@ -502,6 +553,7 @@ def test_failed_real_check_stops_and_keeps_failing_model_disabled(
             assert by_name[NANO_BANANA_2_MODEL_ID].enabled is True
             assert by_name[WAN_2_7_IMAGE_PRO].enabled is False
             assert by_name[DOUBAO_CHAT].enabled is False
+            assert by_name[DOUBAO_VISION].enabled is False
             assert [record.name for record, _credentials in factory.connections] == [
                 GPT_IMAGE_2,
                 NANO_BANANA_2_MODEL_ID,
