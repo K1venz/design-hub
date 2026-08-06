@@ -66,7 +66,9 @@ def test_runtime_file_only_contains_explicit_business_chain_logs(
 
     rows = [
         json.loads(line)
-        for line in (tmp_path / "api.jsonl").read_text().splitlines()
+        for line in (tmp_path / "api.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
     ]
     assert len(rows) == 1
     assert rows[0]["event"] == "generation_task_created"
@@ -107,7 +109,9 @@ def test_runtime_file_excludes_uvicorn_and_stdout_excludes_prompt(
 
     rows = [
         json.loads(line)
-        for line in (tmp_path / "api.jsonl").read_text().splitlines()
+        for line in (tmp_path / "api.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
     ]
     assert [row["event"] for row in rows] == [
         "generation_provider_submit_started"
@@ -143,7 +147,9 @@ def test_runtime_prompt_is_complete_but_secret_patterns_are_redacted(
     finally:
         _restore_root_logging(original_handlers, original_level)
 
-    row = json.loads((tmp_path / "worker.jsonl").read_text())
+    row = json.loads(
+        (tmp_path / "worker.jsonl").read_text(encoding="utf-8")
+    )
     prompt = row["prompt"]
     assert prompt.startswith(long_prefix)
     assert len(prompt) > 1000
