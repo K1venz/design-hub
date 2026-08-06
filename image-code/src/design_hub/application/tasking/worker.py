@@ -230,6 +230,7 @@ class GenerationWorker:
                 image = await self._guard_operation(
                     executor.resume(work.provider_task_id, request),
                     work,
+                    delivery,
                     slots=None,
                 )
             except DataInvariantError:
@@ -282,6 +283,7 @@ class GenerationWorker:
                             operation_id=work.spec.operation_id,
                         ),
                         work,
+                        delivery,
                         slots=slots,
                     )
                 finally:
@@ -346,6 +348,7 @@ class GenerationWorker:
                     image = await self._guard_operation(
                         executor.resume(outcome.provider_task_id, request),
                         work,
+                        delivery,
                         slots=None,
                     )
                 except DataInvariantError:
@@ -379,12 +382,13 @@ class GenerationWorker:
         self,
         operation: Awaitable[_T],
         work: GenerationWorkItem,
+        delivery: Delivery,
         *,
         slots: ProviderSlots | None,
     ) -> _T:
         operation_task = asyncio.ensure_future(operation)
         guard_tasks = {
-            asyncio.create_task(self._heartbeat_loop(work)),
+            asyncio.create_task(self._heartbeat_loop(work, delivery)),
         }
         if slots is not None:
             guard_tasks.add(
@@ -395,11 +399,14 @@ class GenerationWorker:
                 {operation_task, *guard_tasks},
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if operation_task in done:
-                return await operation_task
-            guard = next(iter(done))
-            await guard
-            raise DataInvariantError("lease guard stopped unexpectedly")
+            completed_guard = next(
+                (task for task in guard_tasks if task in done),
+                None,
+            )
+            if completed_guard is not None:
+                await completed_guard
+                raise DataInvariantError("lease guard stopped unexpectedly")
+            return await operation_task
         finally:
             operation_task.cancel()
             for task in guard_tasks:
@@ -408,7 +415,11 @@ class GenerationWorker:
                 await operation_task
             await asyncio.gather(*guard_tasks, return_exceptions=True)
 
-    async def _heartbeat_loop(self, work: GenerationWorkItem) -> None:
+    async def _heartbeat_loop(
+        self,
+        work: GenerationWorkItem,
+        delivery: Delivery,
+    ) -> None:
         while True:
             await asyncio.sleep(self._heartbeat_seconds)
             await self._repository.heartbeat(
@@ -416,6 +427,14 @@ class GenerationWorker:
                 self._worker_id,
                 self._lease_seconds,
             )
+            renewed = await self._broker.renew(
+                consumer=self._worker_id,
+                redis_id=delivery.redis_id,
+            )
+            if not renewed:
+                raise DataInvariantError(
+                    f"delivery lease lost for generation item {work.spec.item_id}"
+                )
 
     async def _slot_refresh_loop(
         self,

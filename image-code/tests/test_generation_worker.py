@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from design_hub.application.tasking.worker import GenerationWorker
 from design_hub.domain.admin import ModelOperation
+from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.image_capabilities import ImageOutputSpec
 from design_hub.domain.models import GeneratedImage, ListingJobStart, ReferenceImage
 from design_hub.domain.tasking import (
@@ -179,6 +180,12 @@ class _Broker:
     def __init__(self, repository: _Repository) -> None:
         self.repository = repository
         self.acks: list[str] = []
+        self.renewals: list[tuple[str, str]] = []
+        self.renewed = True
+
+    async def renew(self, *, consumer: str, redis_id: str) -> bool:
+        self.renewals.append((consumer, redis_id))
+        return self.renewed
 
     async def ack(self, redis_id: str) -> None:
         assert self.repository.work.status in {
@@ -199,10 +206,12 @@ class _Executor:
         result: SubmittedTask | ImmediateResult | None = None,
         error: Exception | None = None,
         delay_seconds: float = 0,
+        resume_delay_seconds: float = 0,
     ) -> None:
         self.result = result or ImmediateResult(_image())
         self.error = error
         self.delay_seconds = delay_seconds
+        self.resume_delay_seconds = resume_delay_seconds
         self.submits = 0
         self.resumes = 0
         self.last_request: ProviderRequest | None = None
@@ -222,6 +231,8 @@ class _Executor:
         self, provider_task_id: str, request: ProviderRequest
     ) -> GeneratedImage:
         self.resumes += 1
+        if self.resume_delay_seconds:
+            await asyncio.sleep(self.resume_delay_seconds)
         return _image()
 
 
@@ -490,7 +501,55 @@ def test_long_provider_submit_refreshes_database_and_slot_leases() -> None:
         await worker.process(_delivery())
 
         assert "heartbeat" in repository.actions
+        assert broker.renewals
+        assert set(broker.renewals) == {("worker-1", "10-0")}
         assert "refresh" in slots.actions
+        assert executor.submits == 1
+        assert broker.acks == ["10-0"]
+
+    asyncio.run(run())
+
+
+def test_lost_delivery_lease_cancels_provider_operation() -> None:
+    async def run() -> None:
+        repository = _Repository(_work())
+        executor = _Executor(delay_seconds=0.03)
+        worker, broker, slots = _worker(
+            repository,
+            executor,
+            heartbeat_seconds=0.005,
+        )
+        broker.renewed = False
+
+        with pytest.raises(DataInvariantError, match="delivery lease lost"):
+            await worker.process(_delivery())
+
+        assert executor.submits == 1
+        assert broker.acks == []
+        assert "complete" not in repository.actions
+        assert slots.actions[-1] == "release"
+
+    asyncio.run(run())
+
+
+def test_long_provider_resume_refreshes_delivery_lease() -> None:
+    async def run() -> None:
+        repository = _Repository(_work())
+        executor = _Executor(
+            result=SubmittedTask("provider-task-1"),
+            resume_delay_seconds=0.03,
+        )
+        worker, broker, _slots = _worker(
+            repository,
+            executor,
+            heartbeat_seconds=0.005,
+        )
+
+        await worker.process(_delivery())
+
+        assert executor.submits == 1
+        assert executor.resumes == 1
+        assert set(broker.renewals) == {("worker-1", "10-0")}
         assert broker.acks == ["10-0"]
 
     asyncio.run(run())
