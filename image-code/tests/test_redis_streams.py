@@ -14,6 +14,7 @@ class _FakeRedis:
         self.calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
         self.read_result: object = []
         self.claim_result: object = ("0-0", [], [])
+        self.renew_result: object = []
         self.group_error: ResponseError | None = None
         self.closed = False
 
@@ -33,6 +34,10 @@ class _FakeRedis:
     async def xautoclaim(self, *args: object, **kwargs: object) -> Any:
         self.calls.append(("xautoclaim", args, kwargs))
         return self.claim_result
+
+    async def xclaim(self, *args: object, **kwargs: object) -> Any:
+        self.calls.append(("xclaim", args, kwargs))
+        return self.renew_result
 
     async def xack(self, *args: object, **kwargs: object) -> int:
         self.calls.append(("xack", args, kwargs))
@@ -146,5 +151,42 @@ def test_malformed_delivery_fails_without_ack() -> None:
             await broker.read(consumer="worker-1", count=1, block_ms=1)
 
         assert all(call[0] != "xack" for call in redis.calls)
+
+    asyncio.run(run())
+
+
+def test_renew_resets_pending_delivery_idle_without_incrementing_retries() -> None:
+    async def run() -> None:
+        redis = _FakeRedis()
+        redis.renew_result = ["10-0"]
+        broker = RedisTaskBroker(redis)
+
+        assert await broker.renew(consumer="worker-1", redis_id="10-0") is True
+        assert redis.calls == [
+            (
+                "xclaim",
+                (
+                    "design-hub:generation:v1",
+                    "generation-workers-v1",
+                    "worker-1",
+                    0,
+                    ("10-0",),
+                ),
+                {"idle": 0, "justid": True},
+            )
+        ]
+
+    asyncio.run(run())
+
+
+def test_renew_reports_lost_delivery_and_rejects_malformed_response() -> None:
+    async def run() -> None:
+        redis = _FakeRedis()
+        broker = RedisTaskBroker(redis)
+        assert await broker.renew(consumer="worker-1", redis_id="10-0") is False
+
+        redis.renew_result = [1]
+        with pytest.raises(TypeError, match="XCLAIM response"):
+            await broker.renew(consumer="worker-1", redis_id="10-0")
 
     asyncio.run(run())
