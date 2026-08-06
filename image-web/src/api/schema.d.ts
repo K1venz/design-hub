@@ -1695,7 +1695,7 @@ export interface components {
          * ModelType
          * @enum {string}
          */
-        ModelType: "image" | "chat";
+        ModelType: "image" | "chat" | "vision";
         /**
          * ModerationReason
          * @enum {string}
