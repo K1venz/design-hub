@@ -139,10 +139,15 @@ export function useListingEdit() {
  * onmessage never fires for named events. Disconnects on unmount / job change;
  * closes on completed/failed.
  */
-export function useListingEvents(jobId: string | null, onEvent: (e: ListingEvent) => void) {
-  const cb = useRef(onEvent)
+interface ListingEventHandlers {
+  onEvent: (event: ListingEvent) => void
+  onContractError: (error: Error) => void
+}
+
+export function useListingEvents(jobId: string | null, handlers: ListingEventHandlers): void {
+  const handlersRef = useRef(handlers)
   useEffect(() => {
-    cb.current = onEvent
+    handlersRef.current = handlers
   })
   useEffect(() => {
     if (!jobId) return
@@ -151,9 +156,16 @@ export function useListingEvents(jobId: string | null, onEvent: (e: ListingEvent
     const es = new EventSource(url)
     for (const type of LISTING_EVENT_TYPES) {
       es.addEventListener(type, (ev: MessageEvent) => {
-        const parsed = parseListingEvent(type, ev.data)
-        cb.current(parsed)
-        if (parsed.kind === 'completed' || parsed.kind === 'failed') es.close()
+        try {
+          const parsed = parseListingEvent(type, ev.data)
+          handlersRef.current.onEvent(parsed)
+          if (parsed.kind === 'completed' || parsed.kind === 'failed') es.close()
+        } catch (error) {
+          es.close()
+          handlersRef.current.onContractError(
+            error instanceof Error ? error : new Error(String(error)),
+          )
+        }
       })
     }
     return () => es.close()
@@ -177,11 +189,22 @@ export function listingJobRefetchInterval(status: string | undefined): 1500 | fa
   return status === JOB_STATUS.generating ? 1500 : false
 }
 
-export function useListingJob(jobId: string | undefined) {
+export const fetchListingJob = (jobId: string): Promise<ListingJobDetail> =>
+  authGet<ListingJobDetail>(`/listing/jobs/${jobId}`)
+
+export type ListingJobQueryPolicy = 'interactive' | 'single'
+
+export function useListingJob(jobId: string | undefined, policy: ListingJobQueryPolicy) {
+  const single = policy === 'single'
   return useQuery({
     queryKey: listingJobQueryKey(jobId ?? ''),
-    queryFn: () => authGet<ListingJobDetail>(`/listing/jobs/${jobId}`),
+    queryFn: () => fetchListingJob(jobId!),
     enabled: Boolean(jobId),
-    refetchInterval: (query) => listingJobRefetchInterval(query.state.data?.status),
+    retry: single ? false : undefined,
+    refetchOnWindowFocus: single ? false : undefined,
+    refetchOnReconnect: single ? false : undefined,
+    refetchInterval: single
+      ? false
+      : (query) => listingJobRefetchInterval(query.state.data?.status),
   })
 }

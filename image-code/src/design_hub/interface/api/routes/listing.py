@@ -26,6 +26,11 @@ from design_hub.interface.listing_history_schemas import (
     ListingJobSummaryOut,
     ListingSubmissionOut,
 )
+from design_hub.interface.task_event_presentation import (
+    SSE_RESPONSE_HEADERS,
+    log_sse_image_emitted,
+    present_task_event_data,
+)
 from design_hub.ports.events import ReplayableEvent, ReplayableEventStream
 from design_hub.ports.listing_query import ListingHistoryQuery
 from design_hub.ports.media_url_signer import MediaUrlSigner
@@ -42,12 +47,22 @@ def _submission_service(request: Request) -> ListingSubmissionService:
     return cast(ListingSubmissionService, request.app.state.listing_submission)
 
 
-def _sse(delivery: ReplayableEvent) -> str:
+def _sse(delivery: ReplayableEvent, signer: MediaUrlSigner) -> str:
     event = delivery.event
+    data = present_task_event_data(event.type, event.data, signer)
+    if event.type == TaskEventType.IMAGE_GENERATED:
+        item_id = data["item_id"]
+        assert isinstance(item_id, str)
+        log_sse_image_emitted(
+            job_id=event.job_id,
+            item_id=item_id,
+            redis_id=delivery.redis_id,
+            endpoint_kind="listing",
+        )
     return (
         f"id: {delivery.redis_id}\n"
         f"event: {event.type.value}\n"
-        f"data: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+        f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     )
 
 
@@ -225,6 +240,7 @@ async def listing_events(
     if last_event_id is not None and _REDIS_ID.fullmatch(last_event_id) is None:
         raise ValueError("Last-Event-ID is invalid")
     stream: ReplayableEventStream = request.app.state.event_stream
+    signer: MediaUrlSigner = request.app.state.media_signer
 
     async def generator() -> AsyncIterator[str]:
         cursor = last_event_id or "0-0"
@@ -241,7 +257,7 @@ async def listing_events(
                     continue
                 for event in events:
                     cursor = event.redis_id
-                    yield _sse(event)
+                    yield _sse(event, signer)
                     if event.event.type in _TERMINAL_EVENTS:
                         return
         finally:
@@ -250,5 +266,5 @@ async def listing_events(
     return StreamingResponse(
         generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers=SSE_RESPONSE_HEADERS,
     )

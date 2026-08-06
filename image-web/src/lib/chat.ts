@@ -2,8 +2,12 @@
 // 纯类型 + 事件解析 + 状态 reducer；无 React/IO——单测在 chat.test.ts。
 // job 出图事件 = 服务端「包一层」转发 listing TaskEvent，前端复用 parseListingEvent 渲染。
 
-import { parseListingEvent, type ListingEvent } from '@/lib/listing'
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import {
+  applyListingEventToSlots,
+  parseListingEvent,
+  type ListingEvent,
+  type ResultSlot,
+} from '@/lib/listing'
 import type { components } from '@/api/schema'
 import type { BackgroundWorkbenchPrefill } from '@/lib/image-tools'
 
@@ -159,11 +163,19 @@ export interface ChatBubble {
 export interface ChatState {
   sessionId: string | null
   bubbles: ChatBubble[]
+  /** 当前出图结果槽（job_event 填充，复用工作台槽模型）。 */
+  slots: ResultSlot[]
+  /** 当前实时出图任务；任务结束后据此补拉稳定 image_key。 */
+  activeJobId: string | null
+  jobStatus: ChatJobStatus
+  jobTotal: number
   /** 有 awaiting confirm 时非空——UI 据此渲染确认卡并禁用输入。 */
   awaiting: GenerationConfirm | null
   streaming: boolean
   error: { code: string; message: string } | null
 }
+
+export type ChatJobStatus = 'idle' | 'generating' | 'completed' | 'failed' | 'interrupted'
 
 export const CHAT_WELCOME_COPY =
   '上传图片并告诉我想完成什么即可；你也可以直接问我平台目前支持哪些功能。'
@@ -186,6 +198,10 @@ export function initialChatState(): ChatState {
   return {
     sessionId: null,
     bubbles: [],
+    slots: [],
+    activeJobId: null,
+    jobStatus: 'idle',
+    jobTotal: 0,
     awaiting: null,
     streaming: false,
     error: null,
@@ -254,15 +270,43 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
       return { ...state, streaming: false, error: { code: ev.code, message: ev.message } }
     case 'job_started': {
       const index = lastAssistant(state.bubbles)
-      if (index < 0) throw new Error('job_started requires an assistant bubble')
-      const bubbles = [...state.bubbles]
-      bubbles[index] = { ...bubbles[index], jobId: ev.jobId }
-      return { ...state, bubbles, awaiting: null }
+      const bubbles = index < 0
+        ? [...state.bubbles, { role: 'assistant' as const, text: '', steps: [], tools: [], jobId: ev.jobId }]
+        : state.bubbles.map((bubble, bubbleIndex) =>
+            bubbleIndex === index ? { ...bubble, jobId: ev.jobId } : bubble,
+          )
+      return {
+        ...state,
+        bubbles,
+        awaiting: null,
+        slots: Array.from({ length: ev.count }, () => ({ url: null }) as ResultSlot),
+        activeJobId: ev.jobId,
+        jobStatus: 'generating',
+        jobTotal: ev.count,
+        streaming: true,
+      }
     }
-    case 'job':
-      return state
+    case 'job': {
+      if (ev.jobId !== state.activeJobId) return state
+      const e = ev.inner
+      if (e.kind === 'completed') return { ...state, jobStatus: 'completed' }
+      if (e.kind === 'failed') return { ...state, jobStatus: 'failed' }
+      if (e.kind !== 'image' && e.kind !== 'image_failed') return state
+      return { ...state, slots: applyListingEventToSlots(state.slots, e) }
+    }
     default:
       return state
+  }
+}
+
+export function interruptChatJob(state: ChatState): ChatState {
+  return {
+    ...state,
+    streaming: false,
+    jobStatus:
+      state.activeJobId && state.jobStatus === 'generating'
+        ? 'interrupted'
+        : state.jobStatus,
   }
 }
 

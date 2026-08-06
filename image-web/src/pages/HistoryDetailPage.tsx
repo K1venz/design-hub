@@ -14,7 +14,7 @@ import {
 export function HistoryDetailPage() {
   const { jobId } = useParams<{ jobId: string }>()
   const navigate = useNavigate()
-  const q = useListingJob(jobId)
+  const q = useListingJob(jobId, 'interactive')
   const d = q.data
 
   return (

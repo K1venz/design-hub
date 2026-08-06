@@ -7,8 +7,9 @@ import type {
   ChatPreviewImage,
 } from '@/lib/chat'
 import {
-  countProcessedSlots,
+  JOB_STATUS,
   detailToResultSlots,
+  settledSlotCount,
   type ListingJobDetail,
 } from '@/lib/listing'
 
@@ -29,7 +30,7 @@ export interface ChatJobResultViewProps
 
 export function ChatJobResult(props: ChatJobResultProps) {
   const { jobId, ...viewProps } = props
-  const query = useListingJob(jobId)
+  const query = useListingJob(jobId, 'interactive')
   return (
     <ChatJobResultView
       detail={query.data}
@@ -68,7 +69,14 @@ export function ChatJobResultView({
   return (
     <ChatResultBlock
       slots={slots}
-      done={countProcessedSlots(slots)}
+      status={
+        detail.status === JOB_STATUS.generating
+          ? 'generating'
+          : detail.status === JOB_STATUS.failed
+            ? 'failed'
+            : 'completed'
+      }
+      done={settledSlotCount(slots)}
       total={slots.length}
       onPreview={onPreview}
       onEdit={onEdit}

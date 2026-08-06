@@ -6,17 +6,19 @@ import {
   WallpaperIcon,
 } from 'lucide-react'
 
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import type { ResultSlot } from '@/lib/listing'
 import { downloadImage } from '@/lib/download'
 import {
   editSourceFromSlot,
   previewImageFromSlot,
   type ChatEditSource,
+  type ChatJobStatus,
   type ChatPreviewImage,
 } from '@/lib/chat'
 
 export function ChatResultBlock({
   slots,
+  status,
   done,
   total,
   onPreview,
@@ -25,6 +27,7 @@ export function ChatResultBlock({
   onReversePrompt,
 }: {
   slots: ResultSlot[]
+  status: ChatJobStatus
   done: number
   total: number
   onPreview: (image: ChatPreviewImage) => void
@@ -32,11 +35,17 @@ export function ChatResultBlock({
   onBackground: (source: ChatEditSource) => void
   onReversePrompt: (source: ChatEditSource) => void
 }) {
-  const generating =
+  const generating = status === 'generating' &&
     done < total &&
     slots.some(
       (slot) => !slot.url && !slot.error && !slot.unavailable,
     )
+  const terminalLabels: Partial<Record<ChatJobStatus, string>> = {
+    idle: '等待任务开始',
+    completed: '图片未返回',
+    failed: '生成失败',
+    interrupted: '连接已中断，任务仍在后台执行',
+  }
 
   return (
     <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md p-3">
@@ -130,6 +139,17 @@ export function ChatResultBlock({
                 className="grid aspect-square place-items-center rounded-xl border border-dashed border-wb-red-line bg-wb-red-tint p-2 text-center text-[11px] text-wb-red"
               >
                 生成失败
+              </div>
+            )
+          }
+          const terminalLabel = terminalLabels[status]
+          if (terminalLabel) {
+            return (
+              <div
+                key={index}
+                className="grid aspect-square place-items-center rounded-xl border border-dashed border-wb-line-3 bg-wb-surface-3 p-3 text-center text-[11.5px] text-wb-ink-6"
+              >
+                {terminalLabel}
               </div>
             )
           }

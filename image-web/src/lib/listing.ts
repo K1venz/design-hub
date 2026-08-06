@@ -265,12 +265,20 @@ export const LISTING_EVENT_TYPES = [
 ] as const
 
 export type ListingEvent =
-  | { kind: 'image'; url: string; seed?: number; imageType?: string }
-  | { kind: 'image_failed'; imageType?: string; error: string }
+  | { kind: 'image'; itemId: string; imageKey: string; url: string; seed?: number; imageType?: string }
+  | { kind: 'image_failed'; itemId: string; imageType?: string; error: string }
   | { kind: 'completed' }
   | { kind: 'failed'; error: string }
   | { kind: 'meta' } // task_started / model_called — nothing to render
   | { kind: 'unknown' }
+
+function requiredEventText(data: Record<string, unknown>, field: string): string {
+  const value = data[field]
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${field} must be a non-empty string`)
+  }
+  return value
+}
 
 /**
  * Map a named SSE event to a typed ListingEvent.
@@ -284,13 +292,16 @@ export function parseListingEvent(type: string, rawData: string): ListingEvent {
       // 单图流无 index 按到达序填槽；套图流带 image_type 落对应组。
       return {
         kind: 'image',
-        url: String(d.url ?? ''),
+        itemId: requiredEventText(d, 'item_id'),
+        imageKey: requiredEventText(d, 'image_key'),
+        url: requiredEventText(d, 'url'),
         seed: d.seed == null ? undefined : Number(d.seed),
         imageType: d.image_type == null ? undefined : String(d.image_type),
       }
     case 'image_failed':
       return {
         kind: 'image_failed',
+        itemId: requiredEventText(d, 'item_id'),
         imageType: d.image_type == null ? undefined : String(d.image_type),
         error: String(d.error ?? '该张生成失败'),
       }
@@ -333,18 +344,58 @@ export function editModeLabel(mode: string): string {
 // ── 完成态补拉合并（结果区「基于此图再编辑」入口）──────────
 // 失败槽保留 SSE 原因不动；成功槽按图型组内序对位详情同型成功张，
 // 取 image_key（挂入口）并刷新为详情新签 url（顺带解决签名过期）。
-export interface ResultSlotLike {
+export interface ResultSlot {
   url: string | null
+  itemId?: string
   imageType?: string
   error?: string
   imageKey?: string
   unavailable?: boolean
 }
 
-export function mergeSlotsWithDetail<T extends ResultSlotLike>(
-  slots: T[],
+function acceptsListingEvent(slot: ResultSlot, imageType: string | undefined): boolean {
+  if (slot.url !== null || slot.error || slot.unavailable) return false
+  return imageType == null || slot.imageType == null || slot.imageType === imageType
+}
+
+export function applyListingEventToSlots(
+  slots: readonly ResultSlot[],
+  event: ListingEvent,
+): ResultSlot[] {
+  if (event.kind !== 'image' && event.kind !== 'image_failed') return [...slots]
+  if (slots.some((slot) => slot.itemId === event.itemId)) return [...slots]
+
+  const index = slots.findIndex((slot) => acceptsListingEvent(slot, event.imageType))
+  if (index < 0) throw new Error(`No result slot available for item ${event.itemId}`)
+
+  return slots.map((slot, slotIndex) => {
+    if (slotIndex !== index) return slot
+    if (event.kind === 'image') {
+      return {
+        ...slot,
+        itemId: event.itemId,
+        imageKey: event.imageKey,
+        imageType: event.imageType ?? slot.imageType,
+        url: event.url,
+      }
+    }
+    return {
+      ...slot,
+      itemId: event.itemId,
+      imageType: event.imageType ?? slot.imageType,
+      error: event.error,
+    }
+  })
+}
+
+export function settledSlotCount(slots: readonly ResultSlot[]): number {
+  return slots.filter((slot) => slot.url !== null || Boolean(slot.error) || slot.unavailable).length
+}
+
+export function mergeSlotsWithDetail(
+  slots: ResultSlot[],
   images: ListingJobImage[],
-): T[] {
+): ResultSlot[] {
   const buckets = new Map<string, ListingJobImage[]>()
   for (const img of images) {
     if (img.status !== IMAGE_SUCCESS_STATUS) continue
@@ -395,7 +446,7 @@ export type ListingJobDetail = Schemas['ListingJobDetailOut']
 //  - 其余（无图、非失败）→ 空。
 function imageToResultSlot(
   error: string | null,
-): (image: ListingJobImage) => ResultSlotLike {
+): (image: ListingJobImage) => ResultSlot {
   return (image) =>
     image.status === IMAGE_SUCCESS_STATUS
       ? image.available && image.url
@@ -416,18 +467,14 @@ function imageToResultSlot(
         }
 }
 
-export function countProcessedSlots(slots: readonly ResultSlotLike[]): number {
-  return slots.filter((slot) => Boolean(slot.url || slot.error || slot.unavailable)).length
-}
-
-export function detailToResultSlots(detail: ListingJobDetail): ResultSlotLike[] {
+export function detailToResultSlots(detail: ListingJobDetail): ResultSlot[] {
   const slots = detail.images.map(imageToResultSlot(detail.error))
   if (detail.status === JOB_STATUS.generating) {
     return [
       ...slots,
       ...Array.from(
         { length: Math.max(0, detail.n - slots.length) },
-        () => ({ url: null }) as ResultSlotLike,
+        () => ({ url: null }) as ResultSlot,
       ),
     ]
   }

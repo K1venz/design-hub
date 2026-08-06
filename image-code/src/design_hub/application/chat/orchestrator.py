@@ -711,6 +711,7 @@ class ChatOrchestrator:
                     "job_event",
                     {
                         "job_id": job_id,
+                        "redis_id": delivery.redis_id,
                         "type": event.type.value,
                         "data": event.data,
                     },

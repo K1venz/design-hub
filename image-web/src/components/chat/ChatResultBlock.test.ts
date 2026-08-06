@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
-import { countProcessedSlots } from '@/lib/listing'
+import { settledSlotCount } from '@/lib/listing'
 
 describe('ChatResultBlock', () => {
   it('offers preview, edit, background replacement, prompt reversal, and download for a stable result image', () => {
@@ -14,6 +14,7 @@ describe('ChatResultBlock', () => {
           imageKey: 'result.png',
           imageType: '场景',
         }],
+        status: 'completed',
         done: 1,
         total: 1,
         onPreview: () => undefined,
@@ -34,6 +35,7 @@ describe('ChatResultBlock', () => {
     const html = renderToStaticMarkup(
       createElement(ChatResultBlock, {
         slots: [{ url: 'https://img/live.png' }],
+        status: 'generating',
         done: 1,
         total: 1,
         onPreview: () => undefined,
@@ -58,6 +60,7 @@ describe('ChatResultBlock', () => {
           imageKey: 'blocked.png',
           unavailable: true,
         }],
+        status: 'completed',
         done: 1,
         total: 1,
         onPreview: () => undefined,
@@ -84,7 +87,8 @@ describe('ChatResultBlock', () => {
     const html = renderToStaticMarkup(
       createElement(ChatResultBlock, {
         slots,
-        done: countProcessedSlots(slots),
+        status: 'generating',
+        done: settledSlotCount(slots),
         total: 3,
         onPreview: () => undefined,
         onEdit: () => undefined,
@@ -96,5 +100,40 @@ describe('ChatResultBlock', () => {
     expect(html).toContain('2/3')
     expect(html).toContain('生成失败')
     expect(html).toContain('aria-label="图片生成中"')
+  })
+
+  it('shows an explicit interruption state without a spinner', () => {
+    const html = renderToStaticMarkup(
+      createElement(ChatResultBlock, {
+        slots: [{ url: null }],
+        status: 'interrupted',
+        done: 0,
+        total: 1,
+        onPreview: () => undefined,
+        onEdit: () => undefined,
+        onBackground: () => undefined,
+        onReversePrompt: () => undefined,
+      }),
+    )
+
+    expect(html).toContain('连接已中断，任务仍在后台执行')
+    expect(html).not.toContain('animate-spin')
+  })
+
+  it('only animates pending slots while the image task is generating', () => {
+    const html = renderToStaticMarkup(
+      createElement(ChatResultBlock, {
+        slots: [{ url: null }],
+        status: 'generating',
+        done: 0,
+        total: 1,
+        onPreview: () => undefined,
+        onEdit: () => undefined,
+        onBackground: () => undefined,
+        onReversePrompt: () => undefined,
+      }),
+    )
+
+    expect(html).toContain('animate-spin')
   })
 })

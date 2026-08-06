@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { buildChatMessageBody } from '@/api/chat'
+import { buildChatMessageBody, confirmChat } from '@/api/chat'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('buildChatMessageBody', () => {
   it('omits edit source for normal chat messages', () => {
@@ -57,6 +61,34 @@ describe('buildChatMessageBody', () => {
       },
       upload_ids: [],
       edit_source_image_key: 'result.png',
+    })
+  })
+})
+
+describe('confirmChat streaming', () => {
+  it('delivers job_started before surfacing a subsequent reader failure', async () => {
+    const encoder = new TextEncoder()
+    let pullCount = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pullCount++ === 0) {
+          controller.enqueue(encoder.encode(
+            'event: job_started\ndata: {"job_id":"j1","tool":"generate","count":2}\n\n',
+          ))
+          return
+        }
+        controller.error(new Error('network interrupted'))
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 200 })))
+    const events: unknown[] = []
+
+    await expect(confirmChat({
+      sessionId: 's1', confirmToken: 'ct1', action: 'confirm',
+    }, (event) => events.push(event))).rejects.toThrow('network interrupted')
+
+    expect(events).toContainEqual({
+      kind: 'job_started', jobId: 'j1', tool: 'generate', count: 2,
     })
   })
 })

@@ -40,6 +40,7 @@ from design_hub.domain.tasking import (
     ReferenceSource,
     RenderTier,
 )
+from design_hub.infrastructure.storage.local import LocalMediaUrlSigner
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import get_current_user, get_current_user_sse
 from design_hub.interface.api.routes import listing
@@ -503,6 +504,7 @@ def _http_client(
     app.state.listing_submission = service
     app.state.listing_query = _OwnerQuery(owned)
     app.state.event_stream = stream
+    app.state.media_signer = LocalMediaUrlSigner("")
 
     async def user() -> AuthUser:
         return AuthUser(user_id="1", name="User", role=Role.DESIGNER)
