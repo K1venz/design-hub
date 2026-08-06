@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import {
-  LISTING_EVENT_TYPES, buildCloneBody, buildEditBody, buildListingBody, buildSetListingBody,
+  JOB_STATUS, LISTING_EVENT_TYPES, buildCloneBody, buildEditBody, buildListingBody, buildSetListingBody,
   parseListingEvent,
   type CloneGenerateInput, type EditGenerateInput, type ListingEvent, type ListingGenerateInput,
   type ListingSetGenerateInput, type UploadedImage, type ListingJobSummary, type ListingJobDetail,
@@ -169,10 +169,19 @@ export function useListingJobs(limit: number, offset: number) {
 }
 
 /** GET /listing/jobs/{jobId} → 详情（仅本人；非本人/不存在 → 404 抛错）。 */
+export function listingJobQueryKey(jobId: string) {
+  return ['listing', 'job', jobId] as const
+}
+
+export function listingJobRefetchInterval(status: string | undefined): 1500 | false {
+  return status === JOB_STATUS.generating ? 1500 : false
+}
+
 export function useListingJob(jobId: string | undefined) {
   return useQuery({
-    queryKey: ['listing', 'job', jobId],
+    queryKey: listingJobQueryKey(jobId ?? ''),
     queryFn: () => authGet<ListingJobDetail>(`/listing/jobs/${jobId}`),
     enabled: Boolean(jobId),
+    refetchInterval: (query) => listingJobRefetchInterval(query.state.data?.status),
   })
 }
