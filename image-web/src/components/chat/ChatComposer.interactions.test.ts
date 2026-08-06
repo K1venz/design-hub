@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { ChatComposer } from '@/components/chat/ChatComposer'
-import type { ChatImageFileSelection } from '@/components/chat/ChatImageDropZone'
+import type { ChatImageFileSelection } from '@/components/chat/chat-image-files'
 import type { ModelSelection } from '@/components/models/model-selection'
 
 function selection(modelId: string): ModelSelection {

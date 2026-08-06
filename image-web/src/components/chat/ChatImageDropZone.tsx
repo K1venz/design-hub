@@ -1,36 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ImageUpIcon } from 'lucide-react'
 
-const ACCEPTED_IMAGE_TYPES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-])
-
-export interface ChatImageFileSelection {
-  accepted: File[]
-  unsupportedCount: number
-  overflowCount: number
-  full: boolean
-}
-
-export function selectChatImageFiles(
-  files: readonly File[],
-  remainingSlots: number,
-): ChatImageFileSelection {
-  const availableSlots = Math.max(0, remainingSlots)
-  const supported = files.filter((file) =>
-    ACCEPTED_IMAGE_TYPES.has(file.type),
-  )
-  const accepted = supported.slice(0, availableSlots)
-
-  return {
-    accepted,
-    unsupportedCount: files.length - supported.length,
-    overflowCount: supported.length - accepted.length,
-    full: availableSlots === 0 && supported.length > 0,
-  }
-}
+import {
+  type ChatImageFileSelection,
+  selectChatImageFiles,
+} from '@/components/chat/chat-image-files'
 
 function containsFiles(event: React.DragEvent<HTMLDivElement>): boolean {
   return Array.from(event.dataTransfer.types).includes('Files')
@@ -50,19 +24,6 @@ export function ChatImageDropZone({
   const dragDepthRef = useRef(0)
   const [receiving, setReceiving] = useState(false)
 
-  useEffect(() => {
-    if (!disabled) return
-    dragDepthRef.current = 0
-    setReceiving(false)
-  }, [disabled])
-
-  useEffect(
-    () => () => {
-      dragDepthRef.current = 0
-    },
-    [],
-  )
-
   function resetDragState() {
     dragDepthRef.current = 0
     setReceiving(false)
@@ -72,7 +33,10 @@ export function ChatImageDropZone({
     if (!containsFiles(event)) return
     event.preventDefault()
     event.stopPropagation()
-    if (disabled) return
+    if (disabled) {
+      resetDragState()
+      return
+    }
 
     dragDepthRef.current += 1
     if (remainingSlots > 0) setReceiving(true)
@@ -82,6 +46,7 @@ export function ChatImageDropZone({
     if (!containsFiles(event)) return
     event.preventDefault()
     event.stopPropagation()
+    if (disabled) resetDragState()
   }
 
   function handleDragLeave(event: React.DragEvent<HTMLDivElement>) {
@@ -122,7 +87,7 @@ export function ChatImageDropZone({
       onDrop={handleDrop}
     >
       {children}
-      {receiving && (
+      {receiving && !disabled && remainingSlots > 0 && (
         <div
           role="status"
           aria-live="polite"

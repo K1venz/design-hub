@@ -65,6 +65,7 @@ function renderComposer(
       chatSelection: selection('doubao-chat'),
       imageSelection: selection(modelId),
       onPickFiles: vi.fn(),
+      onFileSelection: vi.fn(),
       onRemoveAttachment: vi.fn(),
       onCancelEdit: vi.fn(),
       onReversePrompt: vi.fn(),
