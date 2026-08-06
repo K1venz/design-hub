@@ -26,6 +26,7 @@ from design_hub.domain.tasking import (
     GenerationItemStatus,
     OperationType,
     RenderTier,
+    TaskMessage,
 )
 from design_hub.infrastructure.db.generation_work_repo import (
     SqlAlchemyGenerationWorkRepository,
@@ -196,6 +197,29 @@ class _ResumeExecutor(_NeverExecutor):
         )
 
 
+class _BlockingExecutor(_NeverExecutor):
+    def __init__(self) -> None:
+        self.gate = asyncio.Event()
+        self.started = asyncio.Event()
+        self.submits = 0
+
+    async def submit(
+        self, request: ProviderRequest, *, operation_id: str
+    ) -> ImmediateResult:
+        self.submits += 1
+        self.started.set()
+        await self.gate.wait()
+        return ImmediateResult(
+            GeneratedImage(
+                image_key=f"{operation_id}.png",
+                url=f"mock://{operation_id}.png",
+                seed=0,
+                latency_ms=50,
+                cost=Decimal("0.05"),
+            )
+        )
+
+
 class _NoReferences:
     async def materialize(
         self, work: GenerationWorkItem, reference_mode: str
@@ -212,6 +236,19 @@ class _NoSlots:
 
     async def refresh(self, *, worker_id: str, item_id: str) -> bool:
         return True
+
+
+class _AvailableSlots(_NoSlots):
+    async def acquire(self, *, worker_id: str, item_id: str) -> bool:
+        return True
+
+
+class _ExecutorResolver:
+    def __init__(self, executor) -> None:  # type: ignore[no-untyped-def]
+        self.executor = executor
+
+    async def resolve(self, model_id: str, render_tier: RenderTier):  # type: ignore[no-untyped-def]
+        return self.executor
 
 
 class _FailFirstAck:
@@ -235,16 +272,191 @@ def _worker(
     broker,
     executor,
     worker_id: str,
+    heartbeat_seconds: float = 15,
+    slots=None,
 ) -> GenerationWorker:  # type: ignore[no-untyped-def]
     return GenerationWorker(
         repository=repository,
         broker=broker,
-        executor_for=lambda _model: executor,
+        executor_resolver=_ExecutorResolver(executor),
         materializer=_NoReferences(),
-        slots_for=lambda _model, _tier: _NoSlots(),
+        slots_for=lambda _model, _tier: slots or _NoSlots(),
         worker_id=worker_id,
         lease_seconds=30,
+        heartbeat_seconds=heartbeat_seconds,
     )
+
+
+def _message(token: str) -> TaskMessage:
+    return TaskMessage(
+        schema_version=1,
+        message_id=f"message:{token}",
+        trace_id=f"trace:{token}",
+        request_id=f"request:{token}",
+        job_id=f"job:{token}",
+        item_id=f"item:{token}",
+        operation_id=f"operation:{token}",
+        operation_type=OperationType.GENERATE_IMAGE,
+        user_id="1",
+        created_at=datetime.now(UTC),
+    )
+
+
+async def _pending_owner(redis: Redis, redis_id: str) -> str:  # type: ignore[type-arg]
+    entries = await redis.xpending_range(
+        "design-hub:generation:v1",
+        "generation-workers-v1",
+        min=redis_id,
+        max=redis_id,
+        count=1,
+    )
+    assert len(entries) == 1
+    owner = entries[0]["consumer"]
+    assert isinstance(owner, str)
+    return owner
+
+
+def test_delivery_renewal_preserves_current_redis_owner() -> None:
+    async def run() -> None:
+        assert _REDIS_URL is not None
+        redis = _redis(_REDIS_URL)
+        try:
+            await redis.flushdb()
+            broker = _broker(redis)
+            await broker.ensure_group()
+            await broker.publish(_message(uuid4().hex))
+            (delivery,) = await broker.read(
+                consumer="worker-a",
+                count=1,
+                block_ms=100,
+            )
+
+            await asyncio.sleep(0.05)
+            assert await broker.renew(
+                consumer="worker-a",
+                redis_id=delivery.redis_id,
+            )
+            assert await broker.autoclaim(
+                consumer="worker-b",
+                min_idle_ms=25,
+                count=1,
+            ) == ()
+
+            await asyncio.sleep(0.05)
+            (recovered,) = await broker.autoclaim(
+                consumer="worker-b",
+                min_idle_ms=25,
+                count=1,
+            )
+            assert recovered.redis_id == delivery.redis_id
+            assert not await broker.renew(
+                consumer="worker-a",
+                redis_id=delivery.redis_id,
+            )
+            assert await _pending_owner(redis, delivery.redis_id) == "worker-b"
+        finally:
+            await redis.flushdb()
+            await redis.aclose()
+
+    asyncio.run(run())
+
+
+def test_two_deliveries_renew_without_crossing_redis_ownership() -> None:
+    async def run() -> None:
+        assert _REDIS_URL is not None
+        redis = _redis(_REDIS_URL)
+        try:
+            await redis.flushdb()
+            broker = _broker(redis)
+            await broker.ensure_group()
+            await broker.publish(_message(uuid4().hex))
+            (delivery_a,) = await broker.read(
+                consumer="worker-a",
+                count=1,
+                block_ms=100,
+            )
+            await broker.publish(_message(uuid4().hex))
+            (delivery_b,) = await broker.read(
+                consumer="worker-b",
+                count=1,
+                block_ms=100,
+            )
+
+            assert await broker.renew(
+                consumer="worker-a",
+                redis_id=delivery_a.redis_id,
+            )
+            assert await broker.renew(
+                consumer="worker-b",
+                redis_id=delivery_b.redis_id,
+            )
+            assert not await broker.renew(
+                consumer="worker-a",
+                redis_id=delivery_b.redis_id,
+            )
+            assert await _pending_owner(redis, delivery_a.redis_id) == "worker-a"
+            assert await _pending_owner(redis, delivery_b.redis_id) == "worker-b"
+        finally:
+            await redis.flushdb()
+            await redis.aclose()
+
+    asyncio.run(run())
+
+
+def test_generation_longer_than_reclaim_window_calls_provider_once() -> None:
+    async def run() -> None:
+        assert _DB_URL is not None and _REDIS_URL is not None
+        run_id = _new_run(1)
+        engine = create_engine(_DB_URL)
+        sessions = create_session_factory(engine)
+        redis = _redis(_REDIS_URL)
+        try:
+            await redis.flushdb()
+            await _seed_user(sessions, run_id)
+            repository = SqlAlchemyGenerationWorkRepository(sessions)
+            broker = _broker(redis)
+            events = RedisJobEventStream(cast(RedisStreamClient, redis))
+            await broker.ensure_group()
+            await repository.submit(_submission(run_id))
+            dispatcher = OutboxDispatcher(
+                repository=repository,
+                broker=broker,
+                events=cast(EventPublisher, events),
+            )
+            await dispatcher.dispatch_once()
+            (delivery,) = await broker.read(
+                consumer="long-worker",
+                count=1,
+                block_ms=100,
+            )
+            executor = _BlockingExecutor()
+            worker = _worker(
+                repository=repository,
+                broker=broker,
+                executor=executor,
+                worker_id="long-worker",
+                heartbeat_seconds=0.01,
+                slots=_AvailableSlots(),
+            )
+
+            process_task = asyncio.create_task(worker.process(delivery))
+            await executor.started.wait()
+            await asyncio.sleep(0.05)
+            assert await broker.autoclaim(
+                consumer="recovery-worker",
+                min_idle_ms=25,
+                count=1,
+            ) == ()
+            executor.gate.set()
+            await process_task
+
+            assert executor.submits == 1
+        finally:
+            await _cleanup(sessions, redis, run_id)
+            await redis.aclose()
+            await engine.dispose()
+
+    asyncio.run(run())
 
 
 def test_pending_survives_consumer_and_client_restart_then_cancels_once() -> None:

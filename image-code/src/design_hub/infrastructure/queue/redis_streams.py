@@ -15,6 +15,34 @@ _GENERATION_GROUP = "generation-workers-v1"
 _EVENT_PREFIX = "design-hub:events:"
 _EVENT_MAX_LENGTH = 100
 _EVENT_TTL_SECONDS = 86400
+_RENEW_IF_OWNER_SCRIPT = """
+local pending = redis.call(
+    "XPENDING",
+    KEYS[1],
+    ARGV[1],
+    ARGV[3],
+    ARGV[3],
+    1
+)
+if #pending ~= 1 or pending[1][2] ~= ARGV[2] then
+    return 0
+end
+local renewed = redis.call(
+    "XCLAIM",
+    KEYS[1],
+    ARGV[1],
+    ARGV[2],
+    0,
+    ARGV[3],
+    "IDLE",
+    0,
+    "JUSTID"
+)
+if #renewed ~= 1 or renewed[1] ~= ARGV[3] then
+    return 0
+end
+return 1
+""".strip()
 
 
 class RedisStreamClient(Protocol):
@@ -26,7 +54,7 @@ class RedisStreamClient(Protocol):
 
     async def xautoclaim(self, *args: object, **kwargs: object) -> object: ...
 
-    async def xclaim(self, *args: object, **kwargs: object) -> object: ...
+    async def eval(self, *args: object, **kwargs: object) -> object: ...
 
     async def xack(self, *args: object, **kwargs: object) -> int: ...
 
@@ -116,20 +144,17 @@ class RedisTaskBroker:
         return self._deliveries(_stream_messages([(_GENERATION_STREAM, messages)]))
 
     async def renew(self, *, consumer: str, redis_id: str) -> bool:
-        response = await self._client.xclaim(
+        response = await self._client.eval(
+            _RENEW_IF_OWNER_SCRIPT,
+            1,
             _GENERATION_STREAM,
             _GENERATION_GROUP,
             consumer,
-            0,
-            (redis_id,),
-            idle=0,
-            justid=True,
+            redis_id,
         )
-        if not isinstance(response, Sequence) or isinstance(response, (str, bytes)):
-            raise TypeError("Redis XCLAIM response must be a sequence")
-        if not all(isinstance(message_id, str) for message_id in response):
-            raise TypeError("Redis XCLAIM response contains an invalid message id")
-        return redis_id in response
+        if type(response) is not int or response not in {0, 1}:
+            raise TypeError("Redis renewal response must be 0 or 1")
+        return response == 1
 
     async def ack(self, redis_id: str) -> None:
         await self._client.xack(
