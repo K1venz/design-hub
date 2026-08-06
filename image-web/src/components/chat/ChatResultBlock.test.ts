@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
+import { countProcessedSlots } from '@/lib/listing'
 
 describe('ChatResultBlock', () => {
   it('offers preview, edit, background replacement, prompt reversal, and download for a stable result image', () => {
@@ -72,5 +73,28 @@ describe('ChatResultBlock', () => {
     expect(html).not.toContain('换背景')
     expect(html).not.toContain('反推提示词')
     expect(html).not.toContain('下载')
+  })
+
+  it('counts failed slots as processed while pending slots keep animating', () => {
+    const slots = [
+      { url: 'https://img/result.png', imageKey: 'result.png' },
+      { url: null, error: 'provider 500' },
+      { url: null },
+    ]
+    const html = renderToStaticMarkup(
+      createElement(ChatResultBlock, {
+        slots,
+        done: countProcessedSlots(slots),
+        total: 3,
+        onPreview: () => undefined,
+        onEdit: () => undefined,
+        onBackground: () => undefined,
+        onReversePrompt: () => undefined,
+      }),
+    )
+
+    expect(html).toContain('2/3')
+    expect(html).toContain('生成失败')
+    expect(html).toContain('aria-label="图片生成中"')
   })
 })

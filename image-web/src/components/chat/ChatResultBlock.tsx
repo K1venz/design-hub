@@ -136,6 +136,8 @@ export function ChatResultBlock({
           return (
             <div
               key={index}
+              role="status"
+              aria-label="图片生成中"
               className="grid aspect-square place-items-center rounded-xl border border-dashed border-wb-line-3 bg-wb-surface-1"
             >
               <div className="size-5 animate-spin rounded-full border-2 border-wb-line-2 border-t-wb-brand" />
