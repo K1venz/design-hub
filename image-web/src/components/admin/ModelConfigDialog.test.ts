@@ -52,6 +52,7 @@ describe('typed model provider form', () => {
       'nano-banana-2',
       'wan2.7-image-pro',
       'doubao-chat',
+      'doubao-vision',
     ])
   })
 
@@ -62,6 +63,9 @@ describe('typed model provider form', () => {
       'dashscope_wan_image',
     ])
     expect(providersForModelType('chat')).toEqual([
+      'openai_compat_chat',
+    ])
+    expect(providersForModelType('vision')).toEqual([
       'openai_compat_chat',
     ])
     expect(PROVIDER_FORM_DEFINITIONS.openai_compat_image).toMatchObject({
@@ -77,6 +81,7 @@ describe('typed model provider form', () => {
       extraFields: [],
     })
     expect(PROVIDER_FORM_DEFINITIONS.openai_compat_chat).toMatchObject({
+      modelTypes: ['chat', 'vision'],
       credentialFields: ['apiKey'],
       extraFields: ['thinkingDisabled'],
     })

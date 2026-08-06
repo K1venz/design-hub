@@ -296,6 +296,7 @@ export function ModelConfigDialog(props: Props) {
               >
                 <option value="image">图片模型</option>
                 <option value="chat">Chat 模型</option>
+                <option value="vision">视觉模型</option>
               </select>
             </Field>
             <Field label="Provider" htmlFor="mc-provider">
@@ -571,7 +572,7 @@ export function VerificationPanel({
     return (
       <div className="rounded-xl border border-wb-line-1 bg-wb-surface-1 p-3 text-sm text-muted-foreground">
         保存前请测试当前连接。图片模型会验证生成与编辑，Chat
-        模型会验证流式文本与工具调用。
+        模型会验证流式文本与工具调用，视觉模型会验证图片理解与结构化工具调用。
       </div>
     )
   }
