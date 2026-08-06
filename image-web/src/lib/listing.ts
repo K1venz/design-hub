@@ -317,8 +317,7 @@ export type ListingJobImage = Schemas['ListingImageOut']
 /** 图片行成功态字面值（backend models.py ListingImageRow.status：成功|失败）。 */
 export const IMAGE_SUCCESS_STATUS = '成功'
 
-/** listing_job.status 字面值（backend infrastructure/db/models.py：生成中|完成|部分完成|失败）。
- *  注：当前后端仅在终态落库，「生成中」为设计保留、恢复流程读不到进行中历史行（见 detailToResultSlots）。 */
+/** listing_job.status 字面值（backend infrastructure/db/models.py：生成中|完成|部分完成|失败）。 */
 export const JOB_STATUS = {
   generating: '生成中',
   done: '完成',
@@ -392,26 +391,47 @@ export type ListingJobDetail = Schemas['ListingJobDetailOut']
 //  - 失败张（部分完成，status='失败'）→ 失败槽，带 image_type + 顶层 error 原因，
 //    使分母含失败张 → 结果区可如实呈现「X/N（M 失败）」；
 //  - 无图行的整单失败（status='失败'）→ 合成单一失败槽让原因可见；
+//  - 生成中 → 已落库图片后补齐 n 个槽位，供刷新/切会话后恢复动画；
 //  - 其余（无图、非失败）→ 空。
-// 进行中（status='生成中'）不在此映射——由 SSE 续播（见 WorkbenchPage 接回逻辑）。
+function imageToResultSlot(
+  error: string | null,
+): (image: ListingJobImage) => ResultSlotLike {
+  return (image) =>
+    image.status === IMAGE_SUCCESS_STATUS
+      ? image.available && image.url
+        ? {
+            url: image.url,
+            imageType: image.image_type ?? undefined,
+            imageKey: image.image_key,
+          }
+        : {
+            url: null,
+            imageType: image.image_type ?? undefined,
+            unavailable: true,
+          }
+      : {
+          url: null,
+          imageType: image.image_type ?? undefined,
+          error: error ?? '生成失败',
+        }
+}
+
+export function countProcessedSlots(slots: readonly ResultSlotLike[]): number {
+  return slots.filter((slot) => Boolean(slot.url || slot.error || slot.unavailable)).length
+}
+
 export function detailToResultSlots(detail: ListingJobDetail): ResultSlotLike[] {
-  if (detail.images.length > 0) {
-    return detail.images.map((im) =>
-      im.status === IMAGE_SUCCESS_STATUS
-        ? im.available && im.url
-          ? {
-              url: im.url,
-              imageType: im.image_type ?? undefined,
-              imageKey: im.image_key,
-            }
-          : {
-              url: null,
-              imageType: im.image_type ?? undefined,
-              unavailable: true,
-            }
-        : { url: null, imageType: im.image_type ?? undefined, error: detail.error ?? '生成失败' },
-    )
+  const slots = detail.images.map(imageToResultSlot(detail.error))
+  if (detail.status === JOB_STATUS.generating) {
+    return [
+      ...slots,
+      ...Array.from(
+        { length: Math.max(0, detail.n - slots.length) },
+        () => ({ url: null }) as ResultSlotLike,
+      ),
+    ]
   }
+  if (slots.length > 0) return slots
   if (detail.status === JOB_STATUS.failed) {
     return [{ url: null, error: detail.error ?? '出图失败' }]
   }
