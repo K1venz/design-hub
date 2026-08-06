@@ -225,6 +225,9 @@ class _FailFirstAck:
             raise RedisConnectionError("simulated connection loss before ACK")
         await self.broker.ack(redis_id)
 
+    async def renew(self, *, consumer: str, redis_id: str) -> bool:
+        return await self.broker.renew(consumer=consumer, redis_id=redis_id)
+
 
 def _worker(
     *,
