@@ -16,7 +16,7 @@ from design_hub.application.image_prompts.reverse_prompt import (
 )
 from design_hub.application.listing.upload_service import UploadService
 from design_hub.domain.admin import ModelOperation
-from design_hub.domain.enums import Role
+from design_hub.domain.enums import ModelType, Role
 from design_hub.domain.errors import NotFoundError
 from design_hub.domain.models import AuthUser
 from design_hub.infrastructure.providers.mock_text import MockTextLLMProvider
@@ -97,8 +97,10 @@ class _LLM(TextLLMPort):
 class _Resolver:
     def __init__(self, llm: TextLLMPort) -> None:
         self.llm = llm
+        self.default_calls: list[ModelType] = []
 
-    async def resolve_default(self) -> TextLLMPort:
+    async def resolve_default(self, model_type: ModelType) -> TextLLMPort:
+        self.default_calls.append(model_type)
         return self.llm
 
 
@@ -242,6 +244,7 @@ def test_reverse_uploaded_image_uses_real_bytes_and_strict_result_schema(
             user_id="user-1",
             operation=ModelOperation.REVERSE_PROMPT,
         )
+        assert service.text_llm_resolver.default_calls == [ModelType.VISION]
 
     asyncio.run(run())
     record = next(

@@ -150,10 +150,15 @@ def _image_record(
 
 
 def _chat_record(
-    *, revision: int = 1, enabled: bool = True, verified: bool = True
+    *,
+    revision: int = 1,
+    enabled: bool = True,
+    verified: bool = True,
+    model_type: ModelType = ModelType.CHAT,
+    name: str = "doubao-chat",
 ) -> ModelConfigRecord:
     fingerprint = connection_fingerprint(
-        model_type=ModelType.CHAT,
+        model_type=model_type,
         provider_type=ProviderType.OPENAI_COMPAT_CHAT,
         base_url="https://chat.example.test/v1",
         upstream_model="doubao-upstream",
@@ -161,9 +166,9 @@ def _chat_record(
         credentials_plaintext={"api_key": "chat-key"},
     )
     return ModelConfigRecord(
-        name="doubao-chat",
+        name=name,
         display_name="Doubao Chat",
-        model_type=ModelType.CHAT,
+        model_type=model_type,
         provider_type=ProviderType.OPENAI_COMPAT_CHAT,
         base_url="https://chat.example.test/v1",
         model="doubao-upstream",
@@ -337,8 +342,8 @@ def test_text_resolver_reads_default_and_row_on_every_operation() -> None:
             settings=Settings(),
         )
 
-        first = await resolver.resolve_default()
-        second = await resolver.resolve_default()
+        first = await resolver.resolve_default(ModelType.CHAT)
+        second = await resolver.resolve_default(ModelType.CHAT)
 
         assert first is second
         assert repo.default_calls == [ModelType.CHAT, ModelType.CHAT]
@@ -361,8 +366,8 @@ def test_text_resolver_resolves_explicit_model_without_reading_default() -> None
             settings=Settings(),
         )
 
-        first = await resolver.resolve(record.name)
-        second = await resolver.resolve(record.name)
+        first = await resolver.resolve(record.name, ModelType.CHAT)
+        second = await resolver.resolve(record.name, ModelType.CHAT)
 
         assert first is second
         assert repo.default_calls == []
@@ -386,8 +391,35 @@ def test_text_resolver_rejects_unavailable_explicit_model(
                 cipher=_Cipher({"enc-chat": "chat-key"}),
                 recorder=RecordingModelCallRecorder(),
                 settings=Settings(),
-            ).resolve("doubao-chat")
+            ).resolve("doubao-chat", ModelType.CHAT)
         )
+
+
+def test_text_resolver_scopes_default_and_explicit_resolution_by_model_type() -> None:
+    async def run() -> None:
+        record = _chat_record(
+            model_type=ModelType.VISION,
+            name="doubao-vision",
+        )
+        repo = _Repo(
+            {record.name: record},
+            defaults={ModelType.VISION: record.name},
+        )
+        resolver = LiveTextLLMResolver(
+            repository=repo,
+            cipher=_Cipher({"enc-chat": "chat-key"}),
+            recorder=RecordingModelCallRecorder(),
+            settings=Settings(),
+        )
+
+        resolved = await resolver.resolve_default(ModelType.VISION)
+
+        assert resolved.name == record.name
+        assert repo.default_calls == [ModelType.VISION]
+        with pytest.raises(ModelUnavailableError, match="model unavailable"):
+            await resolver.resolve(record.name, ModelType.CHAT)
+
+    asyncio.run(run())
 
 
 def test_image_resolver_constructs_recoverable_wan_only_for_standard_tier() -> None:

@@ -787,12 +787,19 @@ class Infra:
 class _TextResolver:
     text_llm: TextLLMPort
     requested_model_ids: list[str] = field(default_factory=list)
+    requested_model_types: list[ModelType] = field(default_factory=list)
 
-    async def resolve(self, model_id: str) -> TextLLMPort:
+    async def resolve(
+        self,
+        model_id: str,
+        model_type: ModelType,
+    ) -> TextLLMPort:
         self.requested_model_ids.append(model_id)
+        self.requested_model_types.append(model_type)
         return self.text_llm
 
-    async def resolve_default(self) -> TextLLMPort:
+    async def resolve_default(self, model_type: ModelType) -> TextLLMPort:
+        self.requested_model_types.append(model_type)
         return self.text_llm
 
 
@@ -924,6 +931,7 @@ def test_selected_text_model_is_retained_for_confirmation(tmp_path) -> None:
         pending = inf.pending._pending[session_id]
         assert pending.chat_model == "deepseek-v4-flash"
         assert resolver.requested_model_ids == ["deepseek-v4-flash"]
+        assert resolver.requested_model_types == [ModelType.CHAT]
 
         await _drain(
             orch.handle_confirm(
@@ -936,6 +944,10 @@ def test_selected_text_model_is_retained_for_confirmation(tmp_path) -> None:
         assert resolver.requested_model_ids == [
             "deepseek-v4-flash",
             "deepseek-v4-flash",
+        ]
+        assert resolver.requested_model_types == [
+            ModelType.CHAT,
+            ModelType.CHAT,
         ]
 
     asyncio.run(_impl())
