@@ -422,7 +422,7 @@ def test_text_resolver_scopes_default_and_explicit_resolution_by_model_type() ->
     asyncio.run(run())
 
 
-def test_image_resolver_constructs_recoverable_wan_only_for_standard_tier() -> None:
+def test_image_resolver_constructs_recoverable_wan_for_every_supported_tier() -> None:
     async def run() -> None:
         record = _wan_record()
         resolver = _image_resolver(
@@ -430,13 +430,14 @@ def test_image_resolver_constructs_recoverable_wan_only_for_standard_tier() -> N
             cipher=_Cipher({"enc-wan": "wan-key"}),
         )
 
-        executor = await resolver.resolve(
-            record.name, RenderTier.STANDARD
-        )
-        assert executor.provider.name == record.name
-        assert executor.reference_mode == "url"
-        with pytest.raises(ModelUnavailableError, match="model unavailable"):
-            await resolver.resolve(record.name, RenderTier.FOUR_K)
+        for tier in (
+            RenderTier.STANDARD,
+            RenderTier.TWO_K,
+            RenderTier.FOUR_K,
+        ):
+            executor = await resolver.resolve(record.name, tier)
+            assert executor.provider.name == record.name
+            assert executor.reference_mode == "url"
 
     asyncio.run(run())
 

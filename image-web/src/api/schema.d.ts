@@ -1267,8 +1267,6 @@ export interface components {
             render_tiers: components["schemas"]["ImageRenderTierOut"][];
             /** Max Count */
             max_count: number;
-            /** Supports References */
-            supports_references: boolean;
         };
         /** ImageModerationUpdate */
         ImageModerationUpdate: {
@@ -1284,6 +1282,8 @@ export interface components {
             label: string;
             /** Ratios */
             ratios: string[];
+            /** Supports References */
+            supports_references: boolean;
         };
         /**
          * ListingGenerateRequest

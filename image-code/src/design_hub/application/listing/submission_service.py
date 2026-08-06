@@ -269,7 +269,11 @@ class ListingSubmissionService:
         render_tier: RenderTier = RenderTier.STANDARD,
     ) -> None:
         if isinstance(request, ListingGenerateRequest):
-            if not 1 <= len(request.upload_ids) <= 3:
+            capabilities = image_model_capabilities(request.image_model)
+            if (
+                capabilities.supports_references_for(render_tier)
+                and not 1 <= len(request.upload_ids) <= 3
+            ):
                 raise ValueError(
                     f"请上传 1–3 张图片（当前 {len(request.upload_ids)} 张）"
                 )
@@ -348,7 +352,11 @@ class ListingSubmissionService:
             )
             raise
         capabilities = image_model_capabilities(config.name)
-        capabilities.ratios(render_tier)
+        capabilities.validate_operation(
+            render_tier,
+            _requested_ratio(request),
+            has_references=_has_references(request),
+        )
         count = (
             request.n
             if isinstance(request, ListingGenerateRequest)
@@ -415,3 +423,29 @@ class ListingSubmissionService:
                 "status": "replayed" if replayed else "accepted",
             },
         )
+
+
+def _requested_ratio(
+    request: (
+        ListingGenerateRequest
+        | CloneRequest
+        | EditRequest
+        | BackgroundReplaceRequest
+    ),
+) -> str | None:
+    if isinstance(request, BackgroundReplaceRequest):
+        return None
+    return request.ratio
+
+
+def _has_references(
+    request: (
+        ListingGenerateRequest
+        | CloneRequest
+        | EditRequest
+        | BackgroundReplaceRequest
+    ),
+) -> bool:
+    if isinstance(request, ListingGenerateRequest):
+        return bool(request.upload_ids)
+    return True

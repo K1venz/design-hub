@@ -60,8 +60,6 @@ def build_image_provider(
             max_retries=settings.nano_banana_max_retries,
         )
     if record.provider_type is ProviderType.DASHSCOPE_WAN_IMAGE:
-        if render_tier is RenderTier.FOUR_K:
-            raise ValueError("Wan does not support the 4K render tier")
         watermark = record.extra.get("watermark", False)
         if type(watermark) is not bool:
             raise ValueError("invalid Wan provider options")
