@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import type { ResultSlot } from '@/lib/listing'
 import { DEFAULT_LISTING_CONFIG, type ListingConfig, type UploadedImage } from '@/lib/listing'
 
 type Updater<T> = T | ((prev: T) => T)

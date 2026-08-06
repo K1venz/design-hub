@@ -7,7 +7,8 @@ import {
   useListingEvents,
 } from '@/api/listing'
 import { CloneConfigPanel, type CloneConfig } from '@/components/listing/CloneConfigPanel'
-import { ResultGallery, type ResultSlot } from '@/components/listing/ResultGallery'
+import { ResultGallery } from '@/components/listing/ResultGallery'
+import type { ResultSlot } from '@/lib/listing'
 import { newTaskBus } from '@/components/listing/new-task-bus'
 import { useEditEntries } from '@/components/listing/use-edit-entries'
 import {

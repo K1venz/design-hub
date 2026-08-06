@@ -5,6 +5,7 @@ import {
   DEFAULT_PLAN,
   EDIT_MODES,
   EDIT_OVERLAY_NOTICE,
+  applyListingEventToSlots,
   buildCloneBody,
   buildEditBody,
   buildModifiers,
@@ -15,12 +16,13 @@ import {
   mergeSlotsWithDetail,
   parseListingEvent,
   planTotal,
+  settledSlotCount,
   JOB_STATUS,
   type ListingConfig,
   type ListingGenerateInput,
   type ListingJobDetail,
   type ListingJobImage,
-  type ResultSlotLike,
+  type ResultSlot,
 } from '@/lib/listing'
 
 describe('MODIFIER_FIELDS', () => {
@@ -232,7 +234,7 @@ describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口
   })
 
   it('单图流（无图型）：同一组对位；详情失败张不参与对位', () => {
-    const merged = mergeSlotsWithDetail<ResultSlotLike>(
+    const merged = mergeSlotsWithDetail(
       [{ url: 'sse://1' }],
       [img('k-fail', null, '失败'), img('k-ok', null)],
     )
@@ -240,7 +242,7 @@ describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口
   })
 
   it('详情多余成功张（如 ISSUE-0045 异常单）不影响既有槽位', () => {
-    const merged = mergeSlotsWithDetail<ResultSlotLike>(
+    const merged = mergeSlotsWithDetail(
       [{ url: 'sse://1' }],
       [img('k1', null), img('k2', null)],
     )
@@ -249,7 +251,7 @@ describe('mergeSlotsWithDetail（完成态补拉合并 → 结果区编辑入口
   })
 
   it('详情缺张（补拉与落库竞态兜底）：对不上的槽保持 SSE 态', () => {
-    const merged = mergeSlotsWithDetail<ResultSlotLike>(
+    const merged = mergeSlotsWithDetail(
       [{ url: 'sse://1', imageType: '白底' }, { url: 'sse://2', imageType: '场景' }],
       [img('k-b1', '白底')],
     )
@@ -374,17 +376,39 @@ describe('editModeLabel', () => {
 })
 
 describe('parseListingEvent', () => {
-  it('maps image_generated (url+seed, no index) to an image event', () => {
-    const e = parseListingEvent('image_generated', JSON.stringify({ url: 'http://x/2.png', seed: 7 }))
-    expect(e).toEqual({ kind: 'image', url: 'http://x/2.png', seed: 7 })
+  it('parses the complete image presentation contract', () => {
+    const e = parseListingEvent('image_generated', JSON.stringify({
+      item_id: 'item-1',
+      image_key: 'result.png',
+      url: 'https://img.test/result.png?signed=1',
+      seed: 7,
+      image_type: '卖点',
+    }))
+    expect(e).toEqual({
+      kind: 'image',
+      itemId: 'item-1',
+      imageKey: 'result.png',
+      url: 'https://img.test/result.png?signed=1',
+      seed: 7,
+      imageType: '卖点',
+    })
   })
-  it('carries image_type through image_generated（套图落组）', () => {
-    const e = parseListingEvent('image_generated', JSON.stringify({ url: 'http://x/1.png', seed: 1, image_type: '卖点' }))
-    expect(e).toEqual({ kind: 'image', url: 'http://x/1.png', seed: 1, imageType: '卖点' })
+  it.each(['item_id', 'image_key', 'url'])('rejects image events with empty %s', (field) => {
+    const data: Record<string, string> = {
+      item_id: 'item-1',
+      image_key: 'result.png',
+      url: 'https://img.test/result.png',
+    }
+    data[field] = ''
+    expect(() => parseListingEvent('image_generated', JSON.stringify(data)))
+      .toThrow(`${field} must be a non-empty string`)
   })
-  it('maps image_failed to per-image failure with type + reason', () => {
-    expect(parseListingEvent('image_failed', JSON.stringify({ image_type: '场景', error: 'provider 500' })))
-      .toEqual({ kind: 'image_failed', imageType: '场景', error: 'provider 500' })
+  it('parses image_failed with stable item identity', () => {
+    expect(parseListingEvent('image_failed', JSON.stringify({
+      item_id: 'item-2', image_type: '场景', error: '生成失败',
+    }))).toEqual({
+      kind: 'image_failed', itemId: 'item-2', imageType: '场景', error: '生成失败',
+    })
   })
   it('maps task_completed without exposing accounting data', () => {
     expect(parseListingEvent('task_completed', JSON.stringify({ total_cost: '7.14' })))
@@ -400,5 +424,34 @@ describe('parseListingEvent', () => {
   })
   it('returns unknown for unrecognized type', () => {
     expect(parseListingEvent('whatever', '{}')).toEqual({ kind: 'unknown' })
+  })
+})
+
+describe('applyListingEventToSlots', () => {
+  const slots: ResultSlot[] = [
+    { url: null, imageType: '白底' },
+    { url: null, imageType: '场景' },
+    { url: null, imageType: '场景' },
+  ]
+
+  it('fills by image type and derives settled count', () => {
+    const one = applyListingEventToSlots(slots, {
+      kind: 'image', itemId: 'i1', imageKey: 'k1', url: 'https://x/1', imageType: '场景',
+    })
+    const two = applyListingEventToSlots(one, {
+      kind: 'image_failed', itemId: 'i2', imageType: '白底', error: '失败',
+    })
+    expect(two[0]).toMatchObject({ itemId: 'i2', error: '失败' })
+    expect(two[1]).toMatchObject({ itemId: 'i1', imageKey: 'k1', url: 'https://x/1' })
+    expect(settledSlotCount(two)).toBe(2)
+  })
+
+  it('replays the same item idempotently', () => {
+    const event = {
+      kind: 'image', itemId: 'i1', imageKey: 'k1', url: 'https://x/1', imageType: '场景',
+    } as const
+    const once = applyListingEventToSlots(slots, event)
+    expect(applyListingEventToSlots(once, event)).toEqual(once)
+    expect(settledSlotCount(once)).toBe(1)
   })
 })

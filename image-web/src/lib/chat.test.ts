@@ -176,22 +176,22 @@ describe('parseChatEvent', () => {
   it('unwraps job_event → inner listing event via parseListingEvent', () => {
     const e = parseChatEvent(
       'job_event',
-      '{"job_id":"j1","type":"image_generated","data":{"url":"http://x/1.png","seed":0,"image_type":"白底"}}',
+      '{"job_id":"j1","type":"image_generated","data":{"item_id":"i1","image_key":"a.png","url":"http://x/1.png","seed":0,"image_type":"白底"}}',
     )
     expect(e).toEqual({
       kind: 'job',
       jobId: 'j1',
-      inner: { kind: 'image', url: 'http://x/1.png', seed: 0, imageType: '白底' },
+      inner: { kind: 'image', itemId: 'i1', imageKey: 'a.png', url: 'http://x/1.png', seed: 0, imageType: '白底' },
       imageType: '白底',
     })
   })
 
   it('unwraps job_event image_failed', () => {
-    const e = parseChatEvent('job_event', '{"job_id":"j1","type":"image_failed","data":{"image_type":"场景","error":"provider 500"}}')
+    const e = parseChatEvent('job_event', '{"job_id":"j1","type":"image_failed","data":{"item_id":"i2","image_type":"场景","error":"provider 500"}}')
     expect(e).toEqual({
       kind: 'job',
       jobId: 'j1',
-      inner: { kind: 'image_failed', imageType: '场景', error: 'provider 500' },
+      inner: { kind: 'image_failed', itemId: 'i2', imageType: '场景', error: 'provider 500' },
       imageType: undefined,
     })
   })
@@ -268,11 +268,11 @@ describe('applyChatEvent reducer', () => {
     expect(s.jobTotal).toBe(3)
     // 三张陆续到达
     s = feed(s, [
-      { kind: 'job', jobId: 'j1', inner: { kind: 'image', url: 'http://x/a.png', imageType: '白底' }, imageType: '白底' },
-      { kind: 'job', jobId: 'j1', inner: { kind: 'image', url: 'http://x/b.png', imageType: '场景' }, imageType: '场景' },
-      { kind: 'job', jobId: 'j1', inner: { kind: 'image_failed', imageType: '场景', error: '失败' }, imageType: undefined },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image', itemId: 'i1', imageKey: 'a.png', url: 'http://x/a.png', imageType: '白底' }, imageType: '白底' },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image', itemId: 'i2', imageKey: 'b.png', url: 'http://x/b.png', imageType: '场景' }, imageType: '场景' },
+      { kind: 'job', jobId: 'j1', inner: { kind: 'image_failed', itemId: 'i3', imageType: '场景', error: '失败' }, imageType: undefined },
     ])
-    expect(s.jobDone).toBe(2)
+    expect(s.jobDone).toBe(3)
     expect(s.slots.filter((x) => x.url).length).toBe(2)
     expect(s.slots.some((x) => x.error === '失败')).toBe(true)
   })

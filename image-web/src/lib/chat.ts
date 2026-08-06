@@ -2,8 +2,13 @@
 // 纯类型 + 事件解析 + 状态 reducer；无 React/IO——单测在 chat.test.ts。
 // job 出图事件 = 服务端「包一层」转发 listing TaskEvent，前端复用 parseListingEvent 渲染。
 
-import { parseListingEvent, type ListingEvent } from '@/lib/listing'
-import type { ResultSlot } from '@/components/listing/ResultGallery'
+import {
+  applyListingEventToSlots,
+  parseListingEvent,
+  settledSlotCount,
+  type ListingEvent,
+  type ResultSlot,
+} from '@/lib/listing'
 import type { components } from '@/api/schema'
 import type { BackgroundWorkbenchPrefill } from '@/lib/image-tools'
 
@@ -272,22 +277,10 @@ export function applyChatEvent(state: ChatState, ev: ChatEvent): ChatState {
         jobTotal: ev.count,
       }
     case 'job': {
-      // chat 的 job_started 只给 count、槽无预设图型，故按到达序填首个空槽，
-      // 用事件自带的 image_type 给槽打标（结果卡展示用）。
       const e = ev.inner
-      if (e.kind === 'image') {
-        const slots = [...state.slots]
-        const j = slots.findIndex((s) => s.url === null && !s.error)
-        if (j >= 0) slots[j] = { ...slots[j], url: e.url, imageType: e.imageType ?? slots[j].imageType }
-        return { ...state, slots, jobDone: state.jobDone + 1 }
-      }
-      if (e.kind === 'image_failed') {
-        const slots = [...state.slots]
-        const j = slots.findIndex((s) => s.url === null && !s.error)
-        if (j >= 0) slots[j] = { ...slots[j], error: e.error, imageType: e.imageType ?? slots[j].imageType }
-        return { ...state, slots }
-      }
-      return state
+      if (e.kind !== 'image' && e.kind !== 'image_failed') return state
+      const slots = applyListingEventToSlots(state.slots, e)
+      return { ...state, slots, jobDone: settledSlotCount(slots) }
     }
     default:
       return state
