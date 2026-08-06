@@ -33,7 +33,7 @@
 - Modify: `image-web/src/api/listing.ts` — 统一 job query key，按状态控制轮询。
 - Modify: `image-web/src/api/listing.test.ts` — 覆盖生成中轮询与终态停止策略。
 - Create: `image-web/src/components/chat/ChatJobResult.tsx` — 当前与历史共用的任务查询和结果展示组件。
-- Create: `image-web/src/components/chat/ChatJobResult.test.tsx` — 覆盖生成中、终态、加载和错误展示。
+- Create: `image-web/src/components/chat/ChatJobResult.test.ts` — 覆盖生成中、终态、加载和错误展示。
 - Modify: `image-web/src/pages/ChatPage.tsx` — 使用统一结果组件，并让 SSE 事件刷新同一任务缓存。
 - Modify: `image-web/src/lib/chat.ts` — 移除 SSE 槽位副本，并把 `job_started` 的 ID 挂到对应 assistant 气泡。
 - Modify: `image-web/src/lib/chat.test.ts` — 锁定 reducer 只记录 job ID、历史 job ID 仍可恢复。
@@ -436,7 +436,7 @@ git commit -m "feat: reconstruct running image result slots" -m "Build complete 
 - Modify: `image-web/src/api/listing.test.ts`
 - Modify: `image-web/src/api/listing.ts`
 - Create: `image-web/src/components/chat/ChatJobResult.tsx`
-- Create: `image-web/src/components/chat/ChatJobResult.test.tsx`
+- Create: `image-web/src/components/chat/ChatJobResult.test.ts`
 - Modify: `image-web/src/pages/ChatPage.tsx`
 - Modify: `image-web/src/lib/chat.ts`
 - Modify: `image-web/src/lib/chat.test.ts`
@@ -511,7 +511,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Write failing tests for the shared job result view**
 
-Create `ChatJobResult.test.tsx` around an exported pure `ChatJobResultView`. Define concrete fixtures and render these states with `renderToStaticMarkup`:
+Create `ChatJobResult.test.ts` around an exported pure `ChatJobResultView`. The repository's Vitest include pattern is `src/**/*.test.ts`, so this createElement-based test must use `.test.ts`. Define concrete fixtures and render these states with `renderToStaticMarkup`:
 
 ```typescript
 const actions = {
@@ -580,7 +580,7 @@ Use real `ListingJobDetail` fixtures matching the generated OpenAPI type. Do not
 - [ ] **Step 6: Run the new component tests and verify RED**
 
 ```powershell
-npm test -- src/components/chat/ChatJobResult.test.tsx
+npm test -- src/components/chat/ChatJobResult.test.ts
 ```
 
 Expected: FAIL because `ChatJobResultView` does not exist.
@@ -624,7 +624,7 @@ export function ChatJobResult(props: ChatJobResultProps) {
 - [ ] **Step 8: Run the shared component tests and verify GREEN**
 
 ```powershell
-npm test -- src/components/chat/ChatJobResult.test.tsx
+npm test -- src/components/chat/ChatJobResult.test.ts
 ```
 
 Expected: PASS.
@@ -718,7 +718,7 @@ Do not create a separate cache key or retain the old SSE slots as a fallback.
 - [ ] **Step 12: Run the integrated frontend tests**
 
 ```powershell
-npm test -- src/lib/chat.test.ts src/lib/listing.test.ts src/api/listing.test.ts src/components/chat/ChatResultBlock.test.ts src/components/chat/ChatJobResult.test.tsx
+npm test -- src/lib/chat.test.ts src/lib/listing.test.ts src/api/listing.test.ts src/components/chat/ChatResultBlock.test.ts src/components/chat/ChatJobResult.test.ts
 ```
 
 Expected: PASS.
@@ -737,7 +737,7 @@ Expected: all commands pass without new warnings.
 - [ ] **Step 14: Commit the unified frontend unit**
 
 ```powershell
-git add image-web/src/api/listing.ts image-web/src/api/listing.test.ts image-web/src/components/chat/ChatJobResult.tsx image-web/src/components/chat/ChatJobResult.test.tsx image-web/src/pages/ChatPage.tsx image-web/src/lib/chat.ts image-web/src/lib/chat.test.ts
+git add image-web/src/api/listing.ts image-web/src/api/listing.test.ts image-web/src/components/chat/ChatJobResult.tsx image-web/src/components/chat/ChatJobResult.test.ts image-web/src/pages/ChatPage.tsx image-web/src/lib/chat.ts image-web/src/lib/chat.test.ts
 git commit -m "feat: restore running chat image jobs" -m "Poll persisted generating jobs, rebuild complete result grids, and use one database-backed result component for both live and historical chat sessions. SSE now accelerates cache refresh without owning recoverable image progress."
 ```
 
