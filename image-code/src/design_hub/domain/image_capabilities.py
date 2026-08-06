@@ -67,17 +67,18 @@ class ImageModelCapabilities:
     def validate_operation(
         self,
         render_tier: RenderTier,
-        ratio: str,
+        ratio: str | None,
         *,
         has_references: bool,
-    ) -> ImageOutputSpec:
-        output = self.output_for(render_tier, ratio)
+    ) -> None:
+        self.ratios(render_tier)
+        if ratio is not None:
+            self.output_for(render_tier, ratio)
         if has_references and not self.supports_references_for(render_tier):
             raise ValueError(
                 f"{self.model_id} does not support references at "
                 f"{render_tier.value}"
             )
-        return output
 
 
 _GPT_TIER_RATIO_SIZES: Mapping[
