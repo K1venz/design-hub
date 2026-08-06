@@ -58,6 +58,7 @@ def test_runtime_file_only_contains_explicit_business_chain_logs(
                 "chain": "image_generation",
                 "action": "创建出图任务",
                 "trace_id": "trace-1",
+                "endpoint_kind": "chat",
                 "prompt": "完整提示词",
             },
         )
@@ -76,6 +77,7 @@ def test_runtime_file_only_contains_explicit_business_chain_logs(
         "test_runtime_file_only_contains_explicit_business_chain_logs"
     )
     assert rows[0]["prompt"] == "完整提示词"
+    assert rows[0]["endpoint_kind"] == "chat"
 
 
 def test_runtime_file_excludes_uvicorn_and_stdout_excludes_prompt(
