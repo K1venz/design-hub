@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { ArrowRightIcon, ImagePlusIcon, SendIcon } from 'lucide-react'
+import { ArrowRightIcon, DownloadIcon, ImagePlusIcon, SendIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { ShowcaseDetailDialog } from '@/components/listing/ShowcaseDetailDialog'
-import { useShowcase, type ShowcaseItem } from '@/api/showcase'
+import {
+  getShowcaseDownloadUrl,
+  useShowcase,
+  type ShowcaseItem,
+} from '@/api/showcase'
+import { downloadImage } from '@/lib/download'
 import { cn } from '@/lib/utils'
 import { useInView } from '@/lib/use-in-view'
 import { TOOL_BANNERS, TOOL_TILES } from '@/lib/home'
@@ -122,8 +128,9 @@ function ToolSection() {
 }
 
 // Load near the viewport, but render the section only after real items arrive.
-// 栅格列数与移动端断点一体：手机 1→2 / 平板 3 / 桌面 4。13 张分两批(7+6)，底部哨兵进视口显现下一批。
-const SHOWCASE_GRID = 'grid grid-cols-1 gap-4 min-[440px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
+// Masonry columns preserve each preview's original ratio and natural card height.
+const SHOWCASE_GRID =
+  'columns-1 gap-4 min-[440px]:columns-2 md:columns-3 xl:columns-4'
 const SHOWCASE_BATCH = 7
 
 function ShowcaseSection() {
@@ -185,27 +192,51 @@ function ShowcaseSection() {
 
 function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: () => void }) {
   const total = Object.values(item.recipe.plan).reduce((a, b) => a + b, 0)
+
+  async function onDownload() {
+    try {
+      const url = await getShowcaseDownloadUrl(item.image_id)
+      await downloadImage(url, `shipu-showcase-${item.image_id}.png`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '下载原图失败')
+    }
+  }
+
   return (
     <motion.figure
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}
-      className="flex flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
+      className="mb-4 inline-block w-full break-inside-avoid overflow-hidden rounded-2xl border border-white/70 bg-white align-top shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]"
     >
-      <div className="relative aspect-[4/3] bg-wb-surface-3">
-        <img src={item.url} alt={item.caption} loading="lazy" className="size-full object-cover" />
+      <div className="relative bg-wb-surface-3">
+        <img
+          src={item.url}
+          alt={item.caption}
+          width={item.width}
+          height={item.height}
+          loading="lazy"
+          className="h-auto w-full object-contain"
+        />
         <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
           {item.image_type}
         </span>
       </div>
       <figcaption className="flex flex-1 flex-col gap-2 px-3 py-2.5">
         <p className="text-[12.5px] font-medium text-wb-ink-3">{item.caption}</p>
+        <p className="line-clamp-3 whitespace-pre-wrap text-[12px] leading-5 text-wb-ink-5">
+          {item.prompt}
+        </p>
         <p className="text-[11px] text-wb-ink-6">
           {item.recipe.ratio} · 套图 {total} 张
           {item.recipe.modifiers.platform && ` · ${item.recipe.modifiers.platform}`}
         </p>
         <div className="mt-auto flex gap-2">
-          <ShowcaseDetailDialog item={item} onMakeSame={onMakeSame} />
+          <ShowcaseDetailDialog
+            item={item}
+            onMakeSame={onMakeSame}
+            onDownload={item.download_allowed ? onDownload : undefined}
+          />
           <button
             onClick={onMakeSame}
             className="flex-1 rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
@@ -213,6 +244,16 @@ function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: ()
             做同款
           </button>
         </div>
+        {item.download_allowed ? (
+          <button
+            type="button"
+            onClick={() => void onDownload()}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-wb-line-2 bg-white/70 px-3 py-1.5 text-[12px] font-medium text-wb-ink-3 transition-colors hover:border-wb-brand hover:text-wb-brand-deep"
+          >
+            <DownloadIcon className="size-3.5" />
+            下载原图
+          </button>
+        ) : null}
       </figcaption>
     </motion.figure>
   )
@@ -220,8 +261,8 @@ function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: ()
 
 function ShowcaseSkeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]">
-      <div className="aspect-[4/3] animate-pulse bg-wb-surface-4" />
+    <div className="mb-4 inline-block w-full break-inside-avoid overflow-hidden rounded-2xl border border-white/70 bg-white align-top shadow-[0_6px_24px_-14px_rgba(40,40,90,.2)]">
+      <div className="aspect-square animate-pulse bg-wb-surface-4" />
       <div className="flex flex-col gap-2 px-3 py-2.5">
         <div className="h-3.5 w-2/3 animate-pulse rounded bg-wb-surface-4" />
         <div className="h-3 w-1/2 animate-pulse rounded bg-wb-surface-4" />

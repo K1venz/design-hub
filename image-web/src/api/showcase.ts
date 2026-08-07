@@ -6,6 +6,7 @@ import type { components } from '@/api/schema'
 
 /** GET /showcase 列表项：现签 url（TTL 1h）+ 图型 + 首页说明（公开、无用户数据）。 */
 export type ShowcaseItem = components['schemas']['ShowcaseItemOut']
+export type ShowcaseDownload = components['schemas']['ShowcaseDownloadOut']
 
 /**
  * 首页成果展示案例（公开只读）。`enabled` 由视口懒加载控制——进入视口才发请求。
@@ -22,4 +23,16 @@ export function useShowcase(enabled: boolean) {
       return data
     },
   })
+}
+
+export async function getShowcaseDownloadUrl(
+  imageId: number,
+): Promise<string> {
+  const { data, error } = await api.GET('/showcase/{image_id}/download', {
+    params: { path: { image_id: imageId } },
+  })
+  if (error || !data) {
+    throw new Error(errorMessage(error, '获取原图下载地址失败'))
+  }
+  return data.url
 }

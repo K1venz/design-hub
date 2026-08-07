@@ -7,9 +7,14 @@ import { HomePage } from './HomePage'
 
 const mockUseShowcase = vi.hoisted(() => vi.fn())
 const realShowcaseItem = {
+  image_id: 18,
   url: 'https://img.example.com/peanut.png',
   image_type: '场景',
   caption: '花生礼盒早餐场景',
+  prompt: '用户输入的暖色早餐桌商品摄影提示词',
+  download_allowed: true,
+  width: 1200,
+  height: 800,
   recipe: {
     category: '食品',
     ratio: '1:1',
@@ -91,6 +96,19 @@ describe('HomePage', () => {
 
     expect(html).toContain('看看实朴出的图')
     expect(html).toContain('花生礼盒早餐场景')
+    expect(html).toContain('用户输入的暖色早餐桌商品摄影提示词')
+    expect(html).toContain('下载原图')
+    expect(html).toContain('break-inside-avoid')
+    expect(html).toContain('columns-1')
+    expect(html).not.toContain('aspect-[4/3]')
     expect(html).not.toContain('案例即将上线')
+  })
+
+  it('does not offer an original download when the admin disabled it', () => {
+    setShowcaseState({
+      data: [{ ...realShowcaseItem, download_allowed: false }],
+    })
+
+    expect(renderHome()).not.toContain('下载原图')
   })
 })

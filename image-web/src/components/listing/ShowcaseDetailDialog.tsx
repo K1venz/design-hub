@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { SparklesIcon, XIcon } from 'lucide-react'
+import { DownloadIcon, SparklesIcon, XIcon } from 'lucide-react'
 
 import type { ShowcaseItem } from '@/api/showcase'
 import { Button } from '@/components/ui/button'
@@ -29,7 +29,15 @@ const rowV: Variants = {
  * 动画=容器 fade+scale .4s + staggerChildren 0.1 逐行 spring 弹入 + AnimatePresence 开合（motion/react）。
  * 查看详情无需登录（recipe 公开、纯展示）；做同款由父级 onMakeSame 决定是否拦登录墙。
  */
-export function ShowcaseDetailDialog({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: () => void }) {
+export function ShowcaseDetailDialog({
+  item,
+  onMakeSame,
+  onDownload,
+}: {
+  item: ShowcaseItem
+  onMakeSame: () => void
+  onDownload?: () => Promise<void>
+}) {
   const [open, setOpen] = useState(false)
   const r = item.recipe
   const plan: SetPlan = { 白底: r.plan['白底'] ?? 0, 场景: r.plan['场景'] ?? 0, 卖点: r.plan['卖点'] ?? 0 }
@@ -83,8 +91,10 @@ export function ShowcaseDetailDialog({ item, onMakeSame }: { item: ShowcaseItem;
                   <img
                     src={item.url}
                     alt={item.caption}
+                    width={item.width}
+                    height={item.height}
                     loading="lazy"
-                    className="aspect-[4/3] w-full object-cover"
+                    className="max-h-[45vh] w-full object-contain"
                   />
                   <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
                     {item.image_type}
@@ -109,10 +119,12 @@ export function ShowcaseDetailDialog({ item, onMakeSame }: { item: ShowcaseItem;
                       <dd className="text-right font-medium text-wb-ink-2">{row.value}</dd>
                     </motion.div>
                   ))}
-                  {r.styling.trim() && (
+                  {item.prompt.trim() && (
                     <motion.div variants={rowV} className="pt-3">
-                      <dt className="mb-1 text-wb-ink-6">风格描述</dt>
-                      <dd className="whitespace-pre-wrap font-semibold leading-relaxed text-wb-ink-1">{r.styling}</dd>
+                      <dt className="mb-1 text-wb-ink-6">用户提示词</dt>
+                      <dd className="max-h-40 overflow-y-auto whitespace-pre-wrap font-semibold leading-relaxed text-wb-ink-1">
+                        {item.prompt}
+                      </dd>
                     </motion.div>
                   )}
                 </dl>
@@ -125,6 +137,16 @@ export function ShowcaseDetailDialog({ item, onMakeSame }: { item: ShowcaseItem;
                   >
                     <SparklesIcon /> 做同款
                   </Button>
+                  {onDownload ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-2 w-full"
+                      onClick={() => void onDownload()}
+                    >
+                      <DownloadIcon /> 下载原图
+                    </Button>
+                  ) : null}
                 </motion.div>
 
                 <DialogPrimitive.Close asChild>
