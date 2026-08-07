@@ -44,6 +44,7 @@ class AdminImageFilter:
     operation_type: str | None = None
     status: str | None = None
     moderation_status: str | None = None
+    showcase_status: str | None = None
     date_range: DateRange | None = None
 
 
@@ -148,6 +149,12 @@ class AdminJobImage:
     moderation_note: str | None
     moderated_by: int | None
     moderated_at: datetime | None
+    is_public_showcase: bool
+    showcase_download_allowed: bool
+    showcase_preview_width: int | None
+    showcase_preview_height: int | None
+    showcased_at: datetime | None
+    showcased_by: int | None
     cost: Decimal
     created_at: datetime
 
@@ -182,6 +189,7 @@ class AdminImageSummary:
     user_id: int
     user_email: str
     user_name: str
+    prompt: str
     image_type: str | None
     status: str
     moderation_status: str
@@ -189,6 +197,12 @@ class AdminImageSummary:
     moderation_note: str | None
     moderated_by: int | None
     moderated_at: datetime | None
+    is_public_showcase: bool
+    showcase_download_allowed: bool
+    showcase_preview_width: int | None
+    showcase_preview_height: int | None
+    showcased_at: datetime | None
+    showcased_by: int | None
     operation_type: str | None
     model: str | None
     cost: Decimal

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter
 
-from design_hub.domain.admin import ModerationStatus
+from design_hub.domain.admin import ModerationStatus, ShowcaseStatus
 from design_hub.domain.enums import Role
 from design_hub.interface.admin_console_schemas import (
     AdminAuditEntryOut,
@@ -14,12 +14,14 @@ from design_hub.interface.admin_console_schemas import (
     AdminUserDetailOut,
     AdminUserSummaryOut,
     ImageModerationUpdate,
+    ImageShowcaseStateOut,
+    ImageShowcaseUpdate,
     ModelCallDetailOut,
     ModelCallSummaryListOut,
     ModelCallSummaryOut,
     PageOut,
 )
-from design_hub.interface.api.admin_deps import AdminConsoleServiceDep
+from design_hub.interface.api.admin_deps import AdminConsoleServiceDep, ShowcaseServiceDep
 from design_hub.interface.api.deps import CurrentManagerDep, MediaSignerDep
 from design_hub.ports.admin_console import (
     AdminAuditFilter,
@@ -138,6 +140,7 @@ async def list_images(
     operation_type: str | None = None,
     status: str | None = None,
     moderation_status: ModerationStatus | None = None,
+    showcase_status: ShowcaseStatus | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
     limit: int = 50,
@@ -154,6 +157,9 @@ async def list_images(
                 moderation_status.value
                 if moderation_status is not None
                 else None
+            ),
+            showcase_status=(
+                showcase_status.value if showcase_status is not None else None
             ),
             date_range=service.date_range(start=start, end=end),
         ),
@@ -185,6 +191,25 @@ async def set_image_moderation(
         note=body.note,
     )
     return AdminJobImageOut.of(image, signer)
+
+
+@router.put(
+    "/images/{image_id}/showcase",
+    response_model=ImageShowcaseStateOut,
+)
+async def set_image_showcase(
+    image_id: int,
+    body: ImageShowcaseUpdate,
+    manager: CurrentManagerDep,
+    service: ShowcaseServiceDep,
+) -> ImageShowcaseStateOut:
+    result = await service.set_publication(
+        actor_id=int(manager.user_id),
+        image_id=image_id,
+        is_public=body.is_public,
+        download_allowed=body.download_allowed,
+    )
+    return ImageShowcaseStateOut.model_validate(result, from_attributes=True)
 
 
 @router.get(
