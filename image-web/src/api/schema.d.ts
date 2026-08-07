@@ -2070,7 +2070,7 @@ export interface components {
             /** Url */
             url: string;
             /** Image Type */
-            image_type: string;
+            image_type: string | null;
             /** Caption */
             caption: string;
             /** Prompt */
@@ -2081,7 +2081,7 @@ export interface components {
             width: number;
             /** Height */
             height: number;
-            recipe: components["schemas"]["RecipeOut"];
+            recipe: components["schemas"]["RecipeOut"] | null;
         };
         /**
          * ShowcaseStatus

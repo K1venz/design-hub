@@ -111,4 +111,23 @@ describe('HomePage', () => {
 
     expect(renderHome()).not.toContain('下载原图')
   })
+
+  it('renders a generated single image without recipe metadata', () => {
+    setShowcaseState({
+      data: [
+        {
+          ...realShowcaseItem,
+          image_type: null,
+          caption: '单图',
+          recipe: null,
+          download_allowed: false,
+        },
+      ],
+    })
+
+    const html = renderHome()
+
+    expect(html).toContain('单图')
+    expect(html).toContain('用户输入的暖色早餐桌商品摄影提示词')
+  })
 })

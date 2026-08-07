@@ -7561,7 +7561,14 @@
             "title": "Url"
           },
           "image_type": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Image Type"
           },
           "caption": {
@@ -7585,7 +7592,14 @@
             "title": "Height"
           },
           "recipe": {
-            "$ref": "#/components/schemas/RecipeOut"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecipeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

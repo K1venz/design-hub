@@ -33,18 +33,23 @@ class ShowcasePublication:
 
 
 @dataclass(frozen=True)
-class PublicShowcaseItem:
-    image_id: int
-    preview_key: str
-    image_type: str
-    prompt: str
-    download_allowed: bool
-    width: int
-    height: int
+class PublicShowcaseRecipe:
     category: str
     ratio: str
     plan: dict[str, int]
     modifiers: dict[str, str]
+
+
+@dataclass(frozen=True)
+class PublicShowcaseItem:
+    image_id: int
+    preview_key: str
+    image_type: str | None
+    prompt: str
+    download_allowed: bool
+    width: int
+    height: int
+    recipe: PublicShowcaseRecipe | None
 
 
 class ShowcaseRepository(ABC):

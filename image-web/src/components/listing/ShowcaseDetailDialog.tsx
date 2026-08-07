@@ -35,25 +35,37 @@ export function ShowcaseDetailDialog({
   onDownload,
 }: {
   item: ShowcaseItem
-  onMakeSame: () => void
+  onMakeSame?: () => void
   onDownload?: () => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
   const r = item.recipe
-  const plan: SetPlan = { 白底: r.plan['白底'] ?? 0, 场景: r.plan['场景'] ?? 0, 卖点: r.plan['卖点'] ?? 0 }
-  const planText =
-    IMAGE_TYPE_FIELDS.filter((f) => plan[f.key] > 0)
-      .map((f) => `${f.label} ×${plan[f.key]}`)
-      .join('  ') + ` · 共 ${planTotal(plan)} 张`
+  const plan: SetPlan | null = r
+    ? {
+        白底: r.plan['白底'] ?? 0,
+        场景: r.plan['场景'] ?? 0,
+        卖点: r.plan['卖点'] ?? 0,
+      }
+    : null
+  const planText = plan
+    ? IMAGE_TYPE_FIELDS.filter((f) => plan[f.key] > 0)
+        .map((f) => `${f.label} ×${plan[f.key]}`)
+        .join('  ') + ` · 共 ${planTotal(plan)} 张`
+    : null
 
   // 行列表（末行「风格描述」单独强调，见下），与 /set 生成界面配置项一一对应。
-  const rows: { label: string; value: string }[] = [
-    { label: '品类', value: categoryLabel(r.category) },
-    { label: '图型配比', value: planText },
-    { label: '比例', value: r.ratio },
-    { label: '平台', value: r.modifiers.platform ?? '—' },
-    { label: '地区 · 语言', value: `${r.modifiers.region ?? ''} · ${r.modifiers.language ?? ''}` },
-  ]
+  const rows: { label: string; value: string }[] = r
+    ? [
+        { label: '品类', value: categoryLabel(r.category) },
+        { label: '图型配比', value: planText ?? '—' },
+        { label: '比例', value: r.ratio },
+        { label: '平台', value: r.modifiers.platform ?? '—' },
+        {
+          label: '地区 · 语言',
+          value: `${r.modifiers.region ?? ''} · ${r.modifiers.language ?? ''}`,
+        },
+      ]
+    : []
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -97,7 +109,7 @@ export function ShowcaseDetailDialog({
                     className="max-h-[45vh] w-full object-contain"
                   />
                   <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
-                    {item.image_type}
+                    {item.image_type ?? '单图'}
                   </span>
                 </div>
 
@@ -105,7 +117,7 @@ export function ShowcaseDetailDialog({
                   {item.caption}
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Description className="mt-1 text-center text-[12px] text-wb-ink-6">
-                  实朴真实出品 · 这套图的完整配方
+                  {r ? '实朴真实出品 · 这套图的完整配方' : '实朴真实出品'}
                 </DialogPrimitive.Description>
 
                 <dl className="mt-4 text-[13px]">
@@ -130,13 +142,15 @@ export function ShowcaseDetailDialog({
                 </dl>
 
                 <motion.div variants={rowV} className="mt-5">
-                  <Button
-                    onClick={onMakeSame}
-                    size="lg"
-                    className="h-12 w-full bg-wb-brand text-[14px] text-white hover:bg-wb-brand-deep"
-                  >
-                    <SparklesIcon /> 做同款
-                  </Button>
+                  {onMakeSame ? (
+                    <Button
+                      onClick={onMakeSame}
+                      size="lg"
+                      className="h-12 w-full bg-wb-brand text-[14px] text-white hover:bg-wb-brand-deep"
+                    >
+                      <SparklesIcon /> 做同款
+                    </Button>
+                  ) : null}
                   {onDownload ? (
                     <Button
                       type="button"

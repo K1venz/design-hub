@@ -45,9 +45,7 @@ describe('public showcase state', () => {
     expect(showcaseIneligibility({ ...eligible, prompt: '   ' })).toBe(
       '缺少用户提示词，不能公开展示',
     )
-    expect(showcaseIneligibility({ ...eligible, image_type: null })).toBe(
-      '缺少有效图片类型，不能公开展示',
-    )
+    expect(showcaseIneligibility({ ...eligible, image_type: null })).toBeNull()
   })
 })
 
