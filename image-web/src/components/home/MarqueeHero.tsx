@@ -49,7 +49,7 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
     <section className="relative h-svh overflow-hidden bg-white text-neutral-950">
       {/* 文字栈（照参考交叠版式）：整体下沉——描述文字下半叠进走马灯渐隐区（mask 提供
           融合感），CTA 按钮整个浮在图带上层居中；z-10 保证叠序。 */}
-      <motion.div
+      {strip.length > 0 ? <motion.div
         variants={containerV}
         initial="hidden"
         animate="show"
@@ -105,7 +105,7 @@ export function MarqueeHero({ tagline, titleLines, description, ctaText, onCta, 
         >
           {ctaText}
         </motion.button>
-      </motion.div>
+      </motion.div> : null}
 
       {/* 底部无限走马灯：两份相同 group，x -50% 匀速循环=无缝；上下渐隐 mask 融入白底 */}
       <motion.div

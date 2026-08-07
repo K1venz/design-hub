@@ -1186,7 +1186,6 @@
           "showcase"
         ],
         "summary": "Showcase",
-        "description": "公开成果展示：精选出图现签 url，按清单序返回；清单空 → []。",
         "operationId": "showcase_showcase_get",
         "responses": {
           "200": {
@@ -1199,6 +1198,48 @@
                   },
                   "type": "array",
                   "title": "Response Showcase Showcase Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/showcase/{image_id}/download": {
+      "get": {
+        "tags": [
+          "showcase"
+        ],
+        "summary": "Download Showcase Image",
+        "operationId": "download_showcase_image_showcase__image_id__download_get",
+        "parameters": [
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Image Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShowcaseDownloadOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2239,6 +2280,22 @@
             }
           },
           {
+            "name": "showcase_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ShowcaseStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Showcase Status"
+            }
+          },
+          {
             "name": "start",
             "in": "query",
             "required": false,
@@ -2384,6 +2441,74 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdminJobImageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/images/{image_id}/showcase": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Set Image Showcase",
+        "operationId": "set_image_showcase_admin_images__image_id__showcase_put",
+        "parameters": [
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Image Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageShowcaseUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageShowcaseStateOut"
                 }
               }
             }
@@ -3554,6 +3679,10 @@
             "type": "string",
             "title": "User Name"
           },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
           "image_type": {
             "anyOf": [
               {
@@ -3618,6 +3747,59 @@
             ],
             "title": "Moderated At"
           },
+          "is_public_showcase": {
+            "type": "boolean",
+            "title": "Is Public Showcase"
+          },
+          "showcase_download_allowed": {
+            "type": "boolean",
+            "title": "Showcase Download Allowed"
+          },
+          "showcase_preview_width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcase Preview Width"
+          },
+          "showcase_preview_height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcase Preview Height"
+          },
+          "showcased_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcased At"
+          },
+          "showcased_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcased By"
+          },
           "operation_type": {
             "anyOf": [
               {
@@ -3663,6 +3845,7 @@
           "user_id",
           "user_email",
           "user_name",
+          "prompt",
           "image_type",
           "status",
           "moderation_status",
@@ -3670,6 +3853,12 @@
           "moderation_note",
           "moderated_by",
           "moderated_at",
+          "is_public_showcase",
+          "showcase_download_allowed",
+          "showcase_preview_width",
+          "showcase_preview_height",
+          "showcased_at",
+          "showcased_by",
           "operation_type",
           "model",
           "cost",
@@ -3913,6 +4102,59 @@
             ],
             "title": "Moderated At"
           },
+          "is_public_showcase": {
+            "type": "boolean",
+            "title": "Is Public Showcase"
+          },
+          "showcase_download_allowed": {
+            "type": "boolean",
+            "title": "Showcase Download Allowed"
+          },
+          "showcase_preview_width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcase Preview Width"
+          },
+          "showcase_preview_height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcase Preview Height"
+          },
+          "showcased_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcased At"
+          },
+          "showcased_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcased By"
+          },
           "cost": {
             "type": "string",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -3939,6 +4181,12 @@
           "moderation_note",
           "moderated_by",
           "moderated_at",
+          "is_public_showcase",
+          "showcase_download_allowed",
+          "showcase_preview_width",
+          "showcase_preview_height",
+          "showcased_at",
+          "showcased_by",
           "cost",
           "created_at",
           "url"
@@ -4896,17 +5144,12 @@
           "max_count": {
             "type": "integer",
             "title": "Max Count"
-          },
-          "supports_references": {
-            "type": "boolean",
-            "title": "Supports References"
           }
         },
         "type": "object",
         "required": [
           "render_tiers",
-          "max_count",
-          "supports_references"
+          "max_count"
         ],
         "title": "ImageModelCapabilitiesOut"
       },
@@ -4959,15 +5202,111 @@
             },
             "type": "array",
             "title": "Ratios"
+          },
+          "supports_references": {
+            "type": "boolean",
+            "title": "Supports References"
           }
         },
         "type": "object",
         "required": [
           "id",
           "label",
-          "ratios"
+          "ratios",
+          "supports_references"
         ],
         "title": "ImageRenderTierOut"
+      },
+      "ImageShowcaseStateOut": {
+        "properties": {
+          "image_id": {
+            "type": "integer",
+            "title": "Image Id"
+          },
+          "is_public": {
+            "type": "boolean",
+            "title": "Is Public"
+          },
+          "download_allowed": {
+            "type": "boolean",
+            "title": "Download Allowed"
+          },
+          "preview_width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Width"
+          },
+          "preview_height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Height"
+          },
+          "showcased_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcased At"
+          },
+          "showcased_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Showcased By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "image_id",
+          "is_public",
+          "download_allowed",
+          "preview_width",
+          "preview_height",
+          "showcased_at",
+          "showcased_by"
+        ],
+        "title": "ImageShowcaseStateOut"
+      },
+      "ImageShowcaseUpdate": {
+        "properties": {
+          "is_public": {
+            "type": "boolean",
+            "title": "Is Public"
+          },
+          "download_allowed": {
+            "type": "boolean",
+            "title": "Download Allowed",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "is_public"
+        ],
+        "title": "ImageShowcaseUpdate"
       },
       "ListingGenerateRequest": {
         "properties": {
@@ -6614,8 +6953,7 @@
           "styling",
           "modifiers"
         ],
-        "title": "RecipeOut",
-        "description": "做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。\n\n仅用户可复用输入；**不含内部卡 prompt、overlay_texts、uploads**（口径铁律）。"
+        "title": "RecipeOut"
       },
       "ReferenceBackground": {
         "properties": {
@@ -7199,33 +7537,92 @@
         ],
         "title": "RuntimeLogPageOut"
       },
+      "ShowcaseDownloadOut": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ShowcaseDownloadOut"
+      },
       "ShowcaseItemOut": {
         "properties": {
+          "image_id": {
+            "type": "integer",
+            "title": "Image Id"
+          },
           "url": {
             "type": "string",
             "title": "Url"
           },
           "image_type": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Image Type"
           },
           "caption": {
             "type": "string",
             "title": "Caption"
           },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "download_allowed": {
+            "type": "boolean",
+            "title": "Download Allowed"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
           "recipe": {
-            "$ref": "#/components/schemas/RecipeOut"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecipeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
         "required": [
+          "image_id",
           "url",
           "image_type",
           "caption",
+          "prompt",
+          "download_allowed",
+          "width",
+          "height",
           "recipe"
         ],
-        "title": "ShowcaseItemOut",
-        "description": "GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。"
+        "title": "ShowcaseItemOut"
+      },
+      "ShowcaseStatus": {
+        "type": "string",
+        "enum": [
+          "public",
+          "private"
+        ],
+        "title": "ShowcaseStatus"
       },
       "UploadImageSource": {
         "properties": {

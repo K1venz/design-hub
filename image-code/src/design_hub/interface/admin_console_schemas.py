@@ -161,6 +161,12 @@ class AdminJobImageOut(BaseModel):
     moderation_note: str | None
     moderated_by: int | None
     moderated_at: datetime | None
+    is_public_showcase: bool
+    showcase_download_allowed: bool
+    showcase_preview_width: int | None
+    showcase_preview_height: int | None
+    showcased_at: datetime | None
+    showcased_by: int | None
     cost: Decimal
     created_at: datetime
     url: str
@@ -183,6 +189,23 @@ class ImageModerationUpdate(BaseModel):
     status: ModerationStatus
     reason: ModerationReason | None = None
     note: str | None = None
+
+
+class ImageShowcaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_public: bool
+    download_allowed: bool = False
+
+
+class ImageShowcaseStateOut(BaseModel):
+    image_id: int
+    is_public: bool
+    download_allowed: bool
+    preview_width: int | None
+    preview_height: int | None
+    showcased_at: datetime | None
+    showcased_by: int | None
 
 
 class AdminGenerationItemOut(BaseModel):
@@ -246,6 +269,7 @@ class AdminImageSummaryOut(BaseModel):
     user_id: int
     user_email: str
     user_name: str
+    prompt: str
     image_type: str | None
     status: str
     moderation_status: str
@@ -253,6 +277,12 @@ class AdminImageSummaryOut(BaseModel):
     moderation_note: str | None
     moderated_by: int | None
     moderated_at: datetime | None
+    is_public_showcase: bool
+    showcase_download_allowed: bool
+    showcase_preview_width: int | None
+    showcase_preview_height: int | None
+    showcased_at: datetime | None
+    showcased_by: int | None
     operation_type: str | None
     model: str | None
     cost: Decimal

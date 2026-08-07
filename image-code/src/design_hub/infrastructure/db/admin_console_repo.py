@@ -750,6 +750,8 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                     )
                 if status is ModerationStatus.BLOCKED:
                     assert reason is not None
+                    was_public = image.is_public_showcase
+                    was_downloadable = image.showcase_download_allowed
                     image.moderation_reason = reason.value
                     image.moderation_note = note
                     after: dict[str, object] = {
@@ -757,6 +759,23 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                         "reason": reason.value,
                         "note": note,
                     }
+                    if was_public:
+                        before.update(
+                            {
+                                "is_public_showcase": was_public,
+                                "showcase_download_allowed": was_downloadable,
+                            }
+                        )
+                        image.is_public_showcase = False
+                        image.showcase_download_allowed = False
+                        image.showcased_at = None
+                        image.showcased_by = None
+                        after.update(
+                            {
+                                "is_public_showcase": False,
+                                "showcase_download_allowed": False,
+                            }
+                        )
                 else:
                     image.moderation_reason = None
                     image.moderation_note = None
@@ -1063,6 +1082,12 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
             moderation_note=image.moderation_note,
             moderated_by=image.moderated_by,
             moderated_at=image.moderated_at,
+            is_public_showcase=image.is_public_showcase,
+            showcase_download_allowed=image.showcase_download_allowed,
+            showcase_preview_width=image.showcase_preview_width,
+            showcase_preview_height=image.showcase_preview_height,
+            showcased_at=image.showcased_at,
+            showcased_by=image.showcased_by,
             cost=image.cost,
             created_at=image.created_at,
         )
@@ -1087,6 +1112,10 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
                 ListingImageRow.moderation_status
                 == filters.moderation_status
             )
+        if filters.showcase_status == "public":
+            conditions.append(ListingImageRow.is_public_showcase.is_(True))
+        elif filters.showcase_status == "private":
+            conditions.append(ListingImageRow.is_public_showcase.is_(False))
         cls._append_date_conditions(
             conditions,
             ListingImageRow.created_at,
@@ -1106,6 +1135,7 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
             user_id=user.id,
             user_email=user.email,
             user_name=user.name,
+            prompt=job.prompt,
             image_type=image.image_type,
             status=image.status,
             moderation_status=image.moderation_status,
@@ -1113,6 +1143,12 @@ class SqlAlchemyAdminConsoleRepository(AdminConsoleRepository):
             moderation_note=image.moderation_note,
             moderated_by=image.moderated_by,
             moderated_at=image.moderated_at,
+            is_public_showcase=image.is_public_showcase,
+            showcase_download_allowed=image.showcase_download_allowed,
+            showcase_preview_width=image.showcase_preview_width,
+            showcase_preview_height=image.showcase_preview_height,
+            showcased_at=image.showcased_at,
+            showcased_by=image.showcased_by,
             operation_type=row[3],
             model=row[4],
             cost=image.cost,
