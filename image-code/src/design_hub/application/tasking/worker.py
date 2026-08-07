@@ -107,26 +107,34 @@ class _OwnershipGuard:
 
     async def checkpoint(self) -> None:
         async with self._renew_lock:
-            if self._failure is not None:
-                raise self._failure
-            try:
-                await self._repository.heartbeat(
-                    self._work.spec.item_id,
-                    self._worker_id,
-                    self._lease_seconds,
+            await self._checkpoint_locked()
+
+    async def commit(self, operation: Callable[[], Awaitable[_T]]) -> _T:
+        async with self._renew_lock:
+            await self._checkpoint_locked()
+            return await operation()
+
+    async def _checkpoint_locked(self) -> None:
+        if self._failure is not None:
+            raise self._failure
+        try:
+            await self._repository.heartbeat(
+                self._work.spec.item_id,
+                self._worker_id,
+                self._lease_seconds,
+            )
+            renewed = await self._broker.renew(
+                consumer=self._worker_id,
+                redis_id=self._delivery.redis_id,
+            )
+            if not renewed:
+                raise DataInvariantError(
+                    "delivery lease lost for generation item "
+                    f"{self._work.spec.item_id}"
                 )
-                renewed = await self._broker.renew(
-                    consumer=self._worker_id,
-                    redis_id=self._delivery.redis_id,
-                )
-                if not renewed:
-                    raise DataInvariantError(
-                        "delivery lease lost for generation item "
-                        f"{self._work.spec.item_id}"
-                    )
-            except Exception as exc:
-                self._failure = exc
-                raise
+        except Exception as exc:
+            self._failure = exc
+            raise
 
     async def _heartbeat_loop(self) -> None:
         while True:
@@ -223,11 +231,15 @@ class GenerationWorker:
         ownership: _OwnershipGuard,
     ) -> None:
         if work.status is GenerationItemStatus.STORING:
-            await self._repository.fail_item(
-                work.spec.item_id,
-                self._worker_id,
-                "storage_commit_uncertain",
-                "Worker lease expired while committing the generated image",
+            await self._commit_and_ack(
+                ownership,
+                delivery,
+                lambda: self._repository.fail_item(
+                    work.spec.item_id,
+                    self._worker_id,
+                    "storage_commit_uncertain",
+                    "Worker lease expired while committing the generated image",
+                ),
             )
             logger.error(
                 "generation_stale_storage_failed_closed",
@@ -241,13 +253,16 @@ class GenerationWorker:
                 },
             )
             task_metrics.record_failure("storage_commit_uncertain")
-            await self._broker.ack(delivery.redis_id)
             return
         if work.status is GenerationItemStatus.SUBMITTING:
-            await self._repository.mark_submission_uncertain(
-                work.spec.item_id,
-                self._worker_id,
-                "Worker lease expired while provider submission outcome was unknown",
+            await self._commit_and_ack(
+                ownership,
+                delivery,
+                lambda: self._repository.mark_submission_uncertain(
+                    work.spec.item_id,
+                    self._worker_id,
+                    "Worker lease expired while provider submission outcome was unknown",
+                ),
             )
             logger.error(
                 "generation_stale_submission_marked_uncertain",
@@ -261,7 +276,6 @@ class GenerationWorker:
                 },
             )
             task_metrics.record_uncertain(work.spec.model)
-            await self._broker.ack(delivery.redis_id)
             return
 
         try:
@@ -270,11 +284,15 @@ class GenerationWorker:
                 work.spec.render_tier,
             )
         except ModelUnavailableError:
-            await self._repository.fail_item(
-                work.spec.item_id,
-                self._worker_id,
-                "model_unavailable",
-                "model unavailable",
+            await self._commit_and_ack(
+                ownership,
+                delivery,
+                lambda: self._repository.fail_item(
+                    work.spec.item_id,
+                    self._worker_id,
+                    "model_unavailable",
+                    "model unavailable",
+                ),
             )
             task_metrics.record_failure("model_unavailable")
             logger.warning(
@@ -287,7 +305,6 @@ class GenerationWorker:
                     "status": "unavailable",
                 },
             )
-            await self._broker.ack(delivery.redis_id)
             return
         references = await self._materializer.materialize(
             work, executor.reference_mode
@@ -333,12 +350,14 @@ class GenerationWorker:
             except DataInvariantError:
                 raise
             except DomainError as exc:
-                await self._fail_provider_rejected(work, delivery, exc)
+                await self._fail_provider_rejected(
+                    work, delivery, ownership, exc
+                )
                 return
             except ProviderError as exc:
-                await self._fail_provider(work, delivery, exc)
+                await self._fail_provider(work, delivery, ownership, exc)
                 return
-            await self._store_and_complete(work, delivery, image)
+            await self._store_and_complete(work, delivery, ownership, image)
             return
 
         slots = self._slots_for(work.spec.model, work.spec.render_tier)
@@ -389,10 +408,15 @@ class GenerationWorker:
                         work.spec.render_tier.value,
                     )
             except SubmissionUncertain as exc:
-                await self._repository.mark_submission_uncertain(
-                    work.spec.item_id,
-                    self._worker_id,
-                    str(exc),
+                error_detail = str(exc)
+                await self._commit_and_ack(
+                    ownership,
+                    delivery,
+                    lambda: self._repository.mark_submission_uncertain(
+                        work.spec.item_id,
+                        self._worker_id,
+                        error_detail,
+                    ),
                 )
                 logger.error(
                     "generation_provider_submission_uncertain",
@@ -415,15 +439,16 @@ class GenerationWorker:
                     provider=work.spec.model,
                     error_code="submission_uncertain",
                 )
-                await self._broker.ack(delivery.redis_id)
                 return
             except DataInvariantError:
                 raise
             except DomainError as exc:
-                await self._fail_provider_rejected(work, delivery, exc)
+                await self._fail_provider_rejected(
+                    work, delivery, ownership, exc
+                )
                 return
             except ProviderError as exc:
-                await self._fail_provider(work, delivery, exc)
+                await self._fail_provider(work, delivery, ownership, exc)
                 return
 
             if isinstance(outcome, SubmittedTask):
@@ -454,11 +479,14 @@ class GenerationWorker:
                     await self._fail_provider_rejected(
                         work,
                         delivery,
+                        ownership,
                         exc,
                     )
                     return
                 except ProviderError as exc:
-                    await self._fail_provider(work, delivery, exc)
+                    await self._fail_provider(
+                        work, delivery, ownership, exc
+                    )
                     return
             elif isinstance(outcome, ImmediateResult):
                 image = outcome.image
@@ -467,7 +495,7 @@ class GenerationWorker:
                     f"unsupported provider outcome: {type(outcome).__name__}"
                 )
 
-            await self._store_and_complete(work, delivery, image)
+            await self._store_and_complete(work, delivery, ownership, image)
         finally:
             if acquired:
                 await slots.release(
@@ -530,13 +558,18 @@ class GenerationWorker:
         self,
         work: GenerationWorkItem,
         delivery: Delivery,
+        ownership: _OwnershipGuard,
         error: ProviderError,
     ) -> None:
-        await self._repository.fail_item(
-            work.spec.item_id,
-            self._worker_id,
-            type(error).__name__,
-            str(error),
+        await self._commit_and_ack(
+            ownership,
+            delivery,
+            lambda: self._repository.fail_item(
+                work.spec.item_id,
+                self._worker_id,
+                type(error).__name__,
+                str(error),
+            ),
         )
         error_code = type(error).__name__
         task_metrics.record_failure(error_code)
@@ -560,20 +593,23 @@ class GenerationWorker:
             },
             exc_info=True,
         )
-        await self._broker.ack(delivery.redis_id)
-
     async def _fail_provider_rejected(
         self,
         work: GenerationWorkItem,
         delivery: Delivery,
+        ownership: _OwnershipGuard,
         error: DomainError,
     ) -> None:
         error_code = type(error).__name__
-        await self._repository.fail_item(
-            work.spec.item_id,
-            self._worker_id,
-            error_code,
-            str(error),
+        await self._commit_and_ack(
+            ownership,
+            delivery,
+            lambda: self._repository.fail_item(
+                work.spec.item_id,
+                self._worker_id,
+                error_code,
+                str(error),
+            ),
         )
         task_metrics.record_failure(error_code)
         logger.warning(
@@ -587,23 +623,26 @@ class GenerationWorker:
                 "error_code": error_code,
             },
         )
-        await self._broker.ack(delivery.redis_id)
-
     async def _store_and_complete(
         self,
         work: GenerationWorkItem,
         delivery: Delivery,
+        ownership: _OwnershipGuard,
         image: GeneratedImage,
     ) -> None:
-        await self._repository.mark_storing(
-            work.spec.item_id,
-            self._worker_id,
-        )
-        await self._repository.complete_item(
-            work.spec.item_id,
-            self._worker_id,
-            image,
-        )
+        async def store_complete_and_ack() -> None:
+            await self._repository.mark_storing(
+                work.spec.item_id,
+                self._worker_id,
+            )
+            await self._repository.complete_item(
+                work.spec.item_id,
+                self._worker_id,
+                image,
+            )
+            await self._broker.ack(delivery.redis_id)
+
+        await ownership.commit(store_complete_and_ack)
         logger.info(
             "generation_item_completed",
             extra={
@@ -619,7 +658,18 @@ class GenerationWorker:
             "generated",
             max(image.latency_ms, 0) / 1000,
         )
-        await self._broker.ack(delivery.redis_id)
+
+    async def _commit_and_ack(
+        self,
+        ownership: _OwnershipGuard,
+        delivery: Delivery,
+        mutation: Callable[[], Awaitable[None]],
+    ) -> None:
+        async def mutate_and_ack() -> None:
+            await mutation()
+            await self._broker.ack(delivery.redis_id)
+
+        await ownership.commit(mutate_and_ack)
 
     @staticmethod
     def _require_matching_snapshot(
