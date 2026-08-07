@@ -143,7 +143,7 @@ function ShowcaseSection() {
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   // 「做同款」：配方→/set 预填；未登录先过登录墙，回跳携配方随行（不带 uploads）。
-  function makeSame(recipe: ShowcaseItem['recipe']) {
+  function makeSame(recipe: NonNullable<ShowcaseItem['recipe']>) {
     const prefill = showcaseRecipeToPrefill(recipe)
     if (token) navigate('/set', { state: { prefill } })
     else navigate('/login', { state: { from: { pathname: '/set' }, prefill } })
@@ -172,13 +172,16 @@ function ShowcaseSection() {
       <section className="mt-14">
         <SectionHead title="看看实朴出的图" sub="实朴真实出品 · 一键做同款" />
         <div className={SHOWCASE_GRID}>
-          {real.slice(0, shown).map((item, index) => (
-            <ShowcaseCard
-              key={index}
-              item={item}
-              onMakeSame={() => makeSame(item.recipe)}
-            />
-          ))}
+          {real.slice(0, shown).map((item, index) => {
+            const recipe = item.recipe
+            return (
+              <ShowcaseCard
+                key={index}
+                item={item}
+                onMakeSame={recipe ? () => makeSame(recipe) : undefined}
+              />
+            )
+          })}
           {more &&
             Array.from({ length: Math.min(SHOWCASE_BATCH, real.length - shown) }).map((_, index) => (
               <ShowcaseSkeleton key={`sk-${index}`} />
@@ -190,8 +193,16 @@ function ShowcaseSection() {
   )
 }
 
-function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: () => void }) {
-  const total = Object.values(item.recipe.plan).reduce((a, b) => a + b, 0)
+function ShowcaseCard({
+  item,
+  onMakeSame,
+}: {
+  item: ShowcaseItem
+  onMakeSame?: () => void
+}) {
+  const total = item.recipe
+    ? Object.values(item.recipe.plan).reduce((a, b) => a + b, 0)
+    : null
 
   async function onDownload() {
     try {
@@ -219,7 +230,7 @@ function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: ()
           className="h-auto w-full object-contain"
         />
         <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-medium text-wb-brand-deep backdrop-blur">
-          {item.image_type}
+          {item.image_type ?? '单图'}
         </span>
       </div>
       <figcaption className="flex flex-1 flex-col gap-2 px-3 py-2.5">
@@ -227,22 +238,27 @@ function ShowcaseCard({ item, onMakeSame }: { item: ShowcaseItem; onMakeSame: ()
         <p className="line-clamp-3 whitespace-pre-wrap text-[12px] leading-5 text-wb-ink-5">
           {item.prompt}
         </p>
-        <p className="text-[11px] text-wb-ink-6">
-          {item.recipe.ratio} · 套图 {total} 张
-          {item.recipe.modifiers.platform && ` · ${item.recipe.modifiers.platform}`}
-        </p>
+        {item.recipe ? (
+          <p className="text-[11px] text-wb-ink-6">
+            {item.recipe.ratio} · 套图 {total} 张
+            {item.recipe.modifiers.platform &&
+              ` · ${item.recipe.modifiers.platform}`}
+          </p>
+        ) : null}
         <div className="mt-auto flex gap-2">
           <ShowcaseDetailDialog
             item={item}
             onMakeSame={onMakeSame}
             onDownload={item.download_allowed ? onDownload : undefined}
           />
-          <button
-            onClick={onMakeSame}
-            className="flex-1 rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            做同款
-          </button>
+          {onMakeSame ? (
+            <button
+              onClick={onMakeSame}
+              className="flex-1 rounded-lg bg-gradient-to-r from-wb-grad-from to-wb-grad-to px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              做同款
+            </button>
+          ) : null}
         </div>
         {item.download_allowed ? (
           <button

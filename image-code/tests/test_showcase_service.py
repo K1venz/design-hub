@@ -172,8 +172,6 @@ def test_download_policy_update_reuses_existing_preview() -> None:
         ({"status": "失败"}, "只有生成成功的图片可以公开展示"),
         ({"moderation_status": "blocked"}, "已屏蔽图片不能公开展示"),
         ({"prompt": "  "}, "缺少用户原始提示词，不能公开展示"),
-        ({"image_type": None}, "缺少可复用图型，不能公开展示"),
-        ({"category": None}, "缺少商品品类，不能公开展示"),
     ],
 )
 def test_publish_rejects_ineligible_image(
@@ -195,6 +193,28 @@ def test_publish_rejects_ineligible_image(
 
         assert repository.updates == []
         assert store.loaded == []
+
+    asyncio.run(run())
+
+
+def test_publish_accepts_generated_single_image_without_recipe_metadata() -> None:
+    async def run() -> None:
+        repository = _Repository(
+            _candidate(image_type=None, category=None, modifiers={})
+        )
+        store = _ImageStore(_jpeg())
+        service = ShowcaseService(repository=repository, images=store)
+
+        result = await service.set_publication(
+            actor_id=1,
+            image_id=7,
+            is_public=True,
+            download_allowed=False,
+        )
+
+        assert result.is_public is True
+        assert repository.updates[0]["is_public"] is True
+        assert repository.updates[0]["preview_key"] == "preview.webp"
 
     asyncio.run(run())
 

@@ -7,7 +7,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from design_hub.domain.admin import AdminAction, ModerationStatus
-from design_hub.domain.errors import DataInvariantError, DomainError, NotFoundError
+from design_hub.domain.errors import DomainError, NotFoundError
 from design_hub.infrastructure.db.models import (
     AdminAuditLogRow,
     ListingImageRow,
@@ -15,6 +15,7 @@ from design_hub.infrastructure.db.models import (
 )
 from design_hub.ports.showcase import (
     PublicShowcaseItem,
+    PublicShowcaseRecipe,
     ShowcaseCandidate,
     ShowcasePublication,
     ShowcaseRepository,
@@ -137,8 +138,6 @@ class SqlAlchemyShowcaseRepository(ShowcaseRepository):
                         ListingImageRow.showcase_preview_key.is_not(None),
                         ListingImageRow.showcase_preview_width.is_not(None),
                         ListingImageRow.showcase_preview_height.is_not(None),
-                        ListingImageRow.image_type.is_not(None),
-                        ListingJobRow.category.is_not(None),
                     )
                     .order_by(
                         desc(ListingImageRow.showcased_at),
@@ -171,9 +170,7 @@ class SqlAlchemyShowcaseRepository(ShowcaseRepository):
             assert image.showcase_preview_key is not None
             assert image.showcase_preview_width is not None
             assert image.showcase_preview_height is not None
-            assert image.image_type is not None
-            assert job.category is not None
-            modifiers = self._public_modifiers(job.modifiers)
+            recipe = self._public_recipe(job, plans[job.id])
             items.append(
                 PublicShowcaseItem(
                     image_id=image.id,
@@ -183,10 +180,7 @@ class SqlAlchemyShowcaseRepository(ShowcaseRepository):
                     download_allowed=image.showcase_download_allowed,
                     width=image.showcase_preview_width,
                     height=image.showcase_preview_height,
-                    category=job.category,
-                    ratio=job.ratio,
-                    plan=plans[job.id],
-                    modifiers=modifiers,
+                    recipe=recipe,
                 )
             )
         return tuple(items)
@@ -239,10 +233,20 @@ class SqlAlchemyShowcaseRepository(ShowcaseRepository):
         )
 
     @staticmethod
-    def _public_modifiers(values: dict[str, object]) -> dict[str, str]:
-        result: dict[str, str] = {}
-        for key, value in values.items():
-            if not isinstance(value, str):
-                raise DataInvariantError("公开展示配方参数无效")
-            result[key] = value
-        return result
+    def _public_recipe(
+        job: ListingJobRow,
+        plan: dict[str, int],
+    ) -> PublicShowcaseRecipe | None:
+        if not job.category or not plan:
+            return None
+        if any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in job.modifiers.items()
+        ):
+            return None
+        return PublicShowcaseRecipe(
+            category=job.category,
+            ratio=job.ratio,
+            plan=dict(plan),
+            modifiers=dict(job.modifiers),
+        )

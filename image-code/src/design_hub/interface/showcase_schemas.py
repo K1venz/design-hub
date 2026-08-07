@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 from design_hub.ports.media_url_signer import MediaUrlSigner
-from design_hub.ports.showcase import PublicShowcaseItem
+from design_hub.ports.showcase import PublicShowcaseItem, PublicShowcaseRecipe
 
 _CATEGORY_LABELS = {
     "FOOD": "食品",
@@ -20,26 +20,30 @@ class RecipeOut(BaseModel):
     modifiers: dict[str, str]
 
     @classmethod
-    def of(cls, item: PublicShowcaseItem) -> "RecipeOut":
+    def of(
+        cls,
+        recipe: PublicShowcaseRecipe,
+        prompt: str,
+    ) -> "RecipeOut":
         return cls(
-            category=item.category,
-            ratio=item.ratio,
-            plan=dict(item.plan),
-            styling=item.prompt,
-            modifiers=dict(item.modifiers),
+            category=recipe.category,
+            ratio=recipe.ratio,
+            plan=dict(recipe.plan),
+            styling=prompt,
+            modifiers=dict(recipe.modifiers),
         )
 
 
 class ShowcaseItemOut(BaseModel):
     image_id: int
     url: str
-    image_type: str
+    image_type: str | None
     caption: str
     prompt: str
     download_allowed: bool
     width: int
     height: int
-    recipe: RecipeOut
+    recipe: RecipeOut | None
 
     @classmethod
     def of(
@@ -47,17 +51,26 @@ class ShowcaseItemOut(BaseModel):
         item: PublicShowcaseItem,
         signer: MediaUrlSigner,
     ) -> "ShowcaseItemOut":
-        category = _CATEGORY_LABELS.get(item.category, item.category)
+        image_type = item.image_type or "单图"
+        category = (
+            _CATEGORY_LABELS.get(item.recipe.category, item.recipe.category)
+            if item.recipe is not None
+            else None
+        )
         return cls(
             image_id=item.image_id,
             url=signer.generated_url(item.preview_key),
             image_type=item.image_type,
-            caption=f"{category} · {item.image_type}",
+            caption=(f"{category} · {image_type}" if category else image_type),
             prompt=item.prompt,
             download_allowed=item.download_allowed,
             width=item.width,
             height=item.height,
-            recipe=RecipeOut.of(item),
+            recipe=(
+                RecipeOut.of(item.recipe, item.prompt)
+                if item.recipe is not None
+                else None
+            ),
         )
 
 

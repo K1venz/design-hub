@@ -62,7 +62,7 @@ async def _database() -> tuple[async_sessionmaker[AsyncSession], object]:
                         "region": "中国",
                         "language": "中文",
                     },
-                    "category": "FOOD",
+                    "category": None if index == 5 else "FOOD",
                     "ratio": "1:1",
                     "size": "1024x1024",
                     "n": 2 if index == 1 else 1,
@@ -71,7 +71,7 @@ async def _database() -> tuple[async_sessionmaker[AsyncSession], object]:
                     "created_at": at,
                     "completed_at": at,
                 }
-                for index in range(1, 5)
+                for index in range(1, 6)
             ],
         )
         for image in [
@@ -156,6 +156,24 @@ async def _database() -> tuple[async_sessionmaker[AsyncSession], object]:
                     "showcased_by": 9,
                     "created_at": at,
                 },
+                {
+                    "id": 6,
+                    "job_id": "job-5",
+                    "image_key": "single-original.png",
+                    "image_type": None,
+                    "seed": 6,
+                    "cost": Decimal("0.05"),
+                    "status": "成功",
+                    "moderation_status": "normal",
+                    "is_public_showcase": True,
+                    "showcase_download_allowed": False,
+                    "showcase_preview_key": "single-preview.webp",
+                    "showcase_preview_width": 720,
+                    "showcase_preview_height": 1280,
+                    "showcased_at": at + timedelta(minutes=6),
+                    "showcased_by": 9,
+                    "created_at": at,
+                },
         ]:
             await connection.execute(ListingImageRow.__table__.insert(), image)
     return async_sessionmaker(engine, expire_on_commit=False), engine
@@ -178,6 +196,17 @@ def test_public_showcase_uses_preview_and_original_prompt_only() -> None:
     assert response.status_code == 200
     assert response.json() == [
         {
+            "image_id": 6,
+            "url": "https://generated.example/single-preview.webp",
+            "image_type": None,
+            "caption": "单图",
+            "prompt": "用户原始提示词 5",
+            "download_allowed": False,
+            "width": 720,
+            "height": 1280,
+            "recipe": None,
+        },
+        {
             "image_id": 1,
             "url": "https://generated.example/preview-1.webp",
             "image_type": "场景",
@@ -186,8 +215,8 @@ def test_public_showcase_uses_preview_and_original_prompt_only() -> None:
             "download_allowed": True,
             "width": 1200,
             "height": 600,
-            "recipe": {
-                "category": "FOOD",
+                "recipe": {
+                    "category": "FOOD",
                 "ratio": "1:1",
                 "plan": {"白底": 1, "场景": 1},
                 "styling": "用户原始提示词 1",

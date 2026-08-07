@@ -83,15 +83,6 @@ class ShowcaseService:
             raise ValueError("已屏蔽图片不能公开展示")
         if not candidate.prompt.strip():
             raise ValueError("缺少用户原始提示词，不能公开展示")
-        if candidate.image_type not in {"白底", "场景", "卖点"}:
-            raise ValueError("缺少可复用图型，不能公开展示")
-        if not candidate.category:
-            raise ValueError("缺少商品品类，不能公开展示")
-        if any(
-            not isinstance(key, str) or not isinstance(value, str)
-            for key, value in candidate.modifiers.items()
-        ):
-            raise ValueError("公开展示配方参数无效")
 
     @staticmethod
     def _has_complete_preview(candidate: ShowcaseCandidate) -> bool:
