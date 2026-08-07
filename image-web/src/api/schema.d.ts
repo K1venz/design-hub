@@ -360,11 +360,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Showcase
-         * @description 公开成果展示：精选出图现签 url，按清单序返回；清单空 → []。
-         */
+        /** Showcase */
         get: operations["showcase_showcase_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/showcase/{image_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Showcase Image */
+        get: operations["download_showcase_image_showcase__image_id__download_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -596,6 +610,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/images/{image_id}/showcase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Image Showcase */
+        put: operations["set_image_showcase_admin_images__image_id__showcase_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/model-calls/summary": {
         parameters: {
             query?: never;
@@ -799,6 +830,8 @@ export interface components {
             user_email: string;
             /** User Name */
             user_name: string;
+            /** Prompt */
+            prompt: string;
             /** Image Type */
             image_type: string | null;
             /** Status */
@@ -813,6 +846,18 @@ export interface components {
             moderated_by: number | null;
             /** Moderated At */
             moderated_at: string | null;
+            /** Is Public Showcase */
+            is_public_showcase: boolean;
+            /** Showcase Download Allowed */
+            showcase_download_allowed: boolean;
+            /** Showcase Preview Width */
+            showcase_preview_width: number | null;
+            /** Showcase Preview Height */
+            showcase_preview_height: number | null;
+            /** Showcased At */
+            showcased_at: string | null;
+            /** Showcased By */
+            showcased_by: number | null;
             /** Operation Type */
             operation_type: string | null;
             /** Model */
@@ -897,6 +942,18 @@ export interface components {
             moderated_by: number | null;
             /** Moderated At */
             moderated_at: string | null;
+            /** Is Public Showcase */
+            is_public_showcase: boolean;
+            /** Showcase Download Allowed */
+            showcase_download_allowed: boolean;
+            /** Showcase Preview Width */
+            showcase_preview_width: number | null;
+            /** Showcase Preview Height */
+            showcase_preview_height: number | null;
+            /** Showcased At */
+            showcased_at: string | null;
+            /** Showcased By */
+            showcased_by: number | null;
             /** Cost */
             cost: string;
             /**
@@ -1284,6 +1341,33 @@ export interface components {
             ratios: string[];
             /** Supports References */
             supports_references: boolean;
+        };
+        /** ImageShowcaseStateOut */
+        ImageShowcaseStateOut: {
+            /** Image Id */
+            image_id: number;
+            /** Is Public */
+            is_public: boolean;
+            /** Download Allowed */
+            download_allowed: boolean;
+            /** Preview Width */
+            preview_width: number | null;
+            /** Preview Height */
+            preview_height: number | null;
+            /** Showcased At */
+            showcased_at: string | null;
+            /** Showcased By */
+            showcased_by: number | null;
+        };
+        /** ImageShowcaseUpdate */
+        ImageShowcaseUpdate: {
+            /** Is Public */
+            is_public: boolean;
+            /**
+             * Download Allowed
+             * @default false
+             */
+            download_allowed: boolean;
         };
         /**
          * ListingGenerateRequest
@@ -1774,12 +1858,7 @@ export interface components {
             /** Public Key */
             public_key: string;
         };
-        /**
-         * RecipeOut
-         * @description 做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。
-         *
-         *     仅用户可复用输入；**不含内部卡 prompt、overlay_texts、uploads**（口径铁律）。
-         */
+        /** RecipeOut */
         RecipeOut: {
             /** Category */
             category: string;
@@ -1979,19 +2058,36 @@ export interface components {
             /** Offset */
             offset: number;
         };
-        /**
-         * ShowcaseItemOut
-         * @description GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。
-         */
+        /** ShowcaseDownloadOut */
+        ShowcaseDownloadOut: {
+            /** Url */
+            url: string;
+        };
+        /** ShowcaseItemOut */
         ShowcaseItemOut: {
+            /** Image Id */
+            image_id: number;
             /** Url */
             url: string;
             /** Image Type */
             image_type: string;
             /** Caption */
             caption: string;
+            /** Prompt */
+            prompt: string;
+            /** Download Allowed */
+            download_allowed: boolean;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
             recipe: components["schemas"]["RecipeOut"];
         };
+        /**
+         * ShowcaseStatus
+         * @enum {string}
+         */
+        ShowcaseStatus: "public" | "private";
         /** UploadImageSource */
         UploadImageSource: {
             /**
@@ -2727,6 +2823,37 @@ export interface operations {
             };
         };
     };
+    download_showcase_image_showcase__image_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowcaseDownloadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_image_models_models_image_get: {
         parameters: {
             query?: never;
@@ -3180,6 +3307,7 @@ export interface operations {
                 operation_type?: string | null;
                 status?: string | null;
                 moderation_status?: components["schemas"]["ModerationStatus"] | null;
+                showcase_status?: components["schemas"]["ShowcaseStatus"] | null;
                 start?: string | null;
                 end?: string | null;
                 limit?: number;
@@ -3237,6 +3365,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminJobImageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_image_showcase_admin_images__image_id__showcase_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                image_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageShowcaseUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageShowcaseStateOut"];
                 };
             };
             /** @description Validation Error */
