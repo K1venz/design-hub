@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0073
 title: Chat 生图完成后业务事件缺失导致出图结果永久等待
-status: 修复中
+status: 待验证
 severity: P1
 reporter: 开发
-owner: 开发
+owner: QA
 created: 2026-08-07
 updated: 2026-08-07
 related:
@@ -56,3 +56,4 @@ related:
 - 2026-08-07 [开发] Chat 在 Redis 空读时增加 owner-scoped 持久化终态校验；完成、部分完成、失败均发出缺失终态，生成中继续等待真实事件。后端全套 664 passed、5 skipped，Ruff 与 mypy 通过，状态=待验证，owner=QA。
 - 2026-08-07 [开发] 修复提交 `94609f1` 已部署生产。发布后 API/Worker 均 healthy，运行镜像包含 durable terminal reconciliation；数据库 `app_user=12`、`listing_job=84` 与部署前 baseline 一致，Alembic=`c6d7e8f9a0b1`，公网首页 200、未认证 Chat 探针 401。保留状态=待验证，交 QA 执行真实生图回显验收。
 - 2026-08-07 [开发] 生产复验确认 ISSUE-0073 仍存在：任务与图片均已完成持久化，但 Redis 阻塞读取在任务完成前抛出 `TimeoutError` 并杀死 Chat SSE。补充基础设施层回归：读取超时统一为一次空轮询，由既有 owner-scoped 持久化终态校准继续收敛；后端全套 680 passed、5 skipped。状态=修复中，待发布后再次真实出图验收。
+- 2026-08-07 [开发] 补充修复提交 `ff706d9` 已推送并部署生产。生产运行镜像 `sha256:0d544ab13c06ba77209312aa6f107b079b9785b1bcc41992b8397450df94eb68`，API/Worker healthy；容器内动态探针确认 Redis `TimeoutError` 返回空轮询，近五分钟未发现新的 Redis 超时、ASGI 异常或 Traceback。Alembic 仍为 `c6d7e8f9a0b1`，首页 200、未认证确认接口 401；回滚镜像为 `design-hub-api:rollback-20260807-175723`。状态=待验证，owner=QA，等待真实生图任务确认结果卡收敛。
