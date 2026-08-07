@@ -217,8 +217,6 @@ class MockTextLLMProvider(TextLLMPort):
                     id="mock_clone",
                     name="clone",
                     arguments={
-                        "product_upload_ids": [uids[0]],
-                        "reference_upload_ids": uids[1:3],
                         "clone_mode": "参考风格",
                         "ratio": ratio,
                         "prompt": text,
@@ -237,7 +235,6 @@ class MockTextLLMProvider(TextLLMPort):
                 id="mock_set",
                 name="generate",
                 arguments={
-                    "upload_ids": uids[:3],
                     "prompt": text,
                     "ratio": ratio,
                     "plan": {"白底": 1, "场景": 2, "卖点": 2},
@@ -252,7 +249,6 @@ class MockTextLLMProvider(TextLLMPort):
                 id="mock_gen",
                 name="generate",
                 arguments={
-                    "upload_ids": uids[:3],
                     "prompt": text,
                     "ratio": ratio,
                     "n": _count_from_text(text),

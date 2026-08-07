@@ -128,6 +128,12 @@ def test_chat_write_tool_schemas_never_expose_listing_only_fields() -> None:
         assert "category" not in tool.parameters["properties"]
         assert "modifiers" not in tool.parameters["properties"]
 
+    generate = next(item for item in _tool_specs() if item.name == "generate")
+    clone = next(item for item in _tool_specs() if item.name == "clone")
+    assert "upload_ids" not in generate.parameters["properties"]
+    assert "product_upload_ids" not in clone.parameters["properties"]
+    assert "reference_upload_ids" not in clone.parameters["properties"]
+
 
 def test_system_prompt_requires_category_free_conservative_enhancement() -> None:
     prompt = default_system_prompt()

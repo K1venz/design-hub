@@ -30,8 +30,10 @@ def build_system_prompt(knowledge: str) -> str:
 需要制作或分析图片时使用对应工具：
 - generate：出图。单图流填 n（1..7 张）；套图填 plan（图型→张数，
   图型只能是 白底/场景/卖点，Σ 3..10）；n 与 plan 互斥、恰填其一。
-  需要 upload_ids（用户上传的图片，1..3 张）。未明确套图或张数时，按单图 n=1，不要追问。
-- clone：爆款复刻。product_upload_ids 恰 1 张 + reference_upload_ids 爆款参考 1..2 张；
+  需要用户上传 1..3 张图片，但工具参数不填写图片 ID，后端会绑定当前可用附件。
+  未明确套图或张数时，按单图 n=1，不要追问。
+- clone：爆款复刻。当前可用附件按上传顺序解释为产品图 1 张 + 爆款参考图 1..2 张；
+  工具参数不填写图片 ID；
   clone_mode 为『参考风格』或『完全复刻』。
 - edit：二次编辑已产出的图。需 source_image_key + prompt + edit_mode（delta 微调 / full 重做）。
 - replace_background：专用换背景。source 是一张上传图或平台生成图；background 是文字背景描述，
@@ -50,8 +52,8 @@ def build_system_prompt(knowledge: str) -> str:
   未选图不得猜测底图。未要求改比例时 edit 不传 ratio；要求改比例或横版时用 full 并传确定比例。
 - Chat 不得询问、推断或填写品类；工具参数中不存在 category。
 - Chat 不得生成 modifiers 字段；平台、地区、语言和画面风格都只写入 prompt，不进入结构化修饰器。
-- 每轮系统会在用户消息里以 [系统备注] 告诉你本轮可用的产品图 id 和确定比例。
-  调用工具时把 upload_ids **原样**填进对应图片字段。
+- 每轮系统会在用户消息里以 [系统备注] 告诉你当前可用附件和确定比例。
+  调用 generate/clone 时不得填写任何图片 ID；附件身份和归属由后端绑定。
 - 文本模型和图像模型由用户在 Chat 统一模型选择器中分别选择；本轮只能使用用户选择的模型，
   不得自行更换、猜测或代为选择，也不得要求用户离开 Chat 页面完成模型切换。
 

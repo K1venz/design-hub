@@ -175,25 +175,29 @@ def _title(message: str) -> str:
 def _to_llm_messages(
     transcript: ChatTranscript,
     *,
+    available_upload_ids: tuple[str, ...] = (),
     current_ratio: ChatRatioDecision | None = None,
     image_model_display_name: str | None = None,
     render_tier: RenderTier | None = None,
     supported_ratios: tuple[str, ...] = (),
     edit_source_image_key: str | None = None,
 ) -> list[ChatMessage]:
-    """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。
+    """从 DB 转录重建 LLM 上下文，并仅注入最近一组可用附件（不入持久转录）。
 
     长会话裁剪（A3）：超 _CONTEXT_MAX_MESSAGES 条 → 首条(原始诉求) + 最近若干 + 一行省略备注，
     控 token/成本；DB 转录本身仍全量存（get_transcript 不变）。
     """
     out: list[ChatMessage] = []
     for m in transcript.messages:
-        content = m.content
-        if m.role == "user" and m.attachment_upload_ids:
-            note = ",".join(m.attachment_upload_ids)
-            content = f"{content}\n\n[系统备注] 本轮可用产品图 upload_ids={note}"
-        out.append(ChatMessage(role=m.role, content=content))
+        out.append(ChatMessage(role=m.role, content=m.content))
     notes: list[str] = []
+    if available_upload_ids:
+        upload_note = ",".join(available_upload_ids)
+        notes.append(
+            f"[系统备注] 当前可用附件按上传顺序为 upload_ids={upload_note}。"
+            "调用 generate/clone 时不要填写任何图片 ID，后端会绑定这些附件；"
+            "其他图片工具只能原样使用本备注中的 ID。"
+        )
     if current_ratio is not None:
         if image_model_display_name is None or render_tier is None or not supported_ratios:
             raise ValueError("图片模型上下文不完整")
@@ -237,6 +241,13 @@ def _to_llm_messages(
         role="user", content="[系统备注] 为控制长度，中间若干轮对话已省略，以下为最近对话。"
     )
     return [*out[:_CONTEXT_HEAD], elided, *out[_CONTEXT_HEAD - _CONTEXT_MAX_MESSAGES :]]
+
+
+def _latest_attachment_upload_ids(transcript: ChatTranscript) -> tuple[str, ...]:
+    for message in reversed(transcript.messages):
+        if message.role == "user" and message.attachment_upload_ids:
+            return message.attachment_upload_ids
+    return ()
 
 
 @dataclass
@@ -295,7 +306,8 @@ class ChatOrchestrator:
         )
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         assert transcript is not None  # 刚 owner-check + append，必存在
-        auto_ratio = await self._auto_ratio(user, upload_ids)
+        available_upload_ids = _latest_attachment_upload_ids(transcript)
+        auto_ratio = await self._auto_ratio(user, list(available_upload_ids))
         rendering = decide_chat_rendering(message, auto_ratio, image_options)
         ratio_decision = rendering.ratio
         try:
@@ -317,6 +329,7 @@ class ChatOrchestrator:
             ChatMessage(role="system", content=self.system_prompt),
             *_to_llm_messages(
                 transcript,
+                available_upload_ids=available_upload_ids,
                 current_ratio=ratio_decision,
                 image_model_display_name=image_config.display_name,
                 render_tier=rendering.render_tier,
@@ -555,6 +568,7 @@ class ChatOrchestrator:
                     call.name,
                     normalized_args,
                     image_model,
+                    available_upload_ids,
                 )
             except Exception:  # pydantic 校验失败（含 extra=forbid）：内部字段名不吐用户（P3-#5）
                 clar = (
@@ -966,7 +980,10 @@ class ChatOrchestrator:
 
     @staticmethod
     def _parse_req(
-        tool: str, args: dict[str, Any], image_model: str
+        tool: str,
+        args: dict[str, Any],
+        image_model: str,
+        available_upload_ids: tuple[str, ...] = (),
     ) -> (
         ListingGenerateRequest
         | CloneRequest
@@ -974,9 +991,15 @@ class ChatOrchestrator:
         | BackgroundReplaceRequest
     ):
         if tool == "generate":
-            return ChatGenerateRequest(**args).to_listing(image_model)
+            return ChatGenerateRequest(**args).to_listing(
+                image_model,
+                available_upload_ids,
+            )
         if tool == "clone":
-            return ChatCloneRequest(**args).to_listing(image_model)
+            return ChatCloneRequest(**args).to_listing(
+                image_model,
+                available_upload_ids,
+            )
         if tool == "edit":
             return ChatEditRequest(**args).to_listing(image_model)
         if tool == "replace_background":
