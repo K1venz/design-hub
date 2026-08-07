@@ -608,19 +608,75 @@ def _image_bytes(width: int, height: int) -> bytes:
 
 
 def _gen_tc(
-    uid: str,
+    _upload_id: str,
     *,
     ratio: str = "1:1",
     n: int | None = 5,
     plan: dict | None = None,
     prompt: str = "花生",
 ) -> tuple[ToolCall, ...]:
-    args: dict = {"upload_ids": [uid], "prompt": prompt, "ratio": ratio}
+    args: dict = {"prompt": prompt, "ratio": ratio}
     if plan is not None:
         args["plan"] = plan
     else:
         args["n"] = n
     return (ToolCall(id="c1", name="generate", arguments=args),)
+def test_generate_binds_current_attachment_without_model_authored_id(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        upload_id = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("", _gen_tc(upload_id, n=1))))
+
+        events = await _drain(
+            orch.handle_message(USER, None, "按这张产品图生成主图", [upload_id])
+        )
+
+        session_id = _first(events, "session")["session_id"]
+        pending = inf.pending._pending[session_id]
+        assert isinstance(pending.req, ListingGenerateRequest)
+        assert pending.req.upload_ids == [upload_id]
+        assert "upload_ids" not in _first(events, "generation_confirm")["args"]
+
+    asyncio.run(_impl())
+
+
+def test_generate_confirmation_binds_most_recent_attachment_group(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        older_upload_id = await inf.uploads.save(
+            data=_PNG + b"older",
+            content_type="image/png",
+            user_id=USER.user_id,
+        )
+        latest_upload_id = await inf.uploads.save(
+            data=_PNG + b"latest",
+            content_type="image/png",
+            user_id=USER.user_id,
+        )
+        orch = inf.orch(
+            StubTextLLM(
+                ("请确认方案", ()),
+                ("", _gen_tc(latest_upload_id, n=1)),
+            )
+        )
+
+        first = await _drain(
+            orch.handle_message(USER, None, "先看看这张", [older_upload_id])
+        )
+        session_id = _first(first, "session")["session_id"]
+        await _drain(
+            orch.handle_message(USER, session_id, "改用这张生成", [latest_upload_id])
+        )
+        confirmed = await _drain(
+            orch.handle_message(USER, session_id, "是的", [])
+        )
+
+        pending = inf.pending._pending[session_id]
+        assert isinstance(pending.req, ListingGenerateRequest)
+        assert pending.req.upload_ids == [latest_upload_id]
+        assert "generation_confirm" in [event_type for event_type, _ in confirmed]
+
+    asyncio.run(_impl())
 
 
 def test_prepare_generate_args_forces_deterministic_landscape_ratio() -> None:
@@ -691,8 +747,6 @@ def test_prepare_edit_args_rejects_missing_ui_selection() -> None:
         (
             "clone",
             {
-                "product_upload_ids": ["product"],
-                "reference_upload_ids": ["reference"],
                 "clone_mode": "参考风格",
                 "ratio": "1:1",
             },
@@ -746,12 +800,12 @@ def test_chat_generate_converts_to_category_free_listing_request() -> None:
     req = ChatOrchestrator._parse_req(
         "generate",
         {
-            "upload_ids": ["u"],
             "prompt": "主体居中，柔和棚拍光，保留原图 Logo",
             "ratio": "1:1",
             "n": 1,
         },
         "gpt-image-2",
+        ("u",),
     )
     assert isinstance(req, ListingGenerateRequest)
     assert req.category is None
@@ -762,14 +816,30 @@ def test_chat_generate_rejects_category_argument() -> None:
         ChatOrchestrator._parse_req(
             "generate",
             {
-                "upload_ids": ["u"],
                 "prompt": "极简海报",
                 "ratio": "1:1",
                 "n": 1,
                 "category": "FOOD",
             },
             "gpt-image-2",
+            ("u",),
         )
+
+
+def test_chat_clone_binds_ordered_attachments_to_roles() -> None:
+    req = ChatOrchestrator._parse_req(
+        "clone",
+        {
+            "clone_mode": "参考风格",
+            "ratio": "1:1",
+        },
+        "gpt-image-2",
+        ("product", "reference-1", "reference-2"),
+    )
+
+    assert isinstance(req, CloneRequest)
+    assert req.product_upload_ids == ["product"]
+    assert req.reference_upload_ids == ["reference-1", "reference-2"]
 
 
 def test_logo_request_uses_enhanced_prompt_without_category_clarification(tmp_path) -> None:
@@ -1983,12 +2053,12 @@ def test_validation_clarification_hides_internal_field_names(tmp_path) -> None:
 
     async def _impl() -> None:
         inf = await _infra(str(tmp_path))
-        # LLM 产 upload_ids=[] 的 generate（漏带产品图）→ validate 失败 → 澄清而非报错
+        # 当前会话没有附件时，后端绑定空集合并由统一校验转为用户话术。
         bad = (
             ToolCall(
                 id="c1",
                 name="generate",
-                arguments={"upload_ids": [], "prompt": "花生", "ratio": "1:1", "n": 1},
+                arguments={"prompt": "花生", "ratio": "1:1", "n": 1},
             ),
         )
         orch = inf.orch(StubTextLLM(("好的", bad)))
@@ -1996,7 +2066,7 @@ def test_validation_clarification_hides_internal_field_names(tmp_path) -> None:
         types = [t for t, _ in ev]
         assert "generation_confirm" not in types and "tool_call" not in types
         text = "".join(d.get("text", "") for t, d in ev if t == "assistant_delta")
-        assert "请上传" in text  # 话术兜底
+        assert "上传" in text  # 话术兜底
         for tok in ("upload_ids", "overlay_texts", "plan", "modifiers", "ratio", "category"):
             assert tok not in text
         assert ev[-1] == ("assistant_end", {"status": "complete"})

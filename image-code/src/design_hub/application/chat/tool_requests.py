@@ -22,17 +22,21 @@ Prompt = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 class ChatGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    upload_ids: list[str]
     prompt: Prompt
     ratio: str
     n: int | None = None
     plan: dict[str, int] | None = None
     overlay_texts: list[str] | None = None
 
-    def to_listing(self, image_model: str) -> ListingGenerateRequest:
+    def to_listing(
+        self,
+        image_model: str,
+        upload_ids: tuple[str, ...],
+    ) -> ListingGenerateRequest:
         return ListingGenerateRequest(
             **self.model_dump(),
             image_model=image_model,
+            upload_ids=list(upload_ids),
             modifiers={},
             category=None,
         )
@@ -41,16 +45,20 @@ class ChatGenerateRequest(BaseModel):
 class ChatCloneRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    product_upload_ids: list[str]
-    reference_upload_ids: list[str]
     clone_mode: str
     ratio: str
     prompt: str = ""
 
-    def to_listing(self, image_model: str) -> CloneRequest:
+    def to_listing(
+        self,
+        image_model: str,
+        upload_ids: tuple[str, ...],
+    ) -> CloneRequest:
         return CloneRequest(
             **self.model_dump(),
             image_model=image_model,
+            product_upload_ids=list(upload_ids[:1]),
+            reference_upload_ids=list(upload_ids[1:]),
             modifiers={},
             category=None,
         )
