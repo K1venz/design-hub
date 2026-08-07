@@ -3,6 +3,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from redis.exceptions import ResponseError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from design_hub.domain.enums import TaskEventType
 from design_hub.domain.models import TaskEvent
@@ -201,11 +202,14 @@ class RedisJobEventStream:
         self, *, job_id: str, after_id: str, block_ms: int
     ) -> tuple[ReplayableEvent, ...]:
         key = self._key(job_id)
-        response = await self._client.xread(
-            {key: after_id},
-            count=_EVENT_MAX_LENGTH,
-            block=block_ms,
-        )
+        try:
+            response = await self._client.xread(
+                {key: after_id},
+                count=_EVENT_MAX_LENGTH,
+                block=block_ms,
+            )
+        except RedisTimeoutError:
+            return ()
         return tuple(
             ReplayableEvent(
                 redis_id=redis_id,

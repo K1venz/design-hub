@@ -4,9 +4,10 @@ from typing import Any
 
 import pytest
 from redis.exceptions import ResponseError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from design_hub.domain.tasking import InvalidTaskMessage, OperationType, TaskMessage
-from design_hub.infrastructure.queue.redis_streams import RedisTaskBroker
+from design_hub.infrastructure.queue.redis_streams import RedisJobEventStream, RedisTaskBroker
 
 _RENEW_IF_OWNER_SCRIPT = """
 local pending = redis.call(
@@ -45,6 +46,7 @@ class _FakeRedis:
         self.claim_result: object = ("0-0", [], [])
         self.renew_result: object = 0
         self.group_error: ResponseError | None = None
+        self.event_read_error: Exception | None = None
         self.closed = False
 
     async def xgroup_create(self, *args: object, **kwargs: object) -> None:
@@ -58,6 +60,12 @@ class _FakeRedis:
 
     async def xreadgroup(self, *args: object, **kwargs: object) -> Any:
         self.calls.append(("xreadgroup", args, kwargs))
+        return self.read_result
+
+    async def xread(self, *args: object, **kwargs: object) -> Any:
+        self.calls.append(("xread", args, kwargs))
+        if self.event_read_error is not None:
+            raise self.event_read_error
         return self.read_result
 
     async def xautoclaim(self, *args: object, **kwargs: object) -> Any:
@@ -139,6 +147,19 @@ def test_group_setup_ignores_only_busygroup() -> None:
         redis.group_error = ResponseError("NOPERM denied")
         with pytest.raises(ResponseError, match="NOPERM"):
             await broker.ensure_group()
+
+    asyncio.run(run())
+
+
+def test_job_event_blocking_read_timeout_is_an_empty_poll_window() -> None:
+    async def run() -> None:
+        redis = _FakeRedis()
+        redis.event_read_error = RedisTimeoutError("Timeout reading from redis")
+        stream = RedisJobEventStream(redis)
+
+        deliveries = await stream.read(job_id="job-1", after_id="0-0", block_ms=15_000)
+
+        assert deliveries == ()
 
     asyncio.run(run())
 
