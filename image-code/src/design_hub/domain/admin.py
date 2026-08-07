@@ -38,6 +38,7 @@ class AdminAction(StrEnum):
     USER_ROLE_UPDATE = "user.role.update"
     USER_STATUS_UPDATE = "user.status.update"
     IMAGE_MODERATION_UPDATE = "image.moderation.update"
+    IMAGE_SHOWCASE_UPDATE = "image.showcase.update"
     MODEL_CREATE = "model.create"
     MODEL_UPDATE = "model.update"
     MODEL_DELETE = "model.delete"
