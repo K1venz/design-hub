@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from design_hub.application.chat.image_options import (
     AUTO_CHAT_IMAGE_OPTIONS,
     ChatImageOptions,
+    ChatRenderTier,
 )
 from design_hub.application.chat.orchestrator import ChatOrchestrator
 from design_hub.application.chat.pending_store import PendingStore
@@ -124,6 +125,10 @@ class _FakeModelConfig(ModelConfigRepository):
         del four_k_enabled, four_k_cost, include_four_k
         self._c = [
             _model_record("gpt-image-2", standard_cost, standard_enabled),
+            replace(
+                _model_record("nano-banana-2", Decimal("0.12"), True),
+                display_name="Nano Banana 2",
+            ),
             _model_record("seedream-5", Decimal("0.20"), True),
         ]
 
@@ -1223,11 +1228,44 @@ def test_explicit_4k_note_reaches_llm_before_write_tool_selection(tmp_path) -> N
         llm = CapturingTextLLM()
         events = await _drain(inf.orch(llm).handle_message(USER, None, "4K 可以做成 4:3 吗？", []))
 
-        assert "本轮确定比例=4:3" in llm.messages[-1].content
+        assert "当前图片模型=gpt-image-2" in llm.messages[-1].content
+        assert "当前清晰度=4k" in llm.messages[-1].content
+        assert "当前模型与清晰度支持的比例=16:9" in llm.messages[-1].content
+        assert "用户明确要求比例=4:3" in llm.messages[-1].content
         assert "4K 当前仅支持" not in "".join(
             data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
         )
         assert events[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
+def test_selected_nano_banana_capabilities_reach_llm_before_reply(tmp_path) -> None:
+    async def _impl() -> None:
+        inf = await _infra(str(tmp_path))
+        llm = CapturingTextLLM()
+
+        await _drain(
+            inf.orch(llm).handle_message(
+                USER,
+                None,
+                "我现在需要做一张 1:8 的商品详情页图片",
+                [],
+                image_model="nano-banana-2",
+                image_options=ChatImageOptions(
+                    render_tier=ChatRenderTier.FOUR_K,
+                    ratio="1:8",
+                    count=1,
+                ),
+            )
+        )
+
+        note = llm.messages[-1].content
+        assert "当前图片模型=Nano Banana 2" in note
+        assert "当前清晰度=4k" in note
+        assert "当前模型与清晰度支持的比例=" in note
+        assert "1:8" in note
+        assert "必须依据本备注回答模型能力问题" in note
 
     asyncio.run(_impl())
 
@@ -1317,10 +1355,11 @@ def test_non_gpt_model_cannot_be_used_for_4k(tmp_path) -> None:
 
         session_id = _first(events, "session")["session_id"]
         event_types = [event_type for event_type, _data in events]
-        text = "".join(
-            data.get("text", "") for event_type, data in events if event_type == "assistant_delta"
-        )
-        assert "unsupported image model: seedream-5" in text
+        error = _first(events, "error")
+        assert error == {
+            "code": "model_unavailable",
+            "message": "当前图片模型已不可用，请重新选择。",
+        }
         assert "generation_confirm" not in event_types
         assert session_id not in inf.pending._pending
         assert await inf.chat_repo.job_count(session_id) == 0

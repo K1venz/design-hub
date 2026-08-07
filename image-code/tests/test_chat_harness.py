@@ -12,6 +12,7 @@ from design_hub.application.chat.system_prompt import (
     load_chat_knowledge,
 )
 from design_hub.domain.models import ChatMessageRecord, ChatTranscript
+from design_hub.domain.tasking import RenderTier
 
 
 def _transcript(n: int) -> ChatTranscript:
@@ -81,7 +82,8 @@ def test_default_system_prompt_embeds_real_knowledge() -> None:
 
 def test_build_system_prompt_uses_determined_ratio_without_asking() -> None:
     prompt = build_system_prompt("KB")
-    assert "1:1 / 3:2 / 2:3 / 3:4 / 4:3 / 9:16 / 16:9 / 4:5 / 5:4 / 1:2 / 2:1" in prompt
+    assert "以本轮系统备注为唯一事实源" in prompt
+    assert "不得引用其他模型的比例" in prompt
     assert "本轮确定比例" in prompt
     assert "不要追问比例" in prompt
     assert "未明确套图或张数时，按单图 n=1" in prompt
@@ -192,6 +194,9 @@ def test_current_ratio_and_edit_source_are_added_only_to_latest_user_message() -
     out = _to_llm_messages(
         transcript,
         current_ratio=decide_chat_ratio("做横版", "3:4"),
+        image_model_display_name="GPT Image 2.0",
+        render_tier=RenderTier.STANDARD,
+        supported_ratios=("1:1", "4:3"),
         edit_source_image_key="selected.png",
     )
     assert "本轮确定比例=4:3" in out[-1].content
