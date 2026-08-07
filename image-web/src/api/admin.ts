@@ -15,6 +15,8 @@ export type AdminJobDetail = components['schemas']['AdminJobDetailOut']
 export type AdminImage = components['schemas']['AdminImageSummaryOut']
 export type AdminImagePage = components['schemas']['PageOut_AdminImageSummaryOut_']
 export type ImageModerationUpdate = components['schemas']['ImageModerationUpdate']
+export type ImageShowcaseUpdate = components['schemas']['ImageShowcaseUpdate']
+export type ImageShowcaseState = components['schemas']['ImageShowcaseStateOut']
 export type ModelCallSummary = components['schemas']['ModelCallSummaryOut']
 export type ModelCallSummaryList = components['schemas']['ModelCallSummaryListOut']
 export type ModelCallDetail = components['schemas']['ModelCallDetailOut']
@@ -56,6 +58,7 @@ export interface AdminImageFilters extends DateFilters, PaginationFilters {
   operation_type?: string
   status?: string
   moderation_status?: 'normal' | 'blocked'
+  showcase_status?: 'public' | 'private'
 }
 
 export interface ModelCallFilters extends AdminJobFilters {
@@ -205,6 +208,39 @@ export function useModerateAdminImage() {
         queryClient.invalidateQueries({ queryKey: adminKeys.overviewRoot }),
         queryClient.invalidateQueries({ queryKey: adminKeys.auditRoot }),
         queryClient.invalidateQueries({ queryKey: ['listing'] }),
+      ])
+    },
+  })
+}
+
+export function useUpdateAdminImageShowcase() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      imageId,
+      body,
+    }: {
+      imageId: number
+      body: ImageShowcaseUpdate
+    }): Promise<ImageShowcaseState> => {
+      const { data, error } = await api.PUT(
+        '/admin/images/{image_id}/showcase',
+        {
+          params: { path: { image_id: imageId } },
+          body,
+        },
+      )
+      if (error || !data) {
+        throw new Error(errorMessage(error, '更新公开展示设置失败'))
+      }
+      return data
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: adminKeys.imagesRoot }),
+        queryClient.invalidateQueries({ queryKey: adminKeys.jobsRoot }),
+        queryClient.invalidateQueries({ queryKey: adminKeys.auditRoot }),
+        queryClient.invalidateQueries({ queryKey: ['showcase'] }),
       ])
     },
   })
