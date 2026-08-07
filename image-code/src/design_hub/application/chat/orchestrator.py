@@ -27,7 +27,6 @@ from design_hub.application.chat.ratio_intent import (
 )
 from design_hub.application.chat.rendering_intent import (
     ChatRenderingDecision,
-    decide_chat_ratio_note,
     decide_chat_rendering,
 )
 from design_hub.application.chat.system_prompt import default_system_prompt
@@ -59,6 +58,7 @@ from design_hub.application.tasking.health import (
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.enums import ModelType, TaskEventType
 from design_hub.domain.errors import DomainError, NotFoundError
+from design_hub.domain.image_capabilities import image_model_capabilities
 from design_hub.domain.models import AuthUser, ChatTranscript
 from design_hub.domain.tasking import RenderTier
 from design_hub.ports.chat_repository import ChatSessionRepository
@@ -176,6 +176,9 @@ def _to_llm_messages(
     transcript: ChatTranscript,
     *,
     current_ratio: ChatRatioDecision | None = None,
+    image_model_display_name: str | None = None,
+    render_tier: RenderTier | None = None,
+    supported_ratios: tuple[str, ...] = (),
     edit_source_image_key: str | None = None,
 ) -> list[ChatMessage]:
     """从 DB 转录重建 LLM 上下文；带附图的 user 消息注回 upload_ids 备注（不入持久转录）。
@@ -192,10 +195,20 @@ def _to_llm_messages(
         out.append(ChatMessage(role=m.role, content=content))
     notes: list[str] = []
     if current_ratio is not None:
-        if current_ratio.ratio is None:
+        if image_model_display_name is None or render_tier is None or not supported_ratios:
+            raise ValueError("图片模型上下文不完整")
+        options = " / ".join(supported_ratios)
+        notes.append(
+            f"[系统备注] 当前图片模型={image_model_display_name}，"
+            f"当前清晰度={render_tier.value}，当前模型与清晰度支持的比例={options}。"
+            "必须依据本备注回答模型能力问题，不得使用其他图片模型的能力信息。"
+        )
+        if current_ratio.ratio is None or current_ratio.ratio not in supported_ratios:
+            requested = current_ratio.requested or current_ratio.ratio
             notes.append(
-                f"[系统备注] 用户明确要求比例={current_ratio.requested}，当前不支持；"
-                "若用户明确要出图，不要调用写工具，告知支持的五种比例。"
+                f"[系统备注] 用户明确要求比例={requested}，"
+                "当前所选图片模型与清晰度不支持；若用户明确要出图，不要调用写工具，"
+                "告知本备注列出的可选比例。"
             )
         else:
             notes.append(
@@ -283,12 +296,31 @@ class ChatOrchestrator:
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         assert transcript is not None  # 刚 owner-check + append，必存在
         auto_ratio = await self._auto_ratio(user, upload_ids)
-        ratio_decision = decide_chat_ratio_note(message, auto_ratio, image_options)
+        rendering = decide_chat_rendering(message, auto_ratio, image_options)
+        ratio_decision = rendering.ratio
+        try:
+            image_config = await self.model_config.require_available_image(image_model)
+            supported_ratios = image_model_capabilities(image_config.name).ratios(
+                rendering.render_tier
+            )
+        except (DomainError, ValueError):
+            yield ChatEvent(
+                "error",
+                {
+                    "code": "model_unavailable",
+                    "message": "当前图片模型已不可用，请重新选择。",
+                },
+            )
+            yield ChatEvent("assistant_end", {"status": "error"})
+            return
         llm_messages = [
             ChatMessage(role="system", content=self.system_prompt),
             *_to_llm_messages(
                 transcript,
                 current_ratio=ratio_decision,
+                image_model_display_name=image_config.display_name,
+                render_tier=rendering.render_tier,
+                supported_ratios=supported_ratios,
                 edit_source_image_key=edit_source_image_key,
             ),
         ]
@@ -555,9 +587,7 @@ class ChatOrchestrator:
                         req,
                         render_tier=rendering.render_tier,
                     )
-                config = await self.model_config.require_available_image(
-                    image_model
-                )
+                config = image_config
             except (DomainError, ValueError, NotFoundError) as exc:
                 if str(exc) == "image model unavailable":
                     yield ChatEvent(
