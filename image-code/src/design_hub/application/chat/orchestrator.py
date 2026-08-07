@@ -734,6 +734,33 @@ class ChatOrchestrator:
                 after_id=cursor,
                 block_ms=15_000,
             )
+            if not deliveries:
+                detail = await self.query.get_job(
+                    job_id=job_id,
+                    user_id=user.user_id,
+                )
+                if detail is None:
+                    raise RuntimeError(
+                        f"launched chat job {job_id} is missing from history"
+                    )
+                durable_type = {
+                    "完成": TaskEventType.TASK_COMPLETED,
+                    "部分完成": TaskEventType.TASK_COMPLETED,
+                    "失败": TaskEventType.TASK_FAILED,
+                }.get(detail.status)
+                if durable_type is not None:
+                    yield ChatEvent(
+                        "job_event",
+                        {
+                            "job_id": job_id,
+                            "redis_id": f"durable-terminal:{job_id}",
+                            "type": durable_type.value,
+                            "data": {"status": detail.status},
+                        },
+                    )
+                    completed = durable_type == TaskEventType.TASK_COMPLETED
+                    terminal = True
+                    continue
             for delivery in deliveries:
                 cursor = delivery.redis_id
                 event = delivery.event

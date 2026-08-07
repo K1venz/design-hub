@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0073
 title: Chat 生图完成后业务事件缺失导致出图结果永久等待
-status: 修复中
+status: 待验证
 severity: P1
 reporter: 开发
-owner: 开发
+owner: QA
 created: 2026-08-07
 updated: 2026-08-07
 related:
@@ -51,3 +51,4 @@ related:
 
 ## 处理记录
 - 2026-08-07 [开发] 生产复现并与 ISSUE-0072 拆分；确认无限等待窗口位于 Chat Redis 空读与持久化终态之间，状态=修复中。
+- 2026-08-07 [开发] Chat 在 Redis 空读时增加 owner-scoped 持久化终态校验；完成、部分完成、失败均发出缺失终态，生成中继续等待真实事件。后端全套 664 passed、5 skipped，Ruff 与 mypy 通过，状态=待验证，owner=QA。

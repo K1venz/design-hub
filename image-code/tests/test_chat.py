@@ -21,7 +21,7 @@ from io import BytesIO
 
 import pytest
 from PIL import Image
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from design_hub.application.chat.image_options import (
     AUTO_CHAT_IMAGE_OPTIONS,
@@ -213,6 +213,41 @@ class _ReplayEvents:
         del block_ms
         sequence = int(after_id.split("-", maxsplit=1)[0])
         return tuple(self._events.get(job_id, [])[sequence:])
+
+
+class _EmptyThenTerminalEvents:
+    def __init__(self, event_type: TaskEventType) -> None:
+        self._reads = 0
+        self._event_type = event_type
+
+    async def read(
+        self, *, job_id: str, after_id: str, block_ms: int
+    ) -> tuple[ReplayableEvent, ...]:
+        del after_id, block_ms
+        self._reads += 1
+        if self._reads == 1:
+            return ()
+        return (
+            ReplayableEvent(
+                redis_id="2-0",
+                event=TaskEvent(
+                    job_id=job_id,
+                    type=self._event_type,
+                    data={},
+                ),
+            ),
+        )
+
+
+class _DurableStatusQuery:
+    def __init__(self, query: SqlAlchemyListingHistoryQuery, status: str) -> None:
+        self._query = query
+        self._status = status
+
+    async def get_job(self, *, job_id: str, user_id: str):
+        detail = await self._query.get_job(job_id=job_id, user_id=user_id)
+        assert detail is not None
+        return replace(detail, status=self._status)
 
 
 class _FakeSubmission:
@@ -772,6 +807,7 @@ class Infra:
     model_config: _FakeModelConfig
     max_session_jobs: int
     reverse_prompt: ReversePromptService
+    engine: AsyncEngine | None = None
 
     def orch(self, text_llm: TextLLMPort) -> ChatOrchestrator:
         return _TestChatOrchestrator(
@@ -889,6 +925,7 @@ async def _infra(
         model_config,
         max_session_jobs,
         reverse_prompt,
+        engine,
     )
 
 
@@ -898,6 +935,38 @@ async def _drain(agen: AsyncIterator) -> list[tuple[str, dict]]:
 
 async def _stage(inf: Infra, user: AuthUser = USER) -> str:
     return await inf.uploads.save(data=_PNG, content_type="image/png", user_id=user.user_id)
+
+
+async def _confirm_after_empty_event_read(
+    tmp_path,
+    *,
+    durable_status: str | None,
+    eventual_type: TaskEventType,
+) -> list[tuple[str, dict]]:
+    inf = await _infra(str(tmp_path))
+    try:
+        uid = await _stage(inf)
+        orch = inf.orch(StubTextLLM(("", _gen_tc(uid, n=1))))
+        orch.event_stream = _EmptyThenTerminalEvents(eventual_type)
+        if durable_status is not None:
+            orch.query = _DurableStatusQuery(  # type: ignore[assignment]
+                inf.query,
+                durable_status,
+            )
+        planned = await _drain(
+            orch.handle_message(USER, None, "生成一张图", [uid])
+        )
+        return await _drain(
+            orch.handle_confirm(
+                USER,
+                _first(planned, "session")["session_id"],
+                _first(planned, "generation_confirm")["confirm_token"],
+                "confirm",
+            )
+        )
+    finally:
+        assert inf.engine is not None
+        await inf.engine.dispose()
 
 
 def _first(events: list[tuple[str, dict]], type_: str) -> dict:
@@ -1604,6 +1673,78 @@ def test_confirm_launches_job_and_forwards_job_events(tmp_path) -> None:
         assert [message.role for message in completed.messages] == ["user", "assistant"]
         assert completed.messages[1].job_id == job_id
         assert completed.messages[1].content == "已完成，可在结果区查看。"
+
+    asyncio.run(_impl())
+
+
+def test_confirm_recovers_completed_job_when_redis_events_are_missing(tmp_path) -> None:
+    async def _impl() -> None:
+        events = await _confirm_after_empty_event_read(
+            tmp_path,
+            durable_status=None,
+            eventual_type=TaskEventType.TASK_FAILED,
+        )
+
+        job_events = [
+            data for event_type, data in events if event_type == "job_event"
+        ]
+        assert [event["type"] for event in job_events] == ["task_completed"]
+        assert job_events[0]["data"] == {"status": "完成"}
+        assert events[-1] == ("assistant_end", {"status": "complete"})
+
+    asyncio.run(_impl())
+
+
+def test_confirm_recovers_failed_job_when_redis_events_are_missing(tmp_path) -> None:
+    async def _impl() -> None:
+        events = await _confirm_after_empty_event_read(
+            tmp_path,
+            durable_status="失败",
+            eventual_type=TaskEventType.TASK_COMPLETED,
+        )
+
+        job_events = [
+            data for event_type, data in events if event_type == "job_event"
+        ]
+        assert [event["type"] for event in job_events] == ["task_failed"]
+        assert job_events[0]["data"] == {"status": "失败"}
+
+    asyncio.run(_impl())
+
+
+def test_confirm_recovers_partially_completed_job_when_events_are_missing(
+    tmp_path,
+) -> None:
+    async def _impl() -> None:
+        events = await _confirm_after_empty_event_read(
+            tmp_path,
+            durable_status="部分完成",
+            eventual_type=TaskEventType.TASK_FAILED,
+        )
+
+        job_events = [
+            data for event_type, data in events if event_type == "job_event"
+        ]
+        assert [event["type"] for event in job_events] == ["task_completed"]
+        assert job_events[0]["data"] == {"status": "部分完成"}
+
+    asyncio.run(_impl())
+
+
+def test_confirm_keeps_waiting_when_durable_job_is_still_generating(tmp_path) -> None:
+    async def _impl() -> None:
+        events = await _confirm_after_empty_event_read(
+            tmp_path,
+            durable_status="生成中",
+            eventual_type=TaskEventType.TASK_COMPLETED,
+        )
+
+        job_events = [
+            data for event_type, data in events if event_type == "job_event"
+        ]
+        assert [event["type"] for event in job_events] == ["task_completed"]
+        assert job_events[0]["redis_id"] == "2-0"
+        assert job_events[0]["data"] == {}
 
     asyncio.run(_impl())
 
