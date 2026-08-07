@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from design_hub.application.tasking.worker import GenerationWorker
+from design_hub.application.tasking.worker import GenerationWorker, _OwnershipGuard
 from design_hub.domain.admin import ModelOperation
 from design_hub.domain.errors import DataInvariantError
 from design_hub.domain.image_capabilities import ImageOutputSpec
@@ -358,6 +358,7 @@ def test_immediate_result_commits_terminal_before_ack(caplog) -> None:
             "heartbeat",
             "submitting",
             "heartbeat",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -411,6 +412,7 @@ def test_submitted_task_is_persisted_then_resumed_without_second_submit() -> Non
             "submitted",
             "processing",
             "heartbeat",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -460,6 +462,7 @@ def test_ambiguous_sync_timeout_marks_uncertain_and_never_retries() -> None:
             "heartbeat",
             "submitting",
             "heartbeat",
+            "heartbeat",
             "uncertain",
         ]
         assert executor.submits == 1
@@ -481,6 +484,7 @@ def test_stale_claim_is_taken_over_before_provider_submit() -> None:
             "claim",
             "heartbeat",
             "submitting",
+            "heartbeat",
             "heartbeat",
             "storing",
             "complete",
@@ -510,6 +514,7 @@ def test_persisted_provider_task_resumes_without_resubmission() -> None:
             "heartbeat",
             "processing",
             "heartbeat",
+            "heartbeat",
             "storing",
             "complete",
         ]
@@ -536,6 +541,7 @@ def test_stale_storing_item_fails_closed_without_second_provider_call() -> None:
         assert repository.actions == [
             "load",
             "claim",
+            "heartbeat",
             "heartbeat",
             "failed:storage_commit_uncertain",
         ]
@@ -665,6 +671,68 @@ def test_inflight_delivery_renewal_failure_wins_provider_completion() -> None:
         assert broker.acks == []
         assert "complete" not in repository.actions
         assert not any(action.startswith("failed:") for action in repository.actions)
+        assert slots.actions[-1] == "release"
+
+    asyncio.run(run())
+
+
+def test_inflight_delivery_renewal_failure_prevents_terminal_commit() -> None:
+    async def run() -> None:
+        renew_gate = asyncio.Event()
+        repository = _Repository(_work())
+        broker = _Broker(repository)
+        ownership = _OwnershipGuard(
+            repository=repository,
+            broker=broker,
+            work=repository.work,
+            delivery=_delivery(),
+            worker_id="worker-1",
+            lease_seconds=30,
+            heartbeat_seconds=0.005,
+        )
+        broker.renew_results = (True, False)
+        broker.renew_gate = renew_gate
+        broker.renew_gate_call = 2
+        broker.renew_cancellation_resistant = True
+        terminal_actions: list[str] = []
+
+        async def terminal_commit() -> None:
+            terminal_actions.append("committed")
+
+        async def operation() -> None:
+            await broker.second_renew_started.wait()
+            await ownership.commit(terminal_commit)
+
+        process_task = asyncio.create_task(ownership.run(operation))
+        await broker.second_renew_started.wait()
+        await asyncio.sleep(0)
+        renew_gate.set()
+
+        with pytest.raises(DataInvariantError, match="delivery lease lost"):
+            await process_task
+
+        assert terminal_actions == []
+        assert broker.acks == []
+
+    asyncio.run(run())
+
+
+def test_terminal_paths_share_ownership_commit_boundary() -> None:
+    async def run() -> None:
+        repository = _Repository(_work())
+        executor = _Executor()
+        worker, broker, slots = _worker(
+            repository,
+            executor,
+            heartbeat_seconds=0.005,
+        )
+
+        await worker.process(_delivery())
+
+        storing_index = repository.actions.index("storing")
+        assert repository.actions[storing_index - 1] == "heartbeat"
+        assert repository.actions[storing_index + 1] == "complete"
+        assert broker.acks == ["10-0"]
         assert slots.actions[-1] == "release"
 
     asyncio.run(run())
