@@ -6,6 +6,7 @@ from fastapi import Depends, Header, Request, Response
 from design_hub.application.admin.runtime_log_service import RuntimeLogService
 from design_hub.application.admin.user_admin_service import UserAdminService
 from design_hub.application.auth.account_service import AccountService
+from design_hub.application.showcase.service import ShowcaseService
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, PermissionDenied
 from design_hub.domain.models import AuthUser
@@ -19,6 +20,12 @@ def get_media_signer(request: Request) -> MediaUrlSigner:
     signer = request.app.state.media_signer
     assert isinstance(signer, MediaUrlSigner)
     return signer
+
+
+def get_showcase_service(request: Request) -> ShowcaseService:
+    service = request.app.state.showcase_service
+    assert isinstance(service, ShowcaseService)
+    return service
 
 
 def get_token_service(request: Request) -> TokenService:
@@ -121,6 +128,7 @@ UserAdminServiceDep = Annotated[UserAdminService, Depends(get_user_admin_service
 CurrentUserDep = Annotated[AuthUser, Depends(get_current_user)]
 CurrentUserSseDep = Annotated[AuthUser, Depends(get_current_user_sse)]
 MediaSignerDep = Annotated[MediaUrlSigner, Depends(get_media_signer)]
+ShowcaseServiceDep = Annotated[ShowcaseService, Depends(get_showcase_service)]
 RuntimeLogServiceDep = Annotated[
     RuntimeLogService,
     Depends(get_runtime_log_service),

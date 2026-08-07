@@ -90,9 +90,13 @@ def _candidate(**changes: object) -> ShowcaseCandidate:
     base = ShowcaseCandidate(
         image_id=7,
         image_key="original.png",
+        image_type="场景",
         status="成功",
         moderation_status="normal",
         prompt="暖色早餐桌，突出花生礼盒",
+        category="FOOD",
+        ratio="1:1",
+        modifiers={"platform": "淘宝天猫1688"},
         is_public=False,
         download_allowed=False,
         preview_key=None,
@@ -168,6 +172,8 @@ def test_download_policy_update_reuses_existing_preview() -> None:
         ({"status": "失败"}, "只有生成成功的图片可以公开展示"),
         ({"moderation_status": "blocked"}, "已屏蔽图片不能公开展示"),
         ({"prompt": "  "}, "缺少用户原始提示词，不能公开展示"),
+        ({"image_type": None}, "缺少可复用图型，不能公开展示"),
+        ({"category": None}, "缺少商品品类，不能公开展示"),
     ],
 )
 def test_publish_rejects_ineligible_image(
