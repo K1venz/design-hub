@@ -7,7 +7,6 @@ from design_hub.application.admin.model_capability_service import (
     ModelCapabilityService,
 )
 from design_hub.application.admin.model_config_service import ModelConfigService
-from design_hub.application.showcase.service import ShowcaseService
 
 
 def get_model_config_service(request: Request) -> ModelConfigService:
@@ -19,12 +18,6 @@ def get_model_config_service(request: Request) -> ModelConfigService:
 def get_admin_console_service(request: Request) -> AdminConsoleService:
     service = request.app.state.admin_console_service
     assert isinstance(service, AdminConsoleService)
-    return service
-
-
-def get_showcase_service(request: Request) -> ShowcaseService:
-    service = request.app.state.showcase_service
-    assert isinstance(service, ShowcaseService)
     return service
 
 
@@ -45,4 +38,3 @@ AdminConsoleServiceDep = Annotated[
     AdminConsoleService,
     Depends(get_admin_console_service),
 ]
-ShowcaseServiceDep = Annotated[ShowcaseService, Depends(get_showcase_service)]

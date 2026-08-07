@@ -21,8 +21,12 @@ from design_hub.interface.admin_console_schemas import (
     ModelCallSummaryOut,
     PageOut,
 )
-from design_hub.interface.api.admin_deps import AdminConsoleServiceDep, ShowcaseServiceDep
-from design_hub.interface.api.deps import CurrentManagerDep, MediaSignerDep
+from design_hub.interface.api.admin_deps import AdminConsoleServiceDep
+from design_hub.interface.api.deps import (
+    CurrentManagerDep,
+    MediaSignerDep,
+    ShowcaseServiceDep,
+)
 from design_hub.ports.admin_console import (
     AdminAuditFilter,
     AdminImageFilter,
