@@ -717,6 +717,47 @@ def test_inflight_delivery_renewal_failure_prevents_terminal_commit() -> None:
     asyncio.run(run())
 
 
+def test_queued_heartbeat_does_not_run_after_terminal_commit() -> None:
+    async def run() -> None:
+        terminal_started = asyncio.Event()
+        terminal_release = asyncio.Event()
+        repository = _Repository(_work())
+        broker = _Broker(repository)
+        ownership = _OwnershipGuard(
+            repository=repository,
+            broker=broker,
+            work=repository.work,
+            delivery=_delivery(),
+            worker_id="worker-1",
+            lease_seconds=30,
+            heartbeat_seconds=60,
+        )
+        terminal_actions: list[str] = []
+
+        async def terminal_commit() -> None:
+            terminal_started.set()
+            await terminal_release.wait()
+            terminal_actions.extend(("db-terminal", "ack"))
+
+        async def operation() -> None:
+            await ownership.commit(terminal_commit)
+
+        process_task = asyncio.create_task(ownership.run(operation))
+        await terminal_started.wait()
+        queued_heartbeat = asyncio.create_task(ownership.checkpoint())
+        await asyncio.sleep(0)
+        terminal_release.set()
+
+        await process_task
+        await queued_heartbeat
+
+        assert terminal_actions == ["db-terminal", "ack"]
+        assert repository.actions == ["heartbeat", "heartbeat"]
+        assert len(broker.renewals) == 2
+
+    asyncio.run(run())
+
+
 def test_terminal_paths_share_ownership_commit_boundary() -> None:
     async def run() -> None:
         repository = _Repository(_work())

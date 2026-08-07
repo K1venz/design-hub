@@ -76,6 +76,7 @@ class _OwnershipGuard:
         self._heartbeat_seconds = heartbeat_seconds
         self._renew_lock = asyncio.Lock()
         self._failure: Exception | None = None
+        self._closed = False
 
     async def run(self, operation: Callable[[], Awaitable[_T]]) -> _T:
         await self.checkpoint()
@@ -107,12 +108,19 @@ class _OwnershipGuard:
 
     async def checkpoint(self) -> None:
         async with self._renew_lock:
+            if self._closed:
+                return
             await self._checkpoint_locked()
 
     async def commit(self, operation: Callable[[], Awaitable[_T]]) -> _T:
         async with self._renew_lock:
+            if self._closed:
+                raise DataInvariantError("ownership guard is already closed")
             await self._checkpoint_locked()
-            return await operation()
+            try:
+                return await operation()
+            finally:
+                self._closed = True
 
     async def _checkpoint_locked(self) -> None:
         if self._failure is not None:
