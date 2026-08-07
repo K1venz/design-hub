@@ -1,10 +1,10 @@
 ---
 id: ISSUE-0073
 title: Chat 生图完成后业务事件缺失导致出图结果永久等待
-status: 待验证
+status: 修复中
 severity: P1
 reporter: 开发
-owner: QA
+owner: 开发
 created: 2026-08-07
 updated: 2026-08-07
 related:
@@ -35,6 +35,7 @@ related:
 - `handle_confirm` 每 15 秒读取一次 Redis job stream；空结果没有持久化状态校验，也没有其他退出条件。
 - `2669659` 的前端恢复仅在收到任务终态或请求抛错时触发。仅有 SSE 心跳时两条路径都不会执行。
 - ChatOrchestrator 已注入 owner-scoped `ListingHistoryQuery`，可以在 Redis 空读窗口读取同一 job 的持久化状态，无需新增跨层依赖。
+- 生产任务 `8c33fac5fa8448caa1495dd80c23cb70` 已在 Worker 侧完成并持久化 1 张图片，但 API 的 `/chat/confirm` 在任务开始约 5.5 秒后由 Redis `XREAD` 抛出 `TimeoutError`，SSE 因未处理异常提前终止。上一版只覆盖 `XREAD` 正常返回空数组，没有覆盖网络读取超时。
 
 ## 修复边界
 - 正常路径继续实时转发 Redis `image_generated` 与任务终态，不增加重复详情读取。
@@ -48,8 +49,10 @@ related:
 3. 新增后端测试：Redis 空读但 job 仍为生成态时不得提前结束，后续真实事件仍按原顺序转发。
 4. 现有正常事件链路测试保持通过，不重复发出任务终态。
 5. 生产验收观察到上游完成后 Chat 在一个 Redis 空读窗口内从 `0/1` 收敛，不再永久转圈。
+6. Redis 阻塞读取抛出 `TimeoutError` 时必须按空轮询窗口处理，并继续执行持久化状态校准；不得终止 Chat SSE。
 
 ## 处理记录
 - 2026-08-07 [开发] 生产复现并与 ISSUE-0072 拆分；确认无限等待窗口位于 Chat Redis 空读与持久化终态之间，状态=修复中。
 - 2026-08-07 [开发] Chat 在 Redis 空读时增加 owner-scoped 持久化终态校验；完成、部分完成、失败均发出缺失终态，生成中继续等待真实事件。后端全套 664 passed、5 skipped，Ruff 与 mypy 通过，状态=待验证，owner=QA。
 - 2026-08-07 [开发] 修复提交 `94609f1` 已部署生产。发布后 API/Worker 均 healthy，运行镜像包含 durable terminal reconciliation；数据库 `app_user=12`、`listing_job=84` 与部署前 baseline 一致，Alembic=`c6d7e8f9a0b1`，公网首页 200、未认证 Chat 探针 401。保留状态=待验证，交 QA 执行真实生图回显验收。
+- 2026-08-07 [开发] 生产复验确认 ISSUE-0073 仍存在：任务与图片均已完成持久化，但 Redis 阻塞读取在任务完成前抛出 `TimeoutError` 并杀死 Chat SSE。补充基础设施层回归：读取超时统一为一次空轮询，由既有 owner-scoped 持久化终态校准继续收敛；后端全套 680 passed、5 skipped。状态=修复中，待发布后再次真实出图验收。
