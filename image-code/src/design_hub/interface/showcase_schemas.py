@@ -1,45 +1,78 @@
 from pydantic import BaseModel
 
-from design_hub.config.showcase import Recipe, ShowcaseEntry
 from design_hub.ports.media_url_signer import MediaUrlSigner
+from design_hub.ports.showcase import PublicShowcaseItem, PublicShowcaseRecipe
+
+_CATEGORY_LABELS = {
+    "FOOD": "食品",
+    "FASHION": "服装",
+    "BEAUTY": "美妆",
+    "SHOES": "鞋类",
+    "DIGITAL": "数码",
+}
 
 
 class RecipeOut(BaseModel):
-    """做同款可复用配方（ISSUE-0053）：图型配比/比例/风格描述/modifiers/品类。
-
-    仅用户可复用输入；**不含内部卡 prompt、overlay_texts、uploads**（口径铁律）。
-    """
-
     category: str
     ratio: str
-    plan: dict[str, int]  # 图型配比：白底/场景/卖点 → 张数
-    styling: str  # 风格描述（listing_job.prompt）
-    modifiers: dict[str, str]  # region/language/platform
+    plan: dict[str, int]
+    styling: str
+    modifiers: dict[str, str]
 
     @classmethod
-    def of(cls, recipe: Recipe) -> "RecipeOut":
+    def of(
+        cls,
+        recipe: PublicShowcaseRecipe,
+        prompt: str,
+    ) -> "RecipeOut":
         return cls(
             category=recipe.category,
             ratio=recipe.ratio,
             plan=dict(recipe.plan),
-            styling=recipe.styling,
+            styling=prompt,
             modifiers=dict(recipe.modifiers),
         )
 
 
 class ShowcaseItemOut(BaseModel):
-    """GET /showcase 列表项：现签 url + 图型 + 首页说明 + 做同款配方（公开，无用户数据）。"""
-
+    image_id: int
     url: str
-    image_type: str
+    image_type: str | None
     caption: str
-    recipe: RecipeOut
+    prompt: str
+    download_allowed: bool
+    width: int
+    height: int
+    recipe: RecipeOut | None
 
     @classmethod
-    def of(cls, entry: ShowcaseEntry, signer: MediaUrlSigner) -> "ShowcaseItemOut":
-        return cls(
-            url=signer.generated_url(entry.key),
-            image_type=entry.image_type,
-            caption=entry.caption,
-            recipe=RecipeOut.of(entry.recipe),
+    def of(
+        cls,
+        item: PublicShowcaseItem,
+        signer: MediaUrlSigner,
+    ) -> "ShowcaseItemOut":
+        image_type = item.image_type or "单图"
+        category = (
+            _CATEGORY_LABELS.get(item.recipe.category, item.recipe.category)
+            if item.recipe is not None
+            else None
         )
+        return cls(
+            image_id=item.image_id,
+            url=signer.generated_url(item.preview_key),
+            image_type=item.image_type,
+            caption=(f"{category} · {image_type}" if category else image_type),
+            prompt=item.prompt,
+            download_allowed=item.download_allowed,
+            width=item.width,
+            height=item.height,
+            recipe=(
+                RecipeOut.of(item.recipe, item.prompt)
+                if item.recipe is not None
+                else None
+            ),
+        )
+
+
+class ShowcaseDownloadOut(BaseModel):
+    url: str

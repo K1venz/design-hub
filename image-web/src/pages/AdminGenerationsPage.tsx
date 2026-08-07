@@ -9,6 +9,7 @@ import {
 } from '@/api/admin'
 import { AdminPagination } from '@/components/admin/AdminPagination'
 import { ModerationDialog } from '@/components/admin/ModerationDialog'
+import { ShowcaseDialog } from '@/components/admin/ShowcaseDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -67,6 +68,7 @@ export function AdminGenerationsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const view = searchParams.get('view') === 'jobs' ? 'jobs' : 'images'
   const moderationStatus = searchParams.get('moderation_status')
+  const showcaseStatus = searchParams.get('showcase_status')
 
   function setParam(key: string, value?: string) {
     setSearchParams((current) => {
@@ -121,7 +123,7 @@ export function AdminGenerationsPage() {
         </div>
       </header>
 
-      <Card className="grid gap-3 border-white/80 bg-white/82 p-3 sm:grid-cols-2 xl:grid-cols-5">
+      <Card className="grid gap-3 border-white/80 bg-white/82 p-3 sm:grid-cols-2 xl:grid-cols-6">
         <Input
           inputMode="numeric"
           aria-label="按用户 ID 筛选"
@@ -176,24 +178,47 @@ export function AdminGenerationsPage() {
           </SelectContent>
         </Select>
         {view === 'images' ? (
-          <Select
-            value={searchParams.get('moderation_status') ?? 'all'}
-            onValueChange={(value) =>
-              setParam(
-                'moderation_status',
-                value === 'all' ? undefined : value,
-              )
-            }
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="审核状态" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部审核状态</SelectItem>
-              <SelectItem value="normal">正常</SelectItem>
-              <SelectItem value="blocked">已屏蔽</SelectItem>
-            </SelectContent>
-          </Select>
+          <>
+            <Select
+              value={searchParams.get('moderation_status') ?? 'all'}
+              onValueChange={(value) =>
+                setParam(
+                  'moderation_status',
+                  value === 'all' ? undefined : value,
+                )
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="审核状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部审核状态</SelectItem>
+                <SelectItem value="normal">正常</SelectItem>
+                <SelectItem value="blocked">已屏蔽</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={searchParams.get('showcase_status') ?? 'all'}
+              onValueChange={(value) =>
+                setParam(
+                  'showcase_status',
+                  value === 'all' ? undefined : value,
+                )
+              }
+            >
+              <SelectTrigger
+                className="w-full"
+                aria-label="全部展示状态：公开展示或未展示"
+              >
+                <SelectValue placeholder="展示状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部展示状态</SelectItem>
+                <SelectItem value="public">公开展示</SelectItem>
+                <SelectItem value="private">未展示</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
         ) : (
           <Button
             type="button"
@@ -213,6 +238,10 @@ export function AdminGenerationsPage() {
               moderationStatus === 'normal' ||
               moderationStatus === 'blocked'
                 ? moderationStatus
+                : undefined,
+            showcase_status:
+              showcaseStatus === 'public' || showcaseStatus === 'private'
+                ? showcaseStatus
                 : undefined,
           }}
           onOffsetChange={(offset) =>
@@ -292,6 +321,14 @@ function ImageReview({
                   ? '已屏蔽'
                   : '正常'}
               </Badge>
+              {image.is_public_showcase ? (
+                <div className="absolute right-2 top-2 flex gap-1">
+                  <Badge className="bg-wb-brand text-white">展示中</Badge>
+                  {image.showcase_download_allowed ? (
+                    <Badge variant="secondary">允许下载</Badge>
+                  ) : null}
+                </div>
+              ) : null}
             </Link>
             <div className="min-w-0">
               <div className="flex items-center justify-between gap-2">
@@ -309,6 +346,9 @@ function ImageReview({
               <p className="mt-1 text-[11px] text-wb-ink-7">
                 {dateTime(image.created_at)}
               </p>
+              <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-wb-ink-4">
+                {image.prompt || '无用户提示词'}
+              </p>
               {image.moderation_status === 'blocked' ? (
                 <p className="mt-2 line-clamp-2 text-xs text-wb-red">
                   {image.moderation_reason ?? '已屏蔽'}
@@ -318,7 +358,10 @@ function ImageReview({
                 </p>
               ) : null}
             </div>
-            <ModerationDialog image={image} />
+            <div className="grid grid-cols-2 gap-2">
+              <ShowcaseDialog image={image} />
+              <ModerationDialog image={image} />
+            </div>
           </Card>
         ))}
       </div>

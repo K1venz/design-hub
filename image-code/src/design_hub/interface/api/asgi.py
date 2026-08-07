@@ -37,6 +37,7 @@ from design_hub.application.listing.submission_service import (
 )
 from design_hub.application.listing.task_planner import ListingTaskPlanner
 from design_hub.application.listing.upload_service import UploadService
+from design_hub.application.showcase.service import ShowcaseService
 from design_hub.application.tasking.health import (
     QueueAdmissionController,
     RedisHealthState,
@@ -62,6 +63,7 @@ from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHis
 from design_hub.infrastructure.db.model_call_repo import SqlAlchemyModelCallRecorder
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
+from design_hub.infrastructure.db.showcase_repo import SqlAlchemyShowcaseRepository
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
 from design_hub.infrastructure.monitoring.logging import (
     configure_logging,
@@ -132,6 +134,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.media_signer = build_media_signer(settings)
     app.state.upload_service = UploadService(store=build_upload_store(settings))
     image_store = build_image_store(settings)
+    app.state.showcase_service = ShowcaseService(
+        repository=SqlAlchemyShowcaseRepository(session_factory),
+        images=image_store,
+    )
     text_llm_resolver = LiveTextLLMResolver(
         repository=model_config_repo,
         cipher=app.state.secret_cipher,

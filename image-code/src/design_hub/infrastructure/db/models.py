@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     true,
 )
@@ -220,6 +221,14 @@ class ListingImageRow(Base):
     """listing 任务下每张候选图（存 image_key 文件名，不存绝对 url，便于 OSS 零迁移）。"""
 
     __tablename__ = "listing_image"
+    __table_args__ = (
+        Index(
+            "ix_listing_image_public_showcase",
+            "is_public_showcase",
+            "moderation_status",
+            "showcased_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[str] = mapped_column(
@@ -243,6 +252,27 @@ class ListingImageRow(Base):
         DateTime(timezone=True),
         default=None,
     )
+    is_public_showcase: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+    )
+    showcase_download_allowed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+    )
+    showcase_preview_key: Mapped[str | None] = mapped_column(
+        String(128),
+        default=None,
+    )
+    showcase_preview_width: Mapped[int | None] = mapped_column(Integer, default=None)
+    showcase_preview_height: Mapped[int | None] = mapped_column(Integer, default=None)
+    showcased_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
+    showcased_by: Mapped[int | None] = mapped_column(Integer, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     job: Mapped["ListingJobRow"] = relationship(back_populates="images")
