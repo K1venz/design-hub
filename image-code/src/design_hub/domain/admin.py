@@ -14,6 +14,11 @@ class ModerationReason(StrEnum):
     OTHER = "other"
 
 
+class ShowcaseStatus(StrEnum):
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
 class ModelCallStatus(StrEnum):
     STARTED = "started"
     SUCCEEDED = "succeeded"
