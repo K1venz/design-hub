@@ -52,3 +52,4 @@ related:
 ## 处理记录
 - 2026-08-07 [开发] 生产复现并与 ISSUE-0072 拆分；确认无限等待窗口位于 Chat Redis 空读与持久化终态之间，状态=修复中。
 - 2026-08-07 [开发] Chat 在 Redis 空读时增加 owner-scoped 持久化终态校验；完成、部分完成、失败均发出缺失终态，生成中继续等待真实事件。后端全套 664 passed、5 skipped，Ruff 与 mypy 通过，状态=待验证，owner=QA。
+- 2026-08-07 [开发] 修复提交 `94609f1` 已部署生产。发布后 API/Worker 均 healthy，运行镜像包含 durable terminal reconciliation；数据库 `app_user=12`、`listing_job=84` 与部署前 baseline 一致，Alembic=`c6d7e8f9a0b1`，公网首页 200、未认证 Chat 探针 401。保留状态=待验证，交 QA 执行真实生图回显验收。
