@@ -60,3 +60,4 @@ Chat 将不透明的底层 `upload_id` 注入模型上下文，并要求文本�
 
 - 2026-08-07 [开发] 完成生产链路取证，确认上传与预览均成功，故障位于 Chat 模型工具参数到后端归属校验之间；与 ISSUE-0073 拆分，开始按后端权威图片绑定方案修复。
 - 2026-08-07 [开发] 移除 `generate`/`clone` 模型工具 Schema 中的底层图片 ID；Chat 只取会话中最近一组附件，由后端按生成或复刻角色绑定。新增本轮附件、跨轮确认、最近附件优先与工具 Schema 回归；后端全量测试 678 passed、5 skipped，Ruff 与 mypy 通过，转 QA 验证。
+- 2026-08-07 [开发] 修复提交 `5724678` 已推送并部署生产。生产镜像 `sha256:5360a2225c3e1ecef40915e1f0471988b5b08993474794b5edc78cfd0c71293a` 中，generate 属性为 `prompt,ratio,n,plan,overlay_texts`，clone 属性为 `clone_mode,ratio,prompt`，均不含底层图片 ID。API/Worker healthy；数据库 `app_user=12`、`listing_job=84` 与部署前一致；Alembic=`c6d7e8f9a0b1`；首页 200、未认证 Chat 401。迁移前备份 `/root/db-backup-20260807-172545.sql`，回滚镜像 `design-hub-api:rollback-20260807-172305`。等待用户执行真实上传与跨轮确认验收。
