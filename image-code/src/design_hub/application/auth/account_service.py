@@ -4,16 +4,27 @@
 注册重复→DomainError(409)、弱密码→ValueError(400)、登录失败→AuthenticationError(401)。
 """
 
+from __future__ import annotations
+
+import hashlib
+import hmac
+import secrets
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, DomainError
 from design_hub.domain.models import AuthUser
 from design_hub.ports.auth import TokenService
+from design_hub.ports.mail import MailPort
 from design_hub.ports.password import PasswordHasher
+from design_hub.ports.password_reset import PasswordResetStore
 from design_hub.ports.user_repository import UserAccount, UserRepository
 
 _MIN_PASSWORD = 8
+_CODE_DIGITS = 6
+_GENERIC_FORGOT_MSG = "若该邮箱已注册，验证码将发送至邮箱（请查收，含垃圾箱）"
+_INVALID_CODE_MSG = "验证码错误或已过期"
 
 
 def _to_auth_user(acc: UserAccount) -> AuthUser:
@@ -21,11 +32,22 @@ def _to_auth_user(acc: UserAccount) -> AuthUser:
     return AuthUser(user_id=str(acc.id), name=acc.name, role=acc.role, dept=None)
 
 
+def _hash_reset_code(*, email: str, code: str, pepper: str) -> str:
+    material = f"{email.strip().lower()}:{code}:{pepper}".encode()
+    return hashlib.sha256(material).hexdigest()
+
+
 @dataclass
 class AccountService:
     users: UserRepository
     passwords: PasswordHasher
     tokens: TokenService
+    resets: PasswordResetStore | None = None
+    mailer: MailPort | None = None
+    reset_code_pepper: str = ""
+    reset_code_ttl_seconds: int = 600
+    reset_resend_cooldown_seconds: int = 60
+    reset_max_attempts: int = 5
 
     async def register(self, *, email: str, password: str, name: str) -> tuple[str, AuthUser]:
         email = email.strip().lower()
@@ -68,3 +90,88 @@ class AccountService:
             name=name,
             role=Role.MANAGER,
         )
+
+    async def request_password_reset(self, *, email: str) -> str:
+        """Send a one-time code if the account exists. Always returns the same copy."""
+        self._require_reset_deps()
+        assert self.resets is not None and self.mailer is not None
+        email = email.strip().lower()
+        now = datetime.now(UTC)
+        active = await self.resets.get_active(email)
+        if active is not None:
+            created = active.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            age = (now - created).total_seconds()
+            if age < self.reset_resend_cooldown_seconds:
+                wait = int(self.reset_resend_cooldown_seconds - age) + 1
+                raise ValueError(f"发送太频繁，请 {wait} 秒后再试")
+
+        acc = await self.users.get_by_email(email)
+        if acc is not None and acc.enabled:
+            code = f"{secrets.randbelow(10**_CODE_DIGITS):0{_CODE_DIGITS}d}"
+            code_hash = _hash_reset_code(
+                email=email, code=code, pepper=self.reset_code_pepper
+            )
+            expires_at = now + timedelta(seconds=self.reset_code_ttl_seconds)
+            await self.resets.replace_active(
+                email=email, code_hash=code_hash, expires_at=expires_at
+            )
+            ttl_min = max(1, self.reset_code_ttl_seconds // 60)
+            await self.mailer.send(
+                to=email,
+                subject="实朴 · 重置密码验证码",
+                body_text=(
+                    f"您正在重置实朴账号密码。\n\n"
+                    f"验证码：{code}\n"
+                    f"有效期 {ttl_min} 分钟。请勿泄露给他人。\n\n"
+                    f"如非本人操作，请忽略本邮件。"
+                ),
+            )
+        return _GENERIC_FORGOT_MSG
+
+    async def reset_password(self, *, email: str, code: str, password: str) -> None:
+        """Verify code and set a new password. Invalid code/email → same 400 copy."""
+        self._require_reset_deps()
+        assert self.resets is not None
+        email = email.strip().lower()
+        code = code.strip()
+        if len(password) < _MIN_PASSWORD:
+            raise ValueError(f"密码至少 {_MIN_PASSWORD} 位")
+        if not code.isdigit() or len(code) != _CODE_DIGITS:
+            raise ValueError(_INVALID_CODE_MSG)
+
+        challenge = await self.resets.get_active(email)
+        if challenge is None:
+            raise ValueError(_INVALID_CODE_MSG)
+        now = datetime.now(UTC)
+        expires = challenge.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        if now > expires:
+            raise ValueError(_INVALID_CODE_MSG)
+        if challenge.attempt_count >= self.reset_max_attempts:
+            raise ValueError("验证码错误次数过多，请重新获取")
+
+        expected = challenge.code_hash
+        actual = _hash_reset_code(
+            email=email, code=code, pepper=self.reset_code_pepper
+        )
+        if not hmac.compare_digest(expected, actual):
+            updated = await self.resets.record_failed_attempt(challenge.id)
+            if updated is not None and updated.attempt_count >= self.reset_max_attempts:
+                raise ValueError("验证码错误次数过多，请重新获取")
+            raise ValueError(_INVALID_CODE_MSG)
+
+        acc = await self.users.get_by_email(email)
+        if acc is None or not acc.enabled:
+            raise ValueError(_INVALID_CODE_MSG)
+
+        await self.users.update_password_hash(
+            user_id=acc.id, password_hash=self.passwords.hash(password)
+        )
+        await self.resets.consume(challenge.id)
+
+    def _require_reset_deps(self) -> None:
+        if self.resets is None or self.mailer is None or not self.reset_code_pepper:
+            raise RuntimeError("password reset is not configured")

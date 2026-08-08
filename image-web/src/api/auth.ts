@@ -58,6 +58,55 @@ export function useLogin() {
   })
 }
 
+export interface ForgotPasswordVars {
+  email: string
+}
+
+export interface ResetPasswordVars {
+  email: string
+  code: string
+  password: string
+}
+
+/** POST /auth/forgot-password —— 发送重置验证码（防枚举，始终成功文案）。 */
+export function useForgotPassword() {
+  return useMutation({
+    mutationFn: async (vars: ForgotPasswordVars) => {
+      const { data, error, response } = await api
+        .POST('/auth/forgot-password', { body: { email: vars.email } })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+      if (error || !data) throw new Error(errorMessage(error, '发送验证码失败'))
+      return data
+    },
+  })
+}
+
+/** POST /auth/reset-password —— 校验验证码并设新密码（密码公钥加密）。 */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: async (vars: ResetPasswordVars) => {
+      const password = await encryptSecret(vars.password)
+      const { data, error, response } = await api
+        .POST('/auth/reset-password', {
+          body: {
+            email: vars.email,
+            code: vars.code,
+            password,
+          },
+        })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+      if (error || !data) throw new Error(errorMessage(error, '重置密码失败'))
+      return data
+    },
+  })
+}
+
 /** GET /me —— 取当前用户（含角色）；token 就绪后启用. */
 export function useMe(enabled: boolean) {
   return useQuery({

@@ -60,3 +60,7 @@ class UserRepository(ABC):
     @abstractmethod
     async def list_all(self) -> list[UserAccount]:
         ...
+
+    @abstractmethod
+    async def update_password_hash(self, *, user_id: int, password_hash: str) -> None:
+        """Overwrite password hash for an existing user (password reset)."""
