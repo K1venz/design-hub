@@ -92,6 +92,16 @@ class Settings(BaseSettings):
     # ISSUE-0015 自建认证：启动 seed 管理员（邮箱/密码走 .env，空=不 seed；建议首登后改密）
     seed_admin_email: str = ""
     seed_admin_password: SecretStr = SecretStr("")
+    # 忘记密码：邮箱验证码（SMTP 全空 → LoggingMailer 打日志，本地/内测可查日志取码）
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, gt=0, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+    password_reset_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
+    password_reset_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
+    password_reset_max_attempts: int = Field(default=5, gt=0, le=20)
     # 监控（ISSUE-0008）：Sentry DSN，空则不接入（本地/CI no-op）
     sentry_dsn: str = ""
     # 安全加固 A-2 纵深：/docs /redoc /openapi.json 路由开关。代码默认关：

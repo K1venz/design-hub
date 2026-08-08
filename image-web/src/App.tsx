@@ -30,6 +30,7 @@ import { HistoryPage } from '@/pages/HistoryPage'
 import { HeroPage } from '@/pages/HeroPage'
 import { HistoryDetailPage } from '@/pages/HistoryDetailPage'
 import { HomePage } from '@/pages/HomePage'
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { RegisterPage } from '@/pages/RegisterPage'
@@ -80,7 +81,15 @@ function AuthHydrator() {
 
 /** 监听 401 广播：提示并跳登录（会话已被中间件清空）. */
 /** 未登录也可浏览的路径：401 只静默清会话（顶栏回未登录态），不弹窗不赶去登录页。 */
-const PUBLIC_PATHS = new Set(['/', '/home', '/terms', '/privacy', '/login', '/register'])
+const PUBLIC_PATHS = new Set([
+  '/',
+  '/home',
+  '/terms',
+  '/privacy',
+  '/login',
+  '/register',
+  '/forgot-password',
+])
 
 function UnauthorizedWatcher() {
   const navigate = useNavigate()
@@ -131,6 +140,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
       {/* 公开落地页（未登录可浏览）：`/`=品牌 Hero 独立页；`/home`=项目首页（自带 AppShell）+ 协议页 */}
       <Route index element={<HeroPage />} />

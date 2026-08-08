@@ -101,6 +101,24 @@ class AppUser(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PasswordResetChallengeRow(Base):
+    """邮箱验证码重置密码挑战（明文验证码不落库，只存 hash）。"""
+
+    __tablename__ = "password_reset_challenge"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+
 # ── listing 一键出图：任务持久化 + 历史（ISSUE-0030，B 专表，与海报流彻底分开）──
 
 

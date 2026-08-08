@@ -141,6 +141,12 @@ class SqlAlchemyUserRepository(UserRepository):
             ).scalars().all()
             return [_to_account(r) for r in rows]
 
+    async def update_password_hash(self, *, user_id: int, password_hash: str) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await self._locked_user(session, user_id)
+                row.password_hash = password_hash
+
     @staticmethod
     async def _locked_user(session: AsyncSession, user_id: int) -> AppUser:
         row = (

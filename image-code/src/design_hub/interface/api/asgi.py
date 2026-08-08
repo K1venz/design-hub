@@ -64,7 +64,11 @@ from design_hub.infrastructure.db.model_call_repo import SqlAlchemyModelCallReco
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.db.showcase_repo import SqlAlchemyShowcaseRepository
+from design_hub.infrastructure.db.password_reset_repo import (
+    SqlAlchemyPasswordResetStore,
+)
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
+from design_hub.infrastructure.mail import LoggingMailer, SmtpMailer
 from design_hub.infrastructure.monitoring.logging import (
     configure_logging,
     install_request_context,
@@ -218,10 +222,27 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.token_service = token_service
     user_repo = SqlAlchemyUserRepository(session_factory)
+    if settings.smtp_host.strip() and settings.smtp_from.strip():
+        mailer = SmtpMailer(
+            host=settings.smtp_host.strip(),
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password.get_secret_value(),
+            from_addr=settings.smtp_from.strip(),
+            use_tls=settings.smtp_use_tls,
+        )
+    else:
+        mailer = LoggingMailer()
     account_service = AccountService(
         users=user_repo,
         passwords=BcryptPasswordHasher(),
         tokens=token_service,
+        resets=SqlAlchemyPasswordResetStore(session_factory),
+        mailer=mailer,
+        reset_code_pepper=settings.jwt_secret.get_secret_value(),
+        reset_code_ttl_seconds=settings.password_reset_code_ttl_seconds,
+        reset_resend_cooldown_seconds=settings.password_reset_resend_cooldown_seconds,
+        reset_max_attempts=settings.password_reset_max_attempts,
     )
     if settings.seed_admin_email and settings.seed_admin_password.get_secret_value():
         await account_service.seed_admin(

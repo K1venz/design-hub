@@ -27,6 +27,25 @@ class LoginResponse(BaseModel):
     name: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
+    # password = base64(RSA-OAEP-SHA256 密文)；明文长度校验在解密后 AccountService
+    password: str = Field(min_length=1)
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+
+
 class PubKeyResponse(BaseModel):
     """GET /auth/pubkey（ISSUE-0058）：SPKI PEM 公钥，前端 WebCrypto 加密密码用。"""
 
