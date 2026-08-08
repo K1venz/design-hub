@@ -288,6 +288,14 @@
   box-shadow: 0 8px 32px -12px rgb(40 40 90 / 0.12);
 }
 
+@utility scrollbar-hidden {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* GPU 友好悬浮卡：hover 只动 transform；hover 阴影预渲染在 ::after 上做
    opacity 交叉淡入（替代逐帧插值 box-shadow 的重绘）。静态阴影仍由使用方
    的 shadow-* 类提供；hover 阴影可用 --lift-shadow 覆写。 */

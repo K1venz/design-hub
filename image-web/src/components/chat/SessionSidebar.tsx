@@ -1,9 +1,22 @@
+import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2Icon, MessagesSquareIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { CHAT_SESSIONS_KEY, deleteChatSession, listChatSessions } from '@/api/chat'
 import { cn } from '@/lib/utils'
+
+export function SessionListViewport({ children }: { children: ReactNode }) {
+  return (
+    <div
+      aria-label="历史对话"
+      tabIndex={0}
+      className="scrollbar-hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto"
+    >
+      {children}
+    </div>
+  )
+}
 
 /**
  * 「帮我设计」会话侧栏（ISSUE-0051）：会话列表（updated_at 倒序）+ 新建 + 删除。
@@ -42,7 +55,7 @@ export function SessionSidebar({
         <PlusIcon className="size-4" /> 新对话
       </button>
 
-      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+      <SessionListViewport>
         {sessions.isLoading ? (
           <div className="flex items-center gap-2 px-3 py-2 text-[12.5px] text-wb-ink-6">
             <Loader2Icon className="size-3.5 animate-spin" /> 加载会话…
@@ -90,7 +103,7 @@ export function SessionSidebar({
             )
           })
         )}
-      </div>
+      </SessionListViewport>
     </aside>
   )
 }
