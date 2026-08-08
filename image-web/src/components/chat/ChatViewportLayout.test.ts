@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
+import { SessionListViewport } from '@/components/chat/SessionSidebar'
 import { ChatViewportLayout } from '@/components/chat/ChatViewportLayout'
 
 describe('ChatViewportLayout', () => {
@@ -25,5 +26,25 @@ describe('ChatViewportLayout', () => {
     const composer = markup.indexOf('aria-label="composer"')
     expect(logEnd).toBeGreaterThan(-1)
     expect(composer).toBeGreaterThan(logEnd)
+  })
+
+  it('keeps the session navigation separate from the message viewport', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ChatViewportLayout, {
+        sidebar: createElement(
+          SessionListViewport,
+          null,
+          createElement('span', null, 'sessions'),
+        ),
+        messageViewportRef: { current: null },
+        messages: createElement('p', null, 'message'),
+        composer: createElement('form', null, 'compose'),
+      }),
+    )
+
+    expect(markup).toContain('aria-label="历史对话"')
+    expect(markup).toContain('overflow-y-auto')
+    expect(markup).toContain('scrollbar-hidden')
+    expect(markup.indexOf('历史对话')).toBeLessThan(markup.indexOf('role="log"'))
   })
 })
