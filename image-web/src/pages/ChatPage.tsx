@@ -14,6 +14,7 @@ import type { ChatImageFileSelection } from '@/components/chat/chat-image-files'
 import { ChatImagePreviewDialog } from '@/components/chat/ChatImagePreviewDialog'
 import { ChatJobResult } from '@/components/chat/ChatJobResult'
 import { ChatResultBlock } from '@/components/chat/ChatResultBlock'
+import { ChatViewportLayout } from '@/components/chat/ChatViewportLayout'
 import { useTerminalJobReconciliation } from '@/components/listing/use-terminal-job-reconciliation'
 import { SessionSidebar } from '@/components/chat/SessionSidebar'
 import { ReversePromptDialog } from '@/components/image-tools/ReversePromptDialog'
@@ -420,15 +421,18 @@ export function ChatPage() {
 
   return (
     <AppShell>
-      <main className="flex min-h-0 flex-1 gap-3 overflow-hidden pb-3 pr-3">
-        <SessionSidebar
-          activeId={state.sessionId}
-          loadingId={loadSession.isPending ? loadSession.variables ?? null : null}
-          onSelect={selectSession}
-          onNew={newSession}
-        />
-        <div className="mx-auto flex h-full min-w-0 max-w-3xl flex-1 flex-col">
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto px-2 py-4">
+      <ChatViewportLayout
+        sidebar={
+          <SessionSidebar
+            activeId={state.sessionId}
+            loadingId={loadSession.isPending ? loadSession.variables ?? null : null}
+            onSelect={selectSession}
+            onNew={newSession}
+          />
+        }
+        messageViewportRef={scrollRef}
+        messages={
+          <>
             <div className="flex items-center gap-2 text-[13px] font-semibold text-wb-ink-2">
               <span className="grid size-7 place-items-center rounded-[9px] bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white">
                 <WandSparklesIcon className="size-4" />
@@ -489,8 +493,9 @@ export function ChatPage() {
                 {state.error.message}
               </div>
             )}
-          </div>
-
+          </>
+        }
+        composer={
           <ChatComposer
             draft={draft}
             onDraftChange={(value) => {
@@ -521,8 +526,8 @@ export function ChatPage() {
             }}
             onSend={() => void send(draft, attached.map((image) => image.id))}
           />
-        </div>
-      </main>
+        }
+      />
       <ChatImagePreviewDialog
         image={previewImage}
         onOpenChange={(open) => {
