@@ -39,9 +39,14 @@ for key, value in expected.items():
         raise SystemExit(f"unexpected {key} in .env.example")
 PY
 
-config_json="$(docker compose config --format json)"
+if [[ -n "${COMPOSE_CONFIG_JSON:-}" ]]; then
+  config_json="$COMPOSE_CONFIG_JSON"
+else
+  config_json="$(docker compose config --format json)"
+fi
 "$python_bin" -c '
 import json
+import os
 import sys
 
 config = json.load(sys.stdin)
@@ -68,6 +73,34 @@ if "mail" not in services["api"].get("networks", {}):
     raise SystemExit("api is not attached to the mail network")
 if "mail" in services["worker"].get("networks", {}):
     raise SystemExit("worker must not be attached to the mail network")
+
+release_id = os.environ["RELEASE_ID"]
+release_dir = os.environ["DESIGN_HUB_RELEASE_DIR"]
+state_dir = os.environ["DESIGN_HUB_STATE_DIR"]
+expected_image = f"{os.environ.get('API_IMAGE_REPOSITORY', 'design-hub-api')}:{release_id}"
+for name in ("api", "worker"):
+    if services[name].get("image") != expected_image:
+        raise SystemExit(f"{name} does not use immutable image {expected_image}")
+for name in ("api", "worker", "nginx"):
+    labels = services[name].get("labels", {})
+    if labels.get("com.design-hub.release") != release_id:
+        raise SystemExit(f"{name} is missing release identity label")
+
+def mounted_source(service, target):
+    for volume in service.get("volumes", []):
+        if isinstance(volume, dict) and volume.get("target") == target:
+            return volume.get("source")
+        if isinstance(volume, str):
+            source, mounted, *_ = volume.split(":")
+            if mounted == target:
+                return source
+    return None
+
+nginx = services["nginx"]
+if mounted_source(nginx, "/usr/share/nginx/html") != f"{release_dir}/web":
+    raise SystemExit("nginx web mount is not bound to the selected versioned release")
+if mounted_source(nginx, "/etc/design-hub-state") != state_dir:
+    raise SystemExit("nginx is missing the maintenance-state mount")
 
 dkim_health = services["dkim"].get("healthcheck", {}).get("test", [])
 if dkim_health != ["CMD-SHELL", "nc -z 127.0.0.1 8891"]:

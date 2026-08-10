@@ -49,4 +49,40 @@ if (
   exit 1
 fi
 
+legacy_env="$tmp_dir/legacy.env"
+legacy_snapshot="$tmp_dir/snapshots/before.env"
+legacy_value="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+printf 'PASSWORD_RESET_CODE_PEPPER=%s\n' "$legacy_value" > "$legacy_env"
+
+if (
+  ENV_FILE="$legacy_env"
+  ensure_mail_env
+) >/dev/null 2>&1; then
+  echo "ERROR: normal provisioning accepted the legacy pepper key" >&2
+  exit 1
+fi
+
+snapshot_environment "$legacy_env" "$legacy_snapshot"
+ENV_FILE="$legacy_env" migrate_legacy_mail_env
+! grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$legacy_env"
+[[ "$(grep -E '^EMAIL_VERIFICATION_CODE_PEPPER=' "$legacy_env" | cut -d= -f2-)" == "$legacy_value" ]]
+[[ "$(stat -c '%a' "$legacy_snapshot")" == "600" ]]
+ENV_FILE="$legacy_env" ensure_mail_env
+
+restore_environment "$legacy_snapshot" "$legacy_env"
+cmp -s "$legacy_snapshot" "$legacy_env"
+grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$legacy_env"
+! grep -q '^EMAIL_VERIFICATION_CODE_PEPPER=' "$legacy_env"
+
+collision_env="$tmp_dir/collision.env"
+printf 'PASSWORD_RESET_CODE_PEPPER=%s\nEMAIL_VERIFICATION_CODE_PEPPER=%064d\n' \
+  "$legacy_value" 0 > "$collision_env"
+if (
+  ENV_FILE="$collision_env"
+  migrate_legacy_mail_env
+) >/dev/null 2>&1; then
+  echo "ERROR: conflicting legacy pepper migration was accepted" >&2
+  exit 1
+fi
+
 echo "mail environment provisioning: OK"
