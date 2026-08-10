@@ -257,8 +257,12 @@ def _client(mailer: MailPort | None = None) -> tuple[
         passwords=BcryptPasswordHasher(),
         tokens=token_service,
         resets=resets,
+        registrations=_FakeRegistrationStore(users),
         mailer=mailer,
         email_verification_code_pepper=_SECRET,
+        registration_code_ttl_seconds=600,
+        registration_resend_cooldown_seconds=60,
+        registration_max_attempts=5,
         reset_code_ttl_seconds=600,
         reset_resend_cooldown_seconds=60,
         reset_max_attempts=5,
@@ -297,6 +301,110 @@ def test_login_garbage_ciphertext_uses_password_specific_error() -> None:
     resp = client.post("/auth/login", json={"email": "a@b.com", "password": "garbage-not-cipher"})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "密码解密失败，请刷新页面后重试"
+
+
+def test_registration_http_flow_requires_verification_before_login() -> None:
+    client, cipher, _, _, mailer, _ = _client()
+
+    requested = client.post(
+        "/auth/register",
+        json={
+            "email": "new@example.com",
+            "password": cipher.encrypt("password88"),
+            "name": "New User",
+        },
+    )
+
+    assert requested.status_code == 200
+    assert requested.json() == {"message": "注册验证码已发送，请查收邮箱"}
+    assert "jwt" not in requested.json()
+
+    pending_login = client.post(
+        "/auth/login",
+        json={"email": "new@example.com", "password": cipher.encrypt("password88")},
+    )
+    assert pending_login.status_code == 401
+
+    verified = client.post(
+        "/auth/register/verify",
+        json={"email": "new@example.com", "code": _code_from_mail(mailer)},
+    )
+    assert verified.status_code == 200
+    assert set(verified.json()) == {"jwt", "role", "name"}
+    assert verified.json()["name"] == "New User"
+
+
+def test_registration_resend_returns_acknowledgement() -> None:
+    client, cipher, _, _, mailer, _ = _client()
+    requested = client.post(
+        "/auth/register",
+        json={
+            "email": "resend@example.com",
+            "password": cipher.encrypt("password88"),
+            "name": "Resend User",
+        },
+    )
+    assert requested.status_code == 200
+    service = client.app.state.account_service
+    registration = asyncio.run(service.registrations.get_active("resend@example.com"))
+    assert registration is not None
+    service.registrations.set_active(
+        replace(registration, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+    )
+
+    resent = client.post("/auth/register/resend", json={"email": "resend@example.com"})
+
+    assert resent.status_code == 200
+    assert resent.json() == {"message": "注册验证码已发送，请查收邮箱"}
+    assert len(mailer.sent) == 2
+
+
+def test_registration_http_validation_and_status_mapping() -> None:
+    client, cipher, _, users, _, _ = _client()
+    asyncio.run(
+        users.add(
+            email="registered@example.com",
+            password_hash=BcryptPasswordHasher().hash("password88"),
+            name="Registered",
+            role=Role.DESIGNER,
+        )
+    )
+
+    duplicate = client.post(
+        "/auth/register",
+        json={
+            "email": "registered@example.com",
+            "password": cipher.encrypt("password88"),
+            "name": "Duplicate",
+        },
+    )
+    malformed = client.post(
+        "/auth/register/verify",
+        json={"email": "not-an-email", "code": "12345"},
+    )
+    forbidden_fields = client.post(
+        "/auth/register/resend",
+        json={"email": "registered@example.com", "name": "Not Accepted"},
+    )
+    forbidden_verify_fields = client.post(
+        "/auth/register/verify",
+        json={
+            "email": "registered@example.com",
+            "code": "000000",
+            "password": "Not Accepted",
+        },
+    )
+    invalid_code = client.post(
+        "/auth/register/verify",
+        json={"email": "registered@example.com", "code": "000000"},
+    )
+
+    assert duplicate.status_code == 409
+    assert malformed.status_code == 422
+    assert forbidden_fields.status_code == 422
+    assert forbidden_verify_fields.status_code == 422
+    assert invalid_code.status_code == 400
+    assert invalid_code.json()["detail"] == "验证码错误或已过期"
 
 
 def test_request_registration_rejects_short_password() -> None:

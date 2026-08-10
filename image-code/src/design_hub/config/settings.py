@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_use_tls: bool = True
     email_verification_code_pepper: SecretStr = SecretStr("")
+    registration_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
+    registration_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
+    registration_max_attempts: int = Field(default=5, gt=0, le=20)
     password_reset_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
     password_reset_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
     password_reset_max_attempts: int = Field(default=5, gt=0, le=20)

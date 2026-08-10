@@ -27,6 +27,21 @@ def test_smtp_mode_requires_email_verification_code_pepper() -> None:
         )
 
 
+def test_registration_verification_settings_have_secure_defaults_and_bounds() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.registration_code_ttl_seconds == 600
+    assert settings.registration_resend_cooldown_seconds == 60
+    assert settings.registration_max_attempts == 5
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, registration_code_ttl_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, registration_resend_cooldown_seconds=601)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, registration_max_attempts=21)
+
+
 def test_smtp_mode_rejects_blank_email_verification_code_pepper() -> None:
     with pytest.raises(ValidationError, match="EMAIL_VERIFICATION_CODE_PEPPER"):
         Settings(

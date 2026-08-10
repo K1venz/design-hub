@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from design_hub.domain.enums import Role
 from design_hub.domain.models import AuthUser
@@ -14,6 +14,23 @@ class RegisterRequest(BaseModel):
     # password = base64(RSA-OAEP-SHA256 密文，ISSUE-0058)；明文长度(≥8)校验在解密后 AccountService
     password: str = Field(min_length=1)
     name: str = Field(min_length=1)
+
+
+class RegisterVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class RegisterResendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class RegistrationAcknowledgement(BaseModel):
+    message: str
 
 
 class LoginRequest(BaseModel):
