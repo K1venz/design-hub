@@ -6,6 +6,8 @@
 """
 
 import asyncio
+import re
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -18,7 +20,7 @@ from fastapi.testclient import TestClient
 from design_hub.application.auth.account_service import AccountService
 from design_hub.application.auth.verification_codes import digest_verification_code
 from design_hub.domain.enums import Role
-from design_hub.domain.errors import AuthenticationError, NotFoundError
+from design_hub.domain.errors import AuthenticationError, DomainError, NotFoundError
 from design_hub.domain.models import AuthUser
 from design_hub.infrastructure.auth.jwt_service import PyJwtTokenService
 from design_hub.infrastructure.auth.password import BcryptPasswordHasher
@@ -26,8 +28,17 @@ from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
 from design_hub.interface.api.app import register_error_handlers
 from design_hub.interface.api.deps import CurrentUserSseDep
 from design_hub.interface.api.routes import auth
+from design_hub.ports.auth import TokenService
 from design_hub.ports.mail import MailPort
 from design_hub.ports.password_reset import PasswordResetChallenge, PasswordResetStore
+from design_hub.ports.registration import (
+    PendingRegistration,
+    RegistrationCompleted,
+    RegistrationCompletion,
+    RegistrationDuplicate,
+    RegistrationInvalid,
+    RegistrationStore,
+)
 from design_hub.ports.user_repository import UserAccount, UserRepository
 
 _SECRET = "test-secret-min-32-bytes-aaaaaaaaaaaa"
@@ -264,13 +275,16 @@ def test_pubkey_returns_spki_pem() -> None:
     assert isinstance(serialization.load_pem_public_key(pem.encode()), rsa.RSAPublicKey)
 
 
-def test_register_login_round_trip_encrypted_password() -> None:
-    client, cipher, _, _, _, _ = _client()
-    reg = client.post(
-        "/auth/register",
-        json={"email": "a@b.com", "name": "A", "password": cipher.encrypt("mypassword8")},
+def test_login_existing_account_round_trip_encrypted_password() -> None:
+    client, cipher, _, users, _, _ = _client()
+    asyncio.run(
+        users.add(
+            email="a@b.com",
+            password_hash=BcryptPasswordHasher().hash("mypassword8"),
+            name="A",
+            role=Role.DESIGNER,
+        )
     )
-    assert reg.status_code == 200 and reg.json()["jwt"]
     login = client.post(
         "/auth/login",
         json={"email": "a@b.com", "password": cipher.encrypt("mypassword8")},
@@ -285,14 +299,16 @@ def test_login_garbage_ciphertext_uses_password_specific_error() -> None:
     assert resp.json()["detail"] == "密码解密失败，请刷新页面后重试"
 
 
-def test_register_short_plaintext_400_checked_after_decrypt() -> None:
-    # 明文长度校验挪到解密后：密文合法但明文<8 → 400（不是密文长度）
-    client, cipher, _, _, _, _ = _client()
-    resp = client.post(
-        "/auth/register",
-        json={"email": "c@d.com", "name": "C", "password": cipher.encrypt("short")},
-    )
-    assert resp.status_code == 400
+def test_request_registration_rejects_short_password() -> None:
+    async def run() -> None:
+        service, _, _, _, _, _ = _registration_service()
+
+        with pytest.raises(ValueError):
+            await service.request_registration(
+                email="short@example.com", password="short", name="Short"
+            )
+
+    asyncio.run(run())
 
 
 def test_me_stale_token_returns_renewed_header() -> None:
@@ -360,15 +376,14 @@ def test_disabled_sse_token_is_rejected_on_next_request() -> None:
 
 def test_disabled_user_cannot_log_in_again() -> None:
     client, cipher, _, users, _, _ = _client()
-    registered = client.post(
-        "/auth/register",
-        json={
-            "email": "disabled@example.com",
-            "name": "Disabled",
-            "password": cipher.encrypt("mypassword8"),
-        },
+    asyncio.run(
+        users.add(
+            email="disabled@example.com",
+            password_hash=BcryptPasswordHasher().hash("mypassword8"),
+            name="Disabled",
+            role=Role.DESIGNER,
+        )
     )
-    assert registered.status_code == 200
     account = users._by_email["disabled@example.com"]
     object.__setattr__(account, "enabled", False)
 
@@ -402,16 +417,15 @@ def test_forgot_password_unknown_email_same_message_no_mail() -> None:
 
 
 def test_password_reset_round_trip() -> None:
-    client, cipher, _, _, mailer, resets = _client()
-    reg = client.post(
-        "/auth/register",
-        json={
-            "email": "reset@example.com",
-            "name": "R",
-            "password": cipher.encrypt("oldpassword1"),
-        },
+    client, cipher, _, users, mailer, resets = _client()
+    asyncio.run(
+        users.add(
+            email="reset@example.com",
+            password_hash=BcryptPasswordHasher().hash("oldpassword1"),
+            name="R",
+            role=Role.DESIGNER,
+        )
     )
-    assert reg.status_code == 200
 
     forgot = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
     assert forgot.status_code == 200
@@ -449,14 +463,14 @@ def test_password_reset_round_trip() -> None:
 
 
 def test_password_reset_wrong_code_400() -> None:
-    client, cipher, _, _, mailer, _ = _client()
-    client.post(
-        "/auth/register",
-        json={
-            "email": "wrong@x.com",
-            "name": "W",
-            "password": cipher.encrypt("oldpassword1"),
-        },
+    client, cipher, _, users, mailer, _ = _client()
+    asyncio.run(
+        users.add(
+            email="wrong@x.com",
+            password_hash=BcryptPasswordHasher().hash("oldpassword1"),
+            name="W",
+            role=Role.DESIGNER,
+        )
     )
     client.post("/auth/forgot-password", json={"email": "wrong@x.com"})
     assert mailer.sent
@@ -473,14 +487,14 @@ def test_password_reset_wrong_code_400() -> None:
 
 
 def test_forgot_password_cooldown() -> None:
-    client, cipher, _, _, _, _ = _client()
-    client.post(
-        "/auth/register",
-        json={
-            "email": "cool@x.com",
-            "name": "C",
-            "password": cipher.encrypt("oldpassword1"),
-        },
+    client, _, _, users, _, _ = _client()
+    asyncio.run(
+        users.add(
+            email="cool@x.com",
+            password_hash=BcryptPasswordHasher().hash("oldpassword1"),
+            name="C",
+            role=Role.DESIGNER,
+        )
     )
     assert client.post("/auth/forgot-password", json={"email": "cool@x.com"}).status_code == 200
     again = client.post("/auth/forgot-password", json={"email": "cool@x.com"})
@@ -531,3 +545,490 @@ def test_stale_token_renews_with_current_database_role() -> None:
     assert response.status_code == 200
     renewed = response.headers["X-Renewed-Token"]
     assert token_service.verify(renewed).role is Role.MANAGER
+
+
+class _RecordingTokenService(TokenService):
+    def __init__(self) -> None:
+        self.issued: list[AuthUser] = []
+
+    def issue(self, user: AuthUser) -> str:
+        self.issued.append(user)
+        return f"token-{len(self.issued)}"
+
+    def verify(self, token: str) -> AuthUser:
+        del token
+        raise NotImplementedError
+
+    def renew_if_stale(self, token: str, current_user: AuthUser) -> str | None:
+        del token, current_user
+        raise NotImplementedError
+
+
+class _CountingPasswordHasher:
+    def __init__(self) -> None:
+        self.hash_calls: list[str] = []
+
+    def hash(self, password: str) -> str:
+        self.hash_calls.append(password)
+        return f"hash:{password}"
+
+    def verify(self, password: str, hashed: str) -> bool:
+        return hashed == f"hash:{password}"
+
+
+class _FakeRegistrationStore(RegistrationStore):
+    def __init__(self, users: _FakeUserRepo) -> None:
+        self._users = users
+        self._active: dict[str, PendingRegistration] = {}
+        self._items: dict[str, PendingRegistration] = {}
+        self._sequence = 0
+        self._lock = asyncio.Lock()
+        self.force_invalid_completion = False
+        self.invalidated_ids: list[str] = []
+
+    async def get_active(self, email: str) -> PendingRegistration | None:
+        challenge = self._active.get(email)
+        if challenge is None or challenge.consumed_at is not None:
+            return None
+        return challenge
+
+    async def replace_active(
+        self,
+        *,
+        email: str,
+        name: str,
+        password_hash: str,
+        code_hash: str,
+        expires_at: datetime,
+        sent_at: datetime,
+    ) -> PendingRegistration:
+        previous = self._active.get(email)
+        if previous is not None and previous.consumed_at is None:
+            self._items[previous.id] = replace(previous, consumed_at=sent_at)
+        self._sequence += 1
+        challenge = PendingRegistration(
+            id=f"registration-{self._sequence}",
+            email=email,
+            name=name,
+            password_hash=password_hash,
+            code_hash=code_hash,
+            expires_at=expires_at,
+            attempt_count=0,
+            created_at=sent_at,
+            last_sent_at=sent_at,
+            consumed_at=None,
+        )
+        self._active[email] = challenge
+        self._items[challenge.id] = challenge
+        return challenge
+
+    async def record_failed_attempt(self, challenge_id: str) -> PendingRegistration | None:
+        for email, challenge in self._active.items():
+            if challenge.id == challenge_id and challenge.consumed_at is None:
+                updated = replace(challenge, attempt_count=challenge.attempt_count + 1)
+                self._active[email] = updated
+                self._items[challenge_id] = updated
+                return updated
+        return None
+
+    async def invalidate(self, *, challenge_id: str, invalidated_at: datetime) -> None:
+        for email, challenge in self._active.items():
+            if challenge.id == challenge_id and challenge.consumed_at is None:
+                invalidated = replace(challenge, consumed_at=invalidated_at)
+                self._active[email] = invalidated
+                self._items[challenge_id] = invalidated
+                self.invalidated_ids.append(challenge_id)
+                return
+
+    async def complete(
+        self,
+        *,
+        expected: PendingRegistration,
+        completed_at: datetime,
+    ) -> RegistrationCompletion:
+        async with self._lock:
+            current = self._active.get(expected.email)
+            if (
+                self.force_invalid_completion
+                or current != expected
+                or expected.consumed_at is not None
+                or expected.expires_at <= completed_at
+            ):
+                return RegistrationInvalid()
+            if await self._users.get_by_email(expected.email) is not None:
+                return RegistrationDuplicate()
+            account = await self._users.add(
+                email=expected.email,
+                password_hash=expected.password_hash,
+                name=expected.name,
+                role=Role.DESIGNER,
+            )
+            consumed = replace(current, consumed_at=completed_at)
+            self._active[expected.email] = consumed
+            self._items[expected.id] = consumed
+            return RegistrationCompleted(account)
+
+    def set_active(self, challenge: PendingRegistration) -> None:
+        self._active[challenge.email] = challenge
+        self._items[challenge.id] = challenge
+
+
+class _SwitchableMailer(MailPort):
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+        self.should_fail = False
+
+    async def send(self, *, to: str, subject: str, body_text: str) -> None:
+        if self.should_fail:
+            raise OSError("smtp unavailable")
+        self.sent.append((to, subject, body_text))
+
+
+def _registration_code(mailer: _SwitchableMailer) -> str:
+    assert mailer.sent
+    match = re.search(r"(?<!\d)(\d{6})(?!\d)", mailer.sent[-1][2])
+    assert match is not None
+    return match.group(1)
+
+
+def _registration_service() -> tuple[
+    AccountService,
+    _FakeUserRepo,
+    _FakeRegistrationStore,
+    _SwitchableMailer,
+    _CountingPasswordHasher,
+    _RecordingTokenService,
+]:
+    users = _FakeUserRepo()
+    registrations = _FakeRegistrationStore(users)
+    mailer = _SwitchableMailer()
+    passwords = _CountingPasswordHasher()
+    tokens = _RecordingTokenService()
+    return (
+        AccountService(
+            users=users,
+            passwords=passwords,
+            tokens=tokens,
+            mailer=mailer,
+            registrations=registrations,
+            email_verification_code_pepper=_SECRET,
+            registration_code_ttl_seconds=300,
+            registration_resend_cooldown_seconds=60,
+            registration_max_attempts=2,
+        ),
+        users,
+        registrations,
+        mailer,
+        passwords,
+        tokens,
+    )
+
+
+def test_request_registration_keeps_identity_pending_without_jwt() -> None:
+    async def run() -> None:
+        service, users, registrations, mailer, passwords, tokens = _registration_service()
+
+        result = await service.request_registration(
+            email="  pending@example.com ", password="password88", name="  Pending User  "
+        )
+
+        challenge = await registrations.get_active("pending@example.com")
+        assert result is None
+        assert await users.get_by_email("pending@example.com") is None
+        assert challenge is not None
+        assert challenge.name == "Pending User"
+        assert challenge.password_hash == "hash:password88"
+        assert challenge.code_hash != _registration_code(mailer)
+        assert passwords.hash_calls == ["password88"]
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_verify_registration_creates_account_then_issues_jwt() -> None:
+    async def run() -> None:
+        service, users, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="verify@example.com", password="password88", name="Verifier"
+        )
+
+        token, user = await service.verify_registration(
+            email="verify@example.com", code=_registration_code(mailer)
+        )
+
+        assert token == "token-1"
+        assert user.user_id == "1"
+        assert (await users.get_by_email("verify@example.com")) is not None
+        assert await registrations.get_active("verify@example.com") is None
+        assert tokens.issued == [user]
+
+    asyncio.run(run())
+
+
+def test_pending_registration_cannot_log_in() -> None:
+    async def run() -> None:
+        service, _, _, _, _, tokens = _registration_service()
+        await service.request_registration(
+            email="pending-login@example.com", password="password88", name="Pending"
+        )
+
+        with pytest.raises(AuthenticationError):
+            await service.login(email="pending-login@example.com", password="password88")
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_request_registration_rejects_already_registered_email() -> None:
+    async def run() -> None:
+        service, users, registrations, mailer, passwords, _ = _registration_service()
+        await users.add(
+            email="duplicate@example.com",
+            password_hash="hash:existing",
+            name="Existing",
+            role=Role.DESIGNER,
+        )
+
+        with pytest.raises(DomainError):
+            await service.request_registration(
+                email="duplicate@example.com", password="password88", name="Duplicate"
+            )
+        assert await registrations.get_active("duplicate@example.com") is None
+        assert mailer.sent == []
+        assert passwords.hash_calls == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("code", ["12345", "1234567", "abc123"])
+def test_verify_registration_rejects_malformed_codes_with_generic_message(code: str) -> None:
+    async def run() -> None:
+        service, _, registrations, _, _, tokens = _registration_service()
+        await service.request_registration(
+            email="malformed@example.com", password="password88", name="Malformed"
+        )
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(email="malformed@example.com", code=code)
+        challenge = await registrations.get_active("malformed@example.com")
+        assert challenge is not None and challenge.attempt_count == 0
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_verify_registration_expired_code_uses_generic_message() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="expired@example.com", password="password88", name="Expired"
+        )
+        challenge = await registrations.get_active("expired@example.com")
+        assert challenge is not None
+        registrations.set_active(
+            replace(challenge, expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(
+                email="expired@example.com", code=_registration_code(mailer)
+            )
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_verify_registration_exhausted_attempts_uses_generic_message() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="exhausted@example.com", password="password88", name="Exhausted"
+        )
+        challenge = await registrations.get_active("exhausted@example.com")
+        assert challenge is not None
+        registrations.set_active(replace(challenge, attempt_count=2))
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(
+                email="exhausted@example.com", code=_registration_code(mailer)
+            )
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_verify_registration_wrong_code_records_attempt_and_uses_generic_message() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="wrong@example.com", password="password88", name="Wrong"
+        )
+        code = _registration_code(mailer)
+        wrong = f"{(int(code) + 1) % 1_000_000:06d}"
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(email="wrong@example.com", code=wrong)
+        challenge = await registrations.get_active("wrong@example.com")
+        assert challenge is not None and challenge.attempt_count == 1
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_resend_registration_enforces_cooldown() -> None:
+    async def run() -> None:
+        service, _, registrations, _, _, _ = _registration_service()
+        await service.request_registration(
+            email="cooldown@example.com", password="password88", name="Cooldown"
+        )
+        original = await registrations.get_active("cooldown@example.com")
+        assert original is not None
+
+        with pytest.raises(ValueError):
+            await service.resend_registration(email="cooldown@example.com")
+        assert await registrations.get_active("cooldown@example.com") == original
+
+    asyncio.run(run())
+
+
+def test_resend_registration_replaces_code_and_preserves_pending_identity() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, _ = _registration_service()
+        await service.request_registration(
+            email="resend@example.com", password="password88", name="Resend"
+        )
+        original = await registrations.get_active("resend@example.com")
+        assert original is not None
+        registrations.set_active(
+            replace(original, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+        )
+
+        await service.resend_registration(email="resend@example.com")
+
+        replacement = await registrations.get_active("resend@example.com")
+        assert replacement is not None
+        assert replacement.id != original.id
+        assert replacement.name == original.name
+        assert replacement.password_hash == original.password_hash
+        assert len(mailer.sent) == 2
+
+    asyncio.run(run())
+
+
+def test_verify_registration_rejects_superseded_code_with_generic_message() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="superseded@example.com", password="password88", name="Superseded"
+        )
+        original = await registrations.get_active("superseded@example.com")
+        assert original is not None
+        old_code = _registration_code(mailer)
+        registrations.set_active(
+            replace(original, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+        )
+        await service.resend_registration(email="superseded@example.com")
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(email="superseded@example.com", code=old_code)
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_initial_registration_delivery_failure_invalidates_challenge() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, _ = _registration_service()
+        mailer.should_fail = True
+
+        with pytest.raises(OSError, match="smtp unavailable"):
+            await service.request_registration(
+                email="initial-failure@example.com", password="password88", name="Initial"
+            )
+        assert await registrations.get_active("initial-failure@example.com") is None
+        assert registrations.invalidated_ids == ["registration-1"]
+
+    asyncio.run(run())
+
+
+def test_resend_delivery_failure_invalidates_replacement_without_restoring_old_code() -> None:
+    async def run() -> None:
+        service, _, registrations, _, _, _ = _registration_service()
+        await service.request_registration(
+            email="resend-failure@example.com", password="password88", name="Resend Failure"
+        )
+        original = await registrations.get_active("resend-failure@example.com")
+        assert original is not None
+        registrations.set_active(
+            replace(original, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+        )
+        mailer = service.mailer
+        assert isinstance(mailer, _SwitchableMailer)
+        mailer.should_fail = True
+
+        with pytest.raises(OSError, match="smtp unavailable"):
+            await service.resend_registration(email="resend-failure@example.com")
+        assert await registrations.get_active("resend-failure@example.com") is None
+        assert registrations.invalidated_ids == ["registration-2"]
+
+    asyncio.run(run())
+
+
+def test_verify_registration_issues_no_token_when_atomic_completion_rejects() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="atomic-invalid@example.com", password="password88", name="Atomic"
+        )
+        registrations.force_invalid_completion = True
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(
+                email="atomic-invalid@example.com", code=_registration_code(mailer)
+            )
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_verify_registration_maps_atomic_duplicate_without_issuing_token() -> None:
+    async def run() -> None:
+        service, users, _, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="atomic-duplicate@example.com", password="password88", name="Atomic"
+        )
+        await users.add(
+            email="atomic-duplicate@example.com",
+            password_hash="hash:existing",
+            name="Existing",
+            role=Role.DESIGNER,
+        )
+
+        with pytest.raises(DomainError):
+            await service.verify_registration(
+                email="atomic-duplicate@example.com", code=_registration_code(mailer)
+            )
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_concurrent_registration_verification_has_one_winner() -> None:
+    async def run() -> None:
+        service, users, _, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="race@example.com", password="password88", name="Race"
+        )
+        code = _registration_code(mailer)
+        results = await asyncio.gather(
+            service.verify_registration(email="race@example.com", code=code),
+            service.verify_registration(email="race@example.com", code=code),
+            return_exceptions=True,
+        )
+
+        assert sum(isinstance(result, tuple) for result in results) == 1
+        assert sum(isinstance(result, ValueError) for result in results) == 1
+        assert await users.get_by_email("race@example.com") is not None
+        assert len(tokens.issued) == 1
+
+    asyncio.run(run())

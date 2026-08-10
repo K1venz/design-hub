@@ -19,6 +19,11 @@ from design_hub.ports.auth import TokenService
 from design_hub.ports.mail import MailPort
 from design_hub.ports.password import PasswordHasher
 from design_hub.ports.password_reset import PasswordResetStore
+from design_hub.ports.registration import (
+    RegistrationCompleted,
+    RegistrationDuplicate,
+    RegistrationStore,
+)
 from design_hub.ports.user_repository import UserAccount, UserRepository
 
 _MIN_PASSWORD = 8
@@ -38,28 +43,81 @@ class AccountService:
     passwords: PasswordHasher
     tokens: TokenService
     resets: PasswordResetStore | None = None
+    registrations: RegistrationStore | None = None
     mailer: MailPort | None = None
     email_verification_code_pepper: str = ""
+    registration_code_ttl_seconds: int = 600
+    registration_resend_cooldown_seconds: int = 60
+    registration_max_attempts: int = 5
     reset_code_ttl_seconds: int = 600
     reset_resend_cooldown_seconds: int = 60
     reset_max_attempts: int = 5
 
-    async def register(self, *, email: str, password: str, name: str) -> tuple[str, AuthUser]:
+    async def request_registration(self, *, email: str, password: str, name: str) -> None:
+        self._require_registration_deps()
+        assert self.registrations is not None and self.mailer is not None
         email = email.strip().lower()
         if len(password) < _MIN_PASSWORD:
             raise ValueError(f"密码至少 {_MIN_PASSWORD} 位")
         if not name.strip():
             raise ValueError("姓名不能为空")
         if await self.users.get_by_email(email) is not None:
-            raise DomainError(f"邮箱已注册：{email}")  # 409
-        acc = await self.users.add(
+            raise DomainError(f"邮箱已注册：{email}")
+        await self._replace_registration_challenge(
             email=email,
-            password_hash=self.passwords.hash(password),
             name=name.strip(),
-            role=Role.DESIGNER,  # 注册默认设计师；管理者由后台提升
+            password_hash=self.passwords.hash(password),
         )
-        user = _to_auth_user(acc)
-        return self.tokens.issue(user), user
+
+    async def resend_registration(self, *, email: str) -> None:
+        self._require_registration_deps()
+        assert self.registrations is not None
+        email = email.strip().lower()
+        active = await self.registrations.get_active(email)
+        if active is None:
+            raise ValueError(_INVALID_CODE_MSG)
+        now = datetime.now(UTC)
+        age = (now - _as_utc(active.last_sent_at)).total_seconds()
+        if age < self.registration_resend_cooldown_seconds:
+            wait = int(self.registration_resend_cooldown_seconds - age) + 1
+            raise ValueError(f"发送过于频繁，请 {wait} 秒后再试")
+        await self._replace_registration_challenge(
+            email=email,
+            name=active.name,
+            password_hash=active.password_hash,
+        )
+
+    async def verify_registration(self, *, email: str, code: str) -> tuple[str, AuthUser]:
+        self._require_registration_deps()
+        assert self.registrations is not None
+        email = email.strip().lower()
+        code = code.strip()
+        if not code.isdigit() or len(code) != _CODE_DIGITS:
+            raise ValueError(_INVALID_CODE_MSG)
+        challenge = await self.registrations.get_active(email)
+        if challenge is None:
+            raise ValueError(_INVALID_CODE_MSG)
+        now = datetime.now(UTC)
+        if _as_utc(challenge.expires_at) <= now:
+            raise ValueError(_INVALID_CODE_MSG)
+        if challenge.attempt_count >= self.registration_max_attempts:
+            raise ValueError(_INVALID_CODE_MSG)
+        actual = digest_verification_code(
+            purpose="registration",
+            email=email,
+            code=code,
+            pepper=self.email_verification_code_pepper,
+        )
+        if not hmac.compare_digest(challenge.code_hash, actual):
+            await self.registrations.record_failed_attempt(challenge.id)
+            raise ValueError(_INVALID_CODE_MSG)
+        completion = await self.registrations.complete(expected=challenge, completed_at=now)
+        if isinstance(completion, RegistrationCompleted):
+            user = _to_auth_user(completion.account)
+            return self.tokens.issue(user), user
+        if isinstance(completion, RegistrationDuplicate):
+            raise DomainError(f"邮箱已注册：{email}")
+        raise ValueError(_INVALID_CODE_MSG)
 
     async def login(self, *, email: str, password: str) -> tuple[str, AuthUser]:
         email = email.strip().lower()
@@ -184,3 +242,63 @@ class AccountService:
             or not self.email_verification_code_pepper
         ):
             raise RuntimeError("password reset is not configured")
+
+    async def _replace_registration_challenge(
+        self,
+        *,
+        email: str,
+        name: str,
+        password_hash: str,
+    ) -> None:
+        assert self.registrations is not None and self.mailer is not None
+        now = datetime.now(UTC)
+        code = f"{secrets.randbelow(10**_CODE_DIGITS):0{_CODE_DIGITS}d}"
+        challenge = await self.registrations.replace_active(
+            email=email,
+            name=name,
+            password_hash=password_hash,
+            code_hash=digest_verification_code(
+                purpose="registration",
+                email=email,
+                code=code,
+                pepper=self.email_verification_code_pepper,
+            ),
+            expires_at=now + timedelta(seconds=self.registration_code_ttl_seconds),
+            sent_at=now,
+        )
+        try:
+            await self._send_registration_code(email=email, code=code)
+        except Exception:
+            await self.registrations.invalidate(
+                challenge_id=challenge.id,
+                invalidated_at=datetime.now(UTC),
+            )
+            raise
+
+    async def _send_registration_code(self, *, email: str, code: str) -> None:
+        assert self.mailer is not None
+        ttl_min = max(1, self.registration_code_ttl_seconds // 60)
+        await self.mailer.send(
+            to=email,
+            subject="实朴 · 注册验证码",
+            body_text=(
+                "您正在注册实朴账号。\n\n"
+                f"验证码：{code}\n"
+                f"有效期：{ttl_min} 分钟。请勿泄露给他人。\n\n"
+                "如非本人操作，请忽略本邮件。"
+            ),
+        )
+
+    def _require_registration_deps(self) -> None:
+        if (
+            self.registrations is None
+            or self.mailer is None
+            or not self.email_verification_code_pepper
+        ):
+            raise RuntimeError("registration verification is not configured")
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
