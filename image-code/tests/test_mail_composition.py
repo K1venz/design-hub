@@ -14,15 +14,39 @@ def test_smtp_mode_rejects_missing_delivery_settings() -> None:
         Settings(_env_file=None, mail_delivery_mode="smtp")
 
 
+def test_smtp_mode_requires_email_verification_code_pepper() -> None:
+    with pytest.raises(ValidationError, match="EMAIL_VERIFICATION_CODE_PEPPER"):
+        Settings(
+            _env_file=None,
+            mail_delivery_mode="smtp",
+            smtp_host="smtp",
+            smtp_from="no-reply@example.com",
+        )
+
+
+def test_legacy_reset_pepper_env_does_not_configure_smtp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PASSWORD_RESET_CODE_PEPPER", "legacy-pepper")
+
+    with pytest.raises(ValidationError, match="EMAIL_VERIFICATION_CODE_PEPPER"):
+        Settings(
+            _env_file=None,
+            mail_delivery_mode="smtp",
+            smtp_host="smtp",
+            smtp_from="no-reply@example.com",
+        )
+
+
 def test_smtp_mode_builds_network_mailer() -> None:
     settings = Settings(
         _env_file=None,
         mail_delivery_mode="smtp",
         smtp_host="smtp",
         smtp_port=25,
-        smtp_from="no-reply@image.sepaitech.com",
+        smtp_from="no-reply@example.com",
         smtp_use_tls=False,
-        password_reset_code_pepper="pepper",
+        email_verification_code_pepper="pepper",
     )
 
     assert hasattr(composition, "build_mailer")

@@ -229,7 +229,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         tokens=token_service,
         resets=SqlAlchemyPasswordResetStore(session_factory),
         mailer=mailer,
-        reset_code_pepper=settings.password_reset_code_pepper.get_secret_value(),
+        email_verification_code_pepper=settings.email_verification_code_pepper.get_secret_value(),
         reset_code_ttl_seconds=settings.password_reset_code_ttl_seconds,
         reset_resend_cooldown_seconds=settings.password_reset_resend_cooldown_seconds,
         reset_max_attempts=settings.password_reset_max_attempts,

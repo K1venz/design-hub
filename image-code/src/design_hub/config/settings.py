@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     smtp_password: SecretStr = SecretStr("")
     smtp_from: str = ""
     smtp_use_tls: bool = True
-    password_reset_code_pepper: SecretStr = SecretStr("")
+    email_verification_code_pepper: SecretStr = SecretStr("")
     password_reset_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
     password_reset_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
     password_reset_max_attempts: int = Field(default=5, gt=0, le=20)
@@ -123,8 +123,8 @@ class Settings(BaseSettings):
                     ("SMTP_HOST", self.smtp_host.strip()),
                     ("SMTP_FROM", self.smtp_from.strip()),
                     (
-                        "PASSWORD_RESET_CODE_PEPPER",
-                        self.password_reset_code_pepper.get_secret_value(),
+                        "EMAIL_VERIFICATION_CODE_PEPPER",
+                        self.email_verification_code_pepper.get_secret_value(),
                     ),
                 )
                 if not value
