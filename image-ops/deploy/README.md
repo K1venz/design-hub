@@ -47,6 +47,19 @@
 
 ## 部署
 
+### 用户注册邮箱验证发布顺序
+
+发布邮箱验证功能时，请按以下顺序执行：
+
+1. 先备份 MySQL `design_hub` 数据库，并保留当前 `design-hub-api` 镜像以便回滚。
+2. 将现有环境中的 `PASSWORD_RESET_CODE_PEPPER` 更换为 `EMAIL_VERIFICATION_CODE_PEPPER`；必须是 64 位小写十六进制随机值。保留 `SMTP_FROM_NAME=Design Hub`，不要在终端、日志或 runbook 中打印密钥值。
+3. 执行 Alembic migration。
+4. 协同发布 API/worker 后端镜像与前端 SPA：新前端才会调用 verify/resend，新后端才能处理这些路由。
+5. 检查 `api`、`worker`、`smtp`、`dkim` 健康状态，并用 `docker exec design-hub-nginx nginx -t` 验证 Nginx 配置。确认请求 `/api/auth/register`、`/api/auth/register/verify` 和 `/api/auth/register/resend` 都受 429 限流策略保护。
+6. 回滚时同时恢复前一个 API/worker 镜像、前端构建产物和第一步的 MySQL 备份，避免前后端契约不匹配。
+
+Nginx 按 IP 分开访问频率：`register` 保持 5r/m（burst 3），`resend` 更严格为 3r/m（burst 2），`verify` 允许正常输入失误和重试，为 12r/m（burst 6）。三个路径均为精确匹配，并复用与原先 register 一致的 API 反向代理语义。
+
 本地推送会保护服务器上的 `.env`、证书和现有前端文件：
 
 ```bash
@@ -63,7 +76,7 @@ bash scripts/deploy.sh
 部署脚本幂等完成以下工作：
 
 1. 创建持久化目录和本地 TLS 证书。
-2. 保留现有 `.env`，补齐并严格校验 Redis、SMTP 和密码重置密钥。
+2. 保留现有 `.env`，补齐并严格校验 Redis、SMTP 和邮箱验证码密钥。
 3. 校验 compose、安全网络与示例环境配置。
 4. 构建镜像；首次部署生成 2048 位 DKIM 密钥和 DNS 清单。
 5. 启动 Redis、OpenDKIM、Postfix，并分别执行健康检查。
