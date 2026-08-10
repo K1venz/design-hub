@@ -32,6 +32,10 @@ if "mail" not in services["api"].get("networks", {}):
     raise SystemExit("api is not attached to the mail network")
 if "mail" in services["worker"].get("networks", {}):
     raise SystemExit("worker must not be attached to the mail network")
+
+dkim_health = services["dkim"].get("healthcheck", {}).get("test", [])
+if dkim_health != ["CMD-SHELL", "nc -z 127.0.0.1 8891"]:
+    raise SystemExit(f"unexpected dkim health check: {dkim_health}")
 ' <<<"$config_json"
 
 python3 - .env.example <<'PY'
