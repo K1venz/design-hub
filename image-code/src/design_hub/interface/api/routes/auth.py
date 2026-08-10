@@ -43,15 +43,26 @@ async def register(
     body: RegisterRequest, svc: AccountServiceDep, cipher: SecretCipherDep
 ) -> RegistrationAcknowledgement:
     password = _decrypt_password(cipher, body.password)
-    await svc.request_registration(email=body.email, password=password, name=body.name)
-    return RegistrationAcknowledgement(message=_REGISTRATION_ACKNOWLEDGEMENT)
+    challenge_id = await svc.request_registration(
+        email=body.email,
+        password=password,
+        name=body.name,
+    )
+    return RegistrationAcknowledgement(
+        message=_REGISTRATION_ACKNOWLEDGEMENT,
+        challenge_id=challenge_id,
+    )
 
 
 @router.post("/auth/register/verify", response_model=LoginResponse)
 async def verify_registration(
     body: RegisterVerificationRequest, svc: AccountServiceDep
 ) -> LoginResponse:
-    token, user = await svc.verify_registration(email=body.email, code=body.code)
+    token, user = await svc.verify_registration(
+        email=body.email,
+        challenge_id=body.challenge_id,
+        code=body.code,
+    )
     return LoginResponse(jwt=token, role=user.role, name=user.name)
 
 
@@ -59,8 +70,14 @@ async def verify_registration(
 async def resend_registration(
     body: RegisterResendRequest, svc: AccountServiceDep
 ) -> RegistrationAcknowledgement:
-    await svc.resend_registration(email=body.email)
-    return RegistrationAcknowledgement(message=_REGISTRATION_ACKNOWLEDGEMENT)
+    challenge_id = await svc.resend_registration(
+        email=body.email,
+        challenge_id=body.challenge_id,
+    )
+    return RegistrationAcknowledgement(
+        message=_REGISTRATION_ACKNOWLEDGEMENT,
+        challenge_id=challenge_id,
+    )
 
 
 @router.post("/auth/login", response_model=LoginResponse)

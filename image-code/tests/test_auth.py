@@ -17,7 +17,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from design_hub.application.auth.account_service import AccountService, RegistrationDeliveryFailure
+from design_hub.application.auth.account_service import (
+    AccountService,
+    RegistrationActivationFailure,
+    RegistrationDeliveryFailure,
+)
 from design_hub.application.auth.verification_codes import digest_verification_code
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, DomainError, NotFoundError
@@ -32,12 +36,19 @@ from design_hub.ports.auth import TokenService
 from design_hub.ports.mail import MailPort
 from design_hub.ports.password_reset import PasswordResetChallenge, PasswordResetStore
 from design_hub.ports.registration import (
-    PendingRegistration,
+    InitialRegistrationClaim,
+    RegistrationAlreadyRegistered,
+    RegistrationChallenge,
+    RegistrationClaimed,
+    RegistrationClaimInvalid,
     RegistrationCompleted,
     RegistrationCompletion,
+    RegistrationCooldown,
+    RegistrationDeliveryState,
     RegistrationDuplicate,
     RegistrationInvalid,
     RegistrationStore,
+    ResendRegistrationClaim,
 )
 from design_hub.ports.user_repository import UserAccount, UserRepository
 
@@ -47,8 +58,12 @@ _SECRET = "test-secret-min-32-bytes-aaaaaaaaaaaa"
 def _backdated_token(iat_hours_ago: float, ttl_hours: int = 24) -> str:
     iat = datetime.now(UTC) - timedelta(hours=iat_hours_ago)
     payload = {
-        "sub": "7", "name": "t", "role": Role.DESIGNER.value, "dept": None,
-        "iat": iat, "exp": iat + timedelta(hours=ttl_hours),
+        "sub": "7",
+        "name": "t",
+        "role": Role.DESIGNER.value,
+        "dept": None,
+        "iat": iat,
+        "exp": iat + timedelta(hours=ttl_hours),
     }
     return jwt.encode(payload, _SECRET, algorithm="HS256")
 
@@ -92,13 +107,15 @@ class _FakeUserRepo(UserRepository):
     async def get_by_id(self, user_id: int) -> UserAccount | None:
         return next((a for a in self._by_email.values() if a.id == user_id), None)
 
-    async def add(
-        self, *, email: str, password_hash: str, name: str, role: Role
-    ) -> UserAccount:
+    async def add(self, *, email: str, password_hash: str, name: str, role: Role) -> UserAccount:
         self._seq += 1
         acc = UserAccount(
-            id=self._seq, email=email, name=name, role=role,
-            created_at=datetime.now(UTC), password_hash=password_hash,
+            id=self._seq,
+            email=email,
+            name=name,
+            role=role,
+            created_at=datetime.now(UTC),
+            password_hash=password_hash,
         )
         self._by_email[email] = acc
         return acc
@@ -144,7 +161,6 @@ class _FakeUserRepo(UserRepository):
                 )
                 return
         raise NotFoundError(f"user {user_id} not found")
-
 
 
 class _FakeMailer(MailPort):
@@ -219,7 +235,9 @@ class _FakeResetStore(PasswordResetStore):
                 )
 
 
-def _client(mailer: MailPort | None = None) -> tuple[
+def _client(
+    mailer: MailPort | None = None,
+) -> tuple[
     TestClient,
     RsaSecretCipher,
     PyJwtTokenService,
@@ -316,7 +334,8 @@ def test_registration_http_flow_requires_verification_before_login() -> None:
     )
 
     assert requested.status_code == 200
-    assert requested.json() == {"message": "注册验证码已发送，请查收邮箱"}
+    assert set(requested.json()) == {"message", "challenge_id"}
+    challenge_id = requested.json()["challenge_id"]
     assert "jwt" not in requested.json()
 
     pending_login = client.post(
@@ -327,7 +346,11 @@ def test_registration_http_flow_requires_verification_before_login() -> None:
 
     verified = client.post(
         "/auth/register/verify",
-        json={"email": "new@example.com", "code": _code_from_mail(mailer)},
+        json={
+            "email": "new@example.com",
+            "challenge_id": challenge_id,
+            "code": _code_from_mail(mailer),
+        },
     )
     assert verified.status_code == 200
     assert set(verified.json()) == {"jwt", "role", "name"}
@@ -345,17 +368,24 @@ def test_registration_resend_returns_acknowledgement() -> None:
         },
     )
     assert requested.status_code == 200
+    challenge_id = requested.json()["challenge_id"]
     service = client.app.state.account_service
-    registration = asyncio.run(service.registrations.get_active("resend@example.com"))
+    registration = service.registrations.current("resend@example.com")
     assert registration is not None
-    service.registrations.set_active(
-        replace(registration, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+    service.registrations.set_current(
+        replace(
+            registration,
+            delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+        )
     )
 
-    resent = client.post("/auth/register/resend", json={"email": "resend@example.com"})
+    resent = client.post(
+        "/auth/register/resend",
+        json={"email": "resend@example.com", "challenge_id": challenge_id},
+    )
 
     assert resent.status_code == 200
-    assert resent.json() == {"message": "注册验证码已发送，请查收邮箱"}
+    assert resent.json()["challenge_id"] != challenge_id
     assert len(mailer.sent) == 2
 
 
@@ -380,23 +410,36 @@ def test_registration_http_validation_and_status_mapping() -> None:
     )
     malformed = client.post(
         "/auth/register/verify",
-        json={"email": "not-an-email", "code": "12345"},
+        json={
+            "email": "not-an-email",
+            "challenge_id": "challenge-does-not-exist-1234567890",
+            "code": "12345",
+        },
     )
     forbidden_fields = client.post(
         "/auth/register/resend",
-        json={"email": "registered@example.com", "name": "Not Accepted"},
+        json={
+            "email": "registered@example.com",
+            "challenge_id": "challenge-does-not-exist-1234567890",
+            "name": "Not Accepted",
+        },
     )
     forbidden_verify_fields = client.post(
         "/auth/register/verify",
         json={
             "email": "registered@example.com",
+            "challenge_id": "challenge-does-not-exist-1234567890",
             "code": "000000",
             "password": "Not Accepted",
         },
     )
     invalid_code = client.post(
         "/auth/register/verify",
-        json={"email": "registered@example.com", "code": "000000"},
+        json={
+            "email": "registered@example.com",
+            "challenge_id": "challenge-does-not-exist-1234567890",
+            "code": "000000",
+        },
     )
 
     assert duplicate.status_code == 409
@@ -415,7 +458,11 @@ def test_registration_verification_rejects_non_ascii_digits_at_http_boundary(
 
     response = client.post(
         "/auth/register/verify",
-        json={"email": "unicode-digits@example.com", "code": code},
+        json={
+            "email": "unicode-digits@example.com",
+            "challenge_id": "challenge-does-not-exist-1234567890",
+            "code": code,
+        },
     )
 
     assert response.status_code == 422
@@ -472,9 +519,7 @@ def test_disabled_token_is_rejected_on_next_request() -> None:
     client, _, token_service, users, _, _ = _client()
     account = users._by_email["token-user@example.com"]
     object.__setattr__(account, "enabled", False)
-    token = token_service.issue(
-        AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None)
-    )
+    token = token_service.issue(AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None))
 
     response = client.get("/me", headers={"Authorization": f"Bearer {token}"})
 
@@ -486,9 +531,7 @@ def test_disabled_sse_token_is_rejected_on_next_request() -> None:
     client, _, token_service, users, _, _ = _client()
     account = users._by_email["token-user@example.com"]
     object.__setattr__(account, "enabled", False)
-    token = token_service.issue(
-        AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None)
-    )
+    token = token_service.issue(AuthUser(user_id="7", name="t", role=Role.DESIGNER, dept=None))
 
     response = client.get(f"/test/sse-auth?access_token={token}")
 
@@ -701,25 +744,41 @@ class _CountingPasswordHasher:
 class _FakeRegistrationStore(RegistrationStore):
     def __init__(self, users: _FakeUserRepo) -> None:
         self._users = users
-        self._active: dict[str, PendingRegistration] = {}
-        self._items: dict[str, PendingRegistration] = {}
+        self._current: dict[str, RegistrationChallenge] = {}
+        self._items: dict[str, RegistrationChallenge] = {}
         self._sequence = 0
         self._lock = asyncio.Lock()
         self.force_invalid_completion = False
         self.invalidated_ids: list[str] = []
         self.invalidate_error: Exception | None = None
+        self.activate_error: Exception | None = None
+        self.activate_after_persist_error: Exception | None = None
+        self.activation_returns_none = False
         self.completion_entries = 0
         self.successful_completions = 0
         self._completion_ready: asyncio.Event | None = None
         self._completion_release: asyncio.Event | None = None
 
-    async def get_active(self, email: str) -> PendingRegistration | None:
-        challenge = self._active.get(email)
-        if challenge is None or challenge.consumed_at is not None:
-            return None
-        return challenge
+    def current(self, email: str) -> RegistrationChallenge | None:
+        return self._current.get(email)
 
-    async def replace_active(
+    def _next_id(self, prefix: str) -> str:
+        self._sequence += 1
+        return f"{prefix}-{self._sequence:040d}"
+
+    @staticmethod
+    def _remaining(
+        challenge: RegistrationChallenge,
+        claimed_at: datetime,
+        cooldown_seconds: int,
+    ) -> int:
+        previous = challenge.delivery_claimed_at
+        if previous.tzinfo is None:
+            previous = previous.replace(tzinfo=UTC)
+        current = claimed_at if claimed_at.tzinfo is not None else claimed_at.replace(tzinfo=UTC)
+        return max(0, int(cooldown_seconds - (current - previous).total_seconds() + 0.999999))
+
+    async def claim_initial(
         self,
         *,
         email: str,
@@ -727,52 +786,177 @@ class _FakeRegistrationStore(RegistrationStore):
         password_hash: str,
         code_hash: str,
         expires_at: datetime,
-        sent_at: datetime,
-    ) -> PendingRegistration:
-        previous = self._active.get(email)
-        if previous is not None and previous.consumed_at is None:
-            self._items[previous.id] = replace(previous, consumed_at=sent_at)
-        self._sequence += 1
-        challenge = PendingRegistration(
-            id=f"registration-{self._sequence}",
-            email=email,
-            name=name,
-            password_hash=password_hash,
-            code_hash=code_hash,
-            expires_at=expires_at,
-            attempt_count=0,
-            created_at=sent_at,
-            last_sent_at=sent_at,
-            consumed_at=None,
-        )
-        self._active[email] = challenge
-        self._items[challenge.id] = challenge
+        claimed_at: datetime,
+        cooldown_seconds: int,
+    ) -> InitialRegistrationClaim:
+        async with self._lock:
+            if await self._users.get_by_email(email) is not None:
+                return RegistrationAlreadyRegistered()
+            previous = self._current.get(email)
+            if previous is not None:
+                remaining = self._remaining(previous, claimed_at, cooldown_seconds)
+                if remaining > 0:
+                    return RegistrationCooldown(remaining)
+                self._items[previous.id] = replace(
+                    previous,
+                    delivery_state=RegistrationDeliveryState.CONSUMED,
+                    consumed_at=claimed_at,
+                )
+            challenge = RegistrationChallenge(
+                id=self._next_id("registration"),
+                delivery_id=self._next_id("delivery"),
+                email=email,
+                name=name,
+                password_hash=password_hash,
+                code_hash=code_hash,
+                delivery_state=RegistrationDeliveryState.PENDING,
+                expires_at=expires_at,
+                attempt_count=0,
+                created_at=claimed_at,
+                delivery_claimed_at=claimed_at,
+                activated_at=None,
+                consumed_at=None,
+            )
+            self._current[email] = challenge
+            self._items[challenge.id] = challenge
+            return RegistrationClaimed(challenge)
+
+    async def claim_resend(
+        self,
+        *,
+        email: str,
+        challenge_id: str,
+        code_hash: str,
+        expires_at: datetime,
+        claimed_at: datetime,
+        cooldown_seconds: int,
+    ) -> ResendRegistrationClaim:
+        async with self._lock:
+            challenge = self._current.get(email)
+            if (
+                challenge is None
+                or challenge.id != challenge_id
+                or challenge.delivery_state is RegistrationDeliveryState.CONSUMED
+            ):
+                return RegistrationClaimInvalid()
+            remaining = self._remaining(challenge, claimed_at, cooldown_seconds)
+            if remaining > 0:
+                return RegistrationCooldown(remaining)
+            replacement = replace(
+                challenge,
+                id=self._next_id("registration"),
+                delivery_id=self._next_id("delivery"),
+                code_hash=code_hash,
+                delivery_state=RegistrationDeliveryState.PENDING,
+                expires_at=expires_at,
+                attempt_count=0,
+                delivery_claimed_at=claimed_at,
+                activated_at=None,
+            )
+            self._items[challenge_id] = replace(
+                challenge,
+                delivery_state=RegistrationDeliveryState.CONSUMED,
+                consumed_at=claimed_at,
+            )
+            self._current[email] = replacement
+            self._items[replacement.id] = replacement
+            return RegistrationClaimed(replacement)
+
+    async def activate(
+        self,
+        *,
+        challenge_id: str,
+        delivery_id: str,
+        activated_at: datetime,
+    ) -> RegistrationChallenge | None:
+        if self.activate_error is not None:
+            raise self.activate_error
+        if self.activation_returns_none:
+            return None
+        for email, challenge in self._current.items():
+            if (
+                challenge.id == challenge_id
+                and challenge.delivery_id == delivery_id
+                and challenge.delivery_state is RegistrationDeliveryState.PENDING
+                and challenge.consumed_at is None
+            ):
+                active = replace(
+                    challenge,
+                    delivery_state=RegistrationDeliveryState.ACTIVE,
+                    activated_at=activated_at,
+                )
+                self._current[email] = active
+                self._items[challenge_id] = active
+                if self.activate_after_persist_error is not None:
+                    raise self.activate_after_persist_error
+                return active
+        return None
+
+    async def get_active(
+        self,
+        *,
+        email: str,
+        challenge_id: str,
+    ) -> RegistrationChallenge | None:
+        challenge = self._current.get(email)
+        if (
+            challenge is None
+            or challenge.id != challenge_id
+            or challenge.delivery_state is not RegistrationDeliveryState.ACTIVE
+            or challenge.consumed_at is not None
+        ):
+            return None
         return challenge
 
-    async def record_failed_attempt(self, challenge_id: str) -> PendingRegistration | None:
-        for email, challenge in self._active.items():
-            if challenge.id == challenge_id and challenge.consumed_at is None:
+    async def record_failed_attempt(
+        self,
+        *,
+        challenge_id: str,
+        delivery_id: str,
+    ) -> RegistrationChallenge | None:
+        for email, challenge in self._current.items():
+            if (
+                challenge.id == challenge_id
+                and challenge.delivery_id == delivery_id
+                and challenge.delivery_state is RegistrationDeliveryState.ACTIVE
+                and challenge.consumed_at is None
+            ):
                 updated = replace(challenge, attempt_count=challenge.attempt_count + 1)
-                self._active[email] = updated
+                self._current[email] = updated
                 self._items[challenge_id] = updated
                 return updated
         return None
 
-    async def invalidate(self, *, challenge_id: str, invalidated_at: datetime) -> None:
+    async def invalidate(
+        self,
+        *,
+        challenge_id: str,
+        delivery_id: str,
+        invalidated_at: datetime,
+    ) -> bool:
         if self.invalidate_error is not None:
             raise self.invalidate_error
-        for email, challenge in self._active.items():
-            if challenge.id == challenge_id and challenge.consumed_at is None:
-                invalidated = replace(challenge, consumed_at=invalidated_at)
-                self._active[email] = invalidated
+        for email, challenge in self._current.items():
+            if (
+                challenge.id == challenge_id
+                and challenge.delivery_id == delivery_id
+                and challenge.consumed_at is None
+            ):
+                invalidated = replace(
+                    challenge,
+                    delivery_state=RegistrationDeliveryState.CONSUMED,
+                    consumed_at=invalidated_at,
+                )
+                self._current[email] = invalidated
                 self._items[challenge_id] = invalidated
                 self.invalidated_ids.append(challenge_id)
-                return
+                return True
+        return False
 
     async def complete(
         self,
         *,
-        expected: PendingRegistration,
+        expected: RegistrationChallenge,
         completed_at: datetime,
     ) -> RegistrationCompletion:
         self.completion_entries += 1
@@ -781,13 +965,14 @@ class _FakeRegistrationStore(RegistrationStore):
                 self._completion_ready.set()
             await self._completion_release.wait()
         async with self._lock:
-            current = self._active.get(expected.email)
+            current = self._current.get(expected.email)
             expires_at = expected.expires_at
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=UTC)
             if (
                 self.force_invalid_completion
                 or current != expected
+                or expected.delivery_state is not RegistrationDeliveryState.ACTIVE
                 or expected.consumed_at is not None
                 or expires_at <= completed_at
             ):
@@ -800,14 +985,18 @@ class _FakeRegistrationStore(RegistrationStore):
                 name=expected.name,
                 role=Role.DESIGNER,
             )
-            consumed = replace(current, consumed_at=completed_at)
-            self._active[expected.email] = consumed
+            consumed = replace(
+                current,
+                delivery_state=RegistrationDeliveryState.CONSUMED,
+                consumed_at=completed_at,
+            )
+            self._current[expected.email] = consumed
             self._items[expected.id] = consumed
             self.successful_completions += 1
             return RegistrationCompleted(account)
 
-    def set_active(self, challenge: PendingRegistration) -> None:
-        self._active[challenge.email] = challenge
+    def set_current(self, challenge: RegistrationChallenge) -> None:
+        self._current[challenge.email] = challenge
         self._items[challenge.id] = challenge
 
     def block_two_completions(self) -> None:
@@ -878,12 +1067,14 @@ def test_request_registration_keeps_identity_pending_without_jwt() -> None:
     async def run() -> None:
         service, users, registrations, mailer, passwords, tokens = _registration_service()
 
-        result = await service.request_registration(
+        challenge_id = await service.request_registration(
             email="  pending@example.com ", password="password88", name="  Pending User  "
         )
 
-        challenge = await registrations.get_active("pending@example.com")
-        assert result is None
+        challenge = await registrations.get_active(
+            email="pending@example.com",
+            challenge_id=challenge_id,
+        )
         assert await users.get_by_email("pending@example.com") is None
         assert challenge is not None
         assert challenge.name == "Pending User"
@@ -898,18 +1089,26 @@ def test_request_registration_keeps_identity_pending_without_jwt() -> None:
 def test_verify_registration_creates_account_then_issues_jwt() -> None:
     async def run() -> None:
         service, users, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="verify@example.com", password="password88", name="Verifier"
         )
 
         token, user = await service.verify_registration(
-            email="verify@example.com", code=_registration_code(mailer)
+            email="verify@example.com",
+            challenge_id=challenge_id,
+            code=_registration_code(mailer),
         )
 
         assert token == "token-1"
         assert user.user_id == "1"
         assert (await users.get_by_email("verify@example.com")) is not None
-        assert await registrations.get_active("verify@example.com") is None
+        assert (
+            await registrations.get_active(
+                email="verify@example.com",
+                challenge_id=challenge_id,
+            )
+            is None
+        )
         assert tokens.issued == [user]
 
     asyncio.run(run())
@@ -943,9 +1142,9 @@ def test_request_registration_rejects_already_registered_email() -> None:
             await service.request_registration(
                 email="duplicate@example.com", password="password88", name="Duplicate"
             )
-        assert await registrations.get_active("duplicate@example.com") is None
+        assert registrations.current("duplicate@example.com") is None
         assert mailer.sent == []
-        assert passwords.hash_calls == []
+        assert passwords.hash_calls == ["password88"]
 
     asyncio.run(run())
 
@@ -954,13 +1153,20 @@ def test_request_registration_rejects_already_registered_email() -> None:
 def test_verify_registration_rejects_malformed_codes_with_generic_message(code: str) -> None:
     async def run() -> None:
         service, _, registrations, _, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="malformed@example.com", password="password88", name="Malformed"
         )
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
-            await service.verify_registration(email="malformed@example.com", code=code)
-        challenge = await registrations.get_active("malformed@example.com")
+            await service.verify_registration(
+                email="malformed@example.com",
+                challenge_id=challenge_id,
+                code=code,
+            )
+        challenge = await registrations.get_active(
+            email="malformed@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None and challenge.attempt_count == 0
         assert tokens.issued == []
 
@@ -970,18 +1176,23 @@ def test_verify_registration_rejects_malformed_codes_with_generic_message(code: 
 def test_verify_registration_expired_code_uses_generic_message() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="expired@example.com", password="password88", name="Expired"
         )
-        challenge = await registrations.get_active("expired@example.com")
+        challenge = await registrations.get_active(
+            email="expired@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None
-        registrations.set_active(
+        registrations.set_current(
             replace(challenge, expires_at=datetime.now(UTC) - timedelta(seconds=1))
         )
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
             await service.verify_registration(
-                email="expired@example.com", code=_registration_code(mailer)
+                email="expired@example.com",
+                challenge_id=challenge_id,
+                code=_registration_code(mailer),
             )
         assert tokens.issued == []
 
@@ -991,19 +1202,22 @@ def test_verify_registration_expired_code_uses_generic_message() -> None:
 def test_verify_registration_treats_naive_expiry_as_utc() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="naive-expiry@example.com", password="password88", name="Naive Expiry"
         )
-        challenge = await registrations.get_active("naive-expiry@example.com")
+        challenge = await registrations.get_active(
+            email="naive-expiry@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None
         expired_naive_utc = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
-        registrations.set_active(
-            replace(challenge, expires_at=expired_naive_utc)
-        )
+        registrations.set_current(replace(challenge, expires_at=expired_naive_utc))
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
             await service.verify_registration(
-                email="naive-expiry@example.com", code=_registration_code(mailer)
+                email="naive-expiry@example.com",
+                challenge_id=challenge_id,
+                code=_registration_code(mailer),
             )
         assert tokens.issued == []
 
@@ -1013,16 +1227,21 @@ def test_verify_registration_treats_naive_expiry_as_utc() -> None:
 def test_verify_registration_exhausted_attempts_uses_generic_message() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="exhausted@example.com", password="password88", name="Exhausted"
         )
-        challenge = await registrations.get_active("exhausted@example.com")
+        challenge = await registrations.get_active(
+            email="exhausted@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None
-        registrations.set_active(replace(challenge, attempt_count=2))
+        registrations.set_current(replace(challenge, attempt_count=2))
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
             await service.verify_registration(
-                email="exhausted@example.com", code=_registration_code(mailer)
+                email="exhausted@example.com",
+                challenge_id=challenge_id,
+                code=_registration_code(mailer),
             )
         assert tokens.issued == []
 
@@ -1032,7 +1251,7 @@ def test_verify_registration_exhausted_attempts_uses_generic_message() -> None:
 def test_verify_registration_rejects_after_max_attempt_is_reached() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="max-attempt@example.com", password="password88", name="Max Attempt"
         )
         code = _registration_code(mailer)
@@ -1040,12 +1259,23 @@ def test_verify_registration_rejects_after_max_attempt_is_reached() -> None:
 
         for _ in range(2):
             with pytest.raises(ValueError, match="验证码错误或已过期"):
-                await service.verify_registration(email="max-attempt@example.com", code=wrong)
+                await service.verify_registration(
+                    email="max-attempt@example.com",
+                    challenge_id=challenge_id,
+                    code=wrong,
+                )
 
-        challenge = await registrations.get_active("max-attempt@example.com")
+        challenge = await registrations.get_active(
+            email="max-attempt@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None and challenge.attempt_count == 2
         with pytest.raises(ValueError, match="验证码错误或已过期"):
-            await service.verify_registration(email="max-attempt@example.com", code=code)
+            await service.verify_registration(
+                email="max-attempt@example.com",
+                challenge_id=challenge_id,
+                code=code,
+            )
         assert tokens.issued == []
 
     asyncio.run(run())
@@ -1054,15 +1284,22 @@ def test_verify_registration_rejects_after_max_attempt_is_reached() -> None:
 def test_verify_registration_wrong_code_records_attempt_and_uses_generic_message() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="wrong@example.com", password="password88", name="Wrong"
         )
         code = _registration_code(mailer)
         wrong = f"{(int(code) + 1) % 1_000_000:06d}"
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
-            await service.verify_registration(email="wrong@example.com", code=wrong)
-        challenge = await registrations.get_active("wrong@example.com")
+            await service.verify_registration(
+                email="wrong@example.com",
+                challenge_id=challenge_id,
+                code=wrong,
+            )
+        challenge = await registrations.get_active(
+            email="wrong@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None and challenge.attempt_count == 1
         assert tokens.issued == []
 
@@ -1072,56 +1309,129 @@ def test_verify_registration_wrong_code_records_attempt_and_uses_generic_message
 def test_resend_registration_enforces_cooldown() -> None:
     async def run() -> None:
         service, _, registrations, _, _, _ = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="cooldown@example.com", password="password88", name="Cooldown"
         )
-        original = await registrations.get_active("cooldown@example.com")
+        original = await registrations.get_active(
+            email="cooldown@example.com",
+            challenge_id=challenge_id,
+        )
         assert original is not None
 
         with pytest.raises(ValueError):
-            await service.resend_registration(email="cooldown@example.com")
-        assert await registrations.get_active("cooldown@example.com") == original
+            await service.resend_registration(
+                email="cooldown@example.com",
+                challenge_id=challenge_id,
+            )
+        assert (
+            await registrations.get_active(
+                email="cooldown@example.com",
+                challenge_id=challenge_id,
+            )
+            == original
+        )
 
     asyncio.run(run())
 
 
-def test_resend_registration_treats_naive_last_sent_at_as_utc() -> None:
+def test_resend_registration_treats_naive_delivery_claimed_at_as_utc() -> None:
     async def run() -> None:
         service, _, registrations, _, _, _ = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="naive-sent@example.com", password="password88", name="Naive Sent"
         )
-        challenge = await registrations.get_active("naive-sent@example.com")
+        challenge = await registrations.get_active(
+            email="naive-sent@example.com",
+            challenge_id=challenge_id,
+        )
         assert challenge is not None
-        registrations.set_active(
-            replace(challenge, last_sent_at=datetime.now(UTC).replace(tzinfo=None))
+        registrations.set_current(
+            replace(
+                challenge,
+                delivery_claimed_at=datetime.now(UTC).replace(tzinfo=None),
+            )
         )
 
         with pytest.raises(ValueError):
-            await service.resend_registration(email="naive-sent@example.com")
+            await service.resend_registration(
+                email="naive-sent@example.com",
+                challenge_id=challenge_id,
+            )
 
     asyncio.run(run())
 
 
-def test_resend_registration_replaces_code_and_preserves_pending_identity() -> None:
+def test_resend_registration_replaces_code_and_rotates_pending_identity() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, _ = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="resend@example.com", password="password88", name="Resend"
         )
-        original = await registrations.get_active("resend@example.com")
+        original = await registrations.get_active(
+            email="resend@example.com",
+            challenge_id=challenge_id,
+        )
         assert original is not None
-        registrations.set_active(
-            replace(original, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+        registrations.set_current(
+            replace(
+                original,
+                delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+            )
         )
 
-        await service.resend_registration(email="resend@example.com")
+        returned_id = await service.resend_registration(
+            email="resend@example.com",
+            challenge_id=challenge_id,
+        )
 
-        replacement = await registrations.get_active("resend@example.com")
+        replacement = await registrations.get_active(
+            email="resend@example.com",
+            challenge_id=returned_id,
+        )
         assert replacement is not None
+        assert returned_id != challenge_id
         assert replacement.id != original.id
+        assert replacement.delivery_id != original.delivery_id
         assert replacement.name == original.name
         assert replacement.password_hash == original.password_hash
+        assert len(mailer.sent) == 2
+
+    asyncio.run(run())
+
+
+def test_concurrent_resends_have_one_mail_sender() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, _ = _registration_service()
+        challenge_id = await service.request_registration(
+            email="resend-race@example.com",
+            password="password88",
+            name="Resend Race",
+        )
+        challenge = registrations.current("resend-race@example.com")
+        assert challenge is not None
+        registrations.set_current(
+            replace(
+                challenge,
+                delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+            )
+        )
+
+        results = await asyncio.gather(
+            service.resend_registration(
+                email="resend-race@example.com",
+                challenge_id=challenge_id,
+            ),
+            service.resend_registration(
+                email="resend-race@example.com",
+                challenge_id=challenge_id,
+            ),
+            return_exceptions=True,
+        )
+
+        returned_ids = [result for result in results if isinstance(result, str)]
+        assert len(returned_ids) == 1
+        assert returned_ids[0] != challenge_id
+        assert sum(isinstance(result, ValueError) for result in results) == 1
         assert len(mailer.sent) == 2
 
     asyncio.run(run())
@@ -1130,19 +1440,38 @@ def test_resend_registration_replaces_code_and_preserves_pending_identity() -> N
 def test_verify_registration_rejects_superseded_code_with_generic_message() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="superseded@example.com", password="password88", name="Superseded"
         )
-        original = await registrations.get_active("superseded@example.com")
+        original = await registrations.get_active(
+            email="superseded@example.com",
+            challenge_id=challenge_id,
+        )
         assert original is not None
         old_code = _registration_code(mailer)
-        registrations.set_active(
-            replace(original, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+        registrations.set_current(
+            replace(
+                original,
+                delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+            )
         )
-        await service.resend_registration(email="superseded@example.com")
+        replacement_id = await service.resend_registration(
+            email="superseded@example.com",
+            challenge_id=challenge_id,
+        )
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
-            await service.verify_registration(email="superseded@example.com", code=old_code)
+            await service.verify_registration(
+                email="superseded@example.com",
+                challenge_id=challenge_id,
+                code=old_code,
+            )
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(
+                email="superseded@example.com",
+                challenge_id=replacement_id,
+                code=old_code,
+            )
         assert tokens.issued == []
 
     asyncio.run(run())
@@ -1157,8 +1486,10 @@ def test_initial_registration_delivery_failure_invalidates_challenge() -> None:
             await service.request_registration(
                 email="initial-failure@example.com", password="password88", name="Initial"
             )
-        assert await registrations.get_active("initial-failure@example.com") is None
-        assert registrations.invalidated_ids == ["registration-1"]
+        failed = registrations.current("initial-failure@example.com")
+        assert failed is not None
+        assert failed.delivery_state is RegistrationDeliveryState.CONSUMED
+        assert registrations.invalidated_ids == [failed.id]
 
     asyncio.run(run())
 
@@ -1183,7 +1514,145 @@ def test_registration_delivery_and_invalidation_failure_preserves_both_causes() 
         assert error.invalidation_error is invalidation_error
         assert error.__cause__ is invalidation_error
         assert invalidation_error.__context__ is error.delivery_error
-        assert await registrations.get_active("double-failure@example.com") is not None
+        failed = registrations.current("double-failure@example.com")
+        assert failed is not None
+        assert failed.delivery_state is RegistrationDeliveryState.PENDING
+        assert (
+            await registrations.get_active(
+                email=failed.email,
+                challenge_id=failed.id,
+            )
+            is None
+        )
+
+    asyncio.run(run())
+
+
+def test_activation_and_invalidation_failure_never_exposes_an_active_code() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        activation_error = OSError("activation unavailable")
+        registrations.activate_error = activation_error
+        registrations.invalidate_error = OSError("invalidation unavailable")
+
+        with pytest.raises(RuntimeError, match="activation"):
+            await service.request_registration(
+                email="activation-double-failure@example.com",
+                password="password88",
+                name="Activation Double Failure",
+            )
+
+        failed = registrations.current("activation-double-failure@example.com")
+        assert failed is not None
+        assert failed.delivery_state is RegistrationDeliveryState.PENDING
+        assert (
+            await registrations.get_active(
+                email=failed.email,
+                challenge_id=failed.id,
+            )
+            is None
+        )
+        assert len(mailer.sent) == 1
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_ambiguous_resend_activation_failure_does_not_expose_identity() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        original_id = await service.request_registration(
+            email="ambiguous-resend@example.com",
+            password="password88",
+            name="Ambiguous Resend",
+        )
+        original = registrations.current("ambiguous-resend@example.com")
+        assert original is not None
+        registrations.set_current(
+            replace(
+                original,
+                delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+            )
+        )
+        registrations.activate_after_persist_error = OSError("activation result unavailable")
+        registrations.invalidate_error = OSError("invalidation unavailable")
+
+        with pytest.raises(RegistrationActivationFailure):
+            await service.resend_registration(
+                email="ambiguous-resend@example.com",
+                challenge_id=original_id,
+            )
+
+        assert (
+            await registrations.get_active(
+                email="ambiguous-resend@example.com",
+                challenge_id=original_id,
+            )
+            is None
+        )
+        assert len(mailer.sent) == 2
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_new_registration_identity_prevents_old_browser_from_verifying_replacement() -> None:
+    async def run() -> None:
+        service, users, registrations, mailer, _, tokens = _registration_service()
+        first_id = await service.request_registration(
+            email="shared@example.com",
+            password="victim-password",
+            name="Victim",
+        )
+        first_code = _registration_code(mailer)
+        first = registrations.current("shared@example.com")
+        assert first is not None
+        registrations.set_current(
+            replace(
+                first,
+                delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+            )
+        )
+
+        second_id = await service.request_registration(
+            email="shared@example.com",
+            password="attacker-password",
+            name="Attacker",
+        )
+
+        assert second_id != first_id
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(
+                email="shared@example.com",
+                challenge_id=first_id,
+                code=first_code,
+            )
+        assert await users.get_by_email("shared@example.com") is None
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_concurrent_initial_requests_have_one_mail_sender() -> None:
+    async def run() -> None:
+        service, _, _, mailer, _, _ = _registration_service()
+        results = await asyncio.gather(
+            service.request_registration(
+                email="claim-race@example.com",
+                password="password88",
+                name="First",
+            ),
+            service.request_registration(
+                email="claim-race@example.com",
+                password="password99",
+                name="Second",
+            ),
+            return_exceptions=True,
+        )
+
+        assert sum(isinstance(result, str) for result in results) == 1
+        assert sum(isinstance(result, ValueError) for result in results) == 1
+        assert len(mailer.sent) == 1
 
     asyncio.run(run())
 
@@ -1191,22 +1660,38 @@ def test_registration_delivery_and_invalidation_failure_preserves_both_causes() 
 def test_resend_delivery_failure_invalidates_replacement_without_restoring_old_code() -> None:
     async def run() -> None:
         service, _, registrations, _, _, _ = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="resend-failure@example.com", password="password88", name="Resend Failure"
         )
-        original = await registrations.get_active("resend-failure@example.com")
+        original = await registrations.get_active(
+            email="resend-failure@example.com",
+            challenge_id=challenge_id,
+        )
         assert original is not None
-        registrations.set_active(
-            replace(original, last_sent_at=datetime.now(UTC) - timedelta(seconds=61))
+        registrations.set_current(
+            replace(
+                original,
+                delivery_claimed_at=datetime.now(UTC) - timedelta(seconds=61),
+            )
         )
         mailer = service.mailer
         assert isinstance(mailer, _SwitchableMailer)
         mailer.should_fail = True
 
         with pytest.raises(OSError, match="smtp unavailable"):
-            await service.resend_registration(email="resend-failure@example.com")
-        assert await registrations.get_active("resend-failure@example.com") is None
-        assert registrations.invalidated_ids == ["registration-2"]
+            await service.resend_registration(
+                email="resend-failure@example.com",
+                challenge_id=challenge_id,
+            )
+        assert (
+            await registrations.get_active(
+                email="resend-failure@example.com",
+                challenge_id=challenge_id,
+            )
+            is None
+        )
+        assert len(registrations.invalidated_ids) == 1
+        assert registrations.invalidated_ids[0] != challenge_id
 
     asyncio.run(run())
 
@@ -1214,14 +1699,16 @@ def test_resend_delivery_failure_invalidates_replacement_without_restoring_old_c
 def test_verify_registration_issues_no_token_when_atomic_completion_rejects() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="atomic-invalid@example.com", password="password88", name="Atomic"
         )
         registrations.force_invalid_completion = True
 
         with pytest.raises(ValueError, match="验证码错误或已过期"):
             await service.verify_registration(
-                email="atomic-invalid@example.com", code=_registration_code(mailer)
+                email="atomic-invalid@example.com",
+                challenge_id=challenge_id,
+                code=_registration_code(mailer),
             )
         assert tokens.issued == []
 
@@ -1231,7 +1718,7 @@ def test_verify_registration_issues_no_token_when_atomic_completion_rejects() ->
 def test_verify_registration_maps_atomic_duplicate_without_issuing_token() -> None:
     async def run() -> None:
         service, users, _, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="atomic-duplicate@example.com", password="password88", name="Atomic"
         )
         await users.add(
@@ -1243,7 +1730,9 @@ def test_verify_registration_maps_atomic_duplicate_without_issuing_token() -> No
 
         with pytest.raises(DomainError):
             await service.verify_registration(
-                email="atomic-duplicate@example.com", code=_registration_code(mailer)
+                email="atomic-duplicate@example.com",
+                challenge_id=challenge_id,
+                code=_registration_code(mailer),
             )
         assert tokens.issued == []
 
@@ -1253,16 +1742,24 @@ def test_verify_registration_maps_atomic_duplicate_without_issuing_token() -> No
 def test_concurrent_registration_verification_has_one_winner() -> None:
     async def run() -> None:
         service, users, registrations, mailer, _, tokens = _registration_service()
-        await service.request_registration(
+        challenge_id = await service.request_registration(
             email="race@example.com", password="password88", name="Race"
         )
         code = _registration_code(mailer)
         registrations.block_two_completions()
         first = asyncio.create_task(
-            service.verify_registration(email="race@example.com", code=code),
+            service.verify_registration(
+                email="race@example.com",
+                challenge_id=challenge_id,
+                code=code,
+            ),
         )
         second = asyncio.create_task(
-            service.verify_registration(email="race@example.com", code=code),
+            service.verify_registration(
+                email="race@example.com",
+                challenge_id=challenge_id,
+                code=code,
+            ),
         )
         await asyncio.wait_for(registrations.wait_for_two_completion_entries(), timeout=1)
         assert registrations.completion_entries == 2

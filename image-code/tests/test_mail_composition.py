@@ -88,24 +88,22 @@ def test_smtp_mode_builds_network_mailer() -> None:
     [
         (" \t ", "no-reply@example.com", "SMTP_FROM_NAME"),
         ("Design Hub", "not-an-email-address", "SMTP_FROM"),
+        ("Design Hub", "@example.com", "SMTP_FROM"),
+        ("Design Hub", "no reply@example.com", "SMTP_FROM"),
+        (
+            "Design Hub",
+            "no-reply@example.com\r\nBcc: attacker@example.com",
+            "SMTP_FROM",
+        ),
     ],
 )
 def test_smtp_mode_rejects_invalid_sender_identity_before_mailer_construction(
-    monkeypatch: pytest.MonkeyPatch,
     smtp_from_name: str,
     smtp_from: str,
     expected_error: str,
 ) -> None:
-    constructed: list[object] = []
-
-    def mailer_constructor(*args: object, **kwargs: object) -> object:
-        constructed.append((args, kwargs))
-        raise AssertionError("invalid sender identity must not construct a mailer")
-
-    monkeypatch.setattr(composition, "SmtpMailer", mailer_constructor)
-
     with pytest.raises(ValidationError, match=expected_error):
-        Settings(
+        settings = Settings(
             _env_file=None,
             mail_delivery_mode="smtp",
             smtp_host="smtp",
@@ -113,8 +111,7 @@ def test_smtp_mode_rejects_invalid_sender_identity_before_mailer_construction(
             smtp_from=smtp_from,
             email_verification_code_pepper="pepper",
         )
-
-    assert constructed == []
+        composition.build_mailer(settings)
 
 
 def test_smtp_mailer_sets_complete_transactional_identity_headers(
@@ -144,9 +141,7 @@ def test_smtp_mailer_sets_complete_transactional_identity_headers(
         ) -> None:
             captured_messages.append(message)
 
-    monkeypatch.setattr(
-        "design_hub.infrastructure.mail.smtp_mailer.smtplib.SMTP", CapturingSmtp
-    )
+    monkeypatch.setattr("design_hub.infrastructure.mail.smtp_mailer.smtplib.SMTP", CapturingSmtp)
     mailer = SmtpMailer(
         host="smtp",
         port=25,
@@ -157,12 +152,8 @@ def test_smtp_mailer_sets_complete_transactional_identity_headers(
         use_tls=False,
     )
 
-    asyncio.run(
-        mailer.send(to="first@example.com", subject="Verify", body_text="First")
-    )
-    asyncio.run(
-        mailer.send(to="second@example.com", subject="Verify", body_text="Second")
-    )
+    asyncio.run(mailer.send(to="first@example.com", subject="Verify", body_text="First"))
+    asyncio.run(mailer.send(to="second@example.com", subject="Verify", body_text="Second"))
 
     parsed_messages = [
         BytesParser().parsebytes(message.as_bytes()) for message in captured_messages
