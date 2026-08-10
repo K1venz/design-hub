@@ -407,6 +407,20 @@ def test_registration_http_validation_and_status_mapping() -> None:
     assert invalid_code.json()["detail"] == "验证码错误或已过期"
 
 
+@pytest.mark.parametrize("code", ["１２３４５６", "١٢٣٤٥٦"])
+def test_registration_verification_rejects_non_ascii_digits_at_http_boundary(
+    code: str,
+) -> None:
+    client, _, _, _, _, _ = _client()
+
+    response = client.post(
+        "/auth/register/verify",
+        json={"email": "unicode-digits@example.com", "code": code},
+    )
+
+    assert response.status_code == 422
+
+
 def test_request_registration_rejects_short_password() -> None:
     async def run() -> None:
         service, _, _, _, _, _ = _registration_service()

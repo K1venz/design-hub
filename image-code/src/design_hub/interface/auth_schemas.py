@@ -20,7 +20,7 @@ class RegisterVerificationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
-    code: str = Field(pattern=r"^\d{6}$")
+    code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 class RegisterResendRequest(BaseModel):
