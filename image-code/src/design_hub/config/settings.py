@@ -124,7 +124,7 @@ class Settings(BaseSettings):
                     ("SMTP_FROM", self.smtp_from.strip()),
                     (
                         "EMAIL_VERIFICATION_CODE_PEPPER",
-                        self.email_verification_code_pepper.get_secret_value(),
+                        self.email_verification_code_pepper.get_secret_value().strip(),
                     ),
                 )
                 if not value
