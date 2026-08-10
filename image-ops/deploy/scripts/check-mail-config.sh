@@ -34,4 +34,33 @@ if "mail" in services["worker"].get("networks", {}):
     raise SystemExit("worker must not be attached to the mail network")
 ' <<<"$config_json"
 
+python3 - .env.example <<'PY'
+from pathlib import Path
+import sys
+
+values = {}
+for raw_line in Path(sys.argv[1]).read_text().splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        continue
+    key, value = line.split("=", 1)
+    if key in values:
+        raise SystemExit(f"duplicate example environment key: {key}")
+    values[key] = value
+
+expected = {
+    "MAIL_DELIVERY_MODE": "smtp",
+    "SMTP_HOST": "smtp",
+    "SMTP_PORT": "25",
+    "SMTP_USERNAME": "",
+    "SMTP_PASSWORD": "",
+    "SMTP_FROM": "no-reply@image.sepaitech.com",
+    "SMTP_USE_TLS": "false",
+    "PASSWORD_RESET_CODE_PEPPER": "__GENERATED_64_HEX__",
+}
+for key, value in expected.items():
+    if values.get(key) != value:
+        raise SystemExit(f"unexpected {key} in .env.example")
+PY
+
 echo "mail compose configuration: OK"
