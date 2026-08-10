@@ -25,9 +25,15 @@ from sqlalchemy import (
     func,
     true,
 )
+from sqlalchemy.dialects.mysql import DATETIME as MySqlDateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from design_hub.infrastructure.db.base import Base
+
+REGISTRATION_DATETIME = DateTime(timezone=True).with_variant(
+    MySqlDateTime(fsp=6),
+    "mysql",
+)
 
 
 class ModelConfig(Base):
@@ -138,14 +144,14 @@ class RegistrationChallengeRow(Base):
     name: Mapped[str] = mapped_column(String(128))
     password_hash: Mapped[str] = mapped_column(String(255))
     code_hash: Mapped[str] = mapped_column(String(64))
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(REGISTRATION_DATETIME)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        REGISTRATION_DATETIME, server_default=func.now()
     )
-    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_sent_at: Mapped[datetime] = mapped_column(REGISTRATION_DATETIME)
     consumed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
+        REGISTRATION_DATETIME, default=None
     )
 
 

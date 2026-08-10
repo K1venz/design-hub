@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import io
+import sqlite3
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -19,12 +25,113 @@ from sqlalchemy.ext.asyncio import (
 from design_hub.domain.enums import Role
 from design_hub.infrastructure.db.base import Base
 from design_hub.infrastructure.db.models import AppUser, RegistrationChallengeRow
-from design_hub.infrastructure.db.registration_repo import SqlAlchemyRegistrationStore
+from design_hub.infrastructure.db.registration_repo import (
+    SqlAlchemyRegistrationStore,
+    _is_app_user_email_duplicate,
+)
 from design_hub.ports.registration import (
     RegistrationCompleted,
     RegistrationDuplicate,
     RegistrationInvalid,
 )
+
+
+class _AsyncpgError(Exception):
+    def __init__(self, message: str, *, sqlstate: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+
+
+class _MySqlError(Exception):
+    pass
+
+
+def _integrity_error(original: Exception) -> IntegrityError:
+    return IntegrityError("INSERT INTO app_user", {}, original)
+
+
+def test_duplicate_classifier_recognizes_asyncpg_target_constraint_without_diag() -> None:
+    original = _AsyncpgError(
+        "<class 'asyncpg.exceptions.UniqueViolationError'>: "
+        'duplicate key value violates unique constraint "uq_app_user_email"\n'
+        "DETAIL: Key (email)=(redacted) already exists.",
+        sqlstate="23505",
+    )
+
+    assert _is_app_user_email_duplicate(_integrity_error(original))
+
+
+def test_duplicate_classifier_rejects_asyncpg_non_target_constraint() -> None:
+    original = _AsyncpgError(
+        "<class 'asyncpg.exceptions.UniqueViolationError'>: "
+        'duplicate key value violates unique constraint "uq_app_user_name"\n'
+        "DETAIL: Key (name)=(redacted) already exists.",
+        sqlstate="23505",
+    )
+
+    assert not _is_app_user_email_duplicate(_integrity_error(original))
+
+
+def test_duplicate_classifier_rejects_sqlite_composite_unique_constraint() -> None:
+    original = sqlite3.IntegrityError("UNIQUE constraint failed: app_user.email, app_user.name")
+
+    assert not _is_app_user_email_duplicate(_integrity_error(original))
+
+
+def test_duplicate_classifier_requires_the_exact_mysql_constraint_name() -> None:
+    target = _MySqlError(
+        1062,
+        "Duplicate entry 'redacted' for key 'app_user.uq_app_user_email'",
+    )
+    near_match = _MySqlError(
+        1062,
+        "Duplicate entry 'redacted' for key 'app_user.uq_app_user_email_archive'",
+    )
+
+    assert _is_app_user_email_duplicate(_integrity_error(target))
+    assert not _is_app_user_email_duplicate(_integrity_error(near_match))
+
+
+def test_registration_timestamp_columns_compile_with_mysql_microseconds() -> None:
+    dialect = mysql.dialect()
+    columns = RegistrationChallengeRow.__table__.c
+
+    assert {
+        name: columns[name].type.compile(dialect=dialect)
+        for name in ("expires_at", "created_at", "last_sent_at", "consumed_at")
+    } == {
+        "expires_at": "DATETIME(6)",
+        "created_at": "DATETIME(6)",
+        "last_sent_at": "DATETIME(6)",
+        "consumed_at": "DATETIME(6)",
+    }
+
+
+def test_registration_migration_emits_mysql_microsecond_timestamps() -> None:
+    migration_path = (
+        Path(__file__).parents[1]
+        / "migrations"
+        / "versions"
+        / "b9c0d1e2f3a4_registration_challenge.py"
+    )
+    specification = importlib.util.spec_from_file_location(
+        "registration_challenge_migration",
+        migration_path,
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    migration = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(migration)
+    output = io.StringIO()
+    context = MigrationContext.configure(
+        dialect_name="mysql",
+        opts={"as_sql": True, "output_buffer": output},
+    )
+
+    with Operations.context(context):
+        migration.upgrade()
+
+    assert output.getvalue().count("DATETIME(6)") == 4
 
 
 async def _database(
@@ -179,6 +286,74 @@ def test_complete_atomically_creates_a_designer_and_consumes_the_challenge() -> 
             assert challenge.consumed_at is not None
             assert challenge.consumed_at.replace(tzinfo=UTC) == completed_at
             assert len(users) == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_replace_returns_the_utc_microsecond_snapshot_used_by_complete() -> None:
+    async def scenario() -> None:
+        sessions, engine = await _database()
+        store = SqlAlchemyRegistrationStore(sessions)
+        local_timezone = timezone(timedelta(hours=5, minutes=30))
+        try:
+            pending = await store.replace_active(
+                email="offset@example.com",
+                name="Offset Designer",
+                password_hash="$2b$12$offset-password-hash",
+                code_hash="d" * 64,
+                expires_at=datetime(
+                    2026,
+                    8,
+                    10,
+                    7,
+                    40,
+                    0,
+                    123456,
+                    tzinfo=local_timezone,
+                ),
+                sent_at=datetime(
+                    2026,
+                    8,
+                    10,
+                    7,
+                    30,
+                    0,
+                    654321,
+                    tzinfo=local_timezone,
+                ),
+            )
+
+            assert pending.expires_at == datetime(2026, 8, 10, 2, 10, 0, 123456, tzinfo=UTC)
+            assert pending.created_at == datetime(2026, 8, 10, 2, 0, 0, 654321, tzinfo=UTC)
+            assert pending.last_sent_at == datetime(2026, 8, 10, 2, 0, 0, 654321, tzinfo=UTC)
+            async with sessions() as session:
+                stored = await session.get(RegistrationChallengeRow, pending.id)
+            assert stored is not None
+            assert stored.expires_at == datetime(2026, 8, 10, 2, 10, 0, 123456)
+            assert stored.created_at == datetime(2026, 8, 10, 2, 0, 0, 654321)
+            assert stored.last_sent_at == datetime(2026, 8, 10, 2, 0, 0, 654321)
+
+            result = await store.complete(
+                expected=pending,
+                completed_at=datetime(
+                    2026,
+                    8,
+                    10,
+                    7,
+                    35,
+                    0,
+                    777888,
+                    tzinfo=local_timezone,
+                ),
+            )
+
+            assert isinstance(result, RegistrationCompleted)
+            async with sessions() as session:
+                consumed = await session.get(RegistrationChallengeRow, pending.id)
+            assert consumed is not None
+            assert consumed.consumed_at == datetime(2026, 8, 10, 2, 5, 0, 777888)
         finally:
             await engine.dispose()
 
