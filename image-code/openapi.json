@@ -7206,12 +7206,20 @@
             "type": "string",
             "format": "email",
             "title": "Email"
+          },
+          "challenge_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Challenge Id"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "email"
+          "email",
+          "challenge_id"
         ],
         "title": "RegisterResendRequest"
       },
@@ -7221,6 +7229,13 @@
             "type": "string",
             "format": "email",
             "title": "Email"
+          },
+          "challenge_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Challenge Id"
           },
           "code": {
             "type": "string",
@@ -7232,6 +7247,7 @@
         "type": "object",
         "required": [
           "email",
+          "challenge_id",
           "code"
         ],
         "title": "RegisterVerificationRequest"
@@ -7241,11 +7257,16 @@
           "message": {
             "type": "string",
             "title": "Message"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
           }
         },
         "type": "object",
         "required": [
-          "message"
+          "message",
+          "challenge_id"
         ],
         "title": "RegistrationAcknowledgement"
       },

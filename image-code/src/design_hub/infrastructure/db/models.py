@@ -38,9 +38,7 @@ REGISTRATION_DATETIME = DateTime(timezone=True).with_variant(
 
 class ModelConfig(Base):
     __tablename__ = "model_config"
-    __table_args__ = (
-        UniqueConstraint("model_type", "name", name="uq_model_config_type_name"),
-    )
+    __table_args__ = (UniqueConstraint("model_type", "name", name="uq_model_config_type_name"),)
 
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str] = mapped_column(String(128))
@@ -118,16 +116,12 @@ class PasswordResetChallengeRow(Base):
     code_hash: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    consumed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 class RegistrationChallengeRow(Base):
-    """Pending account data; verification-code plaintext is never persisted."""
+    """Registration data whose code is verifiable only after delivery activation."""
 
     __tablename__ = "registration_challenge"
     __table_args__ = (
@@ -136,23 +130,26 @@ class RegistrationChallengeRow(Base):
             "attempt_count >= 0",
             name="ck_registration_challenge_attempt_count_nonnegative",
         ),
+        CheckConstraint(
+            "delivery_state IN ('pending_delivery', 'active', 'consumed')",
+            name="ck_registration_challenge_delivery_state",
+        ),
         Index("ix_registration_challenge_consumed_at", "consumed_at"),
     )
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    delivery_id: Mapped[str] = mapped_column(String(64), unique=True)
     email: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(128))
     password_hash: Mapped[str] = mapped_column(String(255))
     code_hash: Mapped[str] = mapped_column(String(64))
+    delivery_state: Mapped[str] = mapped_column(String(32))
     expires_at: Mapped[datetime] = mapped_column(REGISTRATION_DATETIME)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    created_at: Mapped[datetime] = mapped_column(
-        REGISTRATION_DATETIME, server_default=func.now()
-    )
-    last_sent_at: Mapped[datetime] = mapped_column(REGISTRATION_DATETIME)
-    consumed_at: Mapped[datetime | None] = mapped_column(
-        REGISTRATION_DATETIME, default=None
-    )
+    created_at: Mapped[datetime] = mapped_column(REGISTRATION_DATETIME, server_default=func.now())
+    delivery_claimed_at: Mapped[datetime] = mapped_column(REGISTRATION_DATETIME)
+    activated_at: Mapped[datetime | None] = mapped_column(REGISTRATION_DATETIME, default=None)
+    consumed_at: Mapped[datetime | None] = mapped_column(REGISTRATION_DATETIME, default=None)
 
 
 # ── listing 一键出图：任务持久化 + 历史（ISSUE-0030，B 专表，与海报流彻底分开）──
@@ -163,9 +160,7 @@ class ListingJobRow(Base):
 
     __tablename__ = "listing_job"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "idempotency_key", name="uq_listing_job_user_idempotency"
-        ),
+        UniqueConstraint("user_id", "idempotency_key", name="uq_listing_job_user_idempotency"),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -236,15 +231,11 @@ class GenerationItemRow(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True, default=None
     )
-    heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     error_code: Mapped[str | None] = mapped_column(String(64), default=None)
     error_detail: Mapped[str | None] = mapped_column(Text, default=None)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -334,9 +325,7 @@ class ListingImageRow(Base):
 
 class ModelCallRow(Base):
     __tablename__ = "model_call"
-    __table_args__ = (
-        CheckConstraint("attempt_no >= 1", name="ck_model_call_attempt_no_positive"),
-    )
+    __table_args__ = (CheckConstraint("attempt_no >= 1", name="ck_model_call_attempt_no_positive"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
@@ -376,9 +365,7 @@ class ModelCallRow(Base):
 
 class AdminAuditLogRow(Base):
     __tablename__ = "admin_audit_log"
-    __table_args__ = (
-        Index("ix_admin_audit_log_target", "target_type", "target_id"),
-    )
+    __table_args__ = (Index("ix_admin_audit_log_target", "target_type", "target_id"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     actor_user_id: Mapped[int] = mapped_column(Integer, index=True)

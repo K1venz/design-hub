@@ -20,6 +20,7 @@ class RegisterVerificationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
+    challenge_id: str = Field(min_length=32, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     code: str = Field(pattern=r"^[0-9]{6}$")
 
 
@@ -27,10 +28,12 @@ class RegisterResendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
+    challenge_id: str = Field(min_length=32, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class RegistrationAcknowledgement(BaseModel):
     message: str
+    challenge_id: str
 
 
 class LoginRequest(BaseModel):

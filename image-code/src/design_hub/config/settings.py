@@ -1,16 +1,14 @@
-from email.utils import parseaddr
 from pathlib import Path
 from typing import Literal
 
+from email_validator import EmailNotValidError, validate_email
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # .env（本地真凭据，gitignored）覆盖 .env.development（占位，可入库）
-    model_config = SettingsConfigDict(
-        env_file=(".env.development", ".env"), extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=(".env.development", ".env"), extra="ignore")
 
     # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
     db_url: str = "sqlite+aiosqlite:///./design_hub.db"
@@ -136,12 +134,15 @@ class Settings(BaseSettings):
                 if not value
             ]
             if missing:
-                raise ValueError(
-                    f"SMTP mail delivery requires: {', '.join(missing)}"
+                raise ValueError(f"SMTP mail delivery requires: {', '.join(missing)}")
+            try:
+                validate_email(
+                    self.smtp_from.strip(),
+                    allow_smtputf8=False,
+                    check_deliverability=False,
                 )
-            display_name, mailbox = parseaddr(self.smtp_from, strict=True)
-            if display_name or mailbox != self.smtp_from.strip() or "@" not in mailbox:
-                raise ValueError("SMTP_FROM must be a valid mailbox address")
+            except EmailNotValidError as error:
+                raise ValueError("SMTP_FROM must be a valid mailbox address") from error
         return self
 
     # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储
