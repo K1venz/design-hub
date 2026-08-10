@@ -10,13 +10,13 @@ GHOST 技法：契约非法→400/422（反解前）、合法+随机 key→404�
 
 import asyncio
 import os
-import time
 
 import httpx
 
+from qa_auth import login_verified_account
+
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 EP = "/listing/edit"
-U = (f"qa-edit-b-{int(time.time())}@example.com", "qa-edit-123", "QA编辑边界")
 RKEY = "deadbeefdeadbeef"  # 随机 sha handle（反解无行→404）
 
 
@@ -53,10 +53,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     print(f"== 二次编辑边界/契约回归（预写）== BASE={BASE} EP={EP}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=60.0) as c:
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        H = {"Authorization": f"Bearer {r.json()['jwt']}"}
+        session = await login_verified_account(c)
+        H = {"Authorization": f"Bearer {session.jwt}"}
         # 端点存在性探测（不走 /openapi.json，docs 默认关后 404）：空 body→路由缺=404
         if (await c.post(EP, headers=H, json={})).status_code == 404:
             raise SystemExit(f"⏳ {EP} 尚未上线（dev 未实现 / ops 未重建 qa）——预写待落地后跑。")

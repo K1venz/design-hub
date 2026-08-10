@@ -16,12 +16,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import AccountSlot, login_verified_account
 from PIL import Image
 
 BASE = (os.environ.get("PROD_BASE") or os.environ.get("QA_BASE") or "").rstrip("/")
 PREFIX = os.environ.get("API_PREFIX", "").rstrip("/")
-EMAIL = os.environ.get("ADMIN_EMAIL", "")
-PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 OVERLAY = [t for t in os.environ.get("OVERLAY", "清脆爽口,甘香回甜").split(",") if t.strip()]
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/admin卖点test")
 PRODUCT = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
@@ -59,18 +59,16 @@ async def wait_job(c, H, tok, job):  # noqa: ANN001
 
 
 async def main() -> None:
-    if not (BASE and EMAIL and PASSWORD):
+    if not BASE:
         raise SystemExit("✋ 需 PROD_BASE/ADMIN_EMAIL/ADMIN_PASSWORD。")
     OUT.mkdir(exist_ok=True)
-    print(f"== admin 卖点图(带角标)实测 == BASE={BASE}{PREFIX or ''} 账号={EMAIL}")
+    print(f"== admin 卖点图(带角标)实测 == BASE={BASE}{PREFIX or ''} 账号=runtime ADMIN_EMAIL")
     print(f"   产品=花生  plan={PLAN}  overlay_texts={OVERLAY}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=900.0) as c:
-        r = await c.post(f"{PREFIX}/auth/login", json={"email": EMAIL, "password": PASSWORD})
-        if r.status_code != 200:
-            raise SystemExit(f"🔴 登录失败 {r.status_code}: {r.text[:200]}")
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX, slot=AccountSlot.ADMIN)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
-        print(f"  登录成功 role={r.json().get('role')} name={r.json().get('name')}")
+        print(f"  Login succeeded for {session.email}")
         uid = (await c.post(f"{PREFIX}/uploads", headers=H, files={"file": ("p.png", to_png(PRODUCT), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "电商主图：产品主体清晰、背景干净得体、质感真实突出",
                 "ratio": "1:1", "category": "FOOD", "modifiers": MODS, "plan": PLAN, "overlay_texts": OVERLAY}

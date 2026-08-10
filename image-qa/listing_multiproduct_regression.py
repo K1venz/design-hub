@@ -15,13 +15,12 @@ import time
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品")
-A = ("qa-multiprod@example.com", "qa-multiprod-123", "QA多产品回归")
-
-# (label, 产品参考图路径) —— 非花生图路径待 coordinator/用户给后填入
 PRODUCTS = [
     ("花生", "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"),
     ("润喉糖", "/Users/Zhuanz/Downloads/6e746f45b2cb84cb5eedc38f4b0c7106.jpg"),  # 怀恩堂无糖桉叶油润喉糖(瓶装)·用户测的非花生产品
@@ -73,10 +72,8 @@ async def main() -> None:
         print("⚠️ 只有花生图——多产品回归需非花生产品图（润喉糖+第三品类），填进 PRODUCTS 后再跑。")
     OUT.mkdir(exist_ok=True)
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": A[0], "password": A[1], "name": A[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": A[0], "password": A[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         for label, path in PRODUCTS:
             if not Path(path).exists():

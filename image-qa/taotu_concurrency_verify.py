@@ -17,6 +17,8 @@ import time
 from decimal import Decimal
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = (os.environ.get("QA_BASE") or os.environ.get("PROD_BASE") or "").rstrip("/")
@@ -25,7 +27,6 @@ REPEAT = int(os.environ.get("REPEAT", "3"))
 PLAN = {k: int(v) for k, v in (p.split(":") for p in os.environ.get("PLAN", "白底:2,场景:4,卖点:4").split(","))}
 TOTAL = sum(PLAN.values())
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
-U = (f"qa-conc-{int(time.time())}@example.com", "qa-conc-123", "QA并发验证")
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 
 
@@ -67,10 +68,8 @@ async def main() -> None:
     print(f"   plan={PLAN} 总数={TOTAL} 连跑 REPEAT={REPEAT} 遍(压并发，间歇 429 多遍验)")
     full = 0
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=1200.0) as c:
-        r = await c.post(f"{PREFIX}/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post(f"{PREFIX}/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post(f"{PREFIX}/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "电商主图：产品主体清晰、背景干净得体、质感真实突出",

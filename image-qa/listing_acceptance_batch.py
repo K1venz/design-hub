@@ -11,7 +11,7 @@
 ★ 预算硬顶：累计真实出图张数到 QA_MAX_IMAGES（默认 50，守 60 红线留 buffer）即停。
 
 两阶段防误刷成本：
-  # 阶段0 干跑：只 register+upload，打印存储落点（自查/问 ops 确认是 qa 桶非 prod 后再真跑）
+  # 阶段0 干跑：用已验证账号 login+upload，打印存储落点（自查/问 ops 确认是 qa 桶非 prod 后再真跑）
   QA_BASE=http://127.0.0.1:8444 uv run python ../image-qa/listing_acceptance_batch.py
   # 阶段1 真跑：确认存储落点后
   QA_BASE=http://127.0.0.1:8444 QA_CONFIRM_COSTED=1 uv run python ../image-qa/listing_acceptance_batch.py
@@ -25,6 +25,8 @@ import time
 from decimal import Decimal
 
 import httpx
+
+from qa_auth import AccountSlot, login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
@@ -33,8 +35,6 @@ MAX_IMAGES = int(os.environ.get("QA_MAX_IMAGES", "50"))
 SRC = os.environ.get(
     "QA_SRC", "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 )
-A = ("qa-acc-a@example.com", "qa-acc-a-123", "验收用户A")  # 避开保留 TLD .local/.test(422, ops #88)
-B = ("qa-acc-b@example.com", "qa-acc-b-123", "验收用户B")
 
 # F1 happy 采样：覆盖几个平台×比例组合（n=1），凑可用率样本
 HAPPY_MATRIX = [
@@ -60,11 +60,9 @@ def to_png(path: str, side: int = 1024) -> bytes:
     return b.getvalue()
 
 
-async def tok(c: httpx.AsyncClient, email: str, pw: str, name: str) -> str:
-    r = await c.post("/auth/register", json={"email": email, "password": pw, "name": name})
-    if r.status_code != 200:
-        r = await c.post("/auth/login", json={"email": email, "password": pw})
-    return r.json()["jwt"]
+async def tok(c: httpx.AsyncClient, slot: AccountSlot) -> str:
+    session = await login_verified_account(c, slot=slot)
+    return session.jwt
 
 
 async def wait_sse(c: httpx.AsyncClient, token: str, job: str) -> tuple[list[str], float]:
@@ -122,8 +120,8 @@ async def main() -> None:
     print(f"== ISSUE-0035 批量验收 == BASE={BASE} costed={COSTED} max_images={MAX_IMAGES}")
 
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        ta = await tok(c, *A)
-        tb = await tok(c, *B)
+        ta = await tok(c, AccountSlot.PRIMARY)
+        tb = await tok(c, AccountSlot.SECONDARY)
         Ha = {"Authorization": f"Bearer {ta}"}
         Hb = {"Authorization": f"Bearer {tb}"}
 

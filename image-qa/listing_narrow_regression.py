@@ -11,12 +11,13 @@ import os
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/花生提示词AB")
-A = ("qa-narrow-reg@example.com", "qa-narrow-reg-123", "QA收窄回归")
 GHOST = "0000000000000000.png"  # 不存在/非自有 → 过 compose 后卡 owns→404
 R: list[tuple[str, bool]] = []
 
@@ -47,10 +48,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     print(f"== 表单收窄轮回归 == BASE={BASE}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": A[0], "password": A[1], "name": A[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": A[0], "password": A[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
 
         # ② 旧默认 platform=亚马逊 → 400（修了默认 400 的负例）

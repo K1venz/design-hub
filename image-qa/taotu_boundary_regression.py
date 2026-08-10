@@ -7,12 +7,12 @@ GHOST 技法：合法契约 + 幽灵 upload id → 校验通过后卡 owns→404
 
 import asyncio
 import os
-import time
 
 import httpx
 
+from qa_auth import login_verified_account
+
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
-U = (f"qa-taotu-b-{int(time.time())}@example.com", "qa-taotu-123", "QA套图边界")
 GHOST = "0000000000000000.png"
 
 
@@ -59,10 +59,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     print(f"== 套图边界/契约回归 (0e9ee9d) == BASE={BASE}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=60.0) as c:
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        H = {"Authorization": f"Bearer {r.json()['jwt']}"}
+        session = await login_verified_account(c)
+        H = {"Authorization": f"Bearer {session.jwt}"}
         npass = 0
         for label, b, expect in CASES:
             resp = await c.post("/listing/generate", headers=H, json=b)

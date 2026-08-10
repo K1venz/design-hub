@@ -15,12 +15,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import AccountSlot, login_verified_account
 from PIL import Image
 
 BASE = (os.environ.get("PROD_BASE") or os.environ.get("QA_BASE") or "").rstrip("/")
 PREFIX = os.environ.get("API_PREFIX", "").rstrip("/")
-EMAIL = os.environ.get("ADMIN_EMAIL", "")
-PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/admin套图test")
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 PLAN = {"白底": 1, "场景": 2, "卖点": 2}  # 默认套图 5 张
@@ -69,17 +69,15 @@ async def dl(url, fname):  # noqa: ANN001
 
 
 async def main() -> None:
-    if not (BASE and EMAIL and PASSWORD):
+    if not BASE:
         raise SystemExit("✋ 需 PROD_BASE/ADMIN_EMAIL/ADMIN_PASSWORD。")
     OUT.mkdir(exist_ok=True)
-    print(f"== admin 套图实测 == BASE={BASE}{PREFIX or ''} 账号={EMAIL}")
+    print(f"== admin 套图实测 == BASE={BASE}{PREFIX or ''} 账号=runtime ADMIN_EMAIL")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=900.0) as c:
-        r = await c.post(f"{PREFIX}/auth/login", json={"email": EMAIL, "password": PASSWORD})
-        if r.status_code != 200:
-            raise SystemExit(f"🔴 登录失败 {r.status_code}: {r.text[:200]}")
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX, slot=AccountSlot.ADMIN)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
-        print(f"  登录成功 role={r.json().get('role')} name={r.json().get('name')}")
+        print(f"  Login succeeded for {session.email}")
 
         summary = []
         for label, src, overlay in PRODUCTS:
