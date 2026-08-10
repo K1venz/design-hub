@@ -174,14 +174,14 @@ SMTP_PASSWORD=
 SMTP_FROM=no-reply@image.sepaitech.com
 SMTP_USE_TLS=false
 MAIL_DELIVERY_MODE=smtp
-PASSWORD_RESET_CODE_PEPPER=__GENERATED_64_HEX__
+EMAIL_VERIFICATION_CODE_PEPPER=__GENERATED_64_HEX__
 ```
 
 容器内 SMTP 不启用 TLS，因为链路只存在于未发布端口的 Docker 网络。Postfix 到公网收件服务器的 TLS 由 Postfix 独立管理。
 
 应用配置增加显式 `MAIL_DELIVERY_MODE`：值只能是 `smtp` 或 `log`。`smtp` 模式若缺少 `SMTP_HOST`、`SMTP_FROM` 或重置码 pepper，启动立即失败；服务器 `.env` 固定使用 `smtp`。`LoggingMailer` 只允许本地开发与测试显式选择 `log`，且日志内容不得包含验证码正文。
 
-重置码 pepper 与 JWT secret 分离，新增独立的 `PASSWORD_RESET_CODE_PEPPER`，由部署脚本生成并保存到 `.env`。
+本设计的旧 `PASSWORD_RESET_CODE_PEPPER` 名称已被注册邮箱验证设计明确取代。注册与重置码共用服务端 `EMAIL_VERIFICATION_CODE_PEPPER`，通过 purpose 前缀隔离 HMAC 输入；部署先安全快照真实 `.env`，再原子迁移键名，不保留兼容别名。
 
 ## 10. DNS 与云平台配置
 

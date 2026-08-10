@@ -5,11 +5,11 @@ services:
   dkim:
     build:
       context: ./mail/opendkim
-    image: design-hub-opendkim:latest
+    image: design-hub-opendkim:${MAIL_IMAGE_RELEASE:-stable}
     container_name: design-hub-dkim
     restart: unless-stopped
     volumes:
-      - /data/docker/design-hub/mail/dkim:/etc/dkimkeys
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/mail/dkim:/etc/dkimkeys
     networks:
       mail:
         ipv4_address: 172.29.0.11
@@ -28,7 +28,7 @@ services:
   smtp:
     build:
       context: ./mail/postfix
-    image: design-hub-postfix:latest
+    image: design-hub-postfix:${MAIL_IMAGE_RELEASE:-stable}
     container_name: design-hub-smtp
     restart: unless-stopped
     environment:
@@ -36,7 +36,7 @@ services:
       MAIL_DOMAIN: image.sepaitech.com
       MAIL_NETWORKS: 172.29.0.0/24
     volumes:
-      - /data/docker/design-hub/mail/spool:/var/spool/postfix
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/mail/spool:/var/spool/postfix
     networks:
       mail:
         ipv4_address: 172.29.0.10
@@ -76,7 +76,7 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:
-      - /data/docker/design-hub/redis:/data
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/redis:/data
     networks:
       - default
     expose:
@@ -94,16 +94,16 @@ services:
 
   api:
     build:
-      context: ./app
-    image: design-hub-api:latest
+      context: ../app
+    image: ${API_IMAGE_REPOSITORY:-design-hub-api}:${RELEASE_ID:?RELEASE_ID is required}
     container_name: design-hub-api
     restart: unless-stopped
     env_file:
-      - .env
+      - ${DESIGN_HUB_ENV_FILE:?DESIGN_HUB_ENV_FILE is required}
     volumes:
-      - /data/docker/design-hub/generated:/app/generated
-      - /data/docker/design-hub/assets:/app/assets
-      - /data/docker/design-hub/exports:/app/exports
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/generated:/app/generated
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/assets:/app/assets
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/exports:/app/exports
     networks:
       - default        # 与 nginx 同网
       - mysql_default   # 连现有 MySQL（host=mysql:3306）
@@ -121,19 +121,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+    labels:
+      com.design-hub.release: ${RELEASE_ID:?RELEASE_ID is required}
 
   worker:
-    image: design-hub-api:latest
+    image: ${API_IMAGE_REPOSITORY:-design-hub-api}:${RELEASE_ID:?RELEASE_ID is required}
     container_name: design-hub-worker
     restart: unless-stopped
     command: ["python", "-m", "design_hub.interface.worker"]
     stop_grace_period: 45s
     env_file:
-      - .env
+      - ${DESIGN_HUB_ENV_FILE:?DESIGN_HUB_ENV_FILE is required}
     volumes:
-      - /data/docker/design-hub/generated:/app/generated
-      - /data/docker/design-hub/assets:/app/assets
-      - /data/docker/design-hub/exports:/app/exports
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/generated:/app/generated
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/assets:/app/assets
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/exports:/app/exports
     networks:
       - default
       - mysql_default
@@ -156,24 +158,26 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+    labels:
+      com.design-hub.release: ${RELEASE_ID:?RELEASE_ID is required}
 
   nginx:
     image: nginx:1.27-alpine
     container_name: design-hub-nginx
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
-      - ./web:/usr/share/nginx/html:ro   # image-web/dist（前端构建产物，rsync 上来）
-      - /data/docker/design-hub/generated:/usr/share/nginx/img:ro   # 出图结果静态服务(ISSUE-0029)
+      - ${DESIGN_HUB_RELEASE_DIR:?DESIGN_HUB_RELEASE_DIR is required}/deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${DESIGN_HUB_SHARED_DIR:?DESIGN_HUB_SHARED_DIR is required}/nginx/certs:/etc/nginx/certs:ro
+      - ${DESIGN_HUB_RELEASE_DIR:?DESIGN_HUB_RELEASE_DIR is required}/web:/usr/share/nginx/html:ro
+      - ${DESIGN_HUB_STATE_DIR:?DESIGN_HUB_STATE_DIR is required}:/etc/design-hub-state:ro
+      - ${DESIGN_HUB_DATA_DIR:?DESIGN_HUB_DATA_DIR is required}/generated:/usr/share/nginx/img:ro
     networks:
       - default
+    labels:
+      com.design-hub.release: ${RELEASE_ID:?RELEASE_ID is required}
 
 networks:
   default:

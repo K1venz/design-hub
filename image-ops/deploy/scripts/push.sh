@@ -1,40 +1,100 @@
 #!/usr/bin/env bash
-# 本地执行：构建前端 + 把源码 + 部署产物 + 前端 dist 推到服务器。推完在服务器跑 deploy.sh 重建。
-# 用法：bash image-ops/deploy/scripts/push.sh
-# 可用环境变量覆盖：DEPLOY_KEY、DEPLOY_HOST
-#
-# 为何前端无条件重建：B-1② 去掉 CI auto-deploy(原本 npm build+ship dist)后，前端 build+部署=手动。
-# 手搓 rsync 部署必漏前端(0040 demo 实锤：ship 了旧 bundle、/edit 路由不在)。故 push.sh 是唯一部署入口，
-# 每次无条件重建 dist 杜绝 stale/漏建。需 node(版本见 image-web/.nvmrc)。
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")/.." && pwd)"   # image-ops/deploy
-REPO="$(cd "$HERE/../.." && pwd)"          # image-gen 仓库根
-KEY="${DEPLOY_KEY:-$HOME/.ssh/dh_deploy_ed25519}"
-HOST="${DEPLOY_HOST:-root@14.103.51.191}"
-DEST="/opt/docker/design-hub"
-RSH="ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+deploy_source="${DEPLOY_SOURCE_DIR:-$(cd "$script_dir/.." && pwd)}"
+repo_root="${REPO_ROOT:-$(cd "$deploy_source/../.." && pwd)}"
+npm_bin="${NPM_BIN:-npm}"
+release_id="${RELEASE_ID:-}"
 
-echo "==> [1/4] 构建前端 dist（每次无条件重建，杜绝 stale/漏建）"
-( cd "$REPO/image-web" && npm ci --legacy-peer-deps && npm run build )
-[ -f "$REPO/image-web/dist/index.html" ] || { echo "ERROR: 前端构建未产出 dist/index.html，中止部署"; exit 1; }
+if [[ -z "$release_id" ]]; then
+  source_commit="$(git -C "$repo_root" rev-parse --short=12 HEAD)"
+  release_id="${source_commit}-$(date -u +%Y%m%dT%H%M%SZ)"
+else
+  source_commit="$(git -C "$repo_root" rev-parse --short=12 HEAD 2>/dev/null || printf unknown)"
+fi
+if [[ ! "$release_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ ]]; then
+  echo "ERROR: RELEASE_ID must be an immutable filesystem-safe identifier" >&2
+  exit 1
+fi
 
-echo "==> [2/4] 源码 → app/（--delete 保持纯净；保护 Dockerfile/.dockerignore 不被删）"
-rsync -az --delete \
-  --exclude '.venv/' --exclude '__pycache__/' --exclude '*.pyc' \
-  --exclude '.mypy_cache/' --exclude '.ruff_cache/' --exclude '.pytest_cache/' \
-  --exclude '*.db' --exclude 'generated/' --exclude 'assets/' --exclude 'exports/' \
-  --exclude '.env' --exclude '.env.development' --exclude '.DS_Store' --exclude '.git/' \
-  --exclude 'Dockerfile' --exclude '.dockerignore' \
-  -e "$RSH" "$REPO/image-code/" "$HOST:$DEST/app/"
+echo "==> [1/3] Building the SPA for release ${release_id}"
+(
+  cd "$repo_root/image-web"
+  "$npm_bin" ci --legacy-peer-deps
+  "$npm_bin" run build
+)
+[[ -f "$repo_root/image-web/dist/index.html" ]] || {
+  echo "ERROR: frontend build did not produce dist/index.html" >&2
+  exit 1
+}
 
-echo "==> [3/4] 部署产物 → design-hub/（含 app/Dockerfile、compose、nginx、scripts；不删服务器 .env/certs/web）"
-rsync -az -e "$RSH" "$HERE/" "$HOST:$DEST/"
+manifest_dir="$(mktemp -d)"
+trap 'rm -rf "$manifest_dir"' EXIT
+web_sha256="$(sha256sum "$repo_root/image-web/dist/index.html" | cut -d' ' -f1)"
+cat > "$manifest_dir/release.env" <<ENV
+RELEASE_ID=${release_id}
+SOURCE_COMMIT=${source_commit}
+WEB_INDEX_SHA256=${web_sha256}
+ENV
 
-echo "==> [4/4] 前端 dist → web/（--delete 清旧 bundle；dist 必存在=步骤[1]产出）"
-rsync -az --delete -e "$RSH" "$REPO/image-web/dist/" "$HOST:$DEST/web/"
+copy_tree() {
+  local source="$1"
+  local destination="$2"
+  shift 2
+  mkdir -p "$destination"
+  tar -C "$source" "$@" -cf - . | tar -C "$destination" -xf -
+}
 
-echo "==> 推送完成。下一步在服务器重建（带迁移前 mysqldump 备份）："
-echo "    $RSH $HOST 'cd $DEST && bash scripts/deploy.sh'"
-echo "==> nginx conf 若有改动，deploy.sh 后另跑（零停机）："
-echo "    $RSH $HOST 'docker exec design-hub-nginx nginx -t && docker exec design-hub-nginx nginx -s reload'"
+if [[ -n "${DEPLOY_LOCAL_ROOT:-}" ]]; then
+  deploy_root="$DEPLOY_LOCAL_ROOT"
+  incoming="$deploy_root/.incoming/$release_id"
+  target="$deploy_root/releases/$release_id"
+  if [[ -e "$incoming" || -e "$target" ]]; then
+    echo "ERROR: release ${release_id} already exists" >&2
+    exit 1
+  fi
+
+  echo "==> [2/3] Staging immutable release locally"
+  mkdir -p "$incoming" "$deploy_root/releases"
+  copy_tree "$repo_root/image-code" "$incoming/app" \
+    --exclude=.venv --exclude=__pycache__ --exclude='*.pyc' \
+    --exclude=.mypy_cache --exclude=.ruff_cache --exclude=.pytest_cache \
+    --exclude='*.db' --exclude=generated --exclude=assets --exclude=exports \
+    --exclude=.env --exclude=.env.development --exclude=.git
+  copy_tree "$deploy_source" "$incoming/deploy" --exclude=.env --exclude=nginx/certs
+  copy_tree "$repo_root/image-web/dist" "$incoming/web"
+  cp "$manifest_dir/release.env" "$incoming/release.env"
+  [[ -f "$incoming/app/pyproject.toml" || -f "$incoming/app/app.txt" ]]
+  [[ -f "$incoming/web/index.html" ]]
+  [[ -f "$incoming/deploy/compose.yml" ]]
+  mv "$incoming" "$target"
+else
+  key="${DEPLOY_KEY:-$HOME/.ssh/dh_deploy_ed25519}"
+  host="${DEPLOY_HOST:-root@14.103.51.191}"
+  deploy_root="${DEPLOY_ROOT:-/opt/docker/design-hub}"
+  rsh="ssh -i $key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  incoming="$deploy_root/.incoming/$release_id"
+  target="$deploy_root/releases/$release_id"
+
+  echo "==> [2/3] Uploading only to ${incoming}"
+  ssh -i "$key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$host" \
+    "set -eu; test ! -e '$incoming'; test ! -e '$target'; mkdir -p '$incoming/app' '$incoming/deploy' '$incoming/web' '$deploy_root/releases'"
+  rsync -az --delete \
+    --exclude '.venv/' --exclude '__pycache__/' --exclude '*.pyc' \
+    --exclude '.mypy_cache/' --exclude '.ruff_cache/' --exclude '.pytest_cache/' \
+    --exclude '*.db' --exclude 'generated/' --exclude 'assets/' --exclude 'exports/' \
+    --exclude '.env' --exclude '.env.development' --exclude '.DS_Store' --exclude '.git/' \
+    -e "$rsh" "$repo_root/image-code/" "$host:$incoming/app/"
+  rsync -az --delete --exclude '.env' --exclude 'nginx/certs/' \
+    -e "$rsh" "$deploy_source/" "$host:$incoming/deploy/"
+  rsync -az --delete -e "$rsh" "$repo_root/image-web/dist/" "$host:$incoming/web/"
+  rsync -az -e "$rsh" "$manifest_dir/release.env" "$host:$incoming/release.env"
+  ssh -i "$key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$host" \
+    "set -eu; test -f '$incoming/app/pyproject.toml'; test -f '$incoming/web/index.html'; test -f '$incoming/deploy/compose.yml'; mv '$incoming' '$target'"
+fi
+
+echo "==> [3/3] RELEASE_STAGED=${release_id}"
+if [[ -z "${DEPLOY_LOCAL_ROOT:-}" ]]; then
+  echo "Run: ssh ${host} 'bash ${target}/deploy/scripts/deploy.sh ${release_id}'"
+fi

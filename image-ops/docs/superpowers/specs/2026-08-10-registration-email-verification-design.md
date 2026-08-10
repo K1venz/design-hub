@@ -10,15 +10,17 @@ then does the system create the user and issue the existing HS256 login JWT.
 
 1. The user enters email, name, and password on the registration page.
 2. The browser encrypts the password with the existing RSA-OAEP public key.
-3. `POST /auth/register` validates the request, creates a pending registration,
-   and emails a six-digit verification code. It does not create an `app_user`
-   row or issue a JWT.
+3. `POST /auth/register` atomically claims a provisional registration, emails a
+   six-digit verification code, activates only that delivered claim, and returns
+   an unguessable `challenge_id`. It does not create an `app_user` row or issue
+   a JWT.
 4. The registration page moves to a verification step with a resend countdown.
-5. `POST /auth/register/verify` validates the email and code. Success atomically
-   creates the user, consumes the pending registration, and returns the normal
-   login response with an HS256 JWT.
-6. `POST /auth/register/resend` replaces the code while retaining the pending
-   email, password hash, and name.
+5. `POST /auth/register/verify` validates the email, `challenge_id`, and code.
+   Success atomically creates the user, consumes the active registration, and
+   returns the normal login response with an HS256 JWT.
+6. `POST /auth/register/resend` atomically claims a replacement delivery while
+   retaining the email, password hash, and name. It rotates and returns the
+   public `challenge_id`; the browser replaces its in-memory identifier.
 
 An already registered email is rejected with HTTP 409. An unverified email is
 not a user and cannot log in.
@@ -27,13 +29,17 @@ not a user and cannot log in.
 
 The new `registration_challenge` table stores one row per normalized email:
 
+- an unguessable public challenge identifier, rotated by a new registration or
+  resend and returned only after activation succeeds;
+- a separate unguessable delivery identifier used only for repository CAS;
 - normalized email as a unique key;
 - display name;
 - password hash, never the plaintext or RSA ciphertext;
 - HMAC-SHA256 verification-code digest;
 - expiry timestamp;
 - failed-attempt count;
-- creation and last-send timestamps;
+- explicit `pending_delivery`, `active`, and `consumed` delivery state;
+- creation, delivery-claim, and activation timestamps;
 - consumed timestamp.
 
 Both registration and password reset use a renamed server-only
@@ -44,15 +50,25 @@ retained as a compatibility alias. The shared helper uses HMAC-SHA256 rather tha
 concatenated plain SHA-256 input.
 
 The code is valid for ten minutes, resend is blocked for sixty seconds, and five
-failed attempts lock the current challenge. Resend invalidates the prior code.
-Plaintext codes are never stored or logged.
+failed attempts lock the current challenge. A new registration request rotates
+the browser identity, so an older browser cannot verify replacement profile or
+password data. Resend rotates both delivery and public identities, making an
+ambiguous activation result unusable because the replacement identifier was not
+returned. Plaintext codes are never stored or logged.
 
 ## Transaction Boundary
 
-Verification locks the pending registration row and rechecks that no user owns
-the email. User creation and challenge consumption occur in one database
-transaction. Unique constraints remain the final concurrency guard. A duplicate
-created concurrently is returned as HTTP 409 without issuing a JWT.
+Initial issuance and resend are typed repository claims. Each claim locks or
+atomically inserts the email row, rechecks cooldown and the expected public
+identity, and returns claimed, cooldown, contention, invalid, or already-
+registered. Only the claimed winner sends mail. Exact MySQL, PostgreSQL, and
+SQLite uniqueness/deadlock classifications are translated; unrelated database
+errors propagate.
+
+Verification uses both public and delivery identities. User creation and
+challenge consumption occur in one database transaction. Unique constraints
+remain the final concurrency guard. A duplicate created concurrently is returned
+as HTTP 409 without issuing a JWT.
 
 The registration repository owns this transaction rather than coordinating two
 independent repositories from the application service.
@@ -67,9 +83,12 @@ Registration and password-reset email both use the shared branded
 - a unique sender-domain `Message-ID`;
 - `Auto-Submitted: auto-generated`.
 
-If initial registration email delivery fails, the pending challenge is
-invalidated and the request fails. If resend delivery fails, the newly generated
-code is invalidated; the superseded code does not become valid again.
+Every claimed code starts as `pending_delivery` and is therefore unverifiable.
+After SMTP succeeds, an expected-public-ID plus expected-delivery-ID CAS changes
+only that claim to `active`. Delivery or activation failure attempts the same
+identity-bound invalidation. Even when delivery/activation and invalidation fail
+together, no usable challenge identity is returned; an older identifier cannot
+address the replacement delivery.
 
 ## JWT
 
@@ -80,27 +99,28 @@ secret remains the high-entropy server environment secret, and the existing
 
 ## API and Frontend Contract
 
-`POST /auth/register` changes from `LoginResponse` to an acknowledgement response.
-There is no backward-compatibility endpoint. The frontend is updated in the same
-release.
+`POST /auth/register` changes from `LoginResponse` to
+`{message, challenge_id}`. There is no backward-compatibility endpoint. The
+frontend is updated in the same release.
 
-`POST /auth/register/verify` accepts normalized email and a six-digit code and
-returns `LoginResponse`.
+`POST /auth/register/verify` accepts normalized email, `challenge_id`, and a
+six-digit code and returns `LoginResponse`.
 
-`POST /auth/register/resend` accepts the email and returns an acknowledgement.
-It does not accept replacement profile or password data.
+`POST /auth/register/resend` accepts email and `challenge_id`, and returns an
+acknowledgement containing the rotated `challenge_id`. It does not accept
+replacement profile or password data.
 
-The UI preserves the pending email between steps, masks it in explanatory copy,
-supports resend after the cooldown, and returns to the registration form when
-the pending request has expired. Passwords and codes are not persisted in local
-storage.
+The UI preserves only `{email, challengeId}` in component memory between steps,
+masks the email in explanatory copy, restarts a deadline-based countdown after
+resend, and returns to the form when the pending request has expired. Passwords,
+codes, and registration identity are not persisted in browser storage.
 
 ## Rate Limits and Enumeration
 
-Application rules enforce per-email cooldown and attempt limits. nginx applies
-IP limits to register, verify, and resend endpoints. Registered-email conflicts
-retain the current explicit 409 behavior; verification failures use one generic
-invalid-or-expired-code message.
+Repository claims enforce per-email cooldown; active-delivery CAS enforces
+attempt limits. nginx applies IP limits to register, verify, and resend endpoints.
+Registered-email conflicts retain the current explicit 409 behavior;
+verification failures use one generic invalid-or-expired-code message.
 
 ## Migration and Existing Accounts
 
@@ -116,23 +136,30 @@ Backend tests cover:
 - registration request sends a code but creates no user or JWT;
 - successful verification creates exactly one user and returns HS256 JWT;
 - invalid, expired, exhausted, and superseded codes fail;
-- resend cooldown and replacement behavior;
-- mail failure invalidates the new challenge;
+- atomic issuance/resend ownership and cooldown under concurrency;
+- public identity rotation prevents password/profile takeover;
+- pending delivery is unverifiable until exact activation CAS;
+- mail, activation, and invalidation double failures remain fail-closed;
 - duplicate and concurrent verification cannot create duplicate users;
 - pending users cannot log in;
 - code digests are purpose-separated HMAC-SHA256 values;
 - branded standard mail headers are present and Message-IDs are unique.
 
-Frontend tests cover the registration step transition, code submission, resend
-countdown, expiry recovery, and successful authenticated navigation.
+Frontend tests cover challenge propagation/rotation, storage and auth-state
+invariants, the zero-to-resend-to-zero countdown, error precedence, step
+accessibility, expiry recovery, and successful authenticated navigation.
 
-Deployment checks cover the new environment value and nginx rate-limit routes.
-The complete backend and frontend suites, Ruff, TypeScript compilation, and
-production build must pass before deployment.
+Deployment checks execute version staging, legacy environment snapshot/migration,
+maintenance protection, candidate health, web switching, automatic rollback,
+and explicit-only schema restore. They also cover the new environment value and
+nginx generic/exact proxy semantics. The complete backend and frontend suites,
+Ruff, TypeScript compilation, and production build must pass before deployment.
 
 ## Production Acceptance
 
-1. Deploy the application and migration after taking the normal database backup.
+1. Stage one immutable release and let the release orchestrator snapshot the
+   environment, enable maintenance, back up the database, and migrate with the
+   candidate image.
 2. Verify all containers are healthy and the Postfix queue is empty.
 3. Register a user-supplied runtime test alias, receive the code in its inbox,
    verify it, and confirm login succeeds.
@@ -158,6 +185,7 @@ files.
 
 ## Rollback
 
-Rollback restores the pre-release application image and database backup when
-schema rollback is required. DNS and SMTP services are unchanged. Because the
-frontend and registration API contract change together, they roll back together.
+Normal rollback restores the previous immutable API/worker image, versioned SPA,
+and pre-release environment snapshot together. It does not restore the database.
+Database restore is available only through the explicit schema-rollback option
+and an operator-supplied backup. DNS and SMTP services are unchanged.

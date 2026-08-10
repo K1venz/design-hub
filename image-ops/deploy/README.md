@@ -1,161 +1,174 @@
-# design-hub 生产部署与邮件运维
+# Design Hub production release and mail operations
 
-当前生产栈由前端 SPA、FastAPI、Generation Worker、Redis、Postfix、OpenDKIM、nginx 和现有 MySQL 8.4 组成。事务邮件使用服务器内自建 SMTP 投递，统一发件人为 `Design Hub <no-reply@image.sepaitech.com>`。
+The production stack contains the versioned SPA, FastAPI API, generation worker,
+Redis, Postfix, OpenDKIM, nginx, and the existing MySQL 8.4 service. Transactional
+mail uses the private Docker SMTP network and the identity
+`Design Hub <no-reply@image.sepaitech.com>`.
 
-完整设计与安全边界见 [`docs/superpowers/specs/2026-08-10-internal-smtp-design.md`](../docs/superpowers/specs/2026-08-10-internal-smtp-design.md)。
+## Release layout
 
-## 服务器与目录
-
-- 服务器：`14.103.51.191`（Ubuntu 24.04）
-- 应用目录：`/opt/docker/design-hub`
-- 持久化目录：`/data/docker/design-hub`
-- 现有 MySQL：`/opt/docker/mysql`，外部 Docker 网络 `mysql_default`
+`push.sh` never writes the live application or web mount. It uploads a complete
+candidate to `.incoming/<release-id>` and finalizes it with a same-filesystem
+rename only after the API source, SPA index, compose file, and release manifest
+are present.
 
 ```text
 /opt/docker/design-hub/
-├── compose.yml
-├── .env                         # 生产密钥，仅服务器保存，权限 600
-├── app/                         # image-code 构建上下文
-├── mail/
-│   ├── postfix/
-│   └── opendkim/
-├── nginx/
-├── scripts/
-└── web/
+├── .incoming/                    # incomplete uploads; never served
+├── releases/<release-id>/
+│   ├── app/                      # immutable API build context
+│   ├── web/                      # immutable SPA build
+│   ├── deploy/                   # compose, nginx, mail, release scripts
+│   └── release.env               # ID, source commit, SPA index hash; no secrets
+├── shared/
+│   ├── .env                      # production environment, mode 600
+│   └── nginx/certs/
+├── state/
+│   ├── active-release
+│   ├── previous-release
+│   ├── maintenance               # presence makes HTTPS return 503
+│   └── env-snapshots/<release>.before.env
+
+/root/db-backup-<release>-<timestamp>.sql
 
 /data/docker/design-hub/
 ├── redis/
 ├── generated/
 ├── assets/
 ├── exports/
-└── mail/
-    ├── spool/                   # Postfix 队列
-    ├── dkim/                    # DKIM 私钥和公开记录，权限 700
-    └── dns-records.txt          # 部署生成的 DNS 配置清单
+└── mail/{spool,dkim}/
 ```
 
-## 邮件网络与安全边界
+The API and worker image is tagged `design-hub-api:<release-id>` and is never
+rebuilt under an existing identity. Compose labels API, worker, and nginx with
+the same release ID. nginx binds only `releases/<release-id>/web` selected by the
+release orchestrator.
 
-- `mail` 网络固定为 `172.29.0.0/24`。
-- Postfix 固定地址 `172.29.0.10`，OpenDKIM 固定地址 `172.29.0.11`。
-- 只有 API 接入 `mail` 网络；Worker、nginx、Redis 均无法连接 SMTP。
-- SMTP 仅在容器网络暴露 25 端口，不映射到宿主机，不是公网开放中继。
-- Postfix 只信任回环地址和 `172.29.0.0/24`，其他来源直接拒绝。
-- API 使用 `SMTP_HOST=smtp`、`SMTP_PORT=25`、无认证、无 TLS；这是受限 Docker 内网连接。
-- `EMAIL_VERIFICATION_CODE_PEPPER` 独立于 JWT 密钥，由部署脚本生成 64 位十六进制随机值。
-- OpenDKIM 私钥只保存在 `/data/docker/design-hub/mail/dkim/designhub.private`，不进入代码仓库或应用容器。
+## Staging and deploying
 
-## 部署
-
-### 用户注册邮箱验证发布顺序
-
-发布邮箱验证功能时，请按以下顺序执行：
-
-1. 先备份 MySQL `design_hub` 数据库，并保留当前 `design-hub-api` 镜像以便回滚。
-2. 将现有环境中的 `PASSWORD_RESET_CODE_PEPPER` 更换为 `EMAIL_VERIFICATION_CODE_PEPPER`；必须是 64 位小写十六进制随机值。保留 `SMTP_FROM_NAME=Design Hub`，不要在终端、日志或 runbook 中打印密钥值。
-3. 执行 Alembic migration。
-4. 协同发布 API/worker 后端镜像与前端 SPA：新前端才会调用 verify/resend，新后端才能处理这些路由。
-5. 检查 `api`、`worker`、`smtp`、`dkim` 健康状态，并用 `docker exec design-hub-nginx nginx -t` 验证 Nginx 配置。确认请求 `/api/auth/register`、`/api/auth/register/verify` 和 `/api/auth/register/resend` 都受 429 限流策略保护。
-6. 回滚时同时恢复前一个 API/worker 镜像、前端构建产物和第一步的 MySQL 备份，避免前后端契约不匹配。
-
-Nginx 按 IP 分开访问频率：`register` 保持 5r/m（burst 3），`resend` 更严格为 3r/m（burst 2），`verify` 允许正常输入失误和重试，为 12r/m（burst 6）。三个路径均为精确匹配，并复用与原先 register 一致的 API 反向代理语义。
-
-本地推送会保护服务器上的 `.env`、证书和现有前端文件：
+From the repository root:
 
 ```bash
-bash image-ops/deploy/scripts/push.sh
+RELEASE_ID="$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%dT%H%M%SZ)"
+RELEASE_ID="$RELEASE_ID" bash image-ops/deploy/scripts/push.sh
 ```
 
-服务器执行：
+The script always runs a clean frontend build, stages the three release parts,
+and prints the immutable release ID. Then run that release's orchestrator on the
+server:
 
 ```bash
-cd /opt/docker/design-hub
-bash scripts/deploy.sh
+bash /opt/docker/design-hub/releases/<release-id>/deploy/scripts/deploy.sh <release-id>
 ```
 
-部署脚本幂等完成以下工作：
+The orchestrator performs these guarded steps:
 
-1. 创建持久化目录和本地 TLS 证书。
-2. 保留现有 `.env`，补齐并严格校验 Redis、SMTP 和邮箱验证码密钥。
-3. 校验 compose、安全网络与示例环境配置。
-4. 构建镜像；首次部署生成 2048 位 DKIM 密钥和 DNS 清单。
-5. 启动 Redis、OpenDKIM、Postfix，并分别执行健康检查。
-6. 从 API 容器执行 Redis PING 和 SMTP NOOP，不发送外部邮件。
-7. 备份 MySQL、执行 Alembic 迁移、启动完整栈并平滑重载 nginx。
+1. On the first release-managed rollout, import the existing SPA and
+   `design-hub-api:latest` as an immutable `legacy-*` rollback release.
+2. Copy the existing root `.env` into `shared/.env` when needed and create a
+   mode-600 snapshot for this release.
+3. Explicitly and atomically rename `PASSWORD_RESET_CODE_PEPPER` to
+   `EMAIL_VERIFICATION_CODE_PEPPER` without printing values. Normal provisioning
+   rejects the legacy key; only this migration path accepts it.
+4. Validate Redis/mail settings, compose semantics, certificates, DKIM material,
+   and the database connection; build the immutable candidate image.
+5. Create `state/maintenance` and recreate nginx with the maintenance-aware
+   configuration before any database or runtime switch.
+6. Back up MySQL, run Alembic from the candidate image, start API/worker, and
+   require container, API, and migration health.
+7. Atomically record the release, recreate nginx against that versioned SPA,
+   verify its index hash, remove maintenance, and check the public endpoint.
 
-任何已有固定邮件配置与设计不一致时，脚本会直接失败，不会静默覆盖。DKIM 密钥只在两个文件均不存在时生成；出现残缺密钥对时也会直接失败。
+Any failure after the environment snapshot automatically invokes the executable
+rollback path. If rollback itself fails, maintenance remains enabled and the
+script exits nonzero.
 
-## DNS 与 PTR
+## Environment and mail boundary
 
-部署完成后读取：
-
-```bash
-cat /data/docker/design-hub/mail/dns-records.txt
-```
-
-需要配置以下记录，DKIM 的 `p=` 值以服务器生成文件为准：
+Production uses:
 
 ```text
-smtp.image.sepaitech.com A 14.103.51.191
-image.sepaitech.com TXT "v=spf1 ip4:14.103.51.191 -all"
-designhub._domainkey.image.sepaitech.com TXT "v=DKIM1; ...; p=..."
-_dmarc.image.sepaitech.com TXT "v=DMARC1; p=none"
-14.103.51.191 PTR smtp.image.sepaitech.com
+MAIL_DELIVERY_MODE=smtp
+SMTP_HOST=smtp
+SMTP_PORT=25
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM_NAME=Design Hub
+SMTP_FROM=no-reply@image.sepaitech.com
+SMTP_USE_TLS=false
+EMAIL_VERIFICATION_CODE_PEPPER=<64 lowercase hexadecimal characters>
 ```
 
-PTR 记录必须在云服务器/IP 服务商控制台配置。DNS 生效前，容器健康不等于外部收件箱可达；主流邮箱可能拒收或归入垃圾邮件。
+The pepper is independent from the JWT secret and uses purpose-separated HMAC
+inputs for registration and password reset. `SMTP_FROM` is a strict mailbox;
+missing local parts, whitespace, display-name syntax, and CRLF are rejected at
+settings construction.
 
-验证命令：
+The `mail` network is `172.29.0.0/24`. Postfix is `172.29.0.10`, OpenDKIM is
+`172.29.0.11`, and neither publishes a host port. Only the API joins this network;
+worker, nginx, and Redis cannot submit mail. OpenDKIM private keys stay under
+`/data/docker/design-hub/mail/dkim`.
+
+## Registration contract rollout
+
+The SPA and API switch as one release. Register/resend acknowledgements carry an
+opaque challenge ID; verify and resend require it. The browser stores email plus
+challenge ID only in memory and replaces the ID after resend. Serving a new SPA
+against an old API is prevented by staging, maintenance, candidate health, and
+the controlled nginx web recreation.
+
+General smoke tests log in with runtime-provided pre-verified accounts and do not
+send mail. The separate interactive registration acceptance script obtains the
+recipient, approved password, and received code at runtime.
+
+## Rollback
+
+Normal rollback changes the API/worker image, versioned SPA, and environment
+snapshot together. It deliberately does not restore the database:
 
 ```bash
-dig +short smtp.image.sepaitech.com A
-dig +short image.sepaitech.com TXT
-dig +short designhub._domainkey.image.sepaitech.com TXT
-dig +short _dmarc.image.sepaitech.com TXT
-dig +short -x 14.103.51.191
+bash /opt/docker/design-hub/releases/<from-release>/deploy/scripts/rollback.sh \
+  --from <from-release> \
+  --to <previous-release>
 ```
 
-## 日常运维
-
-查看服务状态和日志：
+Only an explicitly required schema rollback may restore a database backup:
 
 ```bash
-cd /opt/docker/design-hub
+bash /opt/docker/design-hub/releases/<from-release>/deploy/scripts/rollback.sh \
+  --from <from-release> \
+  --to <previous-release> \
+  --schema-backup /root/db-backup-<release>.sql
+```
+
+The rollback command enables maintenance first, restores the mode-600 environment
+snapshot, starts and health-checks the previous immutable API/worker, recreates
+nginx against the previous SPA, then reopens traffic. DNS, SMTP queue, DKIM keys,
+and other persisted application data are not deleted.
+
+## Validation
+
+Local release semantics and environment restoration are executable tests:
+
+```bash
+bash image-ops/deploy/scripts/test-mail-env.sh
+bash image-ops/deploy/scripts/test-registration-ratelimits.sh
+bash image-ops/deploy/scripts/test-release-flow.sh
+```
+
+On the production host also run compose and nginx validation through the staged
+release, then inspect service health and the mail queue:
+
+```bash
 docker compose ps
-docker compose logs --tail=100 smtp dkim api
-```
-
-查看邮件队列：
-
-```bash
+docker exec design-hub-nginx nginx -t
 docker exec design-hub-smtp postqueue -p
 ```
 
-强制重试暂时失败的邮件：
+## DNS and network ports
 
-```bash
-docker exec design-hub-smtp postqueue -f
-```
-
-查看指定队列项（正文包含密码重置验证码，仅限故障排查）：
-
-```bash
-docker exec design-hub-smtp postcat -q QUEUE_ID
-```
-
-邮件发送失败时，API 会让当前验证码立即失效；用户可以重新申请，不需要等待原验证码过期。应用日志只记录投递元数据，不记录验证码正文。
-
-## 回滚
-
-应用回滚使用部署前保留的 `design-hub-api` 镜像和数据库备份。邮件服务可独立停止：
-
-```bash
-cd /opt/docker/design-hub
-docker compose stop smtp dkim
-```
-
-停止邮件服务后，生产环境保持 `MAIL_DELIVERY_MODE=smtp` 会让忘记密码请求明确失败，不会把验证码写入日志。不要切换到日志投递作为生产降级方案。
-
-## 外部端口
-
-云安全组仅需开放 22、80、443。SMTP 服务不需要入站 25；服务器只需要允许出站 TCP 25。3306、6379、8000、8891 均不得暴露公网。
+The deployment-generated DNS checklist remains at
+`/data/docker/design-hub/mail/dns-records.txt`. Publish A, SPF, DKIM, DMARC, and
+provider-managed PTR records described there. Public ingress requires only
+22/80/443. SMTP needs outbound TCP 25; ports 25, 3306, 6379, 8000, and 8891 are
+not published by this stack.

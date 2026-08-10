@@ -167,6 +167,28 @@ const routes = {
 };
 const servers = secureServers(root);
 requireCondition(servers.length > 0, "missing HTTPS server with listen 443 ssl");
+const genericApiLocations = servers.flatMap((server) => server.blocks.filter(
+  (block) => normalize(block.header) === "location /api/",
+));
+requireCondition(
+  genericApiLocations.length === 1,
+  `expected exactly one HTTPS generic location for /api/, found ${genericApiLocations.length}`,
+);
+requireCondition(
+  hasDirective(genericApiLocations[0], "include /etc/nginx/conf.d/proxy_backend.inc;"),
+  "/api/ must preserve the shared API proxy semantics",
+);
+const maintenanceGuards = servers.flatMap((server) => server.blocks.filter(
+  (block) => normalize(block.header) === "if (-f /etc/design-hub-state/maintenance)",
+));
+requireCondition(
+  maintenanceGuards.length === 1,
+  `expected exactly one HTTPS maintenance guard, found ${maintenanceGuards.length}`,
+);
+requireCondition(
+  hasDirective(maintenanceGuards[0], "return 503;"),
+  "maintenance guard must return 503",
+);
 for (const [path, [zone, rate, burst]] of Object.entries(routes)) {
   const block = exactHttpsLocation(servers, path);
   requireCondition(
@@ -209,7 +231,7 @@ const proxy = fs.readFileSync(proxyPath, "utf8");
 function findBlock(source, header, from = 0) {
   const start = source.indexOf(header, from);
   if (start === -1) throw new Error(`missing fixture header: ${header}`);
-  const openingBrace = source.indexOf("{", start + header.length);
+  const openingBrace = source.indexOf("{", start);
   let depth = 1;
   let index = openingBrace + 1;
   while (depth > 0) {
@@ -235,6 +257,11 @@ function serverWithListen(source, listen) {
 
 const resend = findBlock(config, "location = /api/auth/register/resend {");
 const verify = findBlock(config, "location = /api/auth/register/verify {");
+const genericApi = findBlock(config, "location /api/ {");
+const maintenanceGuard = findBlock(
+  config,
+  "if (-f /etc/design-hub-state/maintenance) {",
+);
 
 const fixtures = {
   "commented-route": {
@@ -273,6 +300,22 @@ const fixtures = {
       "# proxy_read_timeout        3600s;\nproxy_read_timeout        5s;",
     ),
   },
+  "commented-generic-location": {
+    config: replaceBlock(
+      config,
+      genericApi,
+      genericApi.text.split("\n").map((line) => `# ${line}`).join("\n"),
+    ),
+    proxy,
+  },
+  "missing-generic-location": {
+    config: replaceBlock(config, genericApi, ""),
+    proxy,
+  },
+  "missing-maintenance-guard": {
+    config: replaceBlock(config, maintenanceGuard, ""),
+    proxy,
+  },
 };
 
 for (const [name, fixture] of Object.entries(fixtures)) {
@@ -284,7 +327,7 @@ NODE
 accepted_fixtures=()
 for fixture_path in "$tmp_dir"/*.conf; do
   fixture_name="$(basename "$fixture_path" .conf)"
-  if "$0" --verify "$fixture_path" "$tmp_dir/$fixture_name.inc" >/dev/null 2>&1; then
+  if bash "$0" --verify "$fixture_path" "$tmp_dir/$fixture_name.inc" >/dev/null 2>&1; then
     accepted_fixtures+=("$fixture_name")
   fi
 done
@@ -294,4 +337,4 @@ if [[ "${#accepted_fixtures[@]}" -ne 0 ]]; then
   exit 1
 fi
 
-echo "invalid fixture rejection: commented-route duplicate-route non-https-route commented-correct-proxy commented-limit-status commented-generation-proxy"
+echo "invalid fixture rejection: commented-route duplicate-route non-https-route commented-correct-proxy commented-limit-status commented-generation-proxy commented-generic-location missing-generic-location missing-maintenance-guard"
