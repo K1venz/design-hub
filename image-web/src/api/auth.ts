@@ -20,9 +20,8 @@ export interface LoginVars {
   password: string
 }
 
-/** POST /auth/register —— 自助注册（默认设计师）并写入会话. 密码公钥加密后传输（§三.0）。 */
+/** POST /auth/register —— 请求注册验证码；密码公钥加密后传输，但不创建会话。 */
 export function useRegister() {
-  const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
     mutationFn: async (vars: RegisterVars) => {
       const password = await encryptSecret(vars.password)
@@ -35,7 +34,47 @@ export function useRegister() {
       if (error || !data) throw new Error(errorMessage(error, '注册失败'))
       return data
     },
+  })
+}
+
+export interface VerifyRegistrationVars {
+  email: string
+  code: string
+}
+
+export function useVerifyRegistration() {
+  const setToken = useAuthStore((s) => s.setToken)
+  return useMutation({
+    mutationFn: async (vars: VerifyRegistrationVars) => {
+      const { data, error, response } = await api
+        .POST('/auth/register/verify', { body: { email: vars.email, code: vars.code } })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+      if (error || !data) throw new Error(errorMessage(error, 'Registration verification failed'))
+      return data
+    },
     onSuccess: (data) => setToken(data.jwt),
+  })
+}
+
+export interface ResendRegistrationVars {
+  email: string
+}
+
+export function useResendRegistration() {
+  return useMutation({
+    mutationFn: async (vars: ResendRegistrationVars) => {
+      const { data, error, response } = await api
+        .POST('/auth/register/resend', { body: { email: vars.email } })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+      if (error || !data) throw new Error(errorMessage(error, 'Resending registration code failed'))
+      return data
+    },
   })
 }
 

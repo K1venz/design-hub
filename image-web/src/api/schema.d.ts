@@ -41,6 +41,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/register/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Registration */
+        post: operations["verify_registration_auth_register_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/register/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend Registration */
+        post: operations["resend_registration_auth_register_resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -1343,6 +1377,19 @@ export interface components {
             /** Ratio */
             ratio?: string | null;
         };
+        /** ForgotPasswordRequest */
+        ForgotPasswordRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /** ForgotPasswordResponse */
+        ForgotPasswordResponse: {
+            /** Message */
+            message: string;
+        };
         /** GeneratedImageSourceRequest */
         GeneratedImageSourceRequest: {
             /**
@@ -1575,36 +1622,6 @@ export interface components {
             role: components["schemas"]["Role"];
             /** Name */
             name: string;
-        };
-        /** ForgotPasswordRequest */
-        ForgotPasswordRequest: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-        };
-        /** ForgotPasswordResponse */
-        ForgotPasswordResponse: {
-            /** Message */
-            message: string;
-        };
-        /** ResetPasswordRequest */
-        ResetPasswordRequest: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** Code */
-            code: string;
-            /** Password */
-            password: string;
-        };
-        /** ResetPasswordResponse */
-        ResetPasswordResponse: {
-            /** Message */
-            message: string;
         };
         /** MeResponse */
         MeResponse: {
@@ -1972,11 +1989,51 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** RegisterResendRequest */
+        RegisterResendRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /** RegisterVerificationRequest */
+        RegisterVerificationRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Code */
+            code: string;
+        };
+        /** RegistrationAcknowledgement */
+        RegistrationAcknowledgement: {
+            /** Message */
+            message: string;
+        };
         /**
          * RenderTier
          * @enum {string}
          */
         RenderTier: "standard" | "2k" | "4k";
+        /** ResetPasswordRequest */
+        ResetPasswordRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Code */
+            code: string;
+            /** Password */
+            password: string;
+        };
+        /** ResetPasswordResponse */
+        ResetPasswordResponse: {
+            /** Message */
+            message: string;
+        };
         /** ReversePromptRequest */
         ReversePromptRequest: {
             /** Source */
@@ -2273,7 +2330,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["RegistrationAcknowledgement"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_registration_auth_register_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resend_registration_auth_register_resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterResendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationAcknowledgement"];
                 };
             };
             /** @description Validation Error */
