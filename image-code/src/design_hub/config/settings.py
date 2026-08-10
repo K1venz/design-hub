@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -92,13 +93,15 @@ class Settings(BaseSettings):
     # ISSUE-0015 自建认证：启动 seed 管理员（邮箱/密码走 .env，空=不 seed；建议首登后改密）
     seed_admin_email: str = ""
     seed_admin_password: SecretStr = SecretStr("")
-    # 忘记密码：邮箱验证码（SMTP 全空 → LoggingMailer 打日志，本地/内测可查日志取码）
+    # Password reset email delivery is explicit: production uses smtp; local tests use log.
+    mail_delivery_mode: Literal["log", "smtp"] = "log"
     smtp_host: str = ""
     smtp_port: int = Field(default=587, gt=0, le=65535)
     smtp_username: str = ""
     smtp_password: SecretStr = SecretStr("")
     smtp_from: str = ""
     smtp_use_tls: bool = True
+    password_reset_code_pepper: SecretStr = SecretStr("")
     password_reset_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
     password_reset_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
     password_reset_max_attempts: int = Field(default=5, gt=0, le=20)
@@ -113,6 +116,23 @@ class Settings(BaseSettings):
     def validate_worker_lease_timing(self) -> "Settings":
         if self.worker_heartbeat_seconds * 1000 >= self.worker_reclaim_idle_ms:
             raise ValueError("worker heartbeat must be shorter than delivery reclaim idle")
+        if self.mail_delivery_mode == "smtp":
+            missing = [
+                name
+                for name, value in (
+                    ("SMTP_HOST", self.smtp_host.strip()),
+                    ("SMTP_FROM", self.smtp_from.strip()),
+                    (
+                        "PASSWORD_RESET_CODE_PEPPER",
+                        self.password_reset_code_pepper.get_secret_value(),
+                    ),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"SMTP mail delivery requires: {', '.join(missing)}"
+                )
         return self
 
     # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储

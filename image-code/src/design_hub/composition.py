@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from design_hub.application.registry import ProviderRegistry
 from design_hub.config.settings import Settings
+from design_hub.infrastructure.mail import LoggingMailer, SmtpMailer
 from design_hub.infrastructure.providers.mock import MockModelProvider
 from design_hub.infrastructure.security.rsa_secret_cipher import RsaSecretCipher
 from design_hub.infrastructure.storage.local import LocalImageStore, LocalMediaUrlSigner
@@ -21,6 +22,7 @@ from design_hub.infrastructure.storage.tos import (
     build_tos_client,
 )
 from design_hub.ports.image_store import ImageStore
+from design_hub.ports.mail import MailPort
 from design_hub.ports.media_url_signer import MediaUrlSigner
 from design_hub.ports.secret_cipher import SecretCipher
 from design_hub.ports.upload_store import UploadStore
@@ -92,3 +94,17 @@ def build_secret_cipher(settings: Settings) -> SecretCipher:
     if settings.require_persistent_secret_cipher:
         raise ValueError("AUTH_RSA_PRIVATE_KEY_PEM is required for persistent secret encryption")
     return RsaSecretCipher.generate()
+
+
+def build_mailer(settings: Settings) -> MailPort:
+    """Bind the explicitly selected outbound mail adapter."""
+    if settings.mail_delivery_mode == "log":
+        return LoggingMailer()
+    return SmtpMailer(
+        host=settings.smtp_host.strip(),
+        port=settings.smtp_port,
+        username=settings.smtp_username,
+        password=settings.smtp_password.get_secret_value(),
+        from_addr=settings.smtp_from.strip(),
+        use_tls=settings.smtp_use_tls,
+    )
