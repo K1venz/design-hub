@@ -114,20 +114,24 @@ class AccountService:
                 email=email, code=code, pepper=self.reset_code_pepper
             )
             expires_at = now + timedelta(seconds=self.reset_code_ttl_seconds)
-            await self.resets.replace_active(
+            challenge = await self.resets.replace_active(
                 email=email, code_hash=code_hash, expires_at=expires_at
             )
             ttl_min = max(1, self.reset_code_ttl_seconds // 60)
-            await self.mailer.send(
-                to=email,
-                subject="实朴 · 重置密码验证码",
-                body_text=(
-                    f"您正在重置实朴账号密码。\n\n"
-                    f"验证码：{code}\n"
-                    f"有效期 {ttl_min} 分钟。请勿泄露给他人。\n\n"
-                    f"如非本人操作，请忽略本邮件。"
-                ),
-            )
+            try:
+                await self.mailer.send(
+                    to=email,
+                    subject="实朴 · 重置密码验证码",
+                    body_text=(
+                        f"您正在重置实朴账号密码。\n\n"
+                        f"验证码：{code}\n"
+                        f"有效期 {ttl_min} 分钟。请勿泄露给他人。\n\n"
+                        f"如非本人操作，请忽略本邮件。"
+                    ),
+                )
+            except Exception:
+                await self.resets.consume(challenge.id)
+                raise
         return _GENERIC_FORGOT_MSG
 
     async def reset_password(self, *, email: str, code: str, password: str) -> None:

@@ -5,6 +5,7 @@
 解密失败 400、明文<8 → 400、/me 过半衰期回 X-Renewed-Token、fresh 无头、过期 401。
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -142,12 +143,20 @@ class _FakeMailer(MailPort):
         self.sent.append((to, subject, body_text))
 
 
+class _FailingMailer(MailPort):
+    async def send(self, *, to: str, subject: str, body_text: str) -> None:
+        raise OSError("smtp unavailable")
+
+
 class _FakeResetStore(PasswordResetStore):
     def __init__(self) -> None:
         self._items: dict[str, PasswordResetChallenge] = {}
 
     async def get_active(self, email: str) -> PasswordResetChallenge | None:
-        return self._items.get(email)
+        challenge = self._items.get(email)
+        if challenge is None or challenge.consumed_at is not None:
+            return None
+        return challenge
 
     async def replace_active(
         self,
@@ -198,12 +207,12 @@ class _FakeResetStore(PasswordResetStore):
                 )
 
 
-def _client() -> tuple[
+def _client(mailer: MailPort | None = None) -> tuple[
     TestClient,
     RsaSecretCipher,
     PyJwtTokenService,
     _FakeUserRepo,
-    _FakeMailer,
+    MailPort,
     _FakeResetStore,
 ]:
     app = FastAPI()
@@ -229,7 +238,7 @@ def _client() -> tuple[
         password_hash="hash",
     )
     app.state.user_repository = users
-    mailer = _FakeMailer()
+    mailer = mailer or _FakeMailer()
     resets = _FakeResetStore()
     app.state.account_service = AccountService(
         users=users,
@@ -468,6 +477,36 @@ def test_forgot_password_cooldown() -> None:
     again = client.post("/auth/forgot-password", json={"email": "cool@x.com"})
     assert again.status_code == 400
     assert "频繁" in again.json()["detail"]
+
+
+def test_forgot_password_mail_failure_invalidates_challenge() -> None:
+    async def run() -> None:
+        _, _, _, users, _, resets = _client(mailer=_FailingMailer())
+        users._by_email["mailfail@x.com"] = UserAccount(
+            id=8,
+            email="mailfail@x.com",
+            name="M",
+            role=Role.DESIGNER,
+            created_at=datetime.now(UTC),
+            password_hash="hash",
+        )
+        service = AccountService(
+            users=users,
+            passwords=BcryptPasswordHasher(),
+            tokens=PyJwtTokenService(secret=_SECRET),
+            resets=resets,
+            mailer=_FailingMailer(),
+            reset_code_pepper=_SECRET,
+        )
+
+        with pytest.raises(OSError, match="smtp unavailable"):
+            await service.request_password_reset(email="mailfail@x.com")
+        assert await resets.get_active("mailfail@x.com") is None
+
+        with pytest.raises(OSError, match="smtp unavailable"):
+            await service.request_password_reset(email="mailfail@x.com")
+
+    asyncio.run(run())
 
 
 def test_hash_reset_code_stable() -> None:
