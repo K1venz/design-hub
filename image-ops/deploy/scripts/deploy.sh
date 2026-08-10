@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# design-hub 部署编排（在服务器 14.103.51.191 上执行）。
-# 复用现有 MySQL 8.4(/opt/docker/mysql)；Redis 运行在项目 Docker 内网；密钥不入库；幂等可重跑。
 set -euo pipefail
 
 DEPLOY_DIR="/opt/docker/design-hub"
@@ -10,8 +8,10 @@ SERVER_IP="14.103.51.191"
 
 cd "$DEPLOY_DIR"
 
+# shellcheck source=mail-env.sh
+source scripts/mail-env.sh
+
 read_root_pw() {
-  # 从 mysql 容器配置读取 root 密码（去除可能的引号），不打印
   grep -E '^MYSQL_ROOT_PASSWORD=' "$MYSQL_ENV" | head -1 | cut -d= -f2- \
     | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
 }
@@ -19,19 +19,20 @@ read_root_pw() {
 wait_healthy() {
   local container="$1"
   local label="$2"
-  local st="unknown"
-  for i in $(seq 1 40); do
-    st="$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || echo unknown)"
-    echo "    ${label} health: $st ($i)"
-    [[ "$st" == "healthy" ]] && return 0
-    if [[ "$st" == "unhealthy" ]]; then
-      echo "ERROR: ${label} 不健康，输出最近日志"
+  local status="unknown"
+
+  for attempt in $(seq 1 40); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || echo unknown)"
+    echo "    ${label} health: ${status} (${attempt})"
+    [[ "$status" == "healthy" ]] && return 0
+    if [[ "$status" == "unhealthy" ]]; then
       docker logs --tail 60 "$container"
       return 1
     fi
     sleep 5
   done
-  echo "ERROR: ${label} 健康检查超时，最终状态=${st}"
+
+  echo "ERROR: ${label} health check timed out with status ${status}" >&2
   docker logs --tail 60 "$container"
   return 1
 }
@@ -42,16 +43,19 @@ ensure_internal_redis_env() {
   local expected_redis_url
 
   if [[ "$(grep -c '^REDIS_PASSWORD=' .env || true)" -gt 1 ]]; then
-    echo "ERROR: .env 存在重复 REDIS_PASSWORD"; exit 1
+    echo "ERROR: duplicate REDIS_PASSWORD in .env" >&2
+    return 1
   fi
   if [[ "$(grep -c '^REDIS_URL=' .env || true)" -gt 1 ]]; then
-    echo "ERROR: .env 存在重复 REDIS_URL"; exit 1
+    echo "ERROR: duplicate REDIS_URL in .env" >&2
+    return 1
   fi
 
   if grep -q '^REDIS_PASSWORD=' .env; then
-    redis_password="$(grep -E '^REDIS_PASSWORD=' .env | head -1 | cut -d= -f2-)"
+    redis_password="$(grep -E '^REDIS_PASSWORD=' .env | cut -d= -f2-)"
     if [[ ! "$redis_password" =~ ^[0-9a-f]{64}$ ]]; then
-      echo "ERROR: REDIS_PASSWORD 必须是 64 位十六进制密钥"; exit 1
+      echo "ERROR: REDIS_PASSWORD must be 64 lowercase hexadecimal characters" >&2
+      return 1
     fi
   else
     redis_password="$(openssl rand -hex 32)"
@@ -62,11 +66,12 @@ ensure_internal_redis_env() {
   if ! grep -q '^REDIS_URL=' .env; then
     printf 'REDIS_URL=%s\n' "$expected_redis_url" >> .env
   else
-    current_redis_url="$(grep -E '^REDIS_URL=' .env | head -1 | cut -d= -f2-)"
+    current_redis_url="$(grep -E '^REDIS_URL=' .env | cut -d= -f2-)"
     if [[ -z "$current_redis_url" ]]; then
       sed -i "s#^REDIS_URL=.*#REDIS_URL=${expected_redis_url}#" .env
     elif [[ "$current_redis_url" != "$expected_redis_url" ]]; then
-      echo "ERROR: 已存在的 REDIS_URL 与本机 Docker Redis 不一致，拒绝静默覆盖"; exit 1
+      echo "ERROR: REDIS_URL does not match the internal Redis service" >&2
+      return 1
     fi
   fi
 
@@ -74,32 +79,69 @@ ensure_internal_redis_env() {
   chmod 600 .env
 }
 
-echo "==> [1/9] 持久化目录"
-mkdir -p "$DATA_DIR"/generated "$DATA_DIR"/assets "$DATA_DIR"/exports "$DATA_DIR"/redis
-mkdir -p "$DEPLOY_DIR/nginx/certs"
+ensure_dkim_key() {
+  local key_dir="$DATA_DIR/mail/dkim"
+  local private_key="$key_dir/designhub.private"
+  local public_record="$key_dir/designhub.txt"
+  local dns_records="$DATA_DIR/mail/dns-records.txt"
 
-echo "==> [2/9] 自签 TLS 证书"
+  if [[ -e "$private_key" || -e "$public_record" ]]; then
+    if [[ ! -s "$private_key" || ! -s "$public_record" ]]; then
+      echo "ERROR: incomplete DKIM key pair in ${key_dir}" >&2
+      return 1
+    fi
+  else
+    docker compose run --rm --no-deps --entrypoint opendkim-genkey dkim \
+      -b 2048 -d image.sepaitech.com -D /etc/dkimkeys -s designhub
+  fi
+
+  chmod 600 "$private_key" "$public_record"
+  python3 - "$public_record" "$dns_records" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text()
+parts = re.findall(r'"([^"]*)"', source)
+if not parts:
+    raise SystemExit("unable to parse generated DKIM record")
+
+dkim = "".join(parts)
+records = [
+    "smtp.image.sepaitech.com A 14.103.51.191",
+    'image.sepaitech.com TXT "v=spf1 ip4:14.103.51.191 -all"',
+    f'designhub._domainkey.image.sepaitech.com TXT "{dkim}"',
+    '_dmarc.image.sepaitech.com TXT "v=DMARC1; p=none"',
+    "14.103.51.191 PTR smtp.image.sepaitech.com",
+]
+Path(sys.argv[2]).write_text("\n".join(records) + "\n")
+PY
+  chmod 600 "$dns_records"
+}
+
+echo "==> [1/11] Preparing persistent directories"
+mkdir -p "$DATA_DIR"/{generated,assets,exports,redis} "$DATA_DIR/mail"/{spool,dkim}
+mkdir -p "$DEPLOY_DIR/nginx/certs"
+chmod 700 "$DATA_DIR/mail/dkim"
+
+echo "==> [2/11] Ensuring the local TLS certificate"
 if [[ ! -f nginx/certs/design-hub.crt ]]; then
   openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout nginx/certs/design-hub.key \
-    -out    nginx/certs/design-hub.crt \
+    -out nginx/certs/design-hub.crt \
     -days 825 \
     -subj "/C=CN/O=design-hub/CN=design-hub.local" \
     -addext "subjectAltName=IP:${SERVER_IP},DNS:design-hub.local" 2>/dev/null
-  echo "    自签证书已生成"
-else
-  echo "    已存在，跳过"
 fi
 
-echo "==> [3/9] 生成 .env（已存在则保留，不覆盖已有密钥）"
+echo "==> [3/11] Ensuring application environment"
 if [[ ! -f .env ]]; then
   ROOT_PW="$(read_root_pw)"
-  [[ -n "$ROOT_PW" ]] || { echo "ERROR: 读不到 MYSQL_ROOT_PASSWORD"; exit 1; }
-  ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ROOT_PW")"
+  [[ -n "$ROOT_PW" ]] || { echo "ERROR: MYSQL_ROOT_PASSWORD is unavailable" >&2; exit 1; }
+  ENC_PW="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOT_PW")"
   JWT="$(openssl rand -hex 32)"
   REDIS_PW="$(openssl rand -hex 32)"
   ADMIN_PW="$(openssl rand -hex 12)"
-  # 注意：勿用 .local 等保留域名——登录边界 EmailStr 会拒（422）
   ADMIN_EMAIL="admin@design-hub.cn"
   umask 077
   cat > .env <<ENV
@@ -125,61 +167,62 @@ DASHSCOPE_KEY=
 OPENAI_API_KEY=
 SENTRY_DSN=
 ENV
-  echo "    .env 已生成（含本次生成的管理员凭据，仅打印一次）"
   echo "    __SEED_ADMIN_EMAIL__=${ADMIN_EMAIL}"
   echo "    __SEED_ADMIN_PASSWORD__=${ADMIN_PW}"
-  unset REDIS_PW
-else
-  echo "    .env 已存在，保留"
+  unset REDIS_PW ADMIN_PW JWT ENC_PW
 fi
 
 ensure_internal_redis_env
-echo "    Redis 密钥与内部 REDIS_URL 已就绪（敏感值不输出）"
+ensure_mail_env
+echo "    Redis and mail secrets are ready (values hidden)"
 
-echo "==> [4/9] 建业务库 design_hub（utf8mb4，幂等）"
+echo "==> [4/11] Validating mail configuration"
+bash scripts/check-mail-config.sh
+bash scripts/test-mail-env.sh
+
+echo "==> [5/11] Ensuring the design_hub database"
 ROOT_PW="$(read_root_pw)"
 docker exec -i -e MYSQL_PWD="$ROOT_PW" mysql mysql -uroot <<'SQL'
 CREATE DATABASE IF NOT EXISTS `design_hub` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 SQL
-echo "    OK"
 
-echo "==> [5/9] 构建镜像"
+echo "==> [6/11] Building application and mail images"
 docker compose build
+ensure_dkim_key
 
-echo "==> [6/9] 启动并检查 Redis（仅 Docker 内网，不发布宿主机端口）"
-docker compose up -d redis
+echo "==> [7/11] Starting and checking infrastructure"
+docker compose up -d redis dkim smtp
 wait_healthy design-hub-redis redis
-
-echo "==> [6a/9] Redis 连接预检（不输出连接凭据）"
+wait_healthy design-hub-dkim dkim
+wait_healthy design-hub-smtp smtp
 docker compose run --rm --no-deps worker python -c \
   'import os; from redis import Redis; r=Redis.from_url(os.environ["REDIS_URL"],socket_connect_timeout=5,socket_timeout=5); assert r.ping() is True; r.close()'
-echo "    OK"
+docker compose run --rm --no-deps api python -c \
+  'import smtplib; client=smtplib.SMTP("smtp",25,timeout=5); code,_=client.noop(); assert code==250; client.quit()'
 
-echo "==> [7/9] 迁移前全库备份（数据底线：破坏性迁移可回滚）"
+echo "==> [8/11] Backing up the database"
 BK="/root/db-backup-$(date +%Y%m%d-%H%M%S).sql"
 if docker exec -e MYSQL_PWD="$ROOT_PW" mysql mysqldump -uroot --no-tablespaces \
      --single-transaction --routines design_hub > "$BK" 2>/dev/null && [[ -s "$BK" ]]; then
-  echo "    备份 -> $BK ($(wc -c <"$BK") bytes)"
-  # 滚动保留最近 10 份
+  echo "    Backup: ${BK} ($(wc -c <"$BK") bytes)"
   ls -t /root/db-backup-*.sql 2>/dev/null | tail -n +11 | xargs -r rm -f
 else
-  echo "    ERROR: 迁移前备份失败，中止部署（不带备份不迁移）"; exit 1
+  echo "ERROR: database backup failed; refusing to migrate" >&2
+  exit 1
 fi
 
-echo "==> [8/9] 数据库迁移（建表，先于应用启动）"
+echo "==> [9/11] Applying database migrations"
 docker compose run --rm --no-deps api alembic upgrade head
 
-echo "==> [9/9] 启动 api + worker + nginx"
+echo "==> [10/11] Starting the complete stack"
 docker compose up -d
-
-echo "==> 等待 API 与 Worker 健康检查..."
 wait_healthy design-hub-api api
 wait_healthy design-hub-worker worker
 
-echo "==> 校验并平滑重载 nginx（刷新 API 容器地址）"
+echo "==> [11/11] Validating and reloading nginx"
 docker exec design-hub-nginx nginx -t
 docker exec design-hub-nginx nginx -s reload
 
-echo "==> 容器状态:"
 docker compose ps
+echo "==> DNS_RECORDS_FILE=${DATA_DIR}/mail/dns-records.txt"
 echo "==> DEPLOY_DONE"

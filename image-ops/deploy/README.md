@@ -1,73 +1,148 @@
-# design-hub 部署（运维）
+# design-hub 生产部署与邮件运维
 
-当前形态：**前端 SPA + API + 独立 Generation Worker + Docker Redis + 复用现有 MySQL 8.4 + nginx/TLS 反代**。
-nginx 静态托管前端、`/api/*` 去前缀转发后端；`/docs`、`/metrics` 直达后端。
-API 只负责接单、查询和 SSE；Provider 调用只允许 Worker 执行。
+当前生产栈由前端 SPA、FastAPI、Generation Worker、Redis、Postfix、OpenDKIM、nginx 和现有 MySQL 8.4 组成。忘记密码邮件使用服务器内自建 SMTP 投递，发件人为 `no-reply@image.sepaitech.com`。
 
-## 目标服务器
-- `14.103.51.191`（Ubuntu 24.04，2C/3.8G，docker 数据盘 `/data` 37G 可用）
-- 现有 MySQL 8.4 跑在 docker（compose `/opt/docker/mysql`，网络 `mysql_default`，数据 `/data/docker/mysql`）
+完整设计与安全边界见 [`docs/superpowers/specs/2026-08-10-internal-smtp-design.md`](../docs/superpowers/specs/2026-08-10-internal-smtp-design.md)。
 
-## 部署决策（用户拍板）
-1. 范围：贴 PRD 但首发只到 nginx+TLS；监控、备份先不做
-2. DB：新建 `design_hub` 库，应用用 **root** 连
-3. 密钥：provider 出图密钥先留空（出图暂不可用），JWT 服务器本地生成
-4. 上线：rsync 源码 → 服务器本地构建（仓库暂无 git remote，等价替代 git-clone 构建）
+## 服务器与目录
 
-## 服务器目录布局
-```
+- 服务器：`14.103.51.191`（Ubuntu 24.04）
+- 应用目录：`/opt/docker/design-hub`
+- 持久化目录：`/data/docker/design-hub`
+- 现有 MySQL：`/opt/docker/mysql`，外部 Docker 网络 `mysql_default`
+
+```text
 /opt/docker/design-hub/
-├── compose.yml                  # redis + api + worker + nginx
-├── .env                         # 部署时生成，gitignored，不入库（含 Redis 密钥/DB_URL/JWT）
-├── app/                         # rsync 的 image-code 源码 = 构建上下文
-│   ├── Dockerfile
-│   └── .dockerignore
+├── compose.yml
+├── .env                         # 生产密钥，仅服务器保存，权限 600
+├── app/                         # image-code 构建上下文
+├── mail/
+│   ├── postfix/
+│   └── opendkim/
 ├── nginx/
-│   ├── conf.d/design-hub.conf
-│   └── certs/                   # 自签证书（deploy.sh 生成）
-└── scripts/deploy.sh
-/data/docker/design-hub/{redis,generated,assets,exports}   # 持久卷
+├── scripts/
+└── web/
+
+/data/docker/design-hub/
+├── redis/
+├── generated/
+├── assets/
+├── exports/
+└── mail/
+    ├── spool/                   # Postfix 队列
+    ├── dkim/                    # DKIM 私钥和公开记录，权限 700
+    └── dns-records.txt          # 部署生成的 DNS 配置清单
 ```
 
-## 网络与连库
-- api 容器接入两张网：项目网（与 nginx 通）+ 外部 `mysql_default`
-- worker 容器复用 API 镜像并接入相同两张网，但运行独立进程
-- 连库 host = `mysql:3306`（现有容器名/别名），DB_URL 走 aiomysql
-- Redis 只接入项目默认 Docker 网络，不映射宿主机端口；API/Worker 通过 `redis:6379` 访问
-- deploy.sh 首次运行生成 64 位十六进制 Redis 密钥及内部 `REDIS_URL`，不会打印敏感值
-- Redis 开启 AOF `everysec`，内存上限 256MB、容器上限 384MB，满载采用 `noeviction`，防止静默淘汰队列任务
+## 邮件网络与安全边界
 
-## 推送 + 部署
-本地推送（源码 + 部署产物 + 前端 dist；自动保护服务器 .env/certs/web）：
+- `mail` 网络固定为 `172.29.0.0/24`。
+- Postfix 固定地址 `172.29.0.10`，OpenDKIM 固定地址 `172.29.0.11`。
+- 只有 API 接入 `mail` 网络；Worker、nginx、Redis 均无法连接 SMTP。
+- SMTP 仅在容器网络暴露 25 端口，不映射到宿主机，不是公网开放中继。
+- Postfix 只信任回环地址和 `172.29.0.0/24`，其他来源直接拒绝。
+- API 使用 `SMTP_HOST=smtp`、`SMTP_PORT=25`、无认证、无 TLS；这是受限 Docker 内网连接。
+- `PASSWORD_RESET_CODE_PEPPER` 独立于 JWT 密钥，由部署脚本生成 64 位十六进制随机值。
+- OpenDKIM 私钥只保存在 `/data/docker/design-hub/mail/dkim/designhub.private`，不进入代码仓库或应用容器。
+
+## 部署
+
+本地推送会保护服务器上的 `.env`、证书和现有前端文件：
+
 ```bash
-bash image-ops/deploy/scripts/push.sh        # 可用 DEPLOY_KEY/DEPLOY_HOST 覆盖
+bash image-ops/deploy/scripts/push.sh
 ```
-再在服务器上重建（幂等）：
+
+服务器执行：
+
 ```bash
-cd /opt/docker/design-hub && bash scripts/deploy.sh
+cd /opt/docker/design-hub
+bash scripts/deploy.sh
 ```
-> 注意：源码 rsync 用 `--delete` 时务必排除 `Dockerfile`/`.dockerignore`（它们来自 image-ops，不在 image-code 源码里），否则会被删导致 build 失败——push.sh 已处理。
-脚本幂等：建目录 → 自签证书 → 保留现有 `.env` → 生成/校验 Redis 密钥 → 建库 → 构建 → 启动并探测 Redis → 备份 MySQL → 迁移建表 → 启动 API/Worker/Nginx → 健康检查 → 平滑重载 nginx。
-迁移先于应用启动（应用 lifespan 会 seed 默认模型+管理员，需先有表）。
-nginx 访问日志只记录 `$uri`，不记录查询串和 Referer；重载会刷新重建后 API 容器的 Docker 内网地址。
 
-## 访问
-- `https://14.103.51.191/`（前端 UI；自签证书，浏览器会告警；有域名可换 Let's Encrypt）
-- `https://14.103.51.191/docs`（后端接口文档 Swagger）
-- 云安全组需放行 **22 + 80 + 443**（22 限管理 IP；编辑安全组时勿覆盖掉 22）；3306/8000 不要对外暴露
+部署脚本幂等完成以下工作：
 
-## 更新前端
-前端构建产物来自 image-web（独立构建），rsync 到 `web/` 后 nginx 直接生效（静态文件，无需重启）：
+1. 创建持久化目录和本地 TLS 证书。
+2. 保留现有 `.env`，补齐并严格校验 Redis、SMTP 和密码重置密钥。
+3. 校验 compose、安全网络与示例环境配置。
+4. 构建镜像；首次部署生成 2048 位 DKIM 密钥和 DNS 清单。
+5. 启动 Redis、OpenDKIM、Postfix，并分别执行健康检查。
+6. 从 API 容器执行 Redis PING 和 SMTP NOOP，不发送外部邮件。
+7. 备份 MySQL、执行 Alembic 迁移、启动完整栈并平滑重载 nginx。
+
+任何已有固定邮件配置与设计不一致时，脚本会直接失败，不会静默覆盖。DKIM 密钥只在两个文件均不存在时生成；出现残缺密钥对时也会直接失败。
+
+## DNS 与 PTR
+
+部署完成后读取：
+
 ```bash
-rsync -az --delete image-web/dist/ root@14.103.51.191:/opt/docker/design-hub/web/
+cat /data/docker/design-hub/mail/dns-records.txt
 ```
 
-## 已知问题
-- [ISSUE-0018] aiomysql 缺 `cryptography`，MySQL 重启后冷启动连库会失败（当前靠缓存热可跑）。
-  修复 owner=开发：`uv add cryptography`，镜像重建即生效。
+需要配置以下记录，DKIM 的 `p=` 值以服务器生成文件为准：
 
-## 后续（未做）
-- Prometheus + Grafana（应用已内置 `/metrics`）
-- 备份策略（MySQL 定时 dump）
-- CI/CD（git remote 就绪后接 GitHub Actions）
-- provider 出图密钥补齐后重启 api 开启出图
+```text
+smtp.image.sepaitech.com A 14.103.51.191
+image.sepaitech.com TXT "v=spf1 ip4:14.103.51.191 -all"
+designhub._domainkey.image.sepaitech.com TXT "v=DKIM1; ...; p=..."
+_dmarc.image.sepaitech.com TXT "v=DMARC1; p=none"
+14.103.51.191 PTR smtp.image.sepaitech.com
+```
+
+PTR 记录必须在云服务器/IP 服务商控制台配置。DNS 生效前，容器健康不等于外部收件箱可达；主流邮箱可能拒收或归入垃圾邮件。
+
+验证命令：
+
+```bash
+dig +short smtp.image.sepaitech.com A
+dig +short image.sepaitech.com TXT
+dig +short designhub._domainkey.image.sepaitech.com TXT
+dig +short _dmarc.image.sepaitech.com TXT
+dig +short -x 14.103.51.191
+```
+
+## 日常运维
+
+查看服务状态和日志：
+
+```bash
+cd /opt/docker/design-hub
+docker compose ps
+docker compose logs --tail=100 smtp dkim api
+```
+
+查看邮件队列：
+
+```bash
+docker exec design-hub-smtp postqueue -p
+```
+
+强制重试暂时失败的邮件：
+
+```bash
+docker exec design-hub-smtp postqueue -f
+```
+
+查看指定队列项（正文包含密码重置验证码，仅限故障排查）：
+
+```bash
+docker exec design-hub-smtp postcat -q QUEUE_ID
+```
+
+邮件发送失败时，API 会让当前验证码立即失效；用户可以重新申请，不需要等待原验证码过期。应用日志只记录投递元数据，不记录验证码正文。
+
+## 回滚
+
+应用回滚使用部署前保留的 `design-hub-api` 镜像和数据库备份。邮件服务可独立停止：
+
+```bash
+cd /opt/docker/design-hub
+docker compose stop smtp dkim
+```
+
+停止邮件服务后，生产环境保持 `MAIL_DELIVERY_MODE=smtp` 会让忘记密码请求明确失败，不会把验证码写入日志。不要切换到日志投递作为生产降级方案。
+
+## 外部端口
+
+云安全组仅需开放 22、80、443。SMTP 服务不需要入站 25；服务器只需要允许出站 TCP 25。3306、6379、8000、8891 均不得暴露公网。
