@@ -1,3 +1,4 @@
+from email.utils import parseaddr
 from pathlib import Path
 from typing import Literal
 
@@ -99,6 +100,7 @@ class Settings(BaseSettings):
     smtp_port: int = Field(default=587, gt=0, le=65535)
     smtp_username: str = ""
     smtp_password: SecretStr = SecretStr("")
+    smtp_from_name: str = ""
     smtp_from: str = ""
     smtp_use_tls: bool = True
     email_verification_code_pepper: SecretStr = SecretStr("")
@@ -121,6 +123,7 @@ class Settings(BaseSettings):
                 name
                 for name, value in (
                     ("SMTP_HOST", self.smtp_host.strip()),
+                    ("SMTP_FROM_NAME", self.smtp_from_name.strip()),
                     ("SMTP_FROM", self.smtp_from.strip()),
                     (
                         "EMAIL_VERIFICATION_CODE_PEPPER",
@@ -133,6 +136,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"SMTP mail delivery requires: {', '.join(missing)}"
                 )
+            display_name, mailbox = parseaddr(self.smtp_from, strict=True)
+            if display_name or mailbox != self.smtp_from.strip() or "@" not in mailbox:
+                raise ValueError("SMTP_FROM must be a valid mailbox address")
         return self
 
     # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储

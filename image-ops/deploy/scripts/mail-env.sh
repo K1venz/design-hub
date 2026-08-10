@@ -66,8 +66,9 @@ ensure_mail_env() {
   ensure_env_value SMTP_PORT 25 || return 1
   ensure_env_value SMTP_USERNAME "" || return 1
   ensure_env_value SMTP_PASSWORD "" || return 1
+  ensure_env_value SMTP_FROM_NAME "Design Hub" || return 1
   ensure_env_value SMTP_FROM no-reply@image.sepaitech.com || return 1
   ensure_env_value SMTP_USE_TLS false || return 1
-  ensure_generated_hex PASSWORD_RESET_CODE_PEPPER 32 || return 1
+  ensure_generated_hex EMAIL_VERIFICATION_CODE_PEPPER 32 || return 1
   chmod 600 "$ENV_FILE"
 }
