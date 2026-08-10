@@ -91,7 +91,12 @@ afterEach(() => {
 
 describe('RegisterPage sensitive mutation lifecycle', () => {
   it('removes the registration password from form state and the real mutation cache after an acknowledgement', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ message: '验证码已发送' }))
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        message: '验证码已发送',
+        challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      }),
+    )
     const { client } = renderPage()
 
     await fillAndSubmitDetails()
@@ -112,7 +117,12 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
 
   it('uses the real verification hook to set the session and navigate, then removes the code from cache', async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse({ jwt: 'verified-session', role: '设计师', name: '新设计师' }))
     const { client } = renderPage()
 
@@ -129,7 +139,12 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
 
   it('only marks a backend 400 verification response as invalid or expired', async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse({ detail: '验证码错误或已过期' }, 400))
     const { client } = renderPage()
 
@@ -147,7 +162,12 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
 
   it('shows a retryable service message instead of an invalid-code message for a 500 verification response', async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse({ detail: '服务暂时不可用' }, 500))
     renderPage()
 
@@ -163,7 +183,12 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
 
   it('keeps the rate-limit response distinct and retryable', async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse({ detail: '请求过于频繁' }, 429))
     renderPage()
 
@@ -178,7 +203,12 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
 
   it('keeps a network failure retryable instead of presenting an invalid-code message', async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        }),
+      )
       .mockRejectedValueOnce(new Error('offline'))
     renderPage()
 
@@ -193,7 +223,12 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
 
   it('cleans up the verification countdown when the page unmounts', async () => {
     vi.useFakeTimers()
-    fetchMock.mockResolvedValue(jsonResponse({ message: '验证码已发送' }))
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        message: '验证码已发送',
+        challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      }),
+    )
     const clearTimer = vi.spyOn(window, 'clearInterval')
     const { unmount } = renderPage()
 
@@ -207,8 +242,18 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
   it('stops the old countdown before restarting verification and runs only the new countdown', async () => {
     vi.useFakeTimers()
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
-      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          message: '验证码已发送',
+          challenge_id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        }),
+      )
     renderPage()
 
     await fillAndSubmitDetails()

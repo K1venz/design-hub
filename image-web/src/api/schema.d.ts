@@ -1996,6 +1996,8 @@ export interface components {
              * Format: email
              */
             email: string;
+            /** Challenge Id */
+            challenge_id: string;
         };
         /** RegisterVerificationRequest */
         RegisterVerificationRequest: {
@@ -2004,6 +2006,8 @@ export interface components {
              * Format: email
              */
             email: string;
+            /** Challenge Id */
+            challenge_id: string;
             /** Code */
             code: string;
         };
@@ -2011,6 +2015,8 @@ export interface components {
         RegistrationAcknowledgement: {
             /** Message */
             message: string;
+            /** Challenge Id */
+            challenge_id: string;
         };
         /**
          * RenderTier

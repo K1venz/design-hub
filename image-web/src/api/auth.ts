@@ -40,6 +40,7 @@ export function useRegister() {
 
 export interface VerifyRegistrationVars {
   email: string
+  challengeId: string
   code: string
 }
 
@@ -59,7 +60,9 @@ export function useVerifyRegistration() {
     gcTime: 0,
     mutationFn: async (vars: VerifyRegistrationVars) => {
       const { data, error, response } = await api
-        .POST('/auth/register/verify', { body: { email: vars.email, code: vars.code } })
+        .POST('/auth/register/verify', {
+          body: { email: vars.email, challenge_id: vars.challengeId, code: vars.code },
+        })
         .catch((): never => {
           throw new Error(NETWORK_ERROR)
         })
@@ -78,6 +81,7 @@ export function useVerifyRegistration() {
 
 export interface ResendRegistrationVars {
   email: string
+  challengeId: string
 }
 
 export function useResendRegistration() {
@@ -85,7 +89,9 @@ export function useResendRegistration() {
     gcTime: 0,
     mutationFn: async (vars: ResendRegistrationVars) => {
       const { data, error, response } = await api
-        .POST('/auth/register/resend', { body: { email: vars.email } })
+        .POST('/auth/register/resend', {
+          body: { email: vars.email, challenge_id: vars.challengeId },
+        })
         .catch((): never => {
           throw new Error(NETWORK_ERROR)
         })

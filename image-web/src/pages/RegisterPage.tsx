@@ -20,6 +20,10 @@ const MIN_PASSWORD = 8
 const RESEND_DELAY_SECONDS = 60
 
 type Step = 'details' | 'verification'
+type PendingRegistration = {
+  email: string
+  challengeId: string
+}
 
 function passwordStrength(password: string): 0 | 1 | 2 | 3 {
   if (!password) return 0
@@ -59,6 +63,7 @@ function RegistrationProgress({ step }: { step: Step }) {
   return (
     <ol aria-label="注册进度" className="grid grid-cols-2 gap-2 text-xs">
       <li
+        aria-current={verifying ? undefined : 'step'}
         className={cn(
           'border-b pb-2 font-medium',
           verifying ? 'border-primary/35 text-muted-foreground' : 'border-primary text-foreground',
@@ -92,9 +97,10 @@ export function RegisterPage() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [agreed, setAgreed] = useState(false)
-  const [pendingEmail, setPendingEmail] = useState('')
+  const [pendingRegistration, setPendingRegistration] = useState<PendingRegistration | null>(null)
   const [code, setCode] = useState('')
   const [resendAfter, setResendAfter] = useState(0)
+  const [resendDeadline, setResendDeadline] = useState<number | null>(null)
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [verificationError, setVerificationError] = useState<string | null>(null)
   const [resendError, setResendError] = useState<string | null>(null)
@@ -112,18 +118,14 @@ export function RegisterPage() {
   const navState = prefill ? { prefill } : fromState
 
   useEffect(() => {
-    if (step !== 'verification') return
+    if (step !== 'verification' || resendDeadline === null) return
     const timer = window.setInterval(() => {
-      setResendAfter((seconds) => {
-        if (seconds <= 1) {
-          window.clearInterval(timer)
-          return 0
-        }
-        return seconds - 1
-      })
+      const seconds = Math.max(0, Math.ceil((resendDeadline - Date.now()) / 1_000))
+      setResendAfter(seconds)
+      if (seconds === 0) window.clearInterval(timer)
     }, 1_000)
     return () => window.clearInterval(timer)
-  }, [step])
+  }, [resendDeadline, step])
 
   if (token) return <Navigate to={dest} replace state={navState} />
 
@@ -133,15 +135,22 @@ export function RegisterPage() {
     const finalName = name.trim() || normalizedEmail.split('@')[0] || '用户'
     setDetailsError(null)
     try {
-      await register.mutateAsync({ email: normalizedEmail, name: finalName, password })
+      const acknowledgement = await register.mutateAsync({
+        email: normalizedEmail,
+        name: finalName,
+        password,
+      })
       setName('')
       setEmail('')
       setAgreed(false)
-      setPendingEmail(normalizedEmail)
+      setPendingRegistration({
+        email: normalizedEmail,
+        challengeId: acknowledgement.challenge_id,
+      })
       setCode('')
       setVerificationError(null)
       setResendError(null)
-      setResendAfter(RESEND_DELAY_SECONDS)
+      startResendCountdown()
       setStep('verification')
     } catch (error) {
       setDetailsError(error instanceof Error ? error.message : '注册暂时无法完成，请稍后重试。')
@@ -153,10 +162,14 @@ export function RegisterPage() {
   }
 
   async function submitVerification() {
-    if (!canVerify || !pendingEmail) return
+    if (!canVerify || !pendingRegistration) return
     setVerificationError(null)
     try {
-      await verify.mutateAsync({ email: pendingEmail, code })
+      await verify.mutateAsync({
+        email: pendingRegistration.email,
+        challengeId: pendingRegistration.challengeId,
+        code,
+      })
     } catch (error) {
       if (error instanceof RegistrationVerificationError && error.status === 400) {
         setVerificationError('验证码无效或已过期。请重新输入，或重新发送验证码。')
@@ -174,12 +187,20 @@ export function RegisterPage() {
   }
 
   async function resendCode() {
-    if (!pendingEmail || resendAfter > 0) return
+    if (!pendingRegistration || resendAfter > 0) return
+    setVerificationError(null)
     setResendError(null)
     try {
-      await resend.mutateAsync({ email: pendingEmail })
-      setResendAfter(RESEND_DELAY_SECONDS)
-      setVerificationError(null)
+      const acknowledgement = await resend.mutateAsync({
+        email: pendingRegistration.email,
+        challengeId: pendingRegistration.challengeId,
+      })
+      setPendingRegistration((current) =>
+        current?.challengeId === pendingRegistration.challengeId
+          ? { ...current, challengeId: acknowledgement.challenge_id }
+          : current,
+      )
+      startResendCountdown()
     } catch {
       setResendError('验证码暂时无法发送。请稍后重试，或返回修改资料。')
     } finally {
@@ -187,13 +208,20 @@ export function RegisterPage() {
     }
   }
 
+  function startResendCountdown() {
+    setResendAfter(RESEND_DELAY_SECONDS)
+    setResendDeadline(Date.now() + RESEND_DELAY_SECONDS * 1_000)
+  }
+
   function returnToDetails() {
-    setEmail(pendingEmail)
-    setPendingEmail('')
+    if (!pendingRegistration) return
+    setEmail(pendingRegistration.email)
+    setPendingRegistration(null)
     setCode('')
     setVerificationError(null)
     setResendError(null)
     setResendAfter(0)
+    setResendDeadline(null)
     setStep('details')
   }
 
@@ -272,7 +300,7 @@ export function RegisterPage() {
         <>
           <div className="space-y-2">
             <h2 className="pt-2 text-2xl font-semibold tracking-tight text-foreground">验证邮箱</h2>
-            <p className="text-sm text-muted-foreground">验证码已发送至 <span className="font-medium text-foreground">{maskEmail(pendingEmail)}</span>。</p>
+            <p className="text-sm text-muted-foreground">验证码已发送至 <span className="font-medium text-foreground">{maskEmail(pendingRegistration!.email)}</span>。</p>
           </div>
 
           {(verificationError || resendError) && (

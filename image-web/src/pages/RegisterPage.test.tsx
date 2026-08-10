@@ -74,9 +74,15 @@ async function moveToVerification() {
 }
 
 beforeEach(() => {
-  registerMutation.mutateAsync.mockReset().mockResolvedValue({ message: '验证码已发送' })
+  registerMutation.mutateAsync.mockReset().mockResolvedValue({
+    message: '验证码已发送',
+    challenge_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  })
   verifyMutation.mutateAsync.mockReset().mockResolvedValue({ jwt: 'verified-session' })
-  resendMutation.mutateAsync.mockReset().mockResolvedValue({ message: '验证码已重新发送' })
+  resendMutation.mutateAsync.mockReset().mockResolvedValue({
+    message: '验证码已重新发送',
+    challenge_id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  })
   registerMutation.isPending = false
   registerMutation.isError = false
   registerMutation.error = null
@@ -98,6 +104,20 @@ afterEach(() => {
 })
 
 describe('RegisterPage', () => {
+  it('marks exactly the active registration step with aria-current', async () => {
+    renderPage()
+
+    let steps = screen.getByRole('list', { name: '注册进度' }).querySelectorAll('li')
+    expect(steps[0]?.getAttribute('aria-current')).toBe('step')
+    expect(steps[1]?.getAttribute('aria-current')).toBeNull()
+
+    await moveToVerification()
+
+    steps = screen.getByRole('list', { name: '注册进度' }).querySelectorAll('li')
+    expect(steps[0]?.getAttribute('aria-current')).toBeNull()
+    expect(steps[1]?.getAttribute('aria-current')).toBe('step')
+  })
+
   it('submits profile details then shows the masked pending email in the verification step', async () => {
     renderPage()
 
@@ -126,13 +146,14 @@ describe('RegisterPage', () => {
 
     expect(verifyMutation.mutateAsync).toHaveBeenCalledWith({
       email: 'new.user@example.com',
+      challengeId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       code: '123567',
     })
     act(() => useAuthStore.getState().setToken('verified-session'))
     expect(screen.getByTestId('current-path').textContent).toBe('/home')
   })
 
-  it('disables resend for a countdown, enables it afterward, and resends only the pending email', async () => {
+  it('restarts the full countdown after a successful resend', async () => {
     vi.useFakeTimers()
     renderPage()
     await moveToVerification()
@@ -147,8 +168,81 @@ describe('RegisterPage', () => {
       fireEvent.click(screen.getByRole('button', { name: '重新发送验证码' }))
     })
 
-    expect(resendMutation.mutateAsync).toHaveBeenCalledWith({ email: 'new.user@example.com' })
-    expect(resendMutation.mutateAsync.mock.calls[0]?.[0]).toEqual({ email: 'new.user@example.com' })
+    expect(resendMutation.mutateAsync).toHaveBeenCalledWith({
+      email: 'new.user@example.com',
+      challengeId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    })
+    expect(
+      screen.getByRole('button', { name: '60 秒后可重新发送' }).hasAttribute('disabled'),
+    ).toBe(true)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    expect(
+      screen.getByRole('button', { name: '59 秒后可重新发送' }).hasAttribute('disabled'),
+    ).toBe(true)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(59_000)
+    })
+    expect(
+      screen.getByRole('button', { name: '重新发送验证码' }).hasAttribute('disabled'),
+    ).toBe(false)
+  })
+
+  it('uses the rotated resend challenge for the next verification attempt', async () => {
+    vi.useFakeTimers()
+    renderPage()
+    await moveToVerification()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '重新发送验证码' }))
+    })
+
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '验证并进入 Design Hub' }))
+    })
+
+    expect(verifyMutation.mutateAsync).toHaveBeenCalledWith({
+      email: 'new.user@example.com',
+      challengeId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      code: '123456',
+    })
+  })
+
+  it('clears a stale verification error when resend starts and exposes resend failure', async () => {
+    vi.useFakeTimers()
+    verifyMutation.mutateAsync.mockRejectedValueOnce(new Error('旧验证错误'))
+    let rejectResend!: (reason: Error) => void
+    resendMutation.mutateAsync.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        rejectResend = reject
+      }),
+    )
+    renderPage()
+    await moveToVerification()
+
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '验证并进入 Design Hub' }))
+    })
+    expect(screen.getByRole('alert').textContent).toContain('旧验证错误')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+    fireEvent.click(screen.getByRole('button', { name: '重新发送验证码' }))
+    expect(screen.queryByText('旧验证错误')).toBeNull()
+
+    await act(async () => {
+      rejectResend(new Error('smtp unavailable'))
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('alert').textContent).toContain('验证码暂时无法发送')
   })
 
   it('keeps an unclassified verification failure retryable and lets the user return to a fresh details form', async () => {
@@ -179,5 +273,6 @@ describe('RegisterPage', () => {
       .join(' ')
     expect(stored).not.toContain('very-secret-password')
     expect(stored).not.toContain('123456')
+    expect(stored).not.toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
   })
 })
