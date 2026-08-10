@@ -134,17 +134,27 @@ production build must pass before deployment.
 
 1. Deploy the application and migration after taking the normal database backup.
 2. Verify all containers are healthy and the Postfix queue is empty.
-3. Register `privacy-redacted@users.noreply.github.com`, receive the code in the
-   `privacy-redacted@users.noreply.github.com` Gmail inbox, verify it, and confirm login succeeds.
+3. Register a user-supplied runtime test alias, receive the code in its inbox,
+   verify it, and confirm login succeeds.
 4. Confirm the registration code cannot be reused.
-5. Request a reset for the existing `privacy-redacted@users.noreply.github.com` account, receive the
-   code, submit a user-approved new password, and confirm login succeeds.
+5. Request a reset for a user-supplied existing test account, receive the code,
+   submit a user-approved new password, and confirm login succeeds.
 6. Confirm the reset code cannot be reused and the mail queue remains empty.
 7. Inspect Gmail authentication results for SPF, DKIM, and DMARC pass status and
    record inbox placement separately.
 
 The test account is not deleted automatically. Any cleanup is a separate,
 explicitly authorized operation.
+
+## Test Data Boundary
+
+Acceptance email addresses and passwords are supplied interactively at runtime.
+They must not be embedded in production code, frontend bundles, application
+defaults, deployment files, migrations, committed fixtures, reusable test
+constants, or log messages. Automated tests use generated `example.com`
+addresses that cannot reach a real inbox. Production acceptance commands keep
+recipient values in process memory only and do not write them to repository
+files.
 
 ## Rollback
 
