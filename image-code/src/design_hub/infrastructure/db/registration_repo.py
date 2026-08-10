@@ -1,5 +1,7 @@
 """SQLAlchemy store for pending registrations."""
 
+import re
+import sqlite3
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
@@ -20,6 +22,16 @@ from design_hub.ports.registration import (
     RegistrationStore,
 )
 from design_hub.ports.user_repository import UserAccount
+
+_APP_USER_EMAIL_CONSTRAINT = "uq_app_user_email"
+_POSTGRES_UNIQUE_CONSTRAINT = re.compile(
+    r'duplicate key value violates unique constraint "(?P<constraint>[^"]+)"(?:\n|$)',
+    re.IGNORECASE,
+)
+_MYSQL_DUPLICATE_KEY = re.compile(
+    r"for key [`'](?P<constraint>[^`']+)[`']$",
+    re.IGNORECASE,
+)
 
 
 def _utc(value: datetime) -> datetime:
@@ -60,17 +72,30 @@ def _to_account(row: AppUser) -> UserAccount:
 
 def _is_app_user_email_duplicate(error: IntegrityError) -> bool:
     original: Any = error.orig
-    diagnostic = getattr(original, "diag", None)
-    if getattr(diagnostic, "constraint_name", None) == "uq_app_user_email":
-        return True
-
-    message = str(original).lower()
-    if "unique constraint failed: app_user.email" in message:
-        return True
-
     args = getattr(original, "args", ())
-    error_code = args[0] if args else None
-    return error_code == 1062 and "uq_app_user_email" in message
+    sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    if sqlstate == "23505":
+        diagnostic = getattr(original, "diag", None)
+        constraint = getattr(original, "constraint_name", None) or getattr(
+            diagnostic,
+            "constraint_name",
+            None,
+        )
+        if constraint is None:
+            match = _POSTGRES_UNIQUE_CONSTRAINT.search(str(original))
+            constraint = match.group("constraint") if match is not None else None
+        return constraint == _APP_USER_EMAIL_CONSTRAINT
+
+    if isinstance(original, sqlite3.IntegrityError):
+        return str(original).strip().casefold() == "unique constraint failed: app_user.email"
+
+    if not args or args[0] != 1062 or len(args) < 2 or not isinstance(args[1], str):
+        return False
+    match = _MYSQL_DUPLICATE_KEY.search(args[1])
+    if match is None:
+        return False
+    constraint = match.group("constraint").rsplit(".", maxsplit=1)[-1]
+    return constraint == _APP_USER_EMAIL_CONSTRAINT
 
 
 class SqlAlchemyRegistrationStore(RegistrationStore):
@@ -99,6 +124,8 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
         expires_at: datetime,
         sent_at: datetime,
     ) -> PendingRegistration:
+        expires_at_utc = _utc(expires_at)
+        sent_at_utc = _utc(sent_at)
         async with self._session_factory() as session:
             async with session.begin():
                 row = (
@@ -116,10 +143,10 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
                         name=name,
                         password_hash=password_hash,
                         code_hash=code_hash,
-                        expires_at=expires_at,
+                        expires_at=expires_at_utc,
                         attempt_count=0,
-                        created_at=sent_at,
-                        last_sent_at=sent_at,
+                        created_at=sent_at_utc,
+                        last_sent_at=sent_at_utc,
                         consumed_at=None,
                     )
                     session.add(row)
@@ -129,13 +156,14 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
                     row.name = name
                     row.password_hash = password_hash
                     row.code_hash = code_hash
-                    row.expires_at = expires_at
+                    row.expires_at = expires_at_utc
                     row.attempt_count = 0
                     if not was_active:
-                        row.created_at = sent_at
-                    row.last_sent_at = sent_at
+                        row.created_at = sent_at_utc
+                    row.last_sent_at = sent_at_utc
                     row.consumed_at = None
                 await session.flush()
+                await session.refresh(row)
                 return _to_challenge(row)
 
     async def record_failed_attempt(self, challenge_id: str) -> PendingRegistration | None:
@@ -160,6 +188,7 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
                 return _to_challenge(row)
 
     async def invalidate(self, *, challenge_id: str, invalidated_at: datetime) -> None:
+        invalidated_at_utc = _utc(invalidated_at)
         async with self._session_factory() as session:
             async with session.begin():
                 await session.execute(
@@ -168,7 +197,7 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
                         RegistrationChallengeRow.id == challenge_id,
                         RegistrationChallengeRow.consumed_at.is_(None),
                     )
-                    .values(consumed_at=invalidated_at)
+                    .values(consumed_at=invalidated_at_utc)
                 )
 
     async def complete(
@@ -177,7 +206,9 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
         expected: PendingRegistration,
         completed_at: datetime,
     ) -> RegistrationCompletion:
-        if expected.consumed_at is not None or _utc(expected.expires_at) <= _utc(completed_at):
+        expected_expires_at = _utc(expected.expires_at)
+        completed_at_utc = _utc(completed_at)
+        if expected.consumed_at is not None or expected_expires_at <= completed_at_utc:
             return RegistrationInvalid()
 
         try:
@@ -191,12 +222,12 @@ class SqlAlchemyRegistrationStore(RegistrationStore):
                                 RegistrationChallengeRow.id == expected.id,
                                 RegistrationChallengeRow.email == expected.email,
                                 RegistrationChallengeRow.code_hash == expected.code_hash,
-                                RegistrationChallengeRow.expires_at == expected.expires_at,
-                                RegistrationChallengeRow.expires_at > completed_at,
+                                RegistrationChallengeRow.expires_at == expected_expires_at,
+                                RegistrationChallengeRow.expires_at > completed_at_utc,
                                 RegistrationChallengeRow.attempt_count == expected.attempt_count,
                                 RegistrationChallengeRow.consumed_at.is_(None),
                             )
-                            .values(consumed_at=completed_at)
+                            .values(consumed_at=completed_at_utc)
                         ),
                     )
                     if consumed.rowcount != 1:

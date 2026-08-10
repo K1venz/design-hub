@@ -8,11 +8,17 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import mysql
 
 revision: str = "b9c0d1e2f3a4"
 down_revision: str | None = "a8b9c0d1e2f3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+REGISTRATION_DATETIME = sa.DateTime(timezone=True).with_variant(
+    mysql.DATETIME(fsp=6),
+    "mysql",
+)
 
 
 def upgrade() -> None:
@@ -23,7 +29,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=128), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
         sa.Column("code_hash", sa.String(length=64), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("expires_at", REGISTRATION_DATETIME, nullable=False),
         sa.Column(
             "attempt_count",
             sa.Integer(),
@@ -32,12 +38,12 @@ def upgrade() -> None:
         ),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
+            REGISTRATION_DATETIME,
             nullable=False,
             server_default=sa.func.now(),
         ),
-        sa.Column("last_sent_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("consumed_at", sa.DateTime(timezone=True)),
+        sa.Column("last_sent_at", REGISTRATION_DATETIME, nullable=False),
+        sa.Column("consumed_at", REGISTRATION_DATETIME),
         sa.UniqueConstraint("email", name="uq_registration_challenge_email"),
         sa.CheckConstraint(
             "attempt_count >= 0",
