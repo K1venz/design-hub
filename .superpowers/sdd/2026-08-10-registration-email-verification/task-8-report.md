@@ -45,3 +45,21 @@ The example-environment validation ran before this expected Docker failure. Dock
 - The shared proxy include preserves the existing rewrite, upstream, and forwarding headers.
 - Existing login controls are explicitly guarded by the test; generation controls were not modified.
 - No secrets were added or printed.
+
+## Review fix: semantic parser hardening
+
+### Root cause
+
+The first static test searched the full source text. A commented route, a duplicate route, a route in the HTTP-only server, or a commented correct proxy directive could therefore satisfy it. It also did not guard the configured 429 status or the shared SSE/generation proxy controls.
+
+### TDD evidence
+
+- RED: controlled temporary configuration fixtures were added before changing the parser. The former parser exited non-zero with `ERROR: invalid fixtures accepted: commented-correct-proxy commented-generation-proxy commented-limit-status commented-route duplicate-route non-https-route` because it accepted every invalid fixture.
+- GREEN: the parser now removes comments, parses brace-delimited directives/blocks, finds only `listen 443 ssl` servers, and requires each protected exact location exactly once in that scope. The final test exits 0 and prints all six rejected fixture names.
+
+### Added guarantees
+
+- `limit_req_status 429` is required as an active top-level directive.
+- Login still requires its exact HTTPS location, `login` zone, 15r/m declaration, and shared proxy include.
+- The shared proxy include must actively retain rewrite/upstream/forwarded-header behavior plus `proxy_buffering off`, `proxy_cache off`, 3600-second read/send timeouts, and chunked transfer for generation SSE. The deployment configuration contains no Nginx generation `limit_req` zone to guard.
+- `.env.example` was restored with `git restore --worktree` after confirming its blob had no semantic diff; the task-created CRLF/status noise is gone.
