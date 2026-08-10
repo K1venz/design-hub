@@ -203,4 +203,41 @@ describe('RegisterPage sensitive mutation lifecycle', () => {
     expect(clearTimer).toHaveBeenCalled()
     vi.useRealTimers()
   })
+
+  it('stops the old countdown before restarting verification and runs only the new countdown', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+    renderPage()
+
+    await fillAndSubmitDetails()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(screen.getByRole('button', { name: '50 秒后可重新发送' }).hasAttribute('disabled')).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: '返回修改资料' }))
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'very-secret-password' } })
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'very-secret-password' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '发送验证码' }))
+    })
+
+    expect(screen.getByRole('button', { name: '60 秒后可重新发送' }).hasAttribute('disabled')).toBe(true)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    expect(screen.getByRole('button', { name: '59 秒后可重新发送' }).hasAttribute('disabled')).toBe(true)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_000)
+    })
+    expect(screen.getByRole('button', { name: '30 秒后可重新发送' }).hasAttribute('disabled')).toBe(true)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+    expect(screen.getByRole('button', { name: '重新发送验证码' }).hasAttribute('disabled')).toBe(false)
+    vi.useRealTimers()
+  })
 })

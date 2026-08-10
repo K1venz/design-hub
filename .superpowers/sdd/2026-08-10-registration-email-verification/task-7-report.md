@@ -70,3 +70,23 @@ The real-hook suite also proves that successful verification reaches `useVerifyR
 | `npm run typecheck` | Pass |
 | `npm run lint` | Pass |
 | `npm run build` | Pass (same unrelated chunk-size warning) |
+
+## Fix Round 2 — restart countdown isolation
+
+Added a real-page behavior test for this sequence:
+
+1. enter verification and let its 60-second resend cooldown reach 50 seconds;
+2. return to the details step, re-enter the password, and submit registration again;
+3. observe a new disabled 60-second cooldown;
+4. assert it becomes 59 after one second, remains disabled at 30 seconds, and unlocks only after the remaining 30 seconds.
+
+This verifies user-visible countdown and resend-button state rather than only spying on `clearInterval`.
+
+The current implementation passed the new behavior test, so no production code change was needed. To prove the test can catch the intended regression, cleanup was temporarily mutated from `return () => window.clearInterval(timer)` to `return undefined` and the real page suite was rerun. It failed in two expected ways: the existing unmount cleanup test observed no cleanup, and the new restart test observed `58 秒后可重新发送` after only one second of the new countdown (the stale and new timers both ticked). The cleanup was then restored.
+
+| Command | Result |
+| --- | --- |
+| `npm test -- src/pages/RegisterPage.real.test.tsx` (temporary mutation) | Expected fail — 2 failures, including early 58-second countdown |
+| `npm test -- src/pages/RegisterPage.real.test.tsx src/pages/RegisterPage.test.tsx` | Pass — 2 files, 14 tests |
+| `npm run typecheck` | Pass |
+| `npm run lint` | Pass |
