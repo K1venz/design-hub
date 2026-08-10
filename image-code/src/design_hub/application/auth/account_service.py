@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from design_hub.application.auth.verification_codes import digest_verification_code
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, DomainError
 from design_hub.domain.models import AuthUser
@@ -32,11 +32,6 @@ def _to_auth_user(acc: UserAccount) -> AuthUser:
     return AuthUser(user_id=str(acc.id), name=acc.name, role=acc.role, dept=None)
 
 
-def _hash_reset_code(*, email: str, code: str, pepper: str) -> str:
-    material = f"{email.strip().lower()}:{code}:{pepper}".encode()
-    return hashlib.sha256(material).hexdigest()
-
-
 @dataclass
 class AccountService:
     users: UserRepository
@@ -44,7 +39,7 @@ class AccountService:
     tokens: TokenService
     resets: PasswordResetStore | None = None
     mailer: MailPort | None = None
-    reset_code_pepper: str = ""
+    email_verification_code_pepper: str = ""
     reset_code_ttl_seconds: int = 600
     reset_resend_cooldown_seconds: int = 60
     reset_max_attempts: int = 5
@@ -110,8 +105,11 @@ class AccountService:
         acc = await self.users.get_by_email(email)
         if acc is not None and acc.enabled:
             code = f"{secrets.randbelow(10**_CODE_DIGITS):0{_CODE_DIGITS}d}"
-            code_hash = _hash_reset_code(
-                email=email, code=code, pepper=self.reset_code_pepper
+            code_hash = digest_verification_code(
+                purpose="password-reset",
+                email=email,
+                code=code,
+                pepper=self.email_verification_code_pepper,
             )
             expires_at = now + timedelta(seconds=self.reset_code_ttl_seconds)
             challenge = await self.resets.replace_active(
@@ -158,8 +156,11 @@ class AccountService:
             raise ValueError("验证码错误次数过多，请重新获取")
 
         expected = challenge.code_hash
-        actual = _hash_reset_code(
-            email=email, code=code, pepper=self.reset_code_pepper
+        actual = digest_verification_code(
+            purpose="password-reset",
+            email=email,
+            code=code,
+            pepper=self.email_verification_code_pepper,
         )
         if not hmac.compare_digest(expected, actual):
             updated = await self.resets.record_failed_attempt(challenge.id)
@@ -177,5 +178,9 @@ class AccountService:
         await self.resets.consume(challenge.id)
 
     def _require_reset_deps(self) -> None:
-        if self.resets is None or self.mailer is None or not self.reset_code_pepper:
+        if (
+            self.resets is None
+            or self.mailer is None
+            or not self.email_verification_code_pepper
+        ):
             raise RuntimeError("password reset is not configured")

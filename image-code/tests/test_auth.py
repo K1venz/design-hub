@@ -15,7 +15,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from design_hub.application.auth.account_service import AccountService, _hash_reset_code
+from design_hub.application.auth.account_service import AccountService
+from design_hub.application.auth.verification_codes import digest_verification_code
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, NotFoundError
 from design_hub.domain.models import AuthUser
@@ -246,7 +247,7 @@ def _client(mailer: MailPort | None = None) -> tuple[
         tokens=token_service,
         resets=resets,
         mailer=mailer,
-        reset_code_pepper=_SECRET,
+        email_verification_code_pepper=_SECRET,
         reset_code_ttl_seconds=600,
         reset_resend_cooldown_seconds=60,
         reset_max_attempts=5,
@@ -401,25 +402,33 @@ def test_forgot_password_unknown_email_same_message_no_mail() -> None:
 
 
 def test_password_reset_round_trip() -> None:
-    client, cipher, _, _, mailer, _ = _client()
+    client, cipher, _, _, mailer, resets = _client()
     reg = client.post(
         "/auth/register",
         json={
-            "email": "reset@x.com",
+            "email": "reset@example.com",
             "name": "R",
             "password": cipher.encrypt("oldpassword1"),
         },
     )
     assert reg.status_code == 200
 
-    forgot = client.post("/auth/forgot-password", json={"email": "reset@x.com"})
+    forgot = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
     assert forgot.status_code == 200
     code = _code_from_mail(mailer)
+    challenge = asyncio.run(resets.get_active("reset@example.com"))
+    assert challenge is not None
+    assert challenge.code_hash == digest_verification_code(
+        purpose="password-reset",
+        email="reset@example.com",
+        code=code,
+        pepper=_SECRET,
+    )
 
     reset = client.post(
         "/auth/reset-password",
         json={
-            "email": "reset@x.com",
+            "email": "reset@example.com",
             "code": code,
             "password": cipher.encrypt("newpassword9"),
         },
@@ -428,13 +437,13 @@ def test_password_reset_round_trip() -> None:
 
     bad_old = client.post(
         "/auth/login",
-        json={"email": "reset@x.com", "password": cipher.encrypt("oldpassword1")},
+        json={"email": "reset@example.com", "password": cipher.encrypt("oldpassword1")},
     )
     assert bad_old.status_code == 401
 
     ok_new = client.post(
         "/auth/login",
-        json={"email": "reset@x.com", "password": cipher.encrypt("newpassword9")},
+        json={"email": "reset@example.com", "password": cipher.encrypt("newpassword9")},
     )
     assert ok_new.status_code == 200 and ok_new.json()["jwt"]
 
@@ -496,7 +505,7 @@ def test_forgot_password_mail_failure_invalidates_challenge() -> None:
             tokens=PyJwtTokenService(secret=_SECRET),
             resets=resets,
             mailer=_FailingMailer(),
-            reset_code_pepper=_SECRET,
+            email_verification_code_pepper=_SECRET,
         )
 
         with pytest.raises(OSError, match="smtp unavailable"):
@@ -507,13 +516,6 @@ def test_forgot_password_mail_failure_invalidates_challenge() -> None:
             await service.request_password_reset(email="mailfail@x.com")
 
     asyncio.run(run())
-
-
-def test_hash_reset_code_stable() -> None:
-    a = _hash_reset_code(email="A@X.com", code="123456", pepper="p")
-    b = _hash_reset_code(email="a@x.com", code="123456", pepper="p")
-    assert a == b
-    assert a != _hash_reset_code(email="a@x.com", code="123457", pepper="p")
 
 
 def test_stale_token_renews_with_current_database_role() -> None:
