@@ -1,4 +1,4 @@
-"""Dev/fallback mailer: structured log only (no network)."""
+"""Explicit development mail sink that never logs message content."""
 
 import structlog
 
@@ -10,8 +10,8 @@ log = structlog.get_logger(__name__)
 class LoggingMailer(MailPort):
     async def send(self, *, to: str, subject: str, body_text: str) -> None:
         log.info(
-            "mail.sent_via_log",
+            "mail.delivery_skipped",
             to=to,
             subject=subject,
-            body=body_text,
+            body_bytes=len(body_text.encode()),
         )

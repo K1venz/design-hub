@@ -44,6 +44,7 @@ from design_hub.application.tasking.health import (
 )
 from design_hub.composition import (
     build_image_store,
+    build_mailer,
     build_media_signer,
     build_secret_cipher,
     build_upload_store,
@@ -62,13 +63,12 @@ from design_hub.infrastructure.db.generation_work_repo import (
 from design_hub.infrastructure.db.listing_query_repo import SqlAlchemyListingHistoryQuery
 from design_hub.infrastructure.db.model_call_repo import SqlAlchemyModelCallRecorder
 from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfigRepository
-from design_hub.infrastructure.db.session import create_engine, create_session_factory
-from design_hub.infrastructure.db.showcase_repo import SqlAlchemyShowcaseRepository
 from design_hub.infrastructure.db.password_reset_repo import (
     SqlAlchemyPasswordResetStore,
 )
+from design_hub.infrastructure.db.session import create_engine, create_session_factory
+from design_hub.infrastructure.db.showcase_repo import SqlAlchemyShowcaseRepository
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
-from design_hub.infrastructure.mail import LoggingMailer, SmtpMailer
 from design_hub.infrastructure.monitoring.logging import (
     configure_logging,
     install_request_context,
@@ -222,24 +222,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.token_service = token_service
     user_repo = SqlAlchemyUserRepository(session_factory)
-    if settings.smtp_host.strip() and settings.smtp_from.strip():
-        mailer = SmtpMailer(
-            host=settings.smtp_host.strip(),
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password.get_secret_value(),
-            from_addr=settings.smtp_from.strip(),
-            use_tls=settings.smtp_use_tls,
-        )
-    else:
-        mailer = LoggingMailer()
+    mailer = build_mailer(settings)
     account_service = AccountService(
         users=user_repo,
         passwords=BcryptPasswordHasher(),
         tokens=token_service,
         resets=SqlAlchemyPasswordResetStore(session_factory),
         mailer=mailer,
-        reset_code_pepper=settings.jwt_secret.get_secret_value(),
+        reset_code_pepper=settings.password_reset_code_pepper.get_secret_value(),
         reset_code_ttl_seconds=settings.password_reset_code_ttl_seconds,
         reset_resend_cooldown_seconds=settings.password_reset_resend_cooldown_seconds,
         reset_max_attempts=settings.password_reset_max_attempts,
