@@ -69,9 +69,10 @@ The complete backend test suite and Ruff checks must pass before deployment.
 After deployment:
 
 1. Verify API, SMTP, and OpenDKIM containers are healthy and the queue is empty.
-2. Send a branded infrastructure test to `zhaok157@gmail.com` and confirm Gmail
-   accepts it.
-3. Confirm that `zhaok157@gmail.com` already belongs to an application account.
+2. Send a branded infrastructure test to a user-supplied runtime test recipient
+   and confirm the receiving provider accepts it.
+3. Confirm that the user-supplied password-reset test recipient already belongs
+   to an application account.
    If it does not, stop and ask before creating any account.
 4. Request password reset through the public `/api/auth/forgot-password`
    endpoint.
@@ -85,6 +86,10 @@ After deployment:
 Gmail inbox placement is observed separately from SMTP acceptance. SPF, DKIM,
 and DMARC results are checked from Gmail's original-message authentication
 summary when available.
+
+Test recipient addresses and test passwords are runtime acceptance inputs only.
+They must not appear in production code, application defaults, deployment
+configuration, migrations, committed fixtures, or reusable test constants.
 
 ## Rollback
 
