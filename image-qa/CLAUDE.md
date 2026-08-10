@@ -15,6 +15,11 @@
 ## 输入
 - image-prd/（验收标准）、image-code/（被测代码）、image-issues/（待复现 / 待验证）
 
+## 鉴权运行约束
+- 常规回归与 smoke 统一通过 `qa_auth.py` 登录预先验证的账号；helper 会先取 `/auth/pubkey` 并以 RSA-OAEP-SHA256 加密密码。主账号使用 `QA_USER_EMAIL`/`QA_USER_PASSWORD`，隔离场景的次账号使用 `QA_SECONDARY_USER_EMAIL`/`QA_SECONDARY_USER_PASSWORD`，管理者使用 `ADMIN_EMAIL`/`ADMIN_PASSWORD`。
+- 常规脚本禁止调用注册接口，尤其禁止在生产 smoke 中自动注册或触发验证邮件。
+- 注册邮件链路只由 `registration_acceptance.py` 独立验收。收件邮箱、经批准的测试密码和验证码均在运行时交互输入；输入 `resend` 时脚本会使用服务端返回的最新 `challenge_id`。
+
 ## 协作
 - 复现确认：状态「已确认」，owner 交开发。
 - 验证：通过则「已修复」→「已关闭」；复现不出则「无法复现」，owner 交回报告人。

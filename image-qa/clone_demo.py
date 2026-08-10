@@ -15,12 +15,13 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = (os.environ.get("QA_BASE") or os.environ.get("PROD_BASE") or "").rstrip("/")
 PREFIX = os.environ.get("API_PREFIX", "").rstrip("/")
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/复刻demo")
-U = (f"qa-clonedemo-{int(time.time())}@example.com", "qa-clonedemo-123", "QA复刻demo")
 PRODUCT = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
 REFERENCE = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/共评样张/淘宝天猫1688-3x4-中文.png"
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
@@ -68,10 +69,8 @@ async def main() -> None:
     print(f"   产品={Path(PRODUCT).name}  参考={Path(REFERENCE).name}（同款花生·爆款大图）  ratio=3:4")
     results = []
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=900.0) as c:
-        r = await c.post(f"{PREFIX}/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post(f"{PREFIX}/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         pid = await upload(c, H, PRODUCT)
         rid = await upload(c, H, REFERENCE)

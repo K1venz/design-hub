@@ -12,8 +12,9 @@ from pathlib import Path
 
 import httpx
 
+from qa_auth import login_verified_account
+
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
-A = ("qa-acc-a@example.com", "qa-acc-a-123")
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/共评样张")
 
 
@@ -26,7 +27,7 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 必须指向 server qa 实例。")
     OUT.mkdir(exist_ok=True)
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=60.0) as c:
-        tok = (await c.post("/auth/login", json={"email": A[0], "password": A[1]})).json()["jwt"]
+        tok = (await login_verified_account(c)).jwt
         H = {"Authorization": f"Bearer {tok}"}
         jobs = (await c.get("/listing/jobs?limit=100", headers=H)).json()
         rows = []

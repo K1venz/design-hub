@@ -17,13 +17,13 @@ import time
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/路A实测")
-U = ("qa-routea@example.com", "qa-routea-123", "QA路A实测")
-# 用户视角 prompt：显式点名想要的花生 styling（与产品相关，非「无关食材」）
 PROMPT = (
     "电商主图：颗粒饱满的花生产品，主体清晰、背景干净得体、质感真实突出；"
     "周围散落一些带壳花生与紫罗兰色七彩花生米作点缀，营造丰收质感"
@@ -47,10 +47,8 @@ async def main() -> None:
     print(f"== 路A实测 == BASE={BASE}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
         print(f"[probe] openapi {(await c.get('/openapi.json')).status_code}")
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": PROMPT, "ratio": "1:1", "n": 1, "category": "FOOD", "modifiers": MODIFIERS}

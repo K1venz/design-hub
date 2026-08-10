@@ -2,7 +2,7 @@
 
 验：① 复刻真出图 1 张 ② 落 prod 桶（bucket-design-hub-generate、非 qa）③ clone_mode 回显
 ④ image_type=null ⑤ cost reconcile（prod 0.40）。落盘 → image-qa/复刻prod_smoke/ 视觉核三命门。
-真碰 prod：1 个可标识 qa-test 号 + 1 单复刻（≈¥0.40）。含 SSE 断连降级轮询。
+真碰 prod：运行时提供的已验证账号 + 1 单复刻（≈¥0.40）。含 SSE 断连降级轮询。
 用法：PROD_BASE=http://localhost:8445 uv run python ../image-qa/clone_prod_smoke.py
 """
 
@@ -14,12 +14,13 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("PROD_BASE", "").rstrip("/")
 EP = "/listing/clone"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/复刻prod_smoke")
-U = (f"qa-clone-prod-{int(time.time())}@example.com", "qa-clone-prod-123", "QA复刻prodsmoke")
 PROD = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"        # 产品图
 REF = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/套图回归/润喉糖-白底.png"            # 爆款模板
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
@@ -45,10 +46,8 @@ async def main() -> None:
     print(f"== 爆款复刻 prod smoke == BASE={BASE}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
         OUT.mkdir(exist_ok=True)
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         # 端点探测不走 /openapi.json（prod docs 默认关后 404，dev #612）：空 body POST → 路由缺=404
         probe = await c.post(EP, headers=H, json={})
@@ -94,7 +93,7 @@ async def main() -> None:
         print(f"③ clone_mode 回显 : {'PASS' if d.get('clone_mode') == '高度复刻' else 'FAIL'}")
         print(f"④ image_type=null : {'PASS' if imgs and imgs[0].get('image_type') in (None, '') else 'FAIL'}")
         print(f"⑤ cost reconcile  : {'PASS' if cost_ok else 'FAIL'}")
-        print(f"\n落盘视觉核三命门（产物=花生保真/无润喉糖泄漏/无糊文案）→ {OUT}。qa-test 号 {U[0]} 可后清。")
+        print(f"\n落盘视觉核三命门（产物=花生保真/无润喉糖泄漏/无糊文案）→ {OUT}。保留已验证账号 {session.email}，仅清理本次作业产物。")
 
 
 asyncio.run(main())

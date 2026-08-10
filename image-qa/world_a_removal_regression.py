@@ -1,7 +1,7 @@
 """世界 A 移除回归（ISSUE-0046 验收①②）。qa gate + prod 公网复核同一脚本。
 
 prong①「listing/uploads/auth/出图全链零变化」——实证删世界 A 没误伤共享依赖（唯一真风险）：
-  auth(register/login/me) → uploads → 单图流 n=1 → 套图 plan 1/1/1 → history(jobs/详情)
+  auth(login/me) → uploads → 单图流 n=1 → 套图 plan 1/1/1 → history(jobs/详情)
   全活，cost 价无关核（total>0 且 ==Σ成功张、张数对）。FULL=1 再加 edit(0040) 链。
 prong②「/customers·/dashboard 后端 404」——端点直探（docs default-OFF）：
   删的世界 A 路由 → 404（路由没了）；**反向核** 保留路由 /admin/users·/admin/models·/listing/jobs
@@ -16,17 +16,17 @@ bounded：默认单图+套图；FULL 加 edit。
 import asyncio
 import io
 import os
-import time
 from decimal import Decimal
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = (os.environ.get("QA_BASE") or os.environ.get("PROD_BASE") or "").rstrip("/")
 PREFIX = os.environ.get("API_PREFIX", "").rstrip("/")  # 公网=/api、直连容器=空
 FULL = os.environ.get("FULL", "") == "1"
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
-U = (f"qa-worlda-{int(time.time())}@example.com", "qa-worlda-123", "QA世界A回归")
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 PLAN = {"白底": 1, "场景": 1, "卖点": 1}
 
@@ -104,15 +104,19 @@ async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=900.0) as c:
         # ===== prong① auth 零变化 =====
         print("\n[① auth/uploads 零变化]")
-        r = await c.post(f"{PREFIX}/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post(f"{PREFIX}/auth/login", json={"email": U[0], "password": U[1]})
-        check("auth register/login → jwt", r.status_code == 200 and "jwt" in r.json(), f"got {r.status_code}")
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX)
+        check("auth login → jwt", bool(session.jwt), f"account={session.email}")
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         me = await c.get(f"{PREFIX}/me", headers=H)
-        # MeResponse 字段=user_id/name/role/dept（无 email）；核 name=注册名 = 身份回显正确
-        check("GET /me → 200 带账号", me.status_code == 200 and me.json().get("name") == U[2], f"got {me.status_code}")
+        # MeResponse 字段=user_id/name/role/dept（无 email）。
+        check(
+            "GET /me → 200 带账号",
+            me.status_code == 200
+            and bool(me.json().get("user_id"))
+            and bool(me.json().get("name")),
+            f"got {me.status_code}",
+        )
         up = await c.post(f"{PREFIX}/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})
         check("POST /uploads → id", up.status_code == 200 and "id" in up.json(), f"got {up.status_code}")
         uid = up.json()["id"]

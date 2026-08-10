@@ -2,11 +2,12 @@
 
 起服务只需：
   cd image-code && DB_URL=mysql+aiomysql://root:<pw>@127.0.0.1:3306/image_gen \
-    SEED_ADMIN_EMAIL=qa-admin@test.com SEED_ADMIN_PASSWORD=qa-admin-pass-123 \
+    QA_USER_EMAIL=<verified-email> QA_USER_PASSWORD=<password> \
+    ADMIN_EMAIL=<admin-email> ADMIN_PASSWORD=<admin-password> \
     uv run uvicorn design_hub.interface.api.asgi:app --port 8000
 异步出图 + SSE 在 API 进程内跑（InProcessTaskQueue + InMemoryEventBus），无需 worker。
 
-认证已改自建邮箱密码（ISSUE-0015）：register=默认设计师；manager 由 SEED_ADMIN_* 注入。
+认证使用运行时注入的已验证设计师与管理者账号，不在脚本内注册或保存凭据。
 SSE 鉴权走 ?access_token=（ISSUE-0011）。
 成本：异步/同步出图全路由到 Mock（family_3→seedream，免费）；导出复用上轮真实图 id=3（file://）。
 
@@ -16,16 +17,16 @@ Run: cd image-code && uv run python /…/image-qa/e2e_driver.py
 import asyncio
 import io
 import json
-import time
+import secrets
 from typing import Any
 
 import httpx
+
+from qa_auth import AccountSlot, encrypt_password, login_verified_account
 from PIL import Image, ImageDraw
 
 BASE = "http://127.0.0.1:8000"
 EVIDENCE = "/tmp/e2e3-evidence.json"
-ADMIN = ("qa-admin@test.com", "qa-admin-pass-123")        # SEED_ADMIN_* 注入的管理者
-DESIGNER = ("qa-designer@test.com", "qa-designer-12345")  # 注册的设计师
 EXISTING_REAL_IMAGE_ID = 3   # 上轮真实 gpt-image 出图(file://)，导出复用，0 新成本
 EXISTING_REAL_PROJECT = 1
 
@@ -49,20 +50,13 @@ def peanut_png() -> bytes:
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=90.0) as c:
-        # ---------- Step 1: 认证（自建邮箱密码）----------
-        # 设计师：注册（已存在则登录），断言默认角色=设计师
-        r = await c.post("/auth/register", json={"email": DESIGNER[0], "password": DESIGNER[1], "name": "QA设计师"})
-        if r.status_code != 200:  # 已注册(409)或其它 → 退回登录复用同一账号
-            r = await c.post("/auth/login", json={"email": DESIGNER[0], "password": DESIGNER[1]})
-        designer_jwt = r.json().get("jwt") if r.status_code == 200 else None
-        rec("1.设计师注册/登录", r.status_code == 200 and r.json().get("role") == "设计师",
-            f"HTTP {r.status_code} role={r.json().get('role')}")
-
-        # 管理者：登录 SEED_ADMIN
-        r = await c.post("/auth/login", json={"email": ADMIN[0], "password": ADMIN[1]})
-        mgr_jwt = r.json().get("jwt") if r.status_code == 200 else None
-        rec("1.管理者登录(seed_admin)", r.status_code == 200 and r.json().get("role") == "管理者",
-            f"HTTP {r.status_code} role={r.json().get('role')}")
+        # ---------- Step 1: 认证（运行时已验证账号）----------
+        designer = await login_verified_account(c, slot=AccountSlot.PRIMARY)
+        manager = await login_verified_account(c, slot=AccountSlot.ADMIN)
+        designer_jwt = designer.jwt
+        mgr_jwt = manager.jwt
+        rec("1.设计师登录", True, f"account={designer.email}")
+        rec("1.管理者登录", True, f"account={manager.email}")
 
         dh = {"Authorization": f"Bearer {designer_jwt}"}
         mh = {"Authorization": f"Bearer {mgr_jwt}"}
@@ -76,7 +70,11 @@ async def main() -> None:
         rec("1.无token/me(401)", r.status_code == 401, f"HTTP {r.status_code}")
         r = await c.get("/customers")
         rec("1.无token业务端点(401)", r.status_code == 401, f"HTTP {r.status_code}")
-        r = await c.post("/auth/login", json={"email": DESIGNER[0], "password": "wrong-password"})
+        invalid_password = await encrypt_password(c, secrets.token_urlsafe(24))
+        r = await c.post(
+            "/auth/login",
+            json={"email": designer.email, "password": invalid_password},
+        )
         rec("1.错密码登录(401)", r.status_code == 401, f"HTTP {r.status_code} {r.text[:80]}")
 
         # ---------- Step 2: 角色矩阵 ----------
