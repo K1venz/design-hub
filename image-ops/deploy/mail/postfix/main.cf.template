@@ -1,0 +1,37 @@
+compatibility_level = 3.6
+queue_directory = /var/spool/postfix
+mail_owner = postfix
+myhostname = ${MAIL_HOSTNAME}
+mydomain = ${MAIL_DOMAIN}
+myorigin = ${MAIL_DOMAIN}
+mydestination = localhost.localdomain, localhost
+relay_domains =
+inet_interfaces = all
+inet_protocols = ipv4
+mynetworks = 127.0.0.0/8, ${MAIL_NETWORKS}
+
+smtpd_client_restrictions = permit_mynetworks, reject
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_helo_required = yes
+smtpd_delay_reject = yes
+smtpd_recipient_limit = 20
+message_size_limit = 10485760
+
+smtpd_milters = inet:dkim:8891
+non_smtpd_milters = inet:dkim:8891
+milter_default_action = tempfail
+milter_protocol = 6
+internal_mail_filter_classes = bounce
+
+smtp_tls_security_level = may
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+smtp_tls_loglevel = 1
+smtp_tls_note_starttls_offer = yes
+
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+recipient_delimiter = +
+mailbox_size_limit = 0
+maillog_file = /dev/stdout

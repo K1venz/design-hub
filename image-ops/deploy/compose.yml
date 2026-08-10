@@ -2,6 +2,59 @@ name: design-hub
 
 # 复用现有 MySQL(/opt/docker/mysql, 网络 mysql_default)；Redis 仅在项目内网提供队列服务。
 services:
+  dkim:
+    build:
+      context: ./mail/opendkim
+    image: design-hub-opendkim:latest
+    container_name: design-hub-dkim
+    restart: unless-stopped
+    volumes:
+      - /data/docker/design-hub/mail/dkim:/etc/dkimkeys
+    networks:
+      mail:
+        ipv4_address: 172.29.0.11
+    expose:
+      - "8891"
+    mem_limit: 128m
+    cpus: "0.25"
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x opendkim >/dev/null && nc -z 127.0.0.1 8891"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  smtp:
+    build:
+      context: ./mail/postfix
+    image: design-hub-postfix:latest
+    container_name: design-hub-smtp
+    restart: unless-stopped
+    environment:
+      MAIL_HOSTNAME: smtp.image.sepaitech.com
+      MAIL_DOMAIN: image.sepaitech.com
+      MAIL_NETWORKS: 172.29.0.0/24
+    volumes:
+      - /data/docker/design-hub/mail/spool:/var/spool/postfix
+    networks:
+      mail:
+        ipv4_address: 172.29.0.10
+    depends_on:
+      dkim:
+        condition: service_healthy
+    expose:
+      - "25"
+    mem_limit: 256m
+    cpus: "0.25"
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD-SHELL", "postfix status >/dev/null && nc -z 127.0.0.1 25"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
   redis:
     image: redis:8-alpine
     container_name: design-hub-redis
@@ -54,8 +107,11 @@ services:
     networks:
       - default        # 与 nginx 同网
       - mysql_default   # 连现有 MySQL（host=mysql:3306）
+      - mail
     depends_on:
       redis:
+        condition: service_healthy
+      smtp:
         condition: service_healthy
     expose:
       - "8000"
@@ -121,5 +177,9 @@ services:
 
 networks:
   default:
+  mail:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
   mysql_default:
     external: true

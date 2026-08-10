@@ -273,14 +273,11 @@ git commit -m "fix: clear failed password reset deliveries" -m "Consume a newly-
 
 - [ ] **Step 1: Add a static infrastructure assertion script**
 
-Create `image-ops/deploy/scripts/check-mail-config.sh` with assertions that:
+Create `image-ops/deploy/scripts/check-mail-config.sh`. It must parse the rendered Compose JSON and assert the behavior of the resulting configuration:
 
 ```bash
-docker compose config >/dev/null
-docker compose config | grep -q '172.29.0.0/24'
-! docker compose config | grep -A20 'smtp:' | grep -q 'published:'
-grep -q 'reject_unauth_destination' mail/postfix/main.cf.template
-grep -q 'designhub._domainkey.image.sepaitech.com' mail/opendkim/KeyTable
+config_json="$(docker compose config --format json)"
+python3 -c 'import json,sys; config=json.load(sys.stdin); assert not config["services"]["smtp"].get("ports"); assert config["networks"]["mail"]["ipam"]["config"][0]["subnet"] == "172.29.0.0/24"' <<<"$config_json"
 ```
 
 - [ ] **Step 2: Run the check and verify red**
@@ -318,11 +315,11 @@ message_size_limit = 10485760
 smtpd_recipient_limit = 20
 ```
 
-The entrypoint validates all three required environment variables, renders with `envsubst`, runs `postfix set-permissions` and `postfix check`, then executes `postfix start-fg`.
+The entrypoint validates all three required environment variables, initializes an empty persistent queue from the package-created spool template, renders with `envsubst`, runs `postfix check`, then executes `postfix start-fg`.
 
 - [ ] **Step 4: Create the OpenDKIM image**
 
-Install `opendkim`, `opendkim-tools`, `netcat-openbsd`, and `tini`. Configure:
+Install `opendkim`, `opendkim-tools`, `openssl`, `netcat-openbsd`, and `tini`. Configure:
 
 ```text
 Mode                    s
@@ -348,7 +345,7 @@ designhub._domainkey.image.sepaitech.com image.sepaitech.com:designhub:/etc/dkim
 172.29.0.0/24
 ```
 
-The entrypoint rejects a missing/empty key, sets key ownership/mode inside the container, validates configuration with `opendkim -n`, and starts `opendkim -f`.
+The entrypoint rejects a missing/empty key, sets the mounted directory to `opendkim:opendkim 0700` and the key to `0600`, validates configuration with `opendkim -n`, and starts `opendkim -f`.
 
 - [ ] **Step 5: Extend Compose**
 
