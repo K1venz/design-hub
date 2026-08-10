@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from design_hub.application.auth.account_service import AccountService
+from design_hub.application.auth.account_service import AccountService, RegistrationDeliveryFailure
 from design_hub.application.auth.verification_codes import digest_verification_code
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, DomainError, NotFoundError
@@ -585,6 +585,11 @@ class _FakeRegistrationStore(RegistrationStore):
         self._lock = asyncio.Lock()
         self.force_invalid_completion = False
         self.invalidated_ids: list[str] = []
+        self.invalidate_error: Exception | None = None
+        self.completion_entries = 0
+        self.successful_completions = 0
+        self._completion_ready: asyncio.Event | None = None
+        self._completion_release: asyncio.Event | None = None
 
     async def get_active(self, email: str) -> PendingRegistration | None:
         challenge = self._active.get(email)
@@ -632,6 +637,8 @@ class _FakeRegistrationStore(RegistrationStore):
         return None
 
     async def invalidate(self, *, challenge_id: str, invalidated_at: datetime) -> None:
+        if self.invalidate_error is not None:
+            raise self.invalidate_error
         for email, challenge in self._active.items():
             if challenge.id == challenge_id and challenge.consumed_at is None:
                 invalidated = replace(challenge, consumed_at=invalidated_at)
@@ -646,13 +653,21 @@ class _FakeRegistrationStore(RegistrationStore):
         expected: PendingRegistration,
         completed_at: datetime,
     ) -> RegistrationCompletion:
+        self.completion_entries += 1
+        if self._completion_ready is not None and self._completion_release is not None:
+            if self.completion_entries == 2:
+                self._completion_ready.set()
+            await self._completion_release.wait()
         async with self._lock:
             current = self._active.get(expected.email)
+            expires_at = expected.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
             if (
                 self.force_invalid_completion
                 or current != expected
                 or expected.consumed_at is not None
-                or expected.expires_at <= completed_at
+                or expires_at <= completed_at
             ):
                 return RegistrationInvalid()
             if await self._users.get_by_email(expected.email) is not None:
@@ -666,11 +681,24 @@ class _FakeRegistrationStore(RegistrationStore):
             consumed = replace(current, consumed_at=completed_at)
             self._active[expected.email] = consumed
             self._items[expected.id] = consumed
+            self.successful_completions += 1
             return RegistrationCompleted(account)
 
     def set_active(self, challenge: PendingRegistration) -> None:
         self._active[challenge.email] = challenge
         self._items[challenge.id] = challenge
+
+    def block_two_completions(self) -> None:
+        self._completion_ready = asyncio.Event()
+        self._completion_release = asyncio.Event()
+
+    async def wait_for_two_completion_entries(self) -> None:
+        assert self._completion_ready is not None
+        await self._completion_ready.wait()
+
+    def release_completions(self) -> None:
+        assert self._completion_release is not None
+        self._completion_release.set()
 
 
 class _SwitchableMailer(MailPort):
@@ -838,6 +866,28 @@ def test_verify_registration_expired_code_uses_generic_message() -> None:
     asyncio.run(run())
 
 
+def test_verify_registration_treats_naive_expiry_as_utc() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="naive-expiry@example.com", password="password88", name="Naive Expiry"
+        )
+        challenge = await registrations.get_active("naive-expiry@example.com")
+        assert challenge is not None
+        expired_naive_utc = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+        registrations.set_active(
+            replace(challenge, expires_at=expired_naive_utc)
+        )
+
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(
+                email="naive-expiry@example.com", code=_registration_code(mailer)
+            )
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
 def test_verify_registration_exhausted_attempts_uses_generic_message() -> None:
     async def run() -> None:
         service, _, registrations, mailer, _, tokens = _registration_service()
@@ -852,6 +902,28 @@ def test_verify_registration_exhausted_attempts_uses_generic_message() -> None:
             await service.verify_registration(
                 email="exhausted@example.com", code=_registration_code(mailer)
             )
+        assert tokens.issued == []
+
+    asyncio.run(run())
+
+
+def test_verify_registration_rejects_after_max_attempt_is_reached() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, tokens = _registration_service()
+        await service.request_registration(
+            email="max-attempt@example.com", password="password88", name="Max Attempt"
+        )
+        code = _registration_code(mailer)
+        wrong = f"{(int(code) + 1) % 1_000_000:06d}"
+
+        for _ in range(2):
+            with pytest.raises(ValueError, match="验证码错误或已过期"):
+                await service.verify_registration(email="max-attempt@example.com", code=wrong)
+
+        challenge = await registrations.get_active("max-attempt@example.com")
+        assert challenge is not None and challenge.attempt_count == 2
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
+            await service.verify_registration(email="max-attempt@example.com", code=code)
         assert tokens.issued == []
 
     asyncio.run(run())
@@ -887,6 +959,24 @@ def test_resend_registration_enforces_cooldown() -> None:
         with pytest.raises(ValueError):
             await service.resend_registration(email="cooldown@example.com")
         assert await registrations.get_active("cooldown@example.com") == original
+
+    asyncio.run(run())
+
+
+def test_resend_registration_treats_naive_last_sent_at_as_utc() -> None:
+    async def run() -> None:
+        service, _, registrations, _, _, _ = _registration_service()
+        await service.request_registration(
+            email="naive-sent@example.com", password="password88", name="Naive Sent"
+        )
+        challenge = await registrations.get_active("naive-sent@example.com")
+        assert challenge is not None
+        registrations.set_active(
+            replace(challenge, last_sent_at=datetime.now(UTC).replace(tzinfo=None))
+        )
+
+        with pytest.raises(ValueError):
+            await service.resend_registration(email="naive-sent@example.com")
 
     asyncio.run(run())
 
@@ -947,6 +1037,31 @@ def test_initial_registration_delivery_failure_invalidates_challenge() -> None:
             )
         assert await registrations.get_active("initial-failure@example.com") is None
         assert registrations.invalidated_ids == ["registration-1"]
+
+    asyncio.run(run())
+
+
+def test_registration_delivery_and_invalidation_failure_preserves_both_causes() -> None:
+    async def run() -> None:
+        service, _, registrations, mailer, _, _ = _registration_service()
+        mailer.should_fail = True
+        invalidation_error = OSError("registration store unavailable")
+        registrations.invalidate_error = invalidation_error
+
+        with pytest.raises(RegistrationDeliveryFailure) as raised:
+            await service.request_registration(
+                email="double-failure@example.com", password="password88", name="Double Failure"
+            )
+
+        error = raised.value
+        assert "smtp unavailable" in str(error)
+        assert "registration store unavailable" in str(error)
+        assert isinstance(error.delivery_error, OSError)
+        assert str(error.delivery_error) == "smtp unavailable"
+        assert error.invalidation_error is invalidation_error
+        assert error.__cause__ is invalidation_error
+        assert invalidation_error.__context__ is error.delivery_error
+        assert await registrations.get_active("double-failure@example.com") is not None
 
     asyncio.run(run())
 
@@ -1015,20 +1130,27 @@ def test_verify_registration_maps_atomic_duplicate_without_issuing_token() -> No
 
 def test_concurrent_registration_verification_has_one_winner() -> None:
     async def run() -> None:
-        service, users, _, mailer, _, tokens = _registration_service()
+        service, users, registrations, mailer, _, tokens = _registration_service()
         await service.request_registration(
             email="race@example.com", password="password88", name="Race"
         )
         code = _registration_code(mailer)
-        results = await asyncio.gather(
+        registrations.block_two_completions()
+        first = asyncio.create_task(
             service.verify_registration(email="race@example.com", code=code),
-            service.verify_registration(email="race@example.com", code=code),
-            return_exceptions=True,
         )
+        second = asyncio.create_task(
+            service.verify_registration(email="race@example.com", code=code),
+        )
+        await asyncio.wait_for(registrations.wait_for_two_completion_entries(), timeout=1)
+        assert registrations.completion_entries == 2
+        registrations.release_completions()
+        results = await asyncio.gather(first, second, return_exceptions=True)
 
         assert sum(isinstance(result, tuple) for result in results) == 1
         assert sum(isinstance(result, ValueError) for result in results) == 1
         assert await users.get_by_email("race@example.com") is not None
+        assert registrations.successful_completions == 1
         assert len(tokens.issued) == 1
 
     asyncio.run(run())

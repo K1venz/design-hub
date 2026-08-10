@@ -32,6 +32,16 @@ _GENERIC_FORGOT_MSG = "若该邮箱已注册，验证码将发送至邮箱（请
 _INVALID_CODE_MSG = "验证码错误或已过期"
 
 
+class RegistrationDeliveryFailure(RuntimeError):
+    def __init__(self, *, delivery_error: Exception, invalidation_error: Exception) -> None:
+        self.delivery_error = delivery_error
+        self.invalidation_error = invalidation_error
+        super().__init__(
+            "registration email delivery failed and challenge invalidation failed: "
+            f"{delivery_error}; {invalidation_error}"
+        )
+
+
 def _to_auth_user(acc: UserAccount) -> AuthUser:
     # 自建认证无部门概念，dept 恒空（保留字段以兼容 JWT 载荷/MeResponse）
     return AuthUser(user_id=str(acc.id), name=acc.name, role=acc.role, dept=None)
@@ -268,11 +278,17 @@ class AccountService:
         )
         try:
             await self._send_registration_code(email=email, code=code)
-        except Exception:
-            await self.registrations.invalidate(
-                challenge_id=challenge.id,
-                invalidated_at=datetime.now(UTC),
-            )
+        except Exception as delivery_error:
+            try:
+                await self.registrations.invalidate(
+                    challenge_id=challenge.id,
+                    invalidated_at=datetime.now(UTC),
+                )
+            except Exception as invalidation_error:
+                raise RegistrationDeliveryFailure(
+                    delivery_error=delivery_error,
+                    invalidation_error=invalidation_error,
+                ) from invalidation_error
             raise
 
     async def _send_registration_code(self, *, email: str, code: str) -> None:
