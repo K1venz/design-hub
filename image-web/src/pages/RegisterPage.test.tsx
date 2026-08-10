@@ -33,6 +33,9 @@ const resendMutation = vi.hoisted(() => ({
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 vi.mock('@/api/auth', () => ({
+  RegistrationVerificationError: class RegistrationVerificationError extends Error {
+    status?: number
+  },
   useRegister: () => registerMutation,
   useVerifyRegistration: () => verifyMutation,
   useResendRegistration: () => resendMutation,
@@ -148,7 +151,7 @@ describe('RegisterPage', () => {
     expect(resendMutation.mutateAsync.mock.calls[0]?.[0]).toEqual({ email: 'new.user@example.com' })
   })
 
-  it('explains invalid or expired codes and lets the user return to a fresh details form', async () => {
+  it('keeps an unclassified verification failure retryable and lets the user return to a fresh details form', async () => {
     verifyMutation.mutateAsync.mockRejectedValue(new Error('验证码已过期'))
     renderPage()
     await moveToVerification()
@@ -158,7 +161,7 @@ describe('RegisterPage', () => {
       fireEvent.click(screen.getByRole('button', { name: '验证并进入 Design Hub' }))
     })
 
-    expect(screen.getAllByText('验证码无效或已过期。请重新输入，或重新发送验证码。')).toHaveLength(2)
+    expect(screen.getByRole('alert').textContent).toContain('验证码已过期')
     fireEvent.click(screen.getByRole('button', { name: '返回修改资料' }))
 
     expect(screen.getByRole('heading', { name: '创建账号' })).toBeTruthy()
