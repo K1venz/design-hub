@@ -23,6 +23,7 @@ export interface LoginVars {
 /** POST /auth/register —— 请求注册验证码；密码公钥加密后传输，但不创建会话。 */
 export function useRegister() {
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: RegisterVars) => {
       const password = await encryptSecret(vars.password)
       const { data, error, response } = await api
@@ -42,17 +43,33 @@ export interface VerifyRegistrationVars {
   code: string
 }
 
+export class RegistrationVerificationError extends Error {
+  readonly status?: number
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'RegistrationVerificationError'
+    this.status = status
+  }
+}
+
 export function useVerifyRegistration() {
   const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: VerifyRegistrationVars) => {
       const { data, error, response } = await api
         .POST('/auth/register/verify', { body: { email: vars.email, code: vars.code } })
         .catch((): never => {
           throw new Error(NETWORK_ERROR)
         })
-      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
-      if (error || !data) throw new Error(errorMessage(error, 'Registration verification failed'))
+      if (response.status === 429) throw new RegistrationVerificationError(RATE_LIMIT_ERROR, 429)
+      if (error || !data) {
+        throw new RegistrationVerificationError(
+          errorMessage(error, 'Registration verification failed'),
+          response.status,
+        )
+      }
       return data
     },
     onSuccess: (data) => setToken(data.jwt),
@@ -65,6 +82,7 @@ export interface ResendRegistrationVars {
 
 export function useResendRegistration() {
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: ResendRegistrationVars) => {
       const { data, error, response } = await api
         .POST('/auth/register/resend', { body: { email: vars.email } })

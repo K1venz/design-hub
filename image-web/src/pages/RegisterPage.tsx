@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, type Location } from 'react-router-dom'
 import { CheckCircle2Icon, TriangleAlertIcon } from 'lucide-react'
 
-import { useRegister, useResendRegistration, useVerifyRegistration } from '@/api/auth'
+import {
+  RegistrationVerificationError,
+  useRegister,
+  useResendRegistration,
+  useVerifyRegistration,
+} from '@/api/auth'
 import { AuthLayout } from '@/components/auth/AuthLayout'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -90,6 +95,7 @@ export function RegisterPage() {
   const [pendingEmail, setPendingEmail] = useState('')
   const [code, setCode] = useState('')
   const [resendAfter, setResendAfter] = useState(0)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
   const [verificationError, setVerificationError] = useState<string | null>(null)
   const [resendError, setResendError] = useState<string | null>(null)
 
@@ -106,12 +112,18 @@ export function RegisterPage() {
   const navState = prefill ? { prefill } : fromState
 
   useEffect(() => {
-    if (step !== 'verification' || resendAfter === 0) return
+    if (step !== 'verification') return
     const timer = window.setInterval(() => {
-      setResendAfter((seconds) => Math.max(0, seconds - 1))
+      setResendAfter((seconds) => {
+        if (seconds <= 1) {
+          window.clearInterval(timer)
+          return 0
+        }
+        return seconds - 1
+      })
     }, 1_000)
     return () => window.clearInterval(timer)
-  }, [step, resendAfter])
+  }, [step])
 
   if (token) return <Navigate to={dest} replace state={navState} />
 
@@ -119,10 +131,9 @@ export function RegisterPage() {
     if (!canRegister) return
     const normalizedEmail = email.trim().toLowerCase()
     const finalName = name.trim() || normalizedEmail.split('@')[0] || '用户'
+    setDetailsError(null)
     try {
       await register.mutateAsync({ email: normalizedEmail, name: finalName, password })
-      setPassword('')
-      setConfirm('')
       setName('')
       setEmail('')
       setAgreed(false)
@@ -132,8 +143,12 @@ export function RegisterPage() {
       setResendError(null)
       setResendAfter(RESEND_DELAY_SECONDS)
       setStep('verification')
-    } catch {
-      // The mutation owns the transport error shown in the details form.
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : '注册暂时无法完成，请稍后重试。')
+    } finally {
+      setPassword('')
+      setConfirm('')
+      register.reset()
     }
   }
 
@@ -142,9 +157,19 @@ export function RegisterPage() {
     setVerificationError(null)
     try {
       await verify.mutateAsync({ email: pendingEmail, code })
+    } catch (error) {
+      if (error instanceof RegistrationVerificationError && error.status === 400) {
+        setVerificationError('验证码无效或已过期。请重新输入，或重新发送验证码。')
+      } else if (error instanceof RegistrationVerificationError && error.status === 429) {
+        setVerificationError(error.message)
+      } else if (error instanceof Error && !(error instanceof RegistrationVerificationError)) {
+        setVerificationError(error.message)
+      } else {
+        setVerificationError('验证码验证暂时无法完成，请稍后重试。')
+      }
+    } finally {
       setCode('')
-    } catch {
-      setVerificationError('验证码无效或已过期。请重新输入，或重新发送验证码。')
+      verify.reset()
     }
   }
 
@@ -157,6 +182,8 @@ export function RegisterPage() {
       setVerificationError(null)
     } catch {
       setResendError('验证码暂时无法发送。请稍后重试，或返回修改资料。')
+    } finally {
+      resend.reset()
     }
   }
 
@@ -181,10 +208,10 @@ export function RegisterPage() {
             <p className="text-sm text-muted-foreground">填写资料后，我们会向你的邮箱发送验证码。</p>
           </div>
 
-          {register.isError && (
+          {detailsError && (
             <div role="alert" className="border-destructive/30 bg-destructive/8 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm">
               <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-              <span>{register.error.message}</span>
+              <span>{detailsError}</span>
             </div>
           )}
 
@@ -249,7 +276,7 @@ export function RegisterPage() {
           </div>
 
           {(verificationError || resendError) && (
-            <div role="alert" className="border-destructive/30 bg-destructive/8 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm">
+            <div id={verificationError ? 'reg-verification-error' : undefined} role="alert" className="border-destructive/30 bg-destructive/8 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm">
               <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
               <span>{verificationError ?? resendError}</span>
             </div>
@@ -269,9 +296,8 @@ export function RegisterPage() {
                   {resend.isPending ? '发送中…' : resendAfter > 0 ? `${resendAfter} 秒后可重新发送` : '重新发送验证码'}
                 </button>
               </div>
-              <Input id="reg-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入 6 位数字" autoFocus aria-invalid={Boolean(verificationError)} aria-describedby={verificationError ? 'reg-code-error' : undefined} />
+              <Input id="reg-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入 6 位数字" autoFocus aria-invalid={Boolean(verificationError)} aria-describedby={verificationError ? 'reg-verification-error' : undefined} />
               <p className="text-muted-foreground text-xs">仅输入邮件中的 6 位数字验证码。</p>
-              {verificationError && <p id="reg-code-error" className="sr-only">{verificationError}</p>}
             </div>
             <Button type="submit" size="lg" className="h-11 w-full" disabled={!canVerify || verify.isPending}>
               {verify.isPending ? '验证中…' : '验证并进入 Design Hub'}

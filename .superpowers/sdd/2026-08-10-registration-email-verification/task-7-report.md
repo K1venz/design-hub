@@ -43,3 +43,30 @@ The build emits the pre-existing Vite warning about a minified JavaScript chunk 
 - Inspected the running `/register` page through Playwright at a 390×844 mobile viewport. The content is fully within the viewport: the layout removes the desktop panel, preserves a 285px usable form column, and exposes the progress sequence, fields, agreement checkbox, and disabled submit control without overlap.
 - The accessibility snapshot confirms form labels for nickname, email, password, confirmation, agreement, progress list, and login link. The code field uses a label, `inputMode="numeric"`, `pattern="[0-9]*"`, one-time-code autocomplete, and error description linkage.
 - Keyboard focus uses the existing `Input`/`Button` primitives. The new color transition explicitly disables under reduced motion. No new decorative gradients or autonomous animations were introduced.
+
+## Review fix round 1
+
+### Additional RED/GREEN evidence
+
+Added `image-web/src/pages/RegisterPage.real.test.tsx`, which uses the real registration hooks with a real `QueryClient` mutation cache and mocked network responses only. Before the fix, the new test suite failed as expected:
+
+- acknowledged registration left `{"password":"very-secret-password"}` in the mutation cache;
+- failed registration left the plaintext password in both the form and mutation cache;
+- successful and failed verification left `{"code":"123456"}` in the mutation cache;
+- all verification failures were presented as invalid/expired, including a 500 response.
+
+The fix makes registration, verification, and resend mutations ephemeral (`gcTime: 0`) and explicitly calls each observer's `reset()` in its `finally` path. The page clears password/confirmation and verification code in those same settle paths, including failure and transport exception cases. Only the normalized pending email remains after a successful registration acknowledgement.
+
+`RegistrationVerificationError` carries the HTTP status from the real hook instead of inferring state from backend copy. The UI maps only an explicit 400 verification response to the invalid/expired recovery copy; 429 retains the rate-limit retry message, 5xx uses the generic retryable service message, and network errors retain the network retry message. The previous duplicate hidden copy was removed: one `role="alert"` is associated with the code field through `aria-describedby`.
+
+The real-hook suite also proves that successful verification reaches `useVerifyRegistration.onSuccess`, writes the auth store, and then navigates through the page's existing token-driven navigation. It checks the verification timer's unmount cleanup and the single-announcement error behavior.
+
+### Review-fix verification
+
+| Command | Result |
+| --- | --- |
+| `npm test -- src/pages/RegisterPage.real.test.tsx src/pages/RegisterPage.test.tsx` | Pass — 2 files, 13 tests |
+| `npm test` | Pass — 36 files, 206 tests |
+| `npm run typecheck` | Pass |
+| `npm run lint` | Pass |
+| `npm run build` | Pass (same unrelated chunk-size warning) |
