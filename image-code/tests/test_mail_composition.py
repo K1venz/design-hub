@@ -1,4 +1,7 @@
 import asyncio
+from email.message import EmailMessage
+from email.parser import BytesParser
+from email.utils import parseaddr, parsedate_to_datetime
 
 import pytest
 from pydantic import ValidationError
@@ -55,6 +58,7 @@ def test_smtp_mode_builds_network_mailer() -> None:
         mail_delivery_mode="smtp",
         smtp_host="smtp",
         smtp_port=25,
+        smtp_from_name="Design Hub",
         smtp_from="no-reply@example.com",
         smtp_use_tls=False,
         email_verification_code_pepper="pepper",
@@ -62,6 +66,100 @@ def test_smtp_mode_builds_network_mailer() -> None:
 
     assert hasattr(composition, "build_mailer")
     assert isinstance(composition.build_mailer(settings), SmtpMailer)
+
+
+@pytest.mark.parametrize(
+    ("smtp_from_name", "smtp_from", "expected_error"),
+    [
+        (" \t ", "no-reply@example.com", "SMTP_FROM_NAME"),
+        ("Design Hub", "not-an-email-address", "SMTP_FROM"),
+    ],
+)
+def test_smtp_mode_rejects_invalid_sender_identity_before_mailer_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    smtp_from_name: str,
+    smtp_from: str,
+    expected_error: str,
+) -> None:
+    constructed: list[object] = []
+
+    def mailer_constructor(*args: object, **kwargs: object) -> object:
+        constructed.append((args, kwargs))
+        raise AssertionError("invalid sender identity must not construct a mailer")
+
+    monkeypatch.setattr(composition, "SmtpMailer", mailer_constructor)
+
+    with pytest.raises(ValidationError, match=expected_error):
+        Settings(
+            _env_file=None,
+            mail_delivery_mode="smtp",
+            smtp_host="smtp",
+            smtp_from_name=smtp_from_name,
+            smtp_from=smtp_from,
+            email_verification_code_pepper="pepper",
+        )
+
+    assert constructed == []
+
+
+def test_smtp_mailer_sets_complete_transactional_identity_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_messages: list[EmailMessage] = []
+
+    class CapturingSmtp:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> "CapturingSmtp":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def ehlo(self) -> None:
+            return None
+
+        def send_message(
+            self,
+            message: EmailMessage,
+            *,
+            from_addr: str,
+            to_addrs: list[str],
+        ) -> None:
+            captured_messages.append(message)
+
+    monkeypatch.setattr(
+        "design_hub.infrastructure.mail.smtp_mailer.smtplib.SMTP", CapturingSmtp
+    )
+    mailer = SmtpMailer(
+        host="smtp",
+        port=25,
+        username="",
+        password="",
+        from_name="Design Hub",
+        from_addr="no-reply@example.com",
+        use_tls=False,
+    )
+
+    asyncio.run(
+        mailer.send(to="first@example.com", subject="Verify", body_text="First")
+    )
+    asyncio.run(
+        mailer.send(to="second@example.com", subject="Verify", body_text="Second")
+    )
+
+    parsed_messages = [
+        BytesParser().parsebytes(message.as_bytes()) for message in captured_messages
+    ]
+
+    assert len(parsed_messages) == 2
+    for message in parsed_messages:
+        assert parseaddr(message["From"]) == ("Design Hub", "no-reply@example.com")
+        assert parsedate_to_datetime(message["Date"]).utcoffset() is not None
+        assert message["Auto-Submitted"] == "auto-generated"
+        assert message["Message-ID"].endswith("@example.com>")
+    assert parsed_messages[0]["Message-ID"] != parsed_messages[1]["Message-ID"]
 
 
 def test_log_mode_does_not_expose_message_body() -> None:

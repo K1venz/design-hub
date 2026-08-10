@@ -12,43 +12,40 @@ export ENV_FILE="$tmp_dir/.env"
 source "$script_dir/mail-env.sh"
 
 ensure_mail_env
-first_pepper="$(awk -F= '$1 == "PASSWORD_RESET_CODE_PEPPER" {print $2}' "$ENV_FILE")"
+first_pepper="$(awk -F= '$1 == "EMAIL_VERIFICATION_CODE_PEPPER" {print $2}' "$ENV_FILE")"
 ensure_mail_env
-second_pepper="$(awk -F= '$1 == "PASSWORD_RESET_CODE_PEPPER" {print $2}' "$ENV_FILE")"
+second_pepper="$(awk -F= '$1 == "EMAIL_VERIFICATION_CODE_PEPPER" {print $2}' "$ENV_FILE")"
 
 [[ "$first_pepper" =~ ^[0-9a-f]{64}$ ]]
 [[ "$second_pepper" == "$first_pepper" ]]
 
-python3 - "$ENV_FILE" <<'PY'
-from collections import Counter
-from pathlib import Path
-import sys
+assert_single_env_entry() {
+  local key="$1"
+  local expected="$2"
 
-rows = [line.split("=", 1) for line in Path(sys.argv[1]).read_text().splitlines() if line]
-values = dict(rows)
-counts = Counter(key for key, _ in rows)
-expected = {
-    "MAIL_DELIVERY_MODE": "smtp",
-    "SMTP_HOST": "smtp",
-    "SMTP_PORT": "25",
-    "SMTP_USERNAME": "",
-    "SMTP_PASSWORD": "",
-    "SMTP_FROM": "no-reply@image.sepaitech.com",
-    "SMTP_USE_TLS": "false",
+  [[ "$(grep -c "^${key}=" "$ENV_FILE")" -eq 1 ]]
+  [[ "$(grep -E "^${key}=" "$ENV_FILE" | cut -d= -f2-)" == "$expected" ]]
 }
-for key, value in expected.items():
-    assert values[key] == value, (key, values.get(key))
-    assert counts[key] == 1, (key, counts[key])
-assert counts["PASSWORD_RESET_CODE_PEPPER"] == 1
-PY
+
+assert_single_env_entry MAIL_DELIVERY_MODE smtp
+assert_single_env_entry SMTP_HOST smtp
+assert_single_env_entry SMTP_PORT 25
+assert_single_env_entry SMTP_USERNAME ""
+assert_single_env_entry SMTP_PASSWORD ""
+assert_single_env_entry SMTP_FROM_NAME "Design Hub"
+assert_single_env_entry SMTP_FROM no-reply@image.sepaitech.com
+assert_single_env_entry SMTP_USE_TLS false
+[[ "$(grep -Fxc 'SMTP_FROM_NAME=Design Hub' "$ENV_FILE")" -eq 1 ]]
+[[ "$(grep -c '^EMAIL_VERIFICATION_CODE_PEPPER=' "$ENV_FILE")" -eq 1 ]]
+! grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$ENV_FILE"
 
 cp "$ENV_FILE" "$tmp_dir/conflict.env"
-sed -i 's/^SMTP_HOST=.*/SMTP_HOST=unexpected/' "$tmp_dir/conflict.env"
+sed -i 's/^SMTP_FROM_NAME=.*/SMTP_FROM_NAME=Unexpected Sender/' "$tmp_dir/conflict.env"
 if (
   ENV_FILE="$tmp_dir/conflict.env"
   ensure_mail_env
 ) >/dev/null 2>&1; then
-  echo "ERROR: conflicting SMTP_HOST was accepted" >&2
+  echo "ERROR: conflicting SMTP_FROM_NAME was accepted" >&2
   exit 1
 fi
 

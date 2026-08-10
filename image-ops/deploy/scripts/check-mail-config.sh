@@ -58,9 +58,10 @@ expected = {
     "SMTP_PORT": "25",
     "SMTP_USERNAME": "",
     "SMTP_PASSWORD": "",
+    "SMTP_FROM_NAME": "Design Hub",
     "SMTP_FROM": "no-reply@image.sepaitech.com",
     "SMTP_USE_TLS": "false",
-    "PASSWORD_RESET_CODE_PEPPER": "__GENERATED_64_HEX__",
+    "EMAIL_VERIFICATION_CODE_PEPPER": "__GENERATED_64_HEX__",
 }
 for key, value in expected.items():
     if values.get(key) != value:

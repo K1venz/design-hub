@@ -1,6 +1,6 @@
 # design-hub 生产部署与邮件运维
 
-当前生产栈由前端 SPA、FastAPI、Generation Worker、Redis、Postfix、OpenDKIM、nginx 和现有 MySQL 8.4 组成。忘记密码邮件使用服务器内自建 SMTP 投递，发件人为 `no-reply@image.sepaitech.com`。
+当前生产栈由前端 SPA、FastAPI、Generation Worker、Redis、Postfix、OpenDKIM、nginx 和现有 MySQL 8.4 组成。事务邮件使用服务器内自建 SMTP 投递，统一发件人为 `Design Hub <no-reply@image.sepaitech.com>`。
 
 完整设计与安全边界见 [`docs/superpowers/specs/2026-08-10-internal-smtp-design.md`](../docs/superpowers/specs/2026-08-10-internal-smtp-design.md)。
 
@@ -42,7 +42,7 @@
 - SMTP 仅在容器网络暴露 25 端口，不映射到宿主机，不是公网开放中继。
 - Postfix 只信任回环地址和 `172.29.0.0/24`，其他来源直接拒绝。
 - API 使用 `SMTP_HOST=smtp`、`SMTP_PORT=25`、无认证、无 TLS；这是受限 Docker 内网连接。
-- `PASSWORD_RESET_CODE_PEPPER` 独立于 JWT 密钥，由部署脚本生成 64 位十六进制随机值。
+- `EMAIL_VERIFICATION_CODE_PEPPER` 独立于 JWT 密钥，由部署脚本生成 64 位十六进制随机值。
 - OpenDKIM 私钥只保存在 `/data/docker/design-hub/mail/dkim/designhub.private`，不进入代码仓库或应用容器。
 
 ## 部署
