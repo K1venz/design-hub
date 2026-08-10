@@ -81,9 +81,10 @@ class AppUser(Base):
     """自建邮箱密码认证用户（ISSUE-0015，替换 OAuth）。"""
 
     __tablename__ = "app_user"
+    __table_args__ = (UniqueConstraint("email", name="uq_app_user_email"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True)  # Unique constraint indexes.
+    email: Mapped[str] = mapped_column(String(255))
     password_hash: Mapped[str] = mapped_column(String(255))  # bcrypt
     name: Mapped[str] = mapped_column(String(128))
     role: Mapped[str] = mapped_column(String(16), default="设计师")  # 设计师 | 管理者
@@ -114,6 +115,35 @@ class PasswordResetChallengeRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+
+class RegistrationChallengeRow(Base):
+    """Pending account data; verification-code plaintext is never persisted."""
+
+    __tablename__ = "registration_challenge"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_registration_challenge_email"),
+        CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_registration_challenge_attempt_count_nonnegative",
+        ),
+        Index("ix_registration_challenge_consumed_at", "consumed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(128))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    code_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     consumed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
