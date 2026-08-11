@@ -96,10 +96,18 @@ load_api_image_reference() {
 
 read_protected_image_id_file() {
   local path="$1"
-  [[ -f "$path" && ! -L "$path" && "$(stat -c '%a' "$path")" == 600 \
-    && "$(wc -l < "$path")" -eq 1 ]] || return 1
+  local file_size
+  local last_byte
+  [[ -f "$path" && ! -L "$path" && "$(stat -c '%a' "$path")" == 600 ]] || return 1
   protected_image_id="$(cat "$path")"
-  [[ "$protected_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+  [[ "$protected_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  file_size="$(stat -c '%s' "$path")"
+  if [[ "$file_size" -eq "${#protected_image_id}" ]]; then
+    return 0
+  fi
+  [[ "$file_size" -eq "$(( ${#protected_image_id} + 1 ))" ]] || return 1
+  last_byte="$(tail -c 1 "$path" | od -An -tu1 | tr -d '[:space:]')"
+  [[ "$last_byte" == 10 ]]
 }
 
 read_root_password() {
