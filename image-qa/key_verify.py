@@ -15,12 +15,13 @@ import time
 from decimal import Decimal
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = (os.environ.get("QA_BASE") or os.environ.get("PROD_BASE") or "").rstrip("/")
 PREFIX = os.environ.get("API_PREFIX", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
-U = (f"qa-keyverify-{int(time.time())}@example.com", "qa-keyverify-123", "QA密钥验证")
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 
 
@@ -58,10 +59,8 @@ async def main() -> None:
         raise SystemExit("✋ 未设 QA_BASE/PROD_BASE。")
     print(f"== 中转站新 key 真出图验证 == BASE={BASE}{PREFIX or ''}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=600.0) as c:
-        r = await c.post(f"{PREFIX}/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post(f"{PREFIX}/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post(f"{PREFIX}/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "电商主图：产品主体清晰、质感真实突出",

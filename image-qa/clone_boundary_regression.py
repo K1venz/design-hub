@@ -9,13 +9,13 @@ GHOST 技法：合法契约 + 幽灵 upload id → 过校验后卡 owns→404；
 
 import asyncio
 import os
-import time
 
 import httpx
 
+from qa_auth import login_verified_account
+
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 EP = "/listing/clone"  # dev (b) 瘦路由；openapi 落地核一遍
-U = (f"qa-clone-b-{int(time.time())}@example.com", "qa-clone-123", "QA复刻边界")
 G1, G2, G3 = "0000000000000000.png", "1111111111111111.png", "2222222222222222.png"
 
 
@@ -58,10 +58,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     print(f"== 爆款复刻边界/契约回归（预写）== BASE={BASE} EP={EP}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=60.0) as c:
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        H = {"Authorization": f"Bearer {r.json()['jwt']}"}
+        session = await login_verified_account(c)
+        H = {"Authorization": f"Bearer {session.jwt}"}
         # 端点存在性探测（不依赖 /openapi.json——docs 默认关后它 404，dev #612）：
         # 空 body POST → 路由在=422/400（校验先于 acquire、零成本）、路由缺=404
         probe = await c.post(EP, headers=H, json={})

@@ -10,12 +10,12 @@ import sys
 import time
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = "http://127.0.0.1:8000"
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
-DESIGNER = ("qa-designer@test.com", "qa-designer-12345")
-# 可选：传已有项目 id，则挂到该项目出图（否则新建项目）。例：uv run python peanut_round1.py 1
 TARGET_PROJECT = int(sys.argv[1]) if len(sys.argv) > 1 else None
 
 
@@ -33,10 +33,8 @@ def to_square_png(path: str, side: int = 1024) -> bytes:
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": DESIGNER[0], "password": DESIGNER[1], "name": "QA设计师"})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": DESIGNER[0], "password": DESIGNER[1]})
-        jwt = r.json()["jwt"]
+        session = await login_verified_account(c)
+        jwt = session.jwt
         h = {"Authorization": f"Bearer {jwt}"}
         gh = {**h, "X-User-Id": "qa-designer-001"}
 

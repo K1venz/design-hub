@@ -2,7 +2,7 @@
 
 category=FOOD 真出图三查：① 非401·真出图 ② 落 prod 桶 ③ 花生卡生效(下载视觉核)。
 ⚠️ 部署后 prod 也是 platform 7→4 → 用国内 **抖音电商**(亚马逊已删→400)；category=FOOD。
-⚠️ 真碰 prod：1 个可标识 qa-test 号 + 1 张 n=1 落 prod 桶，footprint 最小、可后清。
+⚠️ 真碰 prod：运行时已验证账号 + 1 张 n=1 落 prod 桶；不注册、不发邮件，作业 footprint 可后清。
 PROD_BASE 经隧道指 prod api 容器（ops 部署后起）。
 用法：PROD_BASE=http://localhost:8445 uv run python ../image-qa/listing_prod_smoke.py
 """
@@ -14,14 +14,13 @@ import time
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("PROD_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/花生提示词AB")
-U = ("qa-prod-smoke@example.com", "qa-prod-smoke-123", "QA上线smoke")
-
-
 def to_png(path: str, side: int = 1024) -> bytes:
     img = Image.open(path).convert("RGB")
     s = max(img.size)
@@ -39,10 +38,8 @@ async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
         op = await c.get("/openapi.json")
         print(f"[probe] openapi {op.status_code} · category 字段在={'category' in op.text}（部署后应=True）")
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         # 顺带烟测 platform 收窄已上 prod：亚马逊→400
         rj = await c.post("/listing/generate", headers=H,
@@ -79,7 +76,7 @@ async def main() -> None:
         print(f"② 落点=prod桶  : {'PASS' if prod_bucket else 'FAIL'}  url={url[:110]}")
         print(f"③ 卡生效       : 落盘 prod-smoke-category=FOOD.png — QA 视觉核(饱满真实不圆+包装保真)")
         print(f"附 platform 收窄上 prod: 亚马逊→400 = {'PASS' if amazon_gone else 'FAIL(亚马逊仍合法?)'}")
-        print(f"\njob={job} qa-test 号 {U[0]} 可后清（ops）。")
+        print(f"\njob={job} 已验证账号 {session.email} 保留；仅清理本次 job/image footprint。")
 
 
 asyncio.run(main())

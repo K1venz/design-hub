@@ -15,12 +15,11 @@ import os
 import time
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
-D = ("qa-c2-designer@example.com", "qa-c2-designer-123", "C2设计师")
-
-
 def png() -> bytes:
     b = io.BytesIO()
     Image.new("RGB", (768, 768), (210, 180, 140)).save(b, format="PNG")
@@ -31,10 +30,8 @@ async def main() -> None:
     if not BASE:
         raise SystemExit("✋ QA_BASE 必须显式指向 server qa 实例。")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": D[0], "password": D[1], "name": D[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": D[0], "password": D[1]})
-        jwt = r.json()["jwt"]
+        session = await login_verified_account(c)
+        jwt = session.jwt
         H = {"Authorization": f"Bearer {jwt}"}
 
         cid = (await c.post("/customers", headers=H, json={

@@ -12,13 +12,13 @@ import time
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/花生提示词AB")
-A = ("qa-acc-a@example.com", "qa-acc-a-123", "验收用户A")
-
 OPT = (
     "包装绝对保真：上传参考图里的产品包装(袋型、配色、白熊图案、袋面所有文字与排版)100% 原样保留——"
     "一个字、一个像素都不改、不重画、不翻译；只重绘包装周围的背景、道具与光线。"
@@ -51,10 +51,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 必须指向 server qa 实例。")
     OUT.mkdir(exist_ok=True)
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": A[0], "password": A[1], "name": A[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": A[0], "password": A[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": OPT + "\n" + SCENE, "ratio": "1:1", "n": 1, "modifiers": MODIFIERS}

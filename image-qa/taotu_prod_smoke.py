@@ -25,6 +25,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("PROD_BASE", "").rstrip("/")
@@ -33,7 +35,6 @@ JOBS = int(os.environ.get("JOBS", "3"))
 UNIT = Decimal(os.environ.get("UNIT", "0.40"))  # prod 单张价
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/套图prod_smoke")
-U = (f"qa-taotu-prod-{int(time.time())}@example.com", "qa-taotu-prod-123", "QA套图prod终验")
 PLAN = {"白底": 1, "场景": 2, "卖点": 2}
 R = sum(PLAN.values())  # 请求张数=5
 DIST_EXP = sorted(["白底"] * 1 + ["场景"] * 2 + ["卖点"] * 2)  # ['卖点','卖点','场景','场景','白底']
@@ -121,10 +122,8 @@ async def main():  # noqa: ANN001
     print(f"   单价 UNIT={UNIT}、预计 {JOBS}×{R}={JOBS * R} 次 n=1 调用、≈¥{JOBS * R * UNIT}")
     print("   ⚠ over-deliver 截断静默（_parse:182 无日志）→ 验 no-regression + no-资损；撞不到如实报。")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, verify=False, timeout=900.0) as c:
-        r = await c.post(f"{PREFIX}/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post(f"{PREFIX}/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c, prefix=PREFIX)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post(f"{PREFIX}/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
 
@@ -138,7 +137,7 @@ async def main():  # noqa: ANN001
     print(f"\n==== 套图 prod 终验：{jobs_pass}/{JOBS} 单全绿 ====")
     print(f"   误判失败单数={fails}（应=0：矫枉过正消失）｜总计费=¥{total_cost}（应=¥{JOBS * R * UNIT}=请求张数×单价：资损消失）")
     print(f"   覆盖 {JOBS * R} 次 n=1 真实调用。over-deliver 若发生=已被二修静默截断吸收（黑盒不可逐次指认）。")
-    print(f"   落盘 → {OUT}（QA 逐张视觉核：保真+图型像型）。qa-test 号 {U[0]} → @ops 清 footprint。")
+    print(f"   落盘 → {OUT}（QA 逐张视觉核：保真+图型像型）。保留已验证账号 {session.email}，@ops 仅清 job/image footprint。")
 
 
 asyncio.run(main())

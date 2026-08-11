@@ -11,12 +11,13 @@ import os
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/花生提示词AB")
-A = ("qa-cat-reg@example.com", "qa-cat-reg-123", "QA品类回归")
 GHOST = "0000000000000000.png"  # 不存在/非自有 upload → 过 compose 后卡在 owns→404
 R: list[tuple[str, bool]] = []
 
@@ -51,10 +52,8 @@ async def main() -> None:
         op = await c.get("/openapi.json")
         cat_in_schema = "category" in op.text
         check("0.openapi 含 category 字段(796b32c)", cat_in_schema, f"openapi {op.status_code}")
-        r = await c.post("/auth/register", json={"email": A[0], "password": A[1], "name": A[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": A[0], "password": A[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
 
         # ① platform 7→4：3 跨境→400（category 给合法 FOOD 隔离 platform）

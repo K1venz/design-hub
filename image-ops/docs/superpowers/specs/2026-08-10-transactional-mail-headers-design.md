@@ -25,7 +25,9 @@ The mailer adds:
 
 `SMTP_FROM_NAME` configures the display name and is fixed to `Design Hub` in
 the production deployment. The sender address remains configured by
-`SMTP_FROM`. Both values must be non-empty in SMTP delivery mode.
+`SMTP_FROM`. Both values must be non-empty in SMTP delivery mode, and
+`SMTP_FROM` must be a strict mailbox: display-name syntax, a missing local part,
+whitespace, and CRLF header injection are rejected during settings validation.
 
 No `Reply-To` header is added because there is no monitored inbound mailbox.
 No `List-Unsubscribe` header is added because password reset is transactional,
@@ -38,7 +40,8 @@ idempotent environment provisioning all adopt `SMTP_FROM_NAME=Design Hub`.
 Existing production mail settings are extended in place. A conflicting value
 causes deployment to fail rather than being silently replaced.
 
-The production API image is rebuilt and restarted after automated tests pass.
+The production API is built under an immutable release tag and switched together
+with the versioned SPA after automated tests pass.
 Postfix, OpenDKIM, private Docker networking, SPF, DKIM, DMARC, and PTR remain
 unchanged.
 
@@ -47,8 +50,38 @@ unchanged.
 Invalid sender addresses or blank display names fail during application
 composition. Header generation errors propagate; the mailer does not replace
 invalid values with defaults. SMTP network errors retain the existing
-password-reset behavior: the generated reset challenge is invalidated and the
-request fails.
+password-reset behavior: the exact pending delivery claim is invalidated and the
+public endpoint returns the same generic acknowledgement used for unknown emails,
+and a structured warning records the internal failure without the recipient. If
+both delivery and exact invalidation fail, the combined consistency error remains
+fail-fast. A reset code is not verifiable until SMTP delivery succeeds and the
+matching challenge and delivery identities are atomically activated.
+
+## Password-reset transaction boundary
+
+Password reset keeps one delivery claim per normalized email. A claim moves
+through `pending_delivery`, `active`, and `consumed`; the database uniqueness
+constraint and atomic claim operation allow only one concurrent sender to win.
+Cooldown enforcement is part of that claim rather than a separate read before
+write, so concurrent requests cannot both send codes and silently invalidate
+one another. A pending delivery cannot be replaced while its code lifetime is
+valid; after expiry, a new identity can atomically replace it and the old identity
+can no longer activate or invalidate the replacement.
+
+Reset completion performs the code comparison, attempt accounting, challenge
+consumption, and enabled-user password update through one repository transaction.
+The successful conditional update is the concurrency winner: a second submit of
+the same code is invalid, and a failed password update rolls challenge consumption
+back with it. Bcrypt runs only after that conditional winner and an enabled user
+row have been locked, so invalid, expired, and disabled-account requests do not
+consume password-hashing CPU. The browser keeps reset secrets outside the shared
+mutation cache and clears the code and password fields after both successful and
+failed submissions.
+
+The release migration deliberately recreates the short-lived reset challenge
+table with the new delivery-state constraints. Any code issued by an older release
+therefore becomes invalid during the maintenance rollout; users request a new code
+after the release is healthy.
 
 ## Automated Verification
 
@@ -93,6 +126,7 @@ configuration, migrations, committed fixtures, or reusable test constants.
 
 ## Rollback
 
-Application rollback uses the pre-deployment API image. No database migration
-is required. Reverting the application image restores the previous header
-behavior without changing DNS or mail-service state.
+Application rollback switches the previous immutable API/worker image, SPA, and
+environment snapshot as one release. It does not restore the database unless an
+operator explicitly requests schema rollback with a backup. DNS and mail-service
+state are unchanged.

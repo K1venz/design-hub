@@ -1,15 +1,14 @@
 from pathlib import Path
 from typing import Literal
 
+from email_validator import EmailNotValidError, validate_email
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # .env（本地真凭据，gitignored）覆盖 .env.development（占位，可入库）
-    model_config = SettingsConfigDict(
-        env_file=(".env.development", ".env"), extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=(".env.development", ".env"), extra="ignore")
 
     # 默认 sqlite（零基础设施）；生产/本地 MySQL 经环境变量 DB_URL 覆盖，密钥不入库
     db_url: str = "sqlite+aiosqlite:///./design_hub.db"
@@ -99,9 +98,13 @@ class Settings(BaseSettings):
     smtp_port: int = Field(default=587, gt=0, le=65535)
     smtp_username: str = ""
     smtp_password: SecretStr = SecretStr("")
+    smtp_from_name: str = ""
     smtp_from: str = ""
     smtp_use_tls: bool = True
-    password_reset_code_pepper: SecretStr = SecretStr("")
+    email_verification_code_pepper: SecretStr = SecretStr("")
+    registration_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
+    registration_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
+    registration_max_attempts: int = Field(default=5, gt=0, le=20)
     password_reset_code_ttl_seconds: int = Field(default=600, gt=0, le=3600)
     password_reset_resend_cooldown_seconds: int = Field(default=60, gt=0, le=600)
     password_reset_max_attempts: int = Field(default=5, gt=0, le=20)
@@ -121,18 +124,25 @@ class Settings(BaseSettings):
                 name
                 for name, value in (
                     ("SMTP_HOST", self.smtp_host.strip()),
+                    ("SMTP_FROM_NAME", self.smtp_from_name.strip()),
                     ("SMTP_FROM", self.smtp_from.strip()),
                     (
-                        "PASSWORD_RESET_CODE_PEPPER",
-                        self.password_reset_code_pepper.get_secret_value(),
+                        "EMAIL_VERIFICATION_CODE_PEPPER",
+                        self.email_verification_code_pepper.get_secret_value().strip(),
                     ),
                 )
                 if not value
             ]
             if missing:
-                raise ValueError(
-                    f"SMTP mail delivery requires: {', '.join(missing)}"
+                raise ValueError(f"SMTP mail delivery requires: {', '.join(missing)}")
+            try:
+                validate_email(
+                    self.smtp_from.strip(),
+                    allow_smtputf8=False,
+                    check_deliverability=False,
                 )
+            except EmailNotValidError as error:
+                raise ValueError("SMTP_FROM must be a valid mailbox address") from error
         return self
 
     # 火山引擎 TOS 对象存储：配了 tos_access_key + 两桶即启用 Tos 适配器，否则回退本地存储

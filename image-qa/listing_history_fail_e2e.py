@@ -9,6 +9,8 @@ import io
 import json
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = "http://127.0.0.1:8003"
@@ -23,10 +25,8 @@ def png() -> bytes:
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=120.0) as c:
-        r = await c.post("/auth/register", json={"email": "qa-hist-a@test.com", "password": "qa-hist-a-123", "name": "用户A"})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": "qa-hist-a@test.com", "password": "qa-hist-a-123"})
-        jwt = r.json()["jwt"]
+        session = await login_verified_account(c)
+        jwt = session.jwt
         H = {"Authorization": f"Bearer {jwt}"}
         uid = (await c.post("/uploads", headers=H, files={"file": ("p.png", png(), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "失败用例", "ratio": "1:1", "n": 1, "modifiers": {"platform": "亚马逊"}}

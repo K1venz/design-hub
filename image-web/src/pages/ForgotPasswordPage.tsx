@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle2Icon, TriangleAlertIcon } from 'lucide-react'
 
@@ -30,6 +30,7 @@ export function ForgotPasswordPage() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [info, setInfo] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const mismatch = confirm.length > 0 && confirm !== password
   const pwTooShort = password.length > 0 && password.length < MIN_PASSWORD
@@ -37,34 +38,31 @@ export function ForgotPasswordPage() {
   const canReset =
     email.trim() && codeOk && password.length >= MIN_PASSWORD && confirm === password
 
-  const errorMessage = useMemo(() => {
-    if (forgot.isError) return forgot.error.message
-    if (reset.isError) return reset.error.message
-    return null
-  }, [forgot.isError, forgot.error, reset.isError, reset.error])
-
   if (token) return <Navigate to="/home" replace />
 
   async function sendCode() {
     const target = email.trim()
     if (!target) return
     setInfo(null)
+    setErrorMessage(null)
     forgot.reset()
-    reset.reset()
     try {
       const data = await forgot.mutateAsync({ email: target })
       setInfo(data.message)
+      setCode('')
       setStep('reset')
-    } catch {
-      // error via mutation
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '验证码暂时无法发送，请稍后重试。')
+    } finally {
+      forgot.reset()
     }
   }
 
   async function submitReset() {
     if (!canReset) return
     setInfo(null)
+    setErrorMessage(null)
     forgot.reset()
-    reset.reset()
     try {
       await reset.mutateAsync({
         email: email.trim(),
@@ -72,8 +70,12 @@ export function ForgotPasswordPage() {
         password,
       })
       setStep('done')
-    } catch {
-      // error via mutation
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '密码暂时无法重置，请稍后重试。')
+    } finally {
+      setCode('')
+      setPassword('')
+      setConfirm('')
     }
   }
 
@@ -89,7 +91,10 @@ export function ForgotPasswordPage() {
       </div>
 
       {errorMessage && (
-        <div className="border-destructive/30 bg-destructive/8 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm">
+        <div
+          role="alert"
+          className="border-destructive/30 bg-destructive/8 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
+        >
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
           <span>{errorMessage}</span>
         </div>

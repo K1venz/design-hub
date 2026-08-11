@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
@@ -20,10 +21,10 @@ export interface LoginVars {
   password: string
 }
 
-/** POST /auth/register —— 自助注册（默认设计师）并写入会话. 密码公钥加密后传输（§三.0）。 */
+/** POST /auth/register —— 请求注册验证码；密码公钥加密后传输，但不创建会话。 */
 export function useRegister() {
-  const setToken = useAuthStore((s) => s.setToken)
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: RegisterVars) => {
       const password = await encryptSecret(vars.password)
       const { data, error, response } = await api
@@ -35,7 +36,70 @@ export function useRegister() {
       if (error || !data) throw new Error(errorMessage(error, '注册失败'))
       return data
     },
+  })
+}
+
+export interface VerifyRegistrationVars {
+  email: string
+  challengeId: string
+  code: string
+}
+
+export class RegistrationVerificationError extends Error {
+  readonly status?: number
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'RegistrationVerificationError'
+    this.status = status
+  }
+}
+
+export function useVerifyRegistration() {
+  const setToken = useAuthStore((s) => s.setToken)
+  return useMutation({
+    gcTime: 0,
+    mutationFn: async (vars: VerifyRegistrationVars) => {
+      const { data, error, response } = await api
+        .POST('/auth/register/verify', {
+          body: { email: vars.email, challenge_id: vars.challengeId, code: vars.code },
+        })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new RegistrationVerificationError(RATE_LIMIT_ERROR, 429)
+      if (error || !data) {
+        throw new RegistrationVerificationError(
+          errorMessage(error, 'Registration verification failed'),
+          response.status,
+        )
+      }
+      return data
+    },
     onSuccess: (data) => setToken(data.jwt),
+  })
+}
+
+export interface ResendRegistrationVars {
+  email: string
+  challengeId: string
+}
+
+export function useResendRegistration() {
+  return useMutation({
+    gcTime: 0,
+    mutationFn: async (vars: ResendRegistrationVars) => {
+      const { data, error, response } = await api
+        .POST('/auth/register/resend', {
+          body: { email: vars.email, challenge_id: vars.challengeId },
+        })
+        .catch((): never => {
+          throw new Error(NETWORK_ERROR)
+        })
+      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+      if (error || !data) throw new Error(errorMessage(error, 'Resending registration code failed'))
+      return data
+    },
   })
 }
 
@@ -71,6 +135,7 @@ export interface ResetPasswordVars {
 /** POST /auth/forgot-password —— 发送重置验证码（防枚举，始终成功文案）。 */
 export function useForgotPassword() {
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: ForgotPasswordVars) => {
       const { data, error, response } = await api
         .POST('/auth/forgot-password', { body: { email: vars.email } })
@@ -86,25 +151,33 @@ export function useForgotPassword() {
 
 /** POST /auth/reset-password —— 校验验证码并设新密码（密码公钥加密）。 */
 export function useResetPassword() {
-  return useMutation({
-    mutationFn: async (vars: ResetPasswordVars) => {
-      const password = await encryptSecret(vars.password)
-      const { data, error, response } = await api
-        .POST('/auth/reset-password', {
-          body: {
-            email: vars.email,
-            code: vars.code,
-            password,
-          },
-        })
-        .catch((): never => {
-          throw new Error(NETWORK_ERROR)
-        })
-      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
-      if (error || !data) throw new Error(errorMessage(error, '重置密码失败'))
-      return data
+  const [isPending, setIsPending] = useState(false)
+  const mutateAsync = useCallback(
+    async (vars: ResetPasswordVars) => {
+      setIsPending(true)
+      try {
+        const password = await encryptSecret(vars.password)
+        const { data, error, response } = await api
+          .POST('/auth/reset-password', {
+            body: {
+              email: vars.email,
+              code: vars.code,
+              password,
+            },
+          })
+          .catch((): never => {
+            throw new Error(NETWORK_ERROR)
+          })
+        if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+        if (error || !data) throw new Error(errorMessage(error, '重置密码失败'))
+        return data
+      } finally {
+        setIsPending(false)
+      }
     },
-  })
+    [],
+  )
+  return { mutateAsync, isPending }
 }
 
 /** GET /me —— 取当前用户（含角色）；token 就绪后启用. */

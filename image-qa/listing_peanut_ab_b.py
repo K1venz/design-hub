@@ -12,14 +12,14 @@ import time
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC1 = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"  # 精修成品图
 SRC2 = "/Users/Zhuanz/CLAUDE/image-gen/花生/休闲/DSC_5931.JPG"  # 纯实拍带壳花生(真质感)
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/花生提示词AB")
-A = ("qa-acc-a@example.com", "qa-acc-a-123", "验收用户A")
-
 FIDELITY = (
     "保真锁定：严格保留参考产品袋的奶白/浅驼配色、白熊图案、袋面所有文字逐字不变，只重绘周围背景与光线；"
     "严格保留参考实拍花生的真实质感——七彩花生米保持紫罗兰/紫红+奶白大理石纹路本色(不要修成纯色/土黄)、"
@@ -50,10 +50,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 必须指向 server qa 实例。")
     OUT.mkdir(exist_ok=True)
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": A[0], "password": A[1], "name": A[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": A[0], "password": A[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid1 = (await c.post("/uploads", headers=H, files={"file": ("p1.png", to_png(SRC1), "image/png")})).json()["id"]
         uid2 = (await c.post("/uploads", headers=H, files={"file": ("p2.png", to_png(SRC2), "image/png")})).json()["id"]

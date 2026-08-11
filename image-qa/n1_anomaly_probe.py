@@ -14,18 +14,16 @@
 import asyncio
 import io
 import os
-import time
 from decimal import Decimal
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 N = int(os.environ.get("N", "3"))
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
-U = (f"qa-n1-{int(time.time())}@example.com", "qa-n1-123", "QA资损探针")
-
-
 def to_png(path: str) -> bytes:
     img = Image.open(path).convert("RGB")
     s = max(img.size)
@@ -60,10 +58,8 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     print(f"== ISSUE-0045 n=1 资损探针 (284ce82) == BASE={BASE} N={N}")
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "电商主图：产品主体清晰", "ratio": "1:1", "n": 1,

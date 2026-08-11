@@ -11,18 +11,17 @@
 import asyncio
 import io
 import os
-import time
 from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import AccountSlot, login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/二次编辑回归")
-U = (f"qa-edit-r-{int(time.time())}@example.com", "qa-edit-123", "QA编辑真图")
-B = (f"qa-edit-b-{int(time.time())}@example.com", "qa-edit-b-123", "QA编辑越权B")
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
 
 
@@ -36,11 +35,9 @@ def to_png(path: str) -> bytes:
     return b.getvalue()
 
 
-async def token(c, u):  # noqa: ANN001
-    r = await c.post("/auth/register", json={"email": u[0], "password": u[1], "name": u[2]})
-    if r.status_code != 200:
-        r = await c.post("/auth/login", json={"email": u[0], "password": u[1]})
-    t = r.json()["jwt"]
+async def token(c, slot):  # noqa: ANN001
+    session = await login_verified_account(c, slot=slot)
+    t = session.jwt
     return t, {"Authorization": f"Bearer {t}"}
 
 
@@ -104,7 +101,7 @@ async def main() -> None:
         raise SystemExit("✋ QA_BASE 未设置。")
     OUT.mkdir(exist_ok=True)
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=900.0) as c:
-        tok, H = await token(c, U)
+        tok, H = await token(c, AccountSlot.PRIMARY)
         if (await c.post("/listing/edit", headers=H, json={})).status_code == 404:
             raise SystemExit("⏳ /listing/edit 未上线（ops 未重建 qa 含 f0041fa？）")
         print(f"== 二次编辑真出图回归 (f0041fa) == BASE={BASE}")
@@ -147,7 +144,7 @@ async def main() -> None:
         t(check("full 出图 + edit_mode=full 回显", st == 200 and bool(kf) and df.get("edit_mode") == "full"))
 
         # owner 越权：B 编辑 A 的 k0 → 404
-        _, HB = await token(c, B)
+        _, HB = await token(c, AccountSlot.SECONDARY)
         rb = await c.post("/listing/edit", headers=HB, json={"source_image_key": k0, "edit_mode": "delta", "prompt": "x", "modifiers": MODS})
         t(check("owner 越权 B 编辑 A 的 key → 404", rb.status_code == 404, f"got {rb.status_code}"))
 

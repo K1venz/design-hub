@@ -1,148 +1,272 @@
-# design-hub 生产部署与邮件运维
+# Design Hub production release and mail operations
 
-当前生产栈由前端 SPA、FastAPI、Generation Worker、Redis、Postfix、OpenDKIM、nginx 和现有 MySQL 8.4 组成。忘记密码邮件使用服务器内自建 SMTP 投递，发件人为 `no-reply@image.sepaitech.com`。
+The production stack contains the versioned SPA, FastAPI API, generation worker,
+Redis, Postfix, OpenDKIM, nginx, and the existing MySQL 8.4 service. Transactional
+mail uses the private Docker SMTP network and the identity
+`Design Hub <no-reply@image.sepaitech.com>`.
 
-完整设计与安全边界见 [`docs/superpowers/specs/2026-08-10-internal-smtp-design.md`](../docs/superpowers/specs/2026-08-10-internal-smtp-design.md)。
+## Release layout
 
-## 服务器与目录
-
-- 服务器：`14.103.51.191`（Ubuntu 24.04）
-- 应用目录：`/opt/docker/design-hub`
-- 持久化目录：`/data/docker/design-hub`
-- 现有 MySQL：`/opt/docker/mysql`，外部 Docker 网络 `mysql_default`
+`push.sh` never writes the live application or web mount. It uploads a complete
+candidate to `.incoming/<release-id>` and finalizes it with a same-filesystem
+rename only after the API source, SPA index, compose file, and release manifest
+are present.
 
 ```text
 /opt/docker/design-hub/
-├── compose.yml
-├── .env                         # 生产密钥，仅服务器保存，权限 600
-├── app/                         # image-code 构建上下文
-├── mail/
-│   ├── postfix/
-│   └── opendkim/
-├── nginx/
-├── scripts/
-└── web/
+├── .incoming/                    # incomplete uploads; never served
+├── releases/<release-id>/
+│   ├── app/                      # immutable API build context
+│   ├── web/                      # immutable SPA build
+│   ├── deploy/                   # compose, nginx, mail, release scripts
+│   └── release.env               # ID, source commit, SPA index hash; no secrets
+├── shared/
+│   ├── .env                      # production environment, mode 600
+│   └── nginx/certs/
+├── state/
+│   ├── release-selection           # mode 600; active/previous/pending in one atomic record
+│   ├── deploy.lock/owner            # token, PID, process start identity, operation
+│   ├── maintenance               # presence makes HTTPS return 503
+│   ├── env-snapshots/<release>.before.env
+│   ├── env-snapshots/<release>.before.meta
+│   └── schema-restore-inputs/       # transient mode-400 protected restore copies
+
+/root/db-backup-<release>-<timestamp>.sql
 
 /data/docker/design-hub/
 ├── redis/
 ├── generated/
 ├── assets/
 ├── exports/
-└── mail/
-    ├── spool/                   # Postfix 队列
-    ├── dkim/                    # DKIM 私钥和公开记录，权限 700
-    └── dns-records.txt          # 部署生成的 DNS 配置清单
+└── mail/{spool,dkim}/
 ```
 
-## 邮件网络与安全边界
+Set `API_IMAGE_REPOSITORY` consistently for import, build, compose, and rollback;
+its default is `design-hub-api`. The API and worker image is tagged
+`${API_IMAGE_REPOSITORY:-design-hub-api}:<release-id>` and is never rebuilt under
+an existing identity. Docker writes the API image ID to a protected `--iidfile`;
+immutable image labels bind repository, release, and source commit, while the
+mode-600 identity record binds that exact Docker image ID. A build/interrupted
+commit resumes only when tag, protected build ID, labels, and staged manifest
+all agree. Migration and API/worker startup consume the verified `sha256:` image
+object rather than the mutable tag. Legacy import uses the same protected-ID
+intent before tagging. Compose labels API, worker, and nginx with
+the same release ID. nginx binds only `releases/<release-id>/web` selected by the
+release orchestrator.
 
-- `mail` 网络固定为 `172.29.0.0/24`。
-- Postfix 固定地址 `172.29.0.10`，OpenDKIM 固定地址 `172.29.0.11`。
-- 只有 API 接入 `mail` 网络；Worker、nginx、Redis 均无法连接 SMTP。
-- SMTP 仅在容器网络暴露 25 端口，不映射到宿主机，不是公网开放中继。
-- Postfix 只信任回环地址和 `172.29.0.0/24`，其他来源直接拒绝。
-- API 使用 `SMTP_HOST=smtp`、`SMTP_PORT=25`、无认证、无 TLS；这是受限 Docker 内网连接。
-- `PASSWORD_RESET_CODE_PEPPER` 独立于 JWT 密钥，由部署脚本生成 64 位十六进制随机值。
-- OpenDKIM 私钥只保存在 `/data/docker/design-hub/mail/dkim/designhub.private`，不进入代码仓库或应用容器。
+## Staging and deploying
 
-## 部署
-
-本地推送会保护服务器上的 `.env`、证书和现有前端文件：
+From the repository root:
 
 ```bash
-bash image-ops/deploy/scripts/push.sh
+RELEASE_ID="$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%dT%H%M%SZ)"
+RELEASE_ID="$RELEASE_ID" bash image-ops/deploy/scripts/push.sh
 ```
 
-服务器执行：
+The script always runs a clean frontend build, stages the three release parts,
+and prints the immutable release ID. Then run that release's orchestrator on the
+server:
 
 ```bash
-cd /opt/docker/design-hub
-bash scripts/deploy.sh
+bash /opt/docker/design-hub/releases/<release-id>/deploy/scripts/deploy.sh <release-id>
 ```
 
-部署脚本幂等完成以下工作：
+The orchestrator performs these guarded steps:
 
-1. 创建持久化目录和本地 TLS 证书。
-2. 保留现有 `.env`，补齐并严格校验 Redis、SMTP 和密码重置密钥。
-3. 校验 compose、安全网络与示例环境配置。
-4. 构建镜像；首次部署生成 2048 位 DKIM 密钥和 DNS 清单。
-5. 启动 Redis、OpenDKIM、Postfix，并分别执行健康检查。
-6. 从 API 容器执行 Redis PING 和 SMTP NOOP，不发送外部邮件。
-7. 备份 MySQL、执行 Alembic 迁移、启动完整栈并平滑重载 nginx。
+1. On the first release-managed rollout, import the existing SPA and
+   `design-hub-api:latest` as an immutable `legacy-*` rollback release.
+2. Copy the existing root `.env` into `shared/.env` when needed and create a
+   mode-600 snapshot plus non-secret metadata that binds its SHA-256 digest to
+   the candidate and rollback-target release identities. Record the candidate
+   as pending before any environment mutation.
+3. Explicitly and atomically rename `PASSWORD_RESET_CODE_PEPPER` to
+   `EMAIL_VERIFICATION_CODE_PEPPER` without printing values. Normal provisioning
+   rejects the legacy key; only this migration path accepts it.
+4. Validate Redis/mail settings, compose semantics, certificates, DKIM material,
+   and the database connection; build the immutable candidate image.
+5. Create `state/maintenance` and recreate nginx with the maintenance-aware
+   configuration before any database or runtime switch.
+6. Back up MySQL, run Alembic from the candidate image, start API/worker, and
+   require container, API, and migration health.
+7. Recreate nginx against the versioned SPA while the prior release remains
+   active in state, verify its index hash, remove maintenance, and check the
+   public endpoint. Only then replace `release-selection` once, committing
+   active, previous, and pending identities as one indivisible state transition.
 
-任何已有固定邮件配置与设计不一致时，脚本会直接失败，不会静默覆盖。DKIM 密钥只在两个文件均不存在时生成；出现残缺密钥对时也会直接失败。
+Any failure after the environment snapshot automatically invokes the executable
+rollback path. If rollback itself fails, maintenance remains enabled and the
+script exits nonzero.
 
-## DNS 与 PTR
+The atomic password-reset migration invalidates all outstanding reset codes while
+maintenance is enabled. This table contains only short-lived reset credentials;
+users must request a fresh code after the release completes. New codes remain
+pending until SMTP delivery succeeds, and password update plus code consumption
+commit in one database transaction.
 
-部署完成后读取：
+## Environment and mail boundary
 
-```bash
-cat /data/docker/design-hub/mail/dns-records.txt
-```
-
-需要配置以下记录，DKIM 的 `p=` 值以服务器生成文件为准：
+Production uses:
 
 ```text
-smtp.image.sepaitech.com A 14.103.51.191
-image.sepaitech.com TXT "v=spf1 ip4:14.103.51.191 -all"
-designhub._domainkey.image.sepaitech.com TXT "v=DKIM1; ...; p=..."
-_dmarc.image.sepaitech.com TXT "v=DMARC1; p=none"
-14.103.51.191 PTR smtp.image.sepaitech.com
+MAIL_DELIVERY_MODE=smtp
+SMTP_HOST=smtp
+SMTP_PORT=25
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM_NAME=Design Hub
+SMTP_FROM=no-reply@image.sepaitech.com
+SMTP_USE_TLS=false
+EMAIL_VERIFICATION_CODE_PEPPER=<64 lowercase hexadecimal characters>
 ```
 
-PTR 记录必须在云服务器/IP 服务商控制台配置。DNS 生效前，容器健康不等于外部收件箱可达；主流邮箱可能拒收或归入垃圾邮件。
+The pepper is independent from the JWT secret and uses purpose-separated HMAC
+inputs for registration and password reset. `SMTP_FROM` is a strict mailbox;
+missing local parts, whitespace, display-name syntax, and CRLF are rejected at
+settings construction.
 
-验证命令：
+The `mail` network is `172.29.0.0/24`. Postfix is `172.29.0.10`, OpenDKIM is
+`172.29.0.11`, and neither publishes a host port. Only the API joins this network;
+worker, nginx, and Redis cannot submit mail. OpenDKIM private keys stay under
+`/data/docker/design-hub/mail/dkim`.
+
+## Registration contract rollout
+
+The SPA and API switch as one release. Register/resend acknowledgements carry an
+opaque challenge ID; verify and resend require it. The browser stores email plus
+challenge ID only in memory and replaces the ID after resend. Serving a new SPA
+against an old API is prevented by staging, maintenance, candidate health, and
+the controlled nginx web recreation.
+
+General smoke tests log in with runtime-provided pre-verified accounts and do not
+send mail. The separate interactive registration acceptance script obtains the
+recipient, approved password, and received code at runtime.
+
+## Rollback
+
+Normal rollback changes the API/worker image, versioned SPA, and bound
+environment snapshot together. It verifies that `--from` is active, `--to` is
+the recorded previous release, and the snapshot metadata binds that exact edge.
+It deliberately does not restore the database:
 
 ```bash
-dig +short smtp.image.sepaitech.com A
-dig +short image.sepaitech.com TXT
-dig +short designhub._domainkey.image.sepaitech.com TXT
-dig +short _dmarc.image.sepaitech.com TXT
-dig +short -x 14.103.51.191
+bash /opt/docker/design-hub/releases/<from-release>/deploy/scripts/rollback.sh \
+  --from <from-release> \
+  --to <previous-release>
 ```
 
-## 日常运维
-
-查看服务状态和日志：
+Only an explicitly required schema rollback may restore a database backup:
 
 ```bash
-cd /opt/docker/design-hub
+bash /opt/docker/design-hub/releases/<from-release>/deploy/scripts/rollback.sh \
+  --from <from-release> \
+  --to <previous-release> \
+  --schema-backup /root/db-backup-<release>.sql
+```
+
+The rollback command enables maintenance first and restores the verified
+mode-600 environment snapshot. Runtime-only rollback then starts and
+health-checks the previous immutable API/worker without a database restore. An
+explicit schema restore first stops API and worker and verifies both are stopped
+before importing MySQL. Both paths recreate nginx against the previous SPA and
+only remove maintenance for the public probe window; any failure restores the
+marker atomically. DNS, SMTP queue, DKIM keys, and other persisted application
+data are not deleted.
+
+The caller's schema file is never read after writers stop. Rollback opens it
+inside `BACKUP_DIR`, binds the open file identity, copies it before stopping the
+API and worker into a root-only directory, and verifies the protected copy's
+SHA-256 immediately before import. The copy is removed on success or failure.
+
+Public probes use a 3-second connect timeout and 10-second total timeout. Set
+`PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS` (1-30) and
+`PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS` (1-120) only to bounded positive integers.
+The controller also enforces the total timeout around custom runtimes.
+On Linux, `systemd-run` and an active systemd service manager are mandatory. The
+controller runs each probe in a transient service with `RuntimeMaxSec`, a
+two-second `TimeoutStopSec`, and `KillMode=control-group`; even a descendant that
+calls `setsid` remains inside the unit cgroup. Missing systemd support or a
+non-successful unit result fails the release closed. Because system services
+start with a clean environment, the controller explicitly forwards only public
+health URL/timeouts and non-secret runtime paths/network/image settings. Mail,
+database, JWT, and other secret values are never forwarded. A custom runtime
+must be an absolute executable regular file that is not group/world writable.
+
+Do not delete `state/deploy.lock` by hand. Its unguessable token binds an
+automatic rollback to the deployment that owns the lock. If the owning process
+has crashed, first verify no release process remains, then run the explicit
+recovery command; it refuses a live owner, malformed metadata, or unexpected
+lock contents:
+
+```bash
+bash /opt/docker/design-hub/releases/<release-id>/deploy/scripts/recover-release-lock.sh \
+  --confirm-stale-lock-recovery
+```
+
+Normal cleanup and stale recovery first atomically rename the canonical lock to
+a token-bound tombstone, then remove its contents. A cleanup failure may leave a
+protected tombstone for inspection, but never an ownerless canonical lock and
+never blocks acquisition of a new canonical lock.
+
+If a crash leaves `PENDING_RELEASE` set, do not edit state files. Verify the
+candidate and rollback identities shown in the protected `release-selection`,
+then execute the gated recovery path. It verifies selection, manifest, snapshot
+identity and digest, restores the bound environment/runtime, and atomically
+clears pending only after public health succeeds:
+
+```bash
+bash /opt/docker/design-hub/releases/<candidate>/deploy/scripts/recover-pending-release.sh \
+  --candidate <candidate> --rollback-target <active-release>
+```
+
+For the first deployment only, a crash may leave pending set while active and
+previous are both empty. Abort that candidate explicitly; the command validates
+the empty-target snapshot, stops and verifies the candidate application,
+restores the environment, atomically clears pending, and keeps maintenance on:
+
+```bash
+bash /opt/docker/design-hub/releases/<candidate>/deploy/scripts/recover-pending-release.sh \
+  --initial-abort --candidate <candidate>
+```
+
+Before the initial abort stops fixed API/worker container names, it validates
+the candidate directory, manifest and runtime, then accepts each container only
+when it is absent or carries `com.design-hub.release=<candidate>`. Docker daemon
+errors and containers belonging to another release keep pending and maintenance.
+
+`release-selection` is mandatory once any release state exists. Before the
+first rollout, confirm that none of `state/active-release`,
+`state/previous-release`, or `state/pending-release` remains. The controller
+fails fast if the single selection is missing while any split legacy file is
+present; it never guesses or migrates those identities. A trusted initial
+selection must contain exactly four mode-600 lines: `SELECTION_FORMAT=1`, then
+empty `ACTIVE_RELEASE`, `PREVIOUS_RELEASE`, and `PENDING_RELEASE` values. If a
+legacy runtime must be imported, leave all release state absent and let the
+first guarded deployment create the selection after validating the live tree.
+
+## Validation
+
+Local release semantics and environment restoration are executable tests:
+
+```bash
+bash image-ops/deploy/scripts/test-mail-env.sh
+bash image-ops/deploy/scripts/test-registration-ratelimits.sh
+bash image-ops/deploy/scripts/test-release-flow.sh
+bash image-ops/deploy/scripts/test-release-safety.sh
+```
+
+On the production host also run compose and nginx validation through the staged
+release, then inspect service health and the mail queue:
+
+```bash
 docker compose ps
-docker compose logs --tail=100 smtp dkim api
-```
-
-查看邮件队列：
-
-```bash
+docker exec design-hub-nginx nginx -t
 docker exec design-hub-smtp postqueue -p
 ```
 
-强制重试暂时失败的邮件：
+## DNS and network ports
 
-```bash
-docker exec design-hub-smtp postqueue -f
-```
-
-查看指定队列项（正文包含密码重置验证码，仅限故障排查）：
-
-```bash
-docker exec design-hub-smtp postcat -q QUEUE_ID
-```
-
-邮件发送失败时，API 会让当前验证码立即失效；用户可以重新申请，不需要等待原验证码过期。应用日志只记录投递元数据，不记录验证码正文。
-
-## 回滚
-
-应用回滚使用部署前保留的 `design-hub-api` 镜像和数据库备份。邮件服务可独立停止：
-
-```bash
-cd /opt/docker/design-hub
-docker compose stop smtp dkim
-```
-
-停止邮件服务后，生产环境保持 `MAIL_DELIVERY_MODE=smtp` 会让忘记密码请求明确失败，不会把验证码写入日志。不要切换到日志投递作为生产降级方案。
-
-## 外部端口
-
-云安全组仅需开放 22、80、443。SMTP 服务不需要入站 25；服务器只需要允许出站 TCP 25。3306、6379、8000、8891 均不得暴露公网。
+The deployment-generated DNS checklist remains at
+`/data/docker/design-hub/mail/dns-records.txt`. Publish A, SPF, DKIM, DMARC, and
+provider-managed PTR records described there. Public ingress requires only
+22/80/443. SMTP needs outbound TCP 25; ports 25, 3306, 6379, 8000, and 8891 are
+not published by this stack.

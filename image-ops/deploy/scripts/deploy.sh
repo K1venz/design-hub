@@ -1,153 +1,156 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_DIR="/opt/docker/design-hub"
-DATA_DIR="/data/docker/design-hub"
-MYSQL_ENV="/opt/docker/mysql/.env"
-SERVER_IP="14.103.51.191"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=release-state.sh
+source "$script_dir/release-state.sh"
 
-cd "$DEPLOY_DIR"
+release_id="${1:?usage: deploy.sh RELEASE_ID}"
+require_release_id "$release_id" candidate
 
-# shellcheck source=mail-env.sh
-source scripts/mail-env.sh
+deploy_root="${DEPLOY_ROOT:-/opt/docker/design-hub}"
+data_dir="${DATA_DIR:-/data/docker/design-hub}"
+backup_dir="${BACKUP_DIR:-/root}"
+mysql_env="${MYSQL_ENV:-/opt/docker/mysql/.env}"
+release_dir="$deploy_root/releases/$release_id"
+shared_dir="$deploy_root/shared"
+state_dir="$deploy_root/state"
+env_file="$shared_dir/.env"
+selection_file="$state_dir/release-selection"
+maintenance_file="$state_dir/maintenance"
+snapshot_file="$state_dir/env-snapshots/$release_id.before.env"
+snapshot_metadata_file="$state_dir/env-snapshots/$release_id.before.meta"
+lock_dir="$state_dir/deploy.lock"
 
-read_root_pw() {
-  grep -E '^MYSQL_ROOT_PASSWORD=' "$MYSQL_ENV" | head -1 | cut -d= -f2- \
+for required in "$release_dir/release.env" "$release_dir/deploy/compose.yml" \
+  "$release_dir/deploy/scripts/mail-env.sh" \
+  "$release_dir/deploy/scripts/release-state.sh" \
+  "$release_dir/deploy/scripts/rollback.sh" \
+  "$release_dir/deploy/scripts/recover-release-lock.sh" \
+  "$release_dir/deploy/scripts/recover-pending-release.sh" \
+  "$release_dir/web/index.html"; do
+  [[ -f "$required" ]] || {
+    echo "ERROR: staged release is incomplete: ${required}" >&2
+    exit 1
+  }
+done
+grep -Fxq "RELEASE_ID=${release_id}" "$release_dir/release.env" || {
+  echo "ERROR: release manifest identity mismatch" >&2
+  exit 1
+}
+
+runtime="${RELEASE_RUNTIME:-$release_dir/deploy/scripts/release-runtime.sh}"
+require_runtime_contract "$runtime"
+mkdir -p "$shared_dir" "$state_dir/env-snapshots" "$backup_dir"
+acquire_release_lock "$lock_dir" deploy
+
+previous_release=""
+environment_snapshot_ready=false
+selection_pending_written=false
+release_work_begun=false
+runtime_requires_protection=false
+deployment_committed=false
+maintenance_was_enabled=false
+[[ -f "$maintenance_file" ]] && maintenance_was_enabled=true
+
+on_exit() {
+  local status=$?
+  local automatic_attempted=false
+  local automatic_succeeded=false
+  local environment_restored=false
+  trap - EXIT
+
+  if load_release_state "$selection_file" 2>/dev/null \
+    && [[ "$release_state_active" == "$release_id" && -z "$release_state_pending" ]]; then
+    deployment_committed=true
+  fi
+
+  if [[ "$status" -ne 0 \
+    && "$environment_snapshot_ready" == true \
+    && "$deployment_committed" == false ]]; then
+    if [[ "$release_work_begun" == true && -n "$previous_release" ]]; then
+      automatic_attempted=true
+      echo "ERROR: release ${release_id} failed; restoring ${previous_release}" >&2
+      if DEPLOY_ROOT="$deploy_root" DATA_DIR="$data_dir" BACKUP_DIR="$backup_dir" \
+        MYSQL_ENV="$mysql_env" RELEASE_RUNTIME="$runtime" \
+        RELEASE_LOCK_TOKEN="$release_lock_token" \
+        bash "$release_dir/deploy/scripts/rollback.sh" \
+          --from "$release_id" --to "$previous_release"; then
+        automatic_succeeded=true
+        environment_restored=true
+      else
+        echo "ERROR: automatic rollback failed; maintenance remains enabled" >&2
+      fi
+    fi
+
+    if [[ "$automatic_succeeded" == false ]]; then
+      if restore_bound_environment_snapshot \
+        "$snapshot_file" "$snapshot_metadata_file" "$env_file" \
+        "$release_id" "$previous_release"; then
+        environment_restored=true
+      else
+        echo "ERROR: failed to restore the environment snapshot" >&2
+      fi
+
+      if [[ "$environment_restored" == true \
+        && "$runtime_requires_protection" == false \
+        && "$automatic_attempted" == false ]]; then
+        if [[ "$selection_pending_written" == true ]]; then
+          if atomic_write_release_selection "$selection_file" "$previous_release" "$release_state_previous" ""; then
+            selection_pending_written=false
+          else
+            echo "ERROR: failed to clear pending release state" >&2
+          fi
+        fi
+        if [[ "$maintenance_was_enabled" == true ]]; then
+          atomic_enable_maintenance "$maintenance_file" \
+            || echo "ERROR: failed to preserve maintenance state" >&2
+        else
+          atomic_state_remove "$maintenance_file" \
+            || echo "ERROR: failed to preserve maintenance state" >&2
+        fi
+      else
+        atomic_enable_maintenance "$maintenance_file" \
+          || echo "ERROR: failed to enable maintenance after release failure" >&2
+      fi
+    fi
+  fi
+
+  if ! release_release_lock "$lock_dir" "$release_lock_token"; then
+    [[ "$status" -ne 0 ]] || status=1
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+
+read_root_password() {
+  grep -E '^MYSQL_ROOT_PASSWORD=' "$mysql_env" | head -1 | cut -d= -f2- \
     | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
 }
 
-wait_healthy() {
-  local container="$1"
-  local label="$2"
-  local status="unknown"
-
-  for attempt in $(seq 1 40); do
-    status="$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || echo unknown)"
-    echo "    ${label} health: ${status} (${attempt})"
-    [[ "$status" == "healthy" ]] && return 0
-    if [[ "$status" == "unhealthy" ]]; then
-      docker logs --tail 60 "$container"
-      return 1
-    fi
-    sleep 5
-  done
-
-  echo "ERROR: ${label} health check timed out with status ${status}" >&2
-  docker logs --tail 60 "$container"
-  return 1
-}
-
-ensure_internal_redis_env() {
+create_initial_environment() {
+  local root_password
+  local encoded_password
+  local jwt_secret
   local redis_password
-  local current_redis_url
-  local expected_redis_url
+  local admin_password
+  local temporary="${env_file}.initial.$$"
+  local credentials_file="$state_dir/initial-admin-credentials"
 
-  if [[ "$(grep -c '^REDIS_PASSWORD=' .env || true)" -gt 1 ]]; then
-    echo "ERROR: duplicate REDIS_PASSWORD in .env" >&2
+  root_password="$(read_root_password)"
+  [[ -n "$root_password" ]] || {
+    echo "ERROR: MYSQL_ROOT_PASSWORD is unavailable" >&2
     return 1
-  fi
-  if [[ "$(grep -c '^REDIS_URL=' .env || true)" -gt 1 ]]; then
-    echo "ERROR: duplicate REDIS_URL in .env" >&2
-    return 1
-  fi
-
-  if grep -q '^REDIS_PASSWORD=' .env; then
-    redis_password="$(grep -E '^REDIS_PASSWORD=' .env | cut -d= -f2-)"
-    if [[ ! "$redis_password" =~ ^[0-9a-f]{64}$ ]]; then
-      echo "ERROR: REDIS_PASSWORD must be 64 lowercase hexadecimal characters" >&2
-      return 1
-    fi
-  else
-    redis_password="$(openssl rand -hex 32)"
-    printf '\nREDIS_PASSWORD=%s\n' "$redis_password" >> .env
-  fi
-
-  expected_redis_url="redis://:${redis_password}@redis:6379/0"
-  if ! grep -q '^REDIS_URL=' .env; then
-    printf 'REDIS_URL=%s\n' "$expected_redis_url" >> .env
-  else
-    current_redis_url="$(grep -E '^REDIS_URL=' .env | cut -d= -f2-)"
-    if [[ -z "$current_redis_url" ]]; then
-      sed -i "s#^REDIS_URL=.*#REDIS_URL=${expected_redis_url}#" .env
-    elif [[ "$current_redis_url" != "$expected_redis_url" ]]; then
-      echo "ERROR: REDIS_URL does not match the internal Redis service" >&2
-      return 1
-    fi
-  fi
-
-  unset redis_password current_redis_url expected_redis_url
-  chmod 600 .env
-}
-
-ensure_dkim_key() {
-  local key_dir="$DATA_DIR/mail/dkim"
-  local private_key="$key_dir/designhub.private"
-  local public_record="$key_dir/designhub.txt"
-  local dns_records="$DATA_DIR/mail/dns-records.txt"
-
-  if [[ -e "$private_key" || -e "$public_record" ]]; then
-    if [[ ! -s "$private_key" || ! -s "$public_record" ]]; then
-      echo "ERROR: incomplete DKIM key pair in ${key_dir}" >&2
-      return 1
-    fi
-  else
-    docker compose run --rm --no-deps --entrypoint opendkim-genkey dkim \
-      -b 2048 -d image.sepaitech.com -D /etc/dkimkeys -s designhub
-  fi
-
-  chmod 600 "$private_key" "$public_record"
-  python3 - "$public_record" "$dns_records" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-source = Path(sys.argv[1]).read_text()
-parts = re.findall(r'"([^"]*)"', source)
-if not parts:
-    raise SystemExit("unable to parse generated DKIM record")
-
-dkim = "".join(parts)
-records = [
-    "smtp.image.sepaitech.com A 14.103.51.191",
-    'image.sepaitech.com TXT "v=spf1 ip4:14.103.51.191 -all"',
-    f'designhub._domainkey.image.sepaitech.com TXT "{dkim}"',
-    '_dmarc.image.sepaitech.com TXT "v=DMARC1; p=none"',
-    "14.103.51.191 PTR smtp.image.sepaitech.com",
-]
-Path(sys.argv[2]).write_text("\n".join(records) + "\n")
-PY
-  chmod 600 "$dns_records"
-}
-
-echo "==> [1/11] Preparing persistent directories"
-mkdir -p "$DATA_DIR"/{generated,assets,exports,redis} "$DATA_DIR/mail"/{spool,dkim}
-mkdir -p "$DEPLOY_DIR/nginx/certs"
-chmod 700 "$DATA_DIR/mail/dkim"
-
-echo "==> [2/11] Ensuring the local TLS certificate"
-if [[ ! -f nginx/certs/design-hub.crt ]]; then
-  openssl req -x509 -nodes -newkey rsa:2048 \
-    -keyout nginx/certs/design-hub.key \
-    -out nginx/certs/design-hub.crt \
-    -days 825 \
-    -subj "/C=CN/O=design-hub/CN=design-hub.local" \
-    -addext "subjectAltName=IP:${SERVER_IP},DNS:design-hub.local" 2>/dev/null
-fi
-
-echo "==> [3/11] Ensuring application environment"
-if [[ ! -f .env ]]; then
-  ROOT_PW="$(read_root_pw)"
-  [[ -n "$ROOT_PW" ]] || { echo "ERROR: MYSQL_ROOT_PASSWORD is unavailable" >&2; exit 1; }
-  ENC_PW="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOT_PW")"
-  JWT="$(openssl rand -hex 32)"
-  REDIS_PW="$(openssl rand -hex 32)"
-  ADMIN_PW="$(openssl rand -hex 12)"
-  ADMIN_EMAIL="admin@design-hub.cn"
+  }
+  encoded_password="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$root_password")"
+  jwt_secret="$(openssl rand -hex 32)"
+  redis_password="$(openssl rand -hex 32)"
+  admin_password="$(openssl rand -hex 12)"
   umask 077
-  cat > .env <<ENV
-DB_URL=mysql+aiomysql://root:${ENC_PW}@mysql:3306/design_hub
-REDIS_PASSWORD=${REDIS_PW}
-REDIS_URL=
+  cat > "$temporary" <<ENV
+DB_URL=mysql+aiomysql://root:${encoded_password}@mysql:3306/design_hub
+REDIS_PASSWORD=${redis_password}
+REDIS_URL=redis://:${redis_password}@redis:6379/0
 PROVIDER_STANDARD_CONCURRENCY=3
 PROVIDER_4K_CONCURRENCY=1
 WORKER_READ_COUNT=8
@@ -155,74 +158,181 @@ WORKER_SHUTDOWN_TIMEOUT_SECONDS=30
 IMAGE_OUTPUT_DIR=/app/generated
 ASSET_OUTPUT_DIR=/app/assets
 EXPORT_OUTPUT_DIR=/app/exports
-JWT_SECRET=${JWT}
+JWT_SECRET=${jwt_secret}
 JWT_TTL_HOURS=24
-SEED_ADMIN_EMAIL=${ADMIN_EMAIL}
-SEED_ADMIN_PASSWORD=${ADMIN_PW}
-GPT_IMAGE_BASE_URL=
-GPT_IMAGE_API_KEY=
-GPT_IMAGE_4K_API_KEY=
-GPT_IMAGE_MODEL=
-DASHSCOPE_KEY=
-OPENAI_API_KEY=
+SEED_ADMIN_EMAIL=admin@design-hub.cn
+SEED_ADMIN_PASSWORD=${admin_password}
 SENTRY_DSN=
 ENV
-  echo "    __SEED_ADMIN_EMAIL__=${ADMIN_EMAIL}"
-  echo "    __SEED_ADMIN_PASSWORD__=${ADMIN_PW}"
-  unset REDIS_PW ADMIN_PW JWT ENC_PW
+  chmod 600 "$temporary"
+  mv "$temporary" "$env_file"
+  cat > "$credentials_file" <<ENV
+SEED_ADMIN_EMAIL=admin@design-hub.cn
+SEED_ADMIN_PASSWORD=${admin_password}
+ENV
+  chmod 600 "$credentials_file"
+  echo "    Initial administrator credentials: ${credentials_file}"
+  unset root_password encoded_password jwt_secret redis_password admin_password
+}
+
+ensure_internal_redis_env() {
+  local redis_password
+  local expected_url
+  local current_url
+  [[ "$(grep -c '^REDIS_PASSWORD=' "$env_file" || true)" -le 1 ]]
+  [[ "$(grep -c '^REDIS_URL=' "$env_file" || true)" -le 1 ]]
+  if grep -q '^REDIS_PASSWORD=' "$env_file"; then
+    redis_password="$(grep -E '^REDIS_PASSWORD=' "$env_file" | cut -d= -f2-)"
+    [[ "$redis_password" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "ERROR: REDIS_PASSWORD must be 64 lowercase hexadecimal characters" >&2
+      return 1
+    }
+  else
+    redis_password="$(openssl rand -hex 32)"
+    printf 'REDIS_PASSWORD=%s\n' "$redis_password" >> "$env_file"
+  fi
+  expected_url="redis://:${redis_password}@redis:6379/0"
+  if grep -q '^REDIS_URL=' "$env_file"; then
+    current_url="$(grep -E '^REDIS_URL=' "$env_file" | cut -d= -f2-)"
+    [[ "$current_url" == "$expected_url" ]] || {
+      echo "ERROR: REDIS_URL does not match the internal Redis service" >&2
+      return 1
+    }
+  else
+    printf 'REDIS_URL=%s\n' "$expected_url" >> "$env_file"
+  fi
+  unset redis_password expected_url current_url
+}
+
+validate_release_directory() {
+  local target_release="$1"
+  local target_dir="$deploy_root/releases/$target_release"
+  [[ -f "$target_dir/release.env" \
+    && -f "$target_dir/deploy/compose.yml" \
+    && -f "$target_dir/web/index.html" ]] || {
+    echo "ERROR: recorded release ${target_release} is incomplete" >&2
+    return 1
+  }
+  grep -Fxq "RELEASE_ID=${target_release}" "$target_dir/release.env" || {
+    echo "ERROR: recorded release manifest identity mismatch" >&2
+    return 1
+  }
+}
+
+import_legacy_release() {
+  local legacy_id
+  local incoming
+  local target
+  local legacy_hash
+
+  [[ -z "$release_state_active" ]] || return 0
+  [[ -f "$deploy_root/web/index.html" ]] || return 0
+  legacy_id="legacy-$(date -u +%Y%m%dT%H%M%SZ)"
+  incoming="$deploy_root/.incoming/$legacy_id"
+  target="$deploy_root/releases/$legacy_id"
+  [[ ! -e "$incoming" && ! -e "$target" ]]
+  mkdir -p "$incoming/app" "$incoming/web" "$deploy_root/releases"
+  cp -a "$release_dir/deploy" "$incoming/deploy"
+  cp -a "$deploy_root/web/." "$incoming/web/"
+  legacy_hash="$(sha256sum "$incoming/web/index.html" | cut -d' ' -f1)"
+  cat > "$incoming/release.env" <<ENV
+RELEASE_ID=${legacy_id}
+SOURCE_COMMIT=legacy-import
+WEB_INDEX_SHA256=${legacy_hash}
+ENV
+  mv "$incoming" "$target"
+  bash "$runtime" import-legacy "$target" "$legacy_id"
+  atomic_write_release_selection "$selection_file" "$legacy_id" "" ""
+  release_state_active="$legacy_id"
+  echo "    Imported rollback release: ${legacy_id}"
+}
+
+load_release_state "$selection_file"
+[[ -z "$release_state_pending" ]] || {
+  echo "ERROR: pending release ${release_state_pending} requires recovery" >&2
+  exit 1
+}
+if [[ -n "$release_state_active" ]]; then
+  validate_release_directory "$release_state_active"
+  resolve_release_rollback_target \
+    "$state_dir" "$deploy_root/releases/$release_state_active" "$release_state_active"
+  [[ "$release_state_previous" == "$release_rollback_target" ]] || {
+    echo "ERROR: active, previous, and snapshot release state is inconsistent" >&2
+    exit 1
+  }
 fi
 
-ensure_internal_redis_env
-ensure_mail_env
-echo "    Redis and mail secrets are ready (values hidden)"
+if [[ ! -f "$env_file" ]]; then
+  if [[ -f "$deploy_root/.env" ]]; then
+    umask 077
+    cp "$deploy_root/.env" "$env_file"
+    chmod 600 "$env_file"
+  else
+    create_initial_environment
+  fi
+fi
 
-echo "==> [4/11] Validating mail configuration"
-bash scripts/check-mail-config.sh
-bash scripts/test-mail-env.sh
-
-echo "==> [5/11] Ensuring the design_hub database"
-ROOT_PW="$(read_root_pw)"
-docker exec -i -e MYSQL_PWD="$ROOT_PW" mysql mysql -uroot <<'SQL'
-CREATE DATABASE IF NOT EXISTS `design_hub` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-SQL
-
-echo "==> [6/11] Building application and mail images"
-docker compose build
-ensure_dkim_key
-
-echo "==> [7/11] Starting and checking infrastructure"
-docker compose up -d redis dkim smtp
-wait_healthy design-hub-redis redis
-wait_healthy design-hub-dkim dkim
-wait_healthy design-hub-smtp smtp
-docker compose run --rm --no-deps worker python -c \
-  'import os; from redis import Redis; r=Redis.from_url(os.environ["REDIS_URL"],socket_connect_timeout=5,socket_timeout=5); assert r.ping() is True; r.close()'
-docker compose run --rm --no-deps api python -c \
-  'import smtplib; client=smtplib.SMTP("smtp",25,timeout=5); code,_=client.noop(); assert code==250; client.quit()'
-
-echo "==> [8/11] Backing up the database"
-BK="/root/db-backup-$(date +%Y%m%d-%H%M%S).sql"
-if docker exec -e MYSQL_PWD="$ROOT_PW" mysql mysqldump -uroot --no-tablespaces \
-     --single-transaction --routines design_hub > "$BK" 2>/dev/null && [[ -s "$BK" ]]; then
-  echo "    Backup: ${BK} ($(wc -c <"$BK") bytes)"
-  ls -t /root/db-backup-*.sql 2>/dev/null | tail -n +11 | xargs -r rm -f
-else
-  echo "ERROR: database backup failed; refusing to migrate" >&2
+import_legacy_release
+previous_release="$release_state_active"
+if [[ "$previous_release" == "$release_id" ]]; then
+  echo "ERROR: release ${release_id} is already active" >&2
   exit 1
 fi
 
-echo "==> [9/11] Applying database migrations"
-docker compose run --rm --no-deps api alembic upgrade head
+# shellcheck source=mail-env.sh
+ENV_FILE="$env_file"
+export ENV_FILE
+source "$release_dir/deploy/scripts/mail-env.sh"
+chmod 600 "$env_file"
+create_bound_environment_snapshot \
+  "$env_file" "$snapshot_file" "$snapshot_metadata_file" \
+  "$release_id" "$previous_release"
+environment_snapshot_ready=true
+atomic_write_release_selection "$selection_file" "$previous_release" "$release_state_previous" "$release_id"
+selection_pending_written=true
 
-echo "==> [10/11] Starting the complete stack"
-docker compose up -d
-wait_healthy design-hub-api api
-wait_healthy design-hub-worker worker
+migrate_legacy_mail_env
+ensure_internal_redis_env
+ensure_mail_env
+chmod 600 "$env_file"
 
-echo "==> [11/11] Validating and reloading nginx"
-docker exec design-hub-nginx nginx -t
-docker exec design-hub-nginx nginx -s reload
+release_work_begun=true
+echo "==> [1/9] Preparing release infrastructure"
+bash "$runtime" prepare "$release_dir" "$release_id"
+echo "==> [2/9] Building immutable API image"
+bash "$runtime" build-release "$release_dir" "$release_id"
 
-docker compose ps
-echo "==> DNS_RECORDS_FILE=${DATA_DIR}/mail/dns-records.txt"
-echo "==> DEPLOY_DONE"
+echo "==> [3/9] Enabling maintenance protection"
+runtime_requires_protection=true
+atomic_enable_maintenance "$maintenance_file"
+bash "$runtime" enable-maintenance "$release_dir" "$release_id"
+echo "==> [4/9] Backing up the database"
+bash "$runtime" backup-database "$release_dir" "$release_id"
+echo "==> [5/9] Applying migrations with the candidate image"
+bash "$runtime" migrate "$release_dir" "$release_id"
+echo "==> [6/9] Starting and checking the candidate API and worker"
+bash "$runtime" start-release "$release_dir" "$release_id"
+bash "$runtime" health-candidate "$release_dir" "$release_id"
+
+echo "==> [7/9] Switching the web mount while the target remains active in state"
+bash "$runtime" switch-web "$release_dir" "$release_id"
+bash "$runtime" health-live "$release_dir" "$release_id"
+
+echo "==> [8/9] Opening traffic and checking the public endpoint"
+atomic_state_remove "$maintenance_file"
+run_public_probe() {
+  local connect_timeout="${PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS:-3}"
+  local max_timeout="${PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS:-10}"
+  [[ "$connect_timeout" =~ ^[1-9][0-9]*$ && "$connect_timeout" -le 30 ]] || { echo "ERROR: invalid public health connect timeout" >&2; return 1; }
+  [[ "$max_timeout" =~ ^[1-9][0-9]*$ && "$max_timeout" -le 120 ]] || { echo "ERROR: invalid public health max timeout" >&2; return 1; }
+  export PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS="$connect_timeout" PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS="$max_timeout"
+  run_with_hard_timeout "$max_timeout" bash "$runtime" health-public "$release_dir" "$release_id"
+}
+run_public_probe
+
+echo "==> [9/9] Atomically committing release state"
+atomic_write_release_selection "$selection_file" "$release_id" "$previous_release" ""
+selection_pending_written=false
+deployment_committed=true
+environment_snapshot_ready=false
+echo "==> DEPLOY_DONE=${release_id}"

@@ -50,7 +50,89 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "$ref": "#/components/schemas/RegistrationAcknowledgement"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Verify Registration",
+        "operationId": "verify_registration_auth_register_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
                   "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register/resend": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Resend Registration",
+        "operationId": "resend_registration_auth_register_resend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterResendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationAcknowledgement"
                 }
               }
             }
@@ -5182,6 +5264,33 @@
         "title": "EditRequest",
         "description": "二次编辑入参（PRD §3.12.13/ISSUE-0040，POST /listing/edit）。\n\n生而 extra=forbid（E-⑥）：未知字段（含 overlay_texts/n/plan/category）→ 422。\n不收 category（R2：编辑组装无品类块、库无列，死参数不收）。\nprompt 必填走 schema 严校 422（E-⑤，#652/#654 拍定与 forbid 同层同码）；\nedit_mode/ratio 仍走 submission service fail-fast 400（域值校验，单一事实源在卡/映射表）。"
       },
+      "ForgotPasswordRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "ForgotPasswordRequest"
+      },
+      "ForgotPasswordResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ForgotPasswordResponse"
+      },
       "GeneratedImageSourceRequest": {
         "properties": {
           "kind": {
@@ -5949,73 +6058,6 @@
           "name"
         ],
         "title": "LoginResponse"
-      },
-      "ForgotPasswordRequest": {
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email",
-            "title": "Email"
-          }
-        },
-        "type": "object",
-        "required": [
-          "email"
-        ],
-        "title": "ForgotPasswordRequest"
-      },
-      "ForgotPasswordResponse": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "ForgotPasswordResponse"
-      },
-      "ResetPasswordRequest": {
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email",
-            "title": "Email"
-          },
-          "code": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 6,
-            "title": "Code"
-          },
-          "password": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Password"
-          }
-        },
-        "type": "object",
-        "required": [
-          "email",
-          "code",
-          "password"
-        ],
-        "title": "ResetPasswordRequest"
-      },
-      "ResetPasswordResponse": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "ResetPasswordResponse"
       },
       "MeResponse": {
         "properties": {
@@ -7158,6 +7200,76 @@
         ],
         "title": "RegisterRequest"
       },
+      "RegisterResendRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "challenge_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Challenge Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "challenge_id"
+        ],
+        "title": "RegisterResendRequest"
+      },
+      "RegisterVerificationRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "challenge_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Challenge Id"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "challenge_id",
+          "code"
+        ],
+        "title": "RegisterVerificationRequest"
+      },
+      "RegistrationAcknowledgement": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "challenge_id"
+        ],
+        "title": "RegistrationAcknowledgement"
+      },
       "RenderTier": {
         "type": "string",
         "enum": [
@@ -7166,6 +7278,46 @@
           "4k"
         ],
         "title": "RenderTier"
+      },
+      "ResetPasswordRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Code"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code",
+          "password"
+        ],
+        "title": "ResetPasswordRequest"
+      },
+      "ResetPasswordResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ResetPasswordResponse"
       },
       "ReversePromptRequest": {
         "properties": {
