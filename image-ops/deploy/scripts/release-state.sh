@@ -45,10 +45,12 @@ atomic_enable_maintenance() {
 load_release_state() {
   local selection_file="$1" line unknown
   release_state_active=""; release_state_previous=""; release_state_pending=""
-  if [[ ! -e "$selection_file" ]]; then
+  if [[ ! -e "$selection_file" && ! -L "$selection_file" ]]; then
     local state_dir
     state_dir="$(dirname "$selection_file")"
-    if [[ -e "$state_dir/active-release" || -e "$state_dir/previous-release" || -e "$state_dir/pending-release" ]]; then
+    if [[ -e "$state_dir/active-release" || -L "$state_dir/active-release" \
+      || -e "$state_dir/previous-release" || -L "$state_dir/previous-release" \
+      || -e "$state_dir/pending-release" || -L "$state_dir/pending-release" ]]; then
       echo "ERROR: legacy split release state exists without release-selection" >&2
       return 1
     fi
@@ -138,6 +140,47 @@ load_lock_owner() {
   lock_owner_operation="$(sed -n 's/^OPERATION=//p' "$owner")"; [[ "$lock_owner_operation" =~ ^(deploy|rollback)$ ]] || return 1
 }
 
+load_lock_metadata_file() {
+  local metadata_file="$1"
+  [[ -f "$metadata_file" && ! -L "$metadata_file" \
+    && "$(stat -c '%a' "$metadata_file")" == 600 \
+    && "$(wc -l < "$metadata_file")" -eq 5 ]] || return 1
+  grep -Fxq 'LOCK_FORMAT=1' "$metadata_file" || return 1
+  partial_lock_token="$(sed -n 's/^TOKEN=//p' "$metadata_file")"; [[ "$partial_lock_token" =~ ^[0-9a-f]{64}$ ]] || return 1
+  partial_lock_pid="$(sed -n 's/^PID=//p' "$metadata_file")"; [[ "$partial_lock_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  partial_lock_start_ticks="$(sed -n 's/^START_TICKS=//p' "$metadata_file")"; [[ "$partial_lock_start_ticks" =~ ^[0-9]+$ ]] || return 1
+  partial_lock_operation="$(sed -n 's/^OPERATION=//p' "$metadata_file")"; [[ "$partial_lock_operation" =~ ^(deploy|rollback)$ ]] || return 1
+}
+
+validate_lock_partials() {
+  local lock_dir="$1" expected_token="${2:-}" partial found=false
+  shopt -s nullglob
+  for partial in "$lock_dir"/.owner.*; do
+    found=true
+    load_lock_metadata_file "$partial" || { shopt -u nullglob; echo "ERROR: deployment lock partial metadata is invalid" >&2; return 1; }
+    if [[ -n "$expected_token" ]]; then
+      [[ "$partial_lock_token" == "$expected_token" \
+        && "$partial_lock_pid" == "$lock_owner_pid" \
+        && "$partial_lock_start_ticks" == "$lock_owner_start_ticks" \
+        && "$partial_lock_operation" == "$lock_owner_operation" ]] \
+        || { shopt -u nullglob; echo "ERROR: deployment lock partial ownership mismatch" >&2; return 1; }
+    else
+      [[ "$(process_start_ticks "$partial_lock_pid")" != "$partial_lock_start_ticks" ]] || { shopt -u nullglob; echo "ERROR: deployment lock partial owner is still alive" >&2; return 1; }
+    fi
+  done
+  shopt -u nullglob
+  lock_partials_found="$found"
+}
+
+remove_lock_partials() {
+  local lock_dir="$1" partial
+  shopt -s nullglob
+  for partial in "$lock_dir"/.owner.*; do
+    rm -- "$partial" || { shopt -u nullglob; echo "ERROR: failed to remove deployment lock partial" >&2; return 1; }
+  done
+  shopt -u nullglob
+}
+
 borrow_release_lock() {
   local lock_dir="$1" expected_token="$2"
   load_lock_owner "$lock_dir" || { echo "ERROR: deployment lock owner metadata is invalid" >&2; return 1; }
@@ -153,8 +196,12 @@ release_release_lock() {
   if find "$lock_dir" -mindepth 1 -maxdepth 1 ! -name owner ! -name '.owner.*' -print -quit | grep -q .; then
     echo "ERROR: deployment lock contains unexpected files" >&2; return 1
   fi
-  rm -f "$lock_dir"/.owner.*
-  rm "$lock_dir/owner" && rmdir "$lock_dir" || { echo "ERROR: failed to remove deployment lock" >&2; return 1; }
+  validate_lock_partials "$lock_dir" "$expected_token" || return 1
+  remove_lock_partials "$lock_dir" || return 1
+  [[ -z "$(find "$lock_dir" -mindepth 1 -maxdepth 1 ! -name owner -print -quit)" ]] \
+    || { echo "ERROR: deployment lock cleanup is incomplete" >&2; return 1; }
+  rm "$lock_dir/owner" || { echo "ERROR: failed to remove deployment lock owner" >&2; return 1; }
+  rmdir "$lock_dir" || { echo "ERROR: failed to remove deployment lock" >&2; return 1; }
 }
 
 stable_copy_regular_file() {
@@ -175,17 +222,27 @@ stable_copy_regular_file() {
 }
 
 run_with_hard_timeout() {
-  local max_seconds="$1" leader watchdog status leader_win_pid="" timeout_marker
+  local max_seconds="$1" leader watchdog status leader_win_pid="" timeout_marker unit_name
   shift
-  timeout_marker="$(mktemp "${TMPDIR:-/tmp}/release-timeout.XXXXXX")" || return 1
-  rm -f "$timeout_marker"
   case "$(uname -s)" in
     MINGW*|MSYS*)
+      timeout_marker="$(mktemp "${TMPDIR:-/tmp}/release-timeout.XXXXXX")" || return 1
+      rm -f "$timeout_marker"
       "$@" & leader=$!
       leader_win_pid="$(ps | awk -v target="$leader" '$1 == target {print $4}')"
       ;;
     *)
-      setsid "$@" & leader=$!
+      command -v systemd-run >/dev/null 2>&1 || { echo "ERROR: systemd-run is required for bounded public probes" >&2; return 1; }
+      [[ -d /run/systemd/system || -n "${RELEASE_ALLOW_FAKE_SYSTEMD:-}" ]] \
+        || { echo "ERROR: systemd is not the active service manager" >&2; return 1; }
+      unit_name="design-hub-probe-$BASHPID-$(openssl rand -hex 6)"
+      systemd-run --quiet --wait --collect --pipe --service-type=exec \
+        "--unit=$unit_name" \
+        "--property=RuntimeMaxSec=${max_seconds}s" \
+        '--property=TimeoutStopSec=2s' \
+        '--property=KillMode=control-group' \
+        -- "$@"
+      return $?
       ;;
   esac
   (

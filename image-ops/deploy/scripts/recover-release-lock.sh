@@ -29,8 +29,15 @@ if [[ -e "$lock_dir/owner" ]]; then
   if [[ "$(process_start_ticks "$lock_owner_pid")" == "$lock_owner_start_ticks" ]]; then
     echo "ERROR: deployment lock owner is still alive" >&2; exit 1
   fi
-  rm "$lock_dir/owner"
+  owner_token="$lock_owner_token"
+  validate_lock_partials "$lock_dir" "$owner_token" || exit 1
+else
+  validate_lock_partials "$lock_dir" || exit 1
+  [[ "$lock_partials_found" == true ]] || { echo "ERROR: ownerless deployment lock has no recoverable metadata" >&2; exit 1; }
 fi
-rm -f "$lock_dir"/.owner.*
+remove_lock_partials "$lock_dir" || exit 1
+if [[ -e "$lock_dir/owner" ]]; then
+  rm "$lock_dir/owner" || { echo "ERROR: failed to remove stale deployment lock owner" >&2; exit 1; }
+fi
 rmdir "$lock_dir" || { echo "ERROR: failed to remove recoverable deployment lock" >&2; exit 1; }
 echo "Recovered stale or partial deployment lock."
