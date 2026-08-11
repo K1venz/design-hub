@@ -56,8 +56,20 @@ chmod +x "$fake_bin/npm"
 cat > "$fake_bin/systemd-run" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-while [[ "$1" != -- ]]; do shift; done
+runtime_max_seconds=""
+while [[ "$1" != -- ]]; do
+  case "$1" in
+    --property=RuntimeMaxSec=*s)
+      runtime_max_seconds="${1#--property=RuntimeMaxSec=}"
+      runtime_max_seconds="${runtime_max_seconds%s}"
+      ;;
+  esac
+  shift
+done
 shift
+if [[ -n "$runtime_max_seconds" ]]; then
+  exec timeout --signal=TERM --kill-after=2s "$runtime_max_seconds" "$@"
+fi
 exec "$@"
 SH
 chmod +x "$fake_bin/systemd-run"
