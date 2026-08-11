@@ -252,6 +252,7 @@ SQL
       mkdir -p "$(dirname "$identity_file")"
       umask 077
       docker build --iidfile "$build_identity_file" \
+        --file "$release_dir/deploy/app/Dockerfile" \
         --label "cn.design-hub.release-id=$release_id" \
         --label "cn.design-hub.source-commit=$source_commit" \
         --label "cn.design-hub.image-repository=$image_repository" \

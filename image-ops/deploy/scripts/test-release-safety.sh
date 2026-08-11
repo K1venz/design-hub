@@ -1447,10 +1447,19 @@ if [[ "$1 $2" == 'image inspect' ]]; then
 fi
 if [[ "$1" == build ]]; then
   iidfile=""
+  dockerfile=""
+  context="${*: -1}"
   while [[ $# -gt 0 ]]; do
-    case "$1" in --iidfile) iidfile="$2"; shift 2 ;; *) shift ;; esac
+    case "$1" in
+      --iidfile) iidfile="$2"; shift 2 ;;
+      --file) dockerfile="$2"; shift 2 ;;
+      *) shift ;;
+    esac
   done
   [[ -n "$iidfile" ]] || exit 2
+  [[ "$dockerfile" == "$EXPECTED_API_DOCKERFILE" ]] || exit 3
+  [[ "$context" == "$EXPECTED_API_BUILD_CONTEXT" ]] || exit 4
+  [[ -f "$dockerfile" ]] || exit 5
   printf '%s\n' "$FAKE_IMAGE_ID" > "$iidfile"
   : > "$FAKE_IMAGE_EXISTS"
   exit 0
@@ -1474,6 +1483,8 @@ SH
   source_commit="$(sed -n 's/^SOURCE_COMMIT=//p' "$root/releases/release-image/release.env")"
   export FAKE_LABEL_RELEASE=release-image FAKE_LABEL_SOURCE="$source_commit" FAKE_LABEL_REPOSITORY=design-hub-api
   export FAKE_DOCKER_LOG="$root/docker.log"
+  export EXPECTED_API_DOCKERFILE="$root/releases/release-image/deploy/app/Dockerfile"
+  export EXPECTED_API_BUILD_CONTEXT="$root/releases/release-image/app"
   PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" FAKE_IMAGE_EXISTS="$root/image.exists" FAKE_IMAGE_ID="$image_id" \
     bash "$runtime" build-release "$root/releases/release-image" release-image || fail "first immutable image build failed"
   rm "$root/state/image-identities/release-image.api"
@@ -1499,7 +1510,8 @@ SH
   PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" FAKE_IMAGE_EXISTS="$root/image.exists" FAKE_IMAGE_ID="$image_id" \
     bash "$runtime" migrate "$root/releases/release-image" release-image || fail "immutable image migration failed"
   grep -Fq "compose-reference=$image_id" "$root/docker.log" || fail "migrate consumed a mutable image tag"
-  unset FAKE_LABEL_RELEASE FAKE_LABEL_SOURCE FAKE_LABEL_REPOSITORY FAKE_DOCKER_LOG
+  unset FAKE_LABEL_RELEASE FAKE_LABEL_SOURCE FAKE_LABEL_REPOSITORY FAKE_DOCKER_LOG \
+    EXPECTED_API_DOCKERFILE EXPECTED_API_BUILD_CONTEXT
 }
 
 test_pending_recovery_closes_crash_state() {

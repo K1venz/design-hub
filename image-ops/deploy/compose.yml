@@ -95,6 +95,7 @@ services:
   api:
     build:
       context: ../app
+      dockerfile: ../deploy/app/Dockerfile
       labels:
         cn.design-hub.release-id: ${RELEASE_ID:?RELEASE_ID is required}
         cn.design-hub.source-commit: ${SOURCE_COMMIT:?SOURCE_COMMIT is required}
