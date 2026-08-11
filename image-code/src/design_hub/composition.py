@@ -105,6 +105,7 @@ def build_mailer(settings: Settings) -> MailPort:
         port=settings.smtp_port,
         username=settings.smtp_username,
         password=settings.smtp_password.get_secret_value(),
+        from_name=settings.smtp_from_name.strip(),
         from_addr=settings.smtp_from.strip(),
         use_tls=settings.smtp_use_tls,
     )

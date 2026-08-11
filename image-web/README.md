@@ -45,10 +45,12 @@ uv run uvicorn design_hub.interface.api.asgi:app --port 8000
 `src/api/schema.d.ts` 由后端 OpenAPI 生成，**勿手改**。更新流程：
 
 ```bash
-# 1) 从后端导出最新 openapi.json（离线构造 app，无需真 DB/Redis）：
-cd ../image-code && uv run python -c "import json;from design_hub.interface.api.asgi import create_production_app;print(json.dumps(create_production_app().openapi(),ensure_ascii=False,indent=2))" > ../image-web/openapi.json
-# 2) 重新生成类型：
+# 1) 从后端导出最新 openapi.json（离线构造 app，无需真 DB/Redis），再字节复制到前端：
+cd ../image-code && uv run python -c "import json;from design_hub.interface.api.asgi import create_production_app;print(json.dumps(create_production_app().openapi(),ensure_ascii=False,indent=2))" > openapi.json
+cp openapi.json ../image-web/openapi.json
+# 2) 重新生成类型并检查两份契约一致：
 cd ../image-web && npm run gen:api
+cmp ../image-code/openapi.json openapi.json
 ```
 
 `src/api/client.ts` 用 `openapi-fetch` 封装类型化客户端：统一注入 `Bearer`、401 清会话并广播跳登录。
@@ -74,8 +76,12 @@ src/
 
 ## 登录（自建邮箱密码）
 
-后端 `POST /auth/register`（邮箱 + 密码≥8 + 姓名 → `{jwt, role, name}`，自注册默认 role=设计师）、
-`POST /auth/login`（邮箱 + 密码）。前端登录/注册页据此走邮箱密码流；token 持久化到 localStorage。
+后端 `POST /auth/register` 接收邮箱、密码（至少 8 位）和姓名，只返回
+`{message, challenge_id}`，不会登录；`POST /auth/register/verify` 必须提交邮箱、
+不可猜的 challenge ID 与 6 位验证码，成功才返回登录会话；resend 同样绑定旧 ID，
+并返回需要替换的新 ID。注册页只在组件内存保存 `{email, challengeId}`，密码、验证码
+和 challenge 均不进入持久化存储。`POST /auth/login` 供已验证账号登录，只有成功会话的
+token 持久化到 localStorage。
 SSE 鉴权走 query `?access_token=<jwt>`（原生 EventSource 不能带头，见 [ISSUE-0011]）。
 （原 mock OAuth code-前缀映射已废弃；真实飞书/钉钉 OAuth 待后端接凭据，见 [ISSUE-0013]。）
 

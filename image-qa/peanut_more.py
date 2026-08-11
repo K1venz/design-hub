@@ -10,11 +10,12 @@ import json
 import time
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = "http://127.0.0.1:8000"
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
-DESIGNER = ("qa-designer@test.com", "qa-designer-12345")
 PROJECT = 1
 STYLES = ["高端轻奢", "国潮中式", "极简北欧"]
 OUT = "/tmp/peanut-more-result.json"
@@ -55,8 +56,7 @@ async def gen_one(c: httpx.AsyncClient, gh: dict, aid: int, style: str) -> dict:
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/login", json={"email": DESIGNER[0], "password": DESIGNER[1]})
-        jwt = r.json()["jwt"]
+        jwt = (await login_verified_account(c)).jwt
         h = {"Authorization": f"Bearer {jwt}"}
         gh = {**h, "X-User-Id": "qa-designer-001"}
 

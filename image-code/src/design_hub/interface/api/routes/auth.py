@@ -19,6 +19,9 @@ from design_hub.interface.auth_schemas import (
     MeResponse,
     PubKeyResponse,
     RegisterRequest,
+    RegisterResendRequest,
+    RegisterVerificationRequest,
+    RegistrationAcknowledgement,
     ResetPasswordRequest,
     ResetPasswordResponse,
 )
@@ -32,13 +35,49 @@ async def pubkey(cipher: SecretCipherDep) -> PubKeyResponse:
     return PubKeyResponse(public_key=cipher.public_key_pem())
 
 
-@router.post("/auth/register", response_model=LoginResponse)
+_REGISTRATION_ACKNOWLEDGEMENT = "注册验证码已发送，请查收邮箱"
+
+
+@router.post("/auth/register", response_model=RegistrationAcknowledgement)
 async def register(
     body: RegisterRequest, svc: AccountServiceDep, cipher: SecretCipherDep
-) -> LoginResponse:
+) -> RegistrationAcknowledgement:
     password = _decrypt_password(cipher, body.password)
-    token, user = await svc.register(email=body.email, password=password, name=body.name)
+    challenge_id = await svc.request_registration(
+        email=body.email,
+        password=password,
+        name=body.name,
+    )
+    return RegistrationAcknowledgement(
+        message=_REGISTRATION_ACKNOWLEDGEMENT,
+        challenge_id=challenge_id,
+    )
+
+
+@router.post("/auth/register/verify", response_model=LoginResponse)
+async def verify_registration(
+    body: RegisterVerificationRequest, svc: AccountServiceDep
+) -> LoginResponse:
+    token, user = await svc.verify_registration(
+        email=body.email,
+        challenge_id=body.challenge_id,
+        code=body.code,
+    )
     return LoginResponse(jwt=token, role=user.role, name=user.name)
+
+
+@router.post("/auth/register/resend", response_model=RegistrationAcknowledgement)
+async def resend_registration(
+    body: RegisterResendRequest, svc: AccountServiceDep
+) -> RegistrationAcknowledgement:
+    challenge_id = await svc.resend_registration(
+        email=body.email,
+        challenge_id=body.challenge_id,
+    )
+    return RegistrationAcknowledgement(
+        message=_REGISTRATION_ACKNOWLEDGEMENT,
+        challenge_id=challenge_id,
+    )
 
 
 @router.post("/auth/login", response_model=LoginResponse)

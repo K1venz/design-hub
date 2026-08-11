@@ -2,6 +2,62 @@
 
 ENV_FILE="${ENV_FILE:-.env}"
 
+migrate_legacy_mail_env() {
+  local legacy_count
+  local current_count
+  local legacy_value
+  local current_value
+  local temporary
+
+  [[ -f "$ENV_FILE" ]] || {
+    echo "ERROR: environment file is missing" >&2
+    return 1
+  }
+  legacy_count="$(grep -c '^PASSWORD_RESET_CODE_PEPPER=' "$ENV_FILE" || true)"
+  current_count="$(grep -c '^EMAIL_VERIFICATION_CODE_PEPPER=' "$ENV_FILE" || true)"
+  if [[ "$legacy_count" -gt 1 || "$current_count" -gt 1 ]]; then
+    echo "ERROR: duplicate mail pepper key in environment" >&2
+    return 1
+  fi
+  [[ "$legacy_count" -eq 1 ]] || return 0
+
+  legacy_value="$(grep -E '^PASSWORD_RESET_CODE_PEPPER=' "$ENV_FILE" | cut -d= -f2-)"
+  if [[ ! "$legacy_value" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "ERROR: legacy mail pepper must be 64 lowercase hexadecimal characters" >&2
+    return 1
+  fi
+  if [[ "$current_count" -eq 1 ]]; then
+    current_value="$(grep -E '^EMAIL_VERIFICATION_CODE_PEPPER=' "$ENV_FILE" | cut -d= -f2-)"
+    if [[ "$current_value" != "$legacy_value" ]]; then
+      echo "ERROR: legacy and current mail pepper values conflict" >&2
+      return 1
+    fi
+  fi
+
+  temporary="${ENV_FILE}.migrate.$$"
+  umask 077
+  awk -F= -v has_current="$current_count" '
+    $1 == "PASSWORD_RESET_CODE_PEPPER" {
+      if (has_current == 0) {
+        sub(/^PASSWORD_RESET_CODE_PEPPER=/, "EMAIL_VERIFICATION_CODE_PEPPER=")
+        print
+      }
+      next
+    }
+    { print }
+  ' "$ENV_FILE" > "$temporary"
+  chmod 600 "$temporary"
+  mv -f "$temporary" "$ENV_FILE"
+  unset legacy_value current_value
+}
+
+reject_legacy_mail_env() {
+  if grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$ENV_FILE"; then
+    echo "ERROR: PASSWORD_RESET_CODE_PEPPER requires an explicit environment migration" >&2
+    return 1
+  fi
+}
+
 ensure_env_value() {
   local key="$1"
   local expected="$2"
@@ -61,13 +117,15 @@ ensure_generated_hex() {
 }
 
 ensure_mail_env() {
+  reject_legacy_mail_env || return 1
   ensure_env_value MAIL_DELIVERY_MODE smtp || return 1
   ensure_env_value SMTP_HOST smtp || return 1
   ensure_env_value SMTP_PORT 25 || return 1
   ensure_env_value SMTP_USERNAME "" || return 1
   ensure_env_value SMTP_PASSWORD "" || return 1
+  ensure_env_value SMTP_FROM_NAME "Design Hub" || return 1
   ensure_env_value SMTP_FROM no-reply@image.sepaitech.com || return 1
   ensure_env_value SMTP_USE_TLS false || return 1
-  ensure_generated_hex PASSWORD_RESET_CODE_PEPPER 32 || return 1
+  ensure_generated_hex EMAIL_VERIFICATION_CODE_PEPPER 32 || return 1
   chmod 600 "$ENV_FILE"
 }

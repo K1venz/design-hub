@@ -12,19 +12,19 @@ input_roles 双角色回显 / cost reconcile。落盘 → image-qa/复刻回归/
 
 import asyncio
 import io
-import json
 import os
 import time
 from decimal import Decimal
 from pathlib import Path
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 EP = "/listing/clone"
 OUT = Path("/Users/Zhuanz/CLAUDE/image-gen/image-qa/复刻回归")
-U = (f"qa-clone-r-{int(time.time())}@example.com", "qa-clone-123", "QA复刻真图")
 PEANUT = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
 LOZENGE = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/套图回归/润喉糖-白底.png"
 MODS = {"platform": "淘宝天猫1688", "region": "中国", "language": "中文"}
@@ -63,10 +63,8 @@ async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=900.0) as c:
         OUT.mkdir(exist_ok=True)
         print(f"== 爆款复刻真出图回归 (d8e74bb) == BASE={BASE}（4 单 ¥1.60）")
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         # 端点探测不走 /openapi.json（docs 默认关后 404，dev #612）：空 body POST → 路由缺=404
         if (await c.post(EP, headers=H, json={})).status_code == 404:

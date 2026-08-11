@@ -11,14 +11,13 @@ import json
 import time
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = "http://127.0.0.1:8002"
 SRC1 = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
 SRC2 = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/2c89de896fc69ea4b7b4bca32f26be91.jpg"
-DESIGNER = ("qa-designer@test.com", "qa-designer-12345")
-
-
 def to_png(path: str, side: int = 1024) -> bytes:
     img = Image.open(path).convert("RGB")
     s = max(img.size)
@@ -68,10 +67,8 @@ async def run_case(c: httpx.AsyncClient, jwt: str, H: dict, tag: str, upload_ids
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        r = await c.post("/auth/register", json={"email": DESIGNER[0], "password": DESIGNER[1], "name": "QA设计师"})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": DESIGNER[0], "password": DESIGNER[1]})
-        jwt = r.json()["jwt"]
+        session = await login_verified_account(c)
+        jwt = session.jwt
         H = {"Authorization": f"Bearer {jwt}", "X-User-Id": "qa-designer-001"}
 
         async def upload(path: str) -> str:

@@ -10,8 +10,9 @@ import os
 
 import httpx
 
+from qa_auth import AccountSlot, login_verified_account
+
 BASE = os.environ.get("QA_BASE", "http://127.0.0.1:8002")  # server qa 实例经隧道时设 QA_BASE
-DESIGNER = ("qa-designer@test.com", "qa-designer-12345")
 PNG = b"\x89PNG\r\n\x1a\n" + b"qa-real-boundary" * 4  # 合法 content-type 即可，上传不校验图像可解码
 
 R: list[tuple[str, bool]] = []
@@ -30,10 +31,8 @@ def body(upload_ids, prompt="纯白背景突出产品", ratio="1:1", n=2, modifi
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=30.0) as c:
-        r = await c.post("/auth/register", json={"email": DESIGNER[0], "password": DESIGNER[1], "name": "QA设计师"})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": DESIGNER[0], "password": DESIGNER[1]})
-        token = r.json()["jwt"]
+        session = await login_verified_account(c, slot=AccountSlot.PRIMARY)
+        token = session.jwt
         H = {"Authorization": f"Bearer {token}"}
 
         # ---------- A. 上传端点（真服务器）----------
@@ -84,10 +83,8 @@ async def main() -> None:
         check("B11b.SSE无access_token→401", r.status_code == 401, f"HTTP {r.status_code}")
 
         # ---------- C. 上传归属隔离（ISSUE-0032，listing.py owns() 校验，零成本 fail-fast）----------
-        r2 = await c.post("/auth/register", json={"email": "qa-designer2@test.com", "password": "qa-designer2-12345", "name": "QA设计师2"})
-        if r2.status_code != 200:
-            r2 = await c.post("/auth/login", json={"email": "qa-designer2@test.com", "password": "qa-designer2-12345"})
-        token2 = r2.json()["jwt"]
+        secondary = await login_verified_account(c, slot=AccountSlot.SECONDARY)
+        token2 = secondary.jwt
         H2 = {"Authorization": f"Bearer {token2}"}
         uid2 = (await c.post("/uploads", headers=H2, files={"file": ("b.png", PNG, "image/png")})).json().get("id")
         # 用户1(H) 引用用户2(H2) 的 upload_id 出图 → 边界拦截 400（owns 校验失败，不入队、不出图）

@@ -1,7 +1,7 @@
 """prod 真出图复验（listing 上线硬 gate，coordinator #207）。
 
 ops 换 prod key+model→base+重建 后跑。三查：① 非 401、真出图 ② 落点=prod 桶/库(非 qa) ③ 档位=base。
-⚠️ 真碰 prod：1 个 qa-test 用户 + 1 张 n=1 出图(落 prod 桶、本就该)，footprint 最小、可标识、可后清。
+⚠️ 真碰 prod：运行时已验证账号 + 1 张 n=1 出图；不注册、不发邮件，作业 footprint 最小且可清理。
 PROD_BASE 经隧道指 prod api 容器（ops 起 ssh -L <口>:<prod_api_ip>:8000）。
 用法：PROD_BASE=http://localhost:8445 uv run python ../image-qa/listing_prod_verify.py
 """
@@ -12,13 +12,12 @@ import os
 import time
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("PROD_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
-U = ("qa-prod-verify@example.com", "qa-prod-verify-123", "QA上线复验")
-
-
 def to_png(path: str, side: int = 1024) -> bytes:
     img = Image.open(path).convert("RGB")
     s = max(img.size)
@@ -37,10 +36,8 @@ async def main() -> None:
         # 安全确认：先打 openapi 确认通
         op = await c.get("/openapi.json")
         print(f"[probe] openapi HTTP {op.status_code}")
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "电商主图：颗粒饱满的花生产品，主体清晰、背景干净、质感突出",
@@ -69,7 +66,7 @@ async def main() -> None:
         print(f"② 落点=prod桶  : {'PASS' if check2 else 'FAIL'}  输出url={url[:120]}")
         print(f"   (输入图url   : {input_url[:120]})")
         print(f"③ 档位=base    : 见 SSH 查 prod 容器 GPT_IMAGE_MODEL=gpt-image-2（脚本外确认）")
-        print(f"\njob={job} 输出图key可在 prod 桶/库核；qa-test 用户 {U[0]} 可后清。")
+        print(f"\njob={job} 输出图 key 可在 prod 桶/库核；保留已验证账号 {session.email}，仅清理本次作业产物。")
 
 
 asyncio.run(main())

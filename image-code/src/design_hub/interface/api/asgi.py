@@ -66,6 +66,7 @@ from design_hub.infrastructure.db.model_config_repo import SqlAlchemyModelConfig
 from design_hub.infrastructure.db.password_reset_repo import (
     SqlAlchemyPasswordResetStore,
 )
+from design_hub.infrastructure.db.registration_repo import SqlAlchemyRegistrationStore
 from design_hub.infrastructure.db.session import create_engine, create_session_factory
 from design_hub.infrastructure.db.showcase_repo import SqlAlchemyShowcaseRepository
 from design_hub.infrastructure.db.user_repo import SqlAlchemyUserRepository
@@ -228,8 +229,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         passwords=BcryptPasswordHasher(),
         tokens=token_service,
         resets=SqlAlchemyPasswordResetStore(session_factory),
+        registrations=SqlAlchemyRegistrationStore(session_factory),
         mailer=mailer,
-        reset_code_pepper=settings.password_reset_code_pepper.get_secret_value(),
+        email_verification_code_pepper=settings.email_verification_code_pepper.get_secret_value(),
+        registration_code_ttl_seconds=settings.registration_code_ttl_seconds,
+        registration_resend_cooldown_seconds=settings.registration_resend_cooldown_seconds,
+        registration_max_attempts=settings.registration_max_attempts,
         reset_code_ttl_seconds=settings.password_reset_code_ttl_seconds,
         reset_resend_cooldown_seconds=settings.password_reset_resend_cooldown_seconds,
         reset_max_attempts=settings.password_reset_max_attempts,

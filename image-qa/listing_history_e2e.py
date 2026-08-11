@@ -11,12 +11,12 @@ import os
 import time
 
 import httpx
+
+from qa_auth import AccountSlot, login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "http://127.0.0.1:8002")  # server qa 实例经隧道时设 QA_BASE
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/花生/精修/02aa39d62d25800d3ee14fa91ab42242.jpg"
-A = ("qa-hist-a@test.com", "qa-hist-a-123", "用户A")
-B = ("qa-hist-b@test.com", "qa-hist-b-123", "用户B")
 
 R: list[tuple[str, bool]] = []
 
@@ -36,11 +36,9 @@ def to_png(path: str, side: int = 1024) -> bytes:
     return b.getvalue()
 
 
-async def tok(c: httpx.AsyncClient, email: str, pw: str, name: str) -> str:
-    r = await c.post("/auth/register", json={"email": email, "password": pw, "name": name})
-    if r.status_code != 200:
-        r = await c.post("/auth/login", json={"email": email, "password": pw})
-    return r.json()["jwt"]
+async def tok(c: httpx.AsyncClient, slot: AccountSlot) -> str:
+    session = await login_verified_account(c, slot=slot)
+    return session.jwt
 
 
 async def wait_sse(c: httpx.AsyncClient, ta: str, job: str) -> list[str]:
@@ -57,8 +55,8 @@ async def wait_sse(c: httpx.AsyncClient, ta: str, job: str) -> list[str]:
 
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=600.0) as c:
-        ta = await tok(c, *A)
-        tb = await tok(c, *B)
+        ta = await tok(c, AccountSlot.PRIMARY)
+        tb = await tok(c, AccountSlot.SECONDARY)
         Ha = {"Authorization": f"Bearer {ta}"}
         Hb = {"Authorization": f"Bearer {tb}"}
         uid = (await c.post("/uploads", headers=Ha, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]

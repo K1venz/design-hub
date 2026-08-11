@@ -3,16 +3,14 @@ import asyncio
 import io
 import json
 import os
-import time
 
 import httpx
+
+from qa_auth import login_verified_account
 from PIL import Image
 
 BASE = os.environ.get("QA_BASE", "").rstrip("/")
 SRC = "/Users/Zhuanz/CLAUDE/image-gen/image-qa/通用块多产品/通用块-花生.png"
-U = (f"qa-diag-{int(time.time())}@example.com", "qa-diag-123", "QA诊断")
-
-
 def to_png(p):  # noqa: ANN001
     img = Image.open(p).convert("RGB")
     s = max(img.size)
@@ -25,10 +23,8 @@ def to_png(p):  # noqa: ANN001
 
 async def main():  # noqa: ANN001
     async with httpx.AsyncClient(base_url=BASE, trust_env=False, timeout=300.0) as c:
-        r = await c.post("/auth/register", json={"email": U[0], "password": U[1], "name": U[2]})
-        if r.status_code != 200:
-            r = await c.post("/auth/login", json={"email": U[0], "password": U[1]})
-        tok = r.json()["jwt"]
+        session = await login_verified_account(c)
+        tok = session.jwt
         H = {"Authorization": f"Bearer {tok}"}
         uid = (await c.post("/uploads", headers=H, files={"file": ("p.png", to_png(SRC), "image/png")})).json()["id"]
         body = {"upload_ids": [uid], "prompt": "电商主图：产品主体清晰", "ratio": "1:1", "n": 1,
