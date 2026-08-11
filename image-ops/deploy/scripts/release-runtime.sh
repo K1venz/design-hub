@@ -191,7 +191,12 @@ SQL
     ;;
 
   health-public)
+    connect_timeout="${PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS:-3}"
+    max_timeout="${PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS:-10}"
+    [[ "$connect_timeout" =~ ^[1-9][0-9]*$ && "$connect_timeout" -le 30 ]]
+    [[ "$max_timeout" =~ ^[1-9][0-9]*$ && "$max_timeout" -le 120 ]]
     curl --fail --silent --show-error --insecure \
+      --connect-timeout "$connect_timeout" --max-time "$max_timeout" \
       "${PUBLIC_HEALTH_URL:-https://127.0.0.1/}" >/dev/null
     ;;
 
@@ -201,15 +206,25 @@ SQL
 
   verify-application-stopped)
     for container in design-hub-api design-hub-worker; do
-      if docker container inspect "$container" >/dev/null 2>&1; then
+      inspect_error="$(mktemp)"
+      if docker container inspect "$container" >/dev/null 2>"$inspect_error"; then
         running="$(docker inspect -f '{{.State.Running}}' "$container")"
         [[ "$running" == false ]] || {
           echo "ERROR: ${container} is still running before schema restore" >&2
+          rm -f "$inspect_error"
           exit 1
         }
+      elif grep -Fq "No such container: $container" "$inspect_error"; then
+        :
+      else
+        echo "ERROR: unable to inspect ${container} before schema restore" >&2
+        cat "$inspect_error" >&2
+        rm -f "$inspect_error"
+        exit 1
       fi
+      rm -f "$inspect_error"
     done
-    unset container running
+    unset container running inspect_error
     ;;
 
   restore-schema)
