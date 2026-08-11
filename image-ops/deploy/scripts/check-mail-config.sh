@@ -77,7 +77,8 @@ if "mail" in services["worker"].get("networks", {}):
 release_id = os.environ["RELEASE_ID"]
 release_dir = os.environ["DESIGN_HUB_RELEASE_DIR"]
 state_dir = os.environ["DESIGN_HUB_STATE_DIR"]
-expected_image = f"{os.environ.get('API_IMAGE_REPOSITORY', 'design-hub-api')}:{release_id}"
+image_repository = os.environ.get("API_IMAGE_REPOSITORY", "design-hub-api")
+expected_image = f"{image_repository}:{release_id}"
 for name in ("api", "worker"):
     if services[name].get("image") != expected_image:
         raise SystemExit(f"{name} does not use immutable image {expected_image}")
