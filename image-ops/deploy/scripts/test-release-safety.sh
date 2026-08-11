@@ -1460,7 +1460,7 @@ if [[ "$1" == build ]]; then
   [[ "$dockerfile" == "$EXPECTED_API_DOCKERFILE" ]] || exit 3
   [[ "$context" == "$EXPECTED_API_BUILD_CONTEXT" ]] || exit 4
   [[ -f "$dockerfile" ]] || exit 5
-  printf '%s\n' "$FAKE_IMAGE_ID" > "$iidfile"
+  printf '%s' "$FAKE_IMAGE_ID" > "$iidfile"
   : > "$FAKE_IMAGE_EXISTS"
   exit 0
 fi
