@@ -114,7 +114,7 @@ if DEPLOY_ROOT="$remote_root" \
 fi
 grep -q 'failed; restoring legacy-' "$failed_release_log"
 
-legacy_release="$(cat "$remote_root/state/active-release")"
+legacy_release="$(sed -n 's/^ACTIVE_RELEASE=//p' "$remote_root/state/release-selection")"
 [[ "$legacy_release" == legacy-* ]]
 [[ ! -e "$remote_root/state/maintenance" ]]
 grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$remote_root/shared/.env"
@@ -131,8 +131,8 @@ RUNTIME_LOG="$runtime_log" \
 RUNTIME_FAIL_ONCE="$runtime_fail_once" \
   bash "$remote_root/releases/release-b/deploy/scripts/deploy.sh" release-b
 
-[[ "$(cat "$remote_root/state/active-release")" == "release-b" ]]
-[[ "$(cat "$remote_root/state/previous-release")" == "$legacy_release" ]]
+[[ "$(sed -n 's/^ACTIVE_RELEASE=//p' "$remote_root/state/release-selection")" == "release-b" ]]
+[[ "$(sed -n 's/^PREVIOUS_RELEASE=//p' "$remote_root/state/release-selection")" == "$legacy_release" ]]
 [[ ! -e "$remote_root/state/maintenance" ]]
 ! grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$remote_root/shared/.env"
 grep -q '^EMAIL_VERIFICATION_CODE_PEPPER=' "$remote_root/shared/.env"
@@ -146,7 +146,7 @@ RUNTIME_FAIL_ONCE="$runtime_fail_once" \
   bash "$remote_root/releases/release-b/deploy/scripts/rollback.sh" \
     --from release-b --to "$legacy_release"
 
-[[ "$(cat "$remote_root/state/active-release")" == "$legacy_release" ]]
+[[ "$(sed -n 's/^ACTIVE_RELEASE=//p' "$remote_root/state/release-selection")" == "$legacy_release" ]]
 grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$remote_root/shared/.env"
 ! grep -q '^EMAIL_VERIFICATION_CODE_PEPPER=' "$remote_root/shared/.env"
 ! grep -q '^restore-schema:' "$runtime_log"
@@ -160,8 +160,8 @@ RUNTIME_LOG="$runtime_log" \
 RUNTIME_FAIL_ONCE="$runtime_fail_once" \
   bash "$remote_root/releases/release-c/deploy/scripts/deploy.sh" release-c
 
-[[ "$(cat "$remote_root/state/active-release")" == release-c ]]
-[[ "$(cat "$remote_root/state/previous-release")" == "$legacy_release" ]]
+[[ "$(sed -n 's/^ACTIVE_RELEASE=//p' "$remote_root/state/release-selection")" == release-c ]]
+[[ "$(sed -n 's/^PREVIOUS_RELEASE=//p' "$remote_root/state/release-selection")" == "$legacy_release" ]]
 
 schema_backup="$remote_root/backups/explicit-schema.sql"
 printf '%s\n' 'explicit schema rollback fixture' > "$schema_backup"

@@ -16,9 +16,7 @@ release_dir="$deploy_root/releases/$release_id"
 shared_dir="$deploy_root/shared"
 state_dir="$deploy_root/state"
 env_file="$shared_dir/.env"
-active_file="$state_dir/active-release"
-previous_file="$state_dir/previous-release"
-pending_file="$state_dir/pending-release"
+selection_file="$state_dir/release-selection"
 maintenance_file="$state_dir/maintenance"
 snapshot_file="$state_dir/env-snapshots/$release_id.before.env"
 snapshot_metadata_file="$state_dir/env-snapshots/$release_id.before.meta"
@@ -40,15 +38,12 @@ grep -Fxq "RELEASE_ID=${release_id}" "$release_dir/release.env" || {
 }
 
 mkdir -p "$shared_dir" "$state_dir/env-snapshots" "$backup_dir"
-if ! mkdir "$lock_dir" 2>/dev/null; then
-  echo "ERROR: another release operation holds ${lock_dir}" >&2
-  exit 1
-fi
+acquire_release_lock "$lock_dir" deploy
 
 runtime="${RELEASE_RUNTIME:-$release_dir/deploy/scripts/release-runtime.sh}"
 previous_release=""
 environment_snapshot_ready=false
-state_pending_written=false
+selection_pending_written=false
 release_work_begun=false
 runtime_requires_protection=false
 deployment_committed=false
@@ -62,8 +57,8 @@ on_exit() {
   local environment_restored=false
   trap - EXIT
 
-  if [[ -f "$active_file" && ! -L "$active_file" && ! -e "$pending_file" ]] \
-    && [[ "$(cat "$active_file")" == "$release_id" ]]; then
+  if load_release_state "$selection_file" 2>/dev/null \
+    && [[ "$release_state_active" == "$release_id" && -z "$release_state_pending" ]]; then
     deployment_committed=true
   fi
 
@@ -75,7 +70,7 @@ on_exit() {
       echo "ERROR: release ${release_id} failed; restoring ${previous_release}" >&2
       if DEPLOY_ROOT="$deploy_root" DATA_DIR="$data_dir" BACKUP_DIR="$backup_dir" \
         MYSQL_ENV="$mysql_env" RELEASE_RUNTIME="$runtime" \
-        ROLLBACK_LOCK_HELD=true \
+        RELEASE_LOCK_TOKEN="$release_lock_token" \
         bash "$release_dir/deploy/scripts/rollback.sh" \
           --from "$release_id" --to "$previous_release"; then
         automatic_succeeded=true
@@ -97,9 +92,9 @@ on_exit() {
       if [[ "$environment_restored" == true \
         && "$runtime_requires_protection" == false \
         && "$automatic_attempted" == false ]]; then
-        if [[ "$state_pending_written" == true ]]; then
-          if atomic_state_remove "$pending_file"; then
-            state_pending_written=false
+        if [[ "$selection_pending_written" == true ]]; then
+          if atomic_write_release_selection "$selection_file" "$previous_release" "$release_state_previous" ""; then
+            selection_pending_written=false
           else
             echo "ERROR: failed to clear pending release state" >&2
           fi
@@ -118,7 +113,9 @@ on_exit() {
     fi
   fi
 
-  rmdir "$lock_dir" 2>/dev/null || true
+  if ! release_release_lock "$lock_dir" "$release_lock_token"; then
+    [[ "$status" -ne 0 ]] || status=1
+  fi
   exit "$status"
 }
 trap on_exit EXIT
@@ -242,12 +239,12 @@ WEB_INDEX_SHA256=${legacy_hash}
 ENV
   mv "$incoming" "$target"
   bash "$runtime" import-legacy "$target" "$legacy_id"
-  atomic_state_write "$active_file" "$legacy_id"
+  atomic_write_release_selection "$selection_file" "$legacy_id" "" ""
   release_state_active="$legacy_id"
   echo "    Imported rollback release: ${legacy_id}"
 }
 
-load_release_state "$active_file" "$previous_file" "$pending_file"
+load_release_state "$selection_file"
 [[ -z "$release_state_pending" ]] || {
   echo "ERROR: pending release ${release_state_pending} requires recovery" >&2
   exit 1
@@ -288,8 +285,8 @@ create_bound_environment_snapshot \
   "$env_file" "$snapshot_file" "$snapshot_metadata_file" \
   "$release_id" "$previous_release"
 environment_snapshot_ready=true
-atomic_state_write "$pending_file" "$release_id"
-state_pending_written=true
+atomic_write_release_selection "$selection_file" "$previous_release" "$release_state_previous" "$release_id"
+selection_pending_written=true
 
 migrate_legacy_mail_env
 ensure_internal_redis_env
@@ -320,16 +317,19 @@ bash "$runtime" health-live "$release_dir" "$release_id"
 
 echo "==> [8/9] Opening traffic and checking the public endpoint"
 atomic_state_remove "$maintenance_file"
-bash "$runtime" health-public "$release_dir" "$release_id"
+run_public_probe() {
+  local connect_timeout="${PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS:-3}"
+  local max_timeout="${PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS:-10}"
+  [[ "$connect_timeout" =~ ^[1-9][0-9]*$ && "$connect_timeout" -le 30 ]] || { echo "ERROR: invalid public health connect timeout" >&2; return 1; }
+  [[ "$max_timeout" =~ ^[1-9][0-9]*$ && "$max_timeout" -le 120 ]] || { echo "ERROR: invalid public health max timeout" >&2; return 1; }
+  PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS="$connect_timeout" PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS="$max_timeout" \
+    timeout --signal=TERM "$max_timeout" bash "$runtime" health-public "$release_dir" "$release_id"
+}
+run_public_probe
 
 echo "==> [9/9] Atomically committing release state"
-if [[ -n "$previous_release" ]]; then
-  atomic_state_write "$previous_file" "$previous_release"
-else
-  atomic_state_remove "$previous_file"
-fi
-atomic_promote_pending_release "$pending_file" "$active_file" "$release_id"
-state_pending_written=false
+atomic_write_release_selection "$selection_file" "$release_id" "$previous_release" ""
+selection_pending_written=false
 deployment_committed=true
 environment_snapshot_ready=false
 echo "==> DEPLOY_DONE=${release_id}"

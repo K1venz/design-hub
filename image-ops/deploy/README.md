@@ -24,12 +24,12 @@ are present.
 │   ├── .env                      # production environment, mode 600
 │   └── nginx/certs/
 ├── state/
-│   ├── active-release
-│   ├── previous-release
-│   ├── pending-release            # exists only while a candidate is uncommitted
+│   ├── release-selection           # mode 600; active/previous/pending in one atomic record
+│   ├── deploy.lock/owner            # token, PID, process start identity, operation
 │   ├── maintenance               # presence makes HTTPS return 503
 │   ├── env-snapshots/<release>.before.env
-│   └── env-snapshots/<release>.before.meta
+│   ├── env-snapshots/<release>.before.meta
+│   └── schema-restore-inputs/       # transient mode-400 protected restore copies
 
 /root/db-backup-<release>-<timestamp>.sql
 
@@ -82,7 +82,8 @@ The orchestrator performs these guarded steps:
    require container, API, and migration health.
 7. Recreate nginx against the versioned SPA while the prior release remains
    active in state, verify its index hash, remove maintenance, and check the
-   public endpoint. Only then atomically promote the pending candidate to active.
+   public endpoint. Only then replace `release-selection` once, committing
+   active, previous, and pending identities as one indivisible state transition.
 
 Any failure after the environment snapshot automatically invokes the executable
 rollback path. If rollback itself fails, maintenance remains enabled and the
@@ -156,6 +157,27 @@ before importing MySQL. Both paths recreate nginx against the previous SPA and
 only remove maintenance for the public probe window; any failure restores the
 marker atomically. DNS, SMTP queue, DKIM keys, and other persisted application
 data are not deleted.
+
+The caller's schema file is never read after writers stop. Rollback opens it
+inside `BACKUP_DIR`, binds the open file identity, copies it before stopping the
+API and worker into a root-only directory, and verifies the protected copy's
+SHA-256 immediately before import. The copy is removed on success or failure.
+
+Public probes use a 3-second connect timeout and 10-second total timeout. Set
+`PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS` (1-30) and
+`PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS` (1-120) only to bounded positive integers.
+The controller also enforces the total timeout around custom runtimes.
+
+Do not delete `state/deploy.lock` by hand. Its unguessable token binds an
+automatic rollback to the deployment that owns the lock. If the owning process
+has crashed, first verify no release process remains, then run the explicit
+recovery command; it refuses a live owner, malformed metadata, or unexpected
+lock contents:
+
+```bash
+bash /opt/docker/design-hub/releases/<release-id>/deploy/scripts/recover-release-lock.sh \
+  --confirm-stale-lock-recovery
+```
 
 ## Validation
 

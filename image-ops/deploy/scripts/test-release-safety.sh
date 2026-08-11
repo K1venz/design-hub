@@ -5,8 +5,12 @@ umask 077
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 deploy_source="${DEPLOY_SOURCE_UNDER_TEST:-$(cd "$script_dir/.." && pwd)}"
 test_case="${TEST_CASE:-all}"
+case "$test_case" in
+  all|env-after-migrate|env-after-redis|env-after-mail|previous-env-failures|initial-runtime-failure|pending-state|stale-pending|automatic-rollback|automatic-rollback-failure|manual-state-mismatch|manual-previous-mismatch|automatic-state-mismatch|automatic-active-mismatch|snapshot-tamper|cross-release|snapshot-target|arbitrary-snapshot|rollback-public-health|schema-order|schema-failure|runtime-only|schema-path|release-id-path|api-image-repository|selection-state|invalid-identity-guard|public-hang|docker-inspect-errors|schema-protected-copy|schema-protected-tamper|lock-recovery|env-source-swap|env-destination-tamper|selection-write-failure|lock-ownership) ;;
+  *) echo "ERROR: unknown TEST_CASE: $test_case" >&2; exit 2 ;;
+esac
 tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
+trap '[[ "${KEEP_TEST_TMP:-false}" == true ]] || rm -rf "$tmp_dir"' EXIT
 
 fixture_repo="$tmp_dir/repo"
 fake_bin="$tmp_dir/bin"
@@ -56,14 +60,31 @@ action="${1:?runtime action is required}"
 release_dir="${2:?release directory is required}"
 release_id="${3:?release identifier is required}"
 argument="${4:-}"
+expected_dir="$DEPLOY_ROOT/releases/$release_id"
+[[ "$release_dir" == "$expected_dir" ]] || { echo "invalid runtime release directory" >&2; exit 3; }
+grep -Fxq "RELEASE_ID=$release_id" "$release_dir/release.env" || { echo "invalid runtime release identity" >&2; exit 3; }
 active="none"
 pending="none"
 maintenance="off"
-[[ -f "$DEPLOY_ROOT/state/active-release" ]] && active="$(cat "$DEPLOY_ROOT/state/active-release")"
-[[ -f "$DEPLOY_ROOT/state/pending-release" ]] && pending="$(cat "$DEPLOY_ROOT/state/pending-release")"
+if [[ -f "$DEPLOY_ROOT/state/release-selection" ]]; then
+  active="$(sed -n 's/^ACTIVE_RELEASE=//p' "$DEPLOY_ROOT/state/release-selection")"
+  pending="$(sed -n 's/^PENDING_RELEASE=//p' "$DEPLOY_ROOT/state/release-selection")"
+fi
 [[ -f "$DEPLOY_ROOT/state/maintenance" ]] && maintenance="on"
 printf '%s:%s:active=%s:pending=%s:maintenance=%s\n' \
   "$action" "$release_id" "$active" "$pending" "$maintenance" >> "$RUNTIME_LOG"
+
+if [[ "${RUNTIME_HANG_ON:-}" == "${action}:${release_id}" ]]; then
+  sleep "${RUNTIME_HANG_SECONDS:-5}"
+fi
+if [[ "$action" == stop-application && -n "${SCHEMA_MUTATE_SOURCE:-}" ]]; then
+  printf 'mutated after stop\n' > "$SCHEMA_MUTATE_SOURCE"
+  chmod 600 "$SCHEMA_MUTATE_SOURCE"
+fi
+if [[ "$action" == stop-application && "${SCHEMA_TAMPER_PROTECTED:-false}" == true ]]; then
+  protected="$(find "$DEPLOY_ROOT/state/schema-restore-inputs" -type f -print -quit 2>/dev/null || true)"
+  [[ -n "$protected" ]] && { chmod 600 "$protected"; printf 'tampered protected copy\n' > "$protected"; chmod 400 "$protected"; }
+fi
 
 if [[ -f "$RUNTIME_FAIL_ONCE" ]] \
   && [[ "$(head -1 "$RUNTIME_FAIL_ONCE")" == "${action}:${release_id}" ]]; then
@@ -85,6 +106,7 @@ case "$action" in
     ;;
   restore-schema)
     [[ -s "$argument" ]]
+    printf '%s:%s\n' "$argument" "$(sha256sum "$argument" | cut -d' ' -f1)" >> "${SCHEMA_RESTORE_LOG:-$DEPLOY_ROOT/schema-restore.log}"
     ;;
   prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-live|health-public|stop-application|verify-application-stopped)
     ;;
@@ -98,6 +120,30 @@ chmod +x "$fake_runtime"
 
 selected() {
   [[ "$test_case" == all || "$test_case" == "$1" ]]
+}
+
+read_active() {
+  local root="$1"
+  if [[ -f "$root/state/release-selection" ]]; then
+    sed -n 's/^ACTIVE_RELEASE=//p' "$root/state/release-selection"
+  else
+    cat "$root/state/active-release"
+  fi
+}
+
+read_previous() { sed -n 's/^PREVIOUS_RELEASE=//p' "$1/state/release-selection"; }
+read_pending() { sed -n 's/^PENDING_RELEASE=//p' "$1/state/release-selection"; }
+write_selection() {
+  local root="$1" active="$2" previous="$3" pending="$4"
+  printf '%s\n' 'SELECTION_FORMAT=1' "ACTIVE_RELEASE=$active" "PREVIOUS_RELEASE=$previous" "PENDING_RELEASE=$pending" > "$root/state/release-selection"
+  chmod 600 "$root/state/release-selection"
+}
+create_borrowed_lock() {
+  local root="$1" token="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  mkdir "$root/state/deploy.lock"
+  printf '%s\n' 'LOCK_FORMAT=1' "TOKEN=$token" "PID=$$" "START_TICKS=$(awk '{print $22}' /proc/$$/stat)" 'OPERATION=deploy' > "$root/state/deploy.lock/owner"
+  chmod 600 "$root/state/deploy.lock/owner"
+  printf '%s' "$token"
 }
 
 stage_release() {
@@ -140,8 +186,13 @@ prepare_active_legacy() {
   stage_release "$remote_root" "$candidate"
   sed -i 's/^SOURCE_COMMIT=.*/SOURCE_COMMIT=legacy-import/' \
     "$remote_root/releases/release-a/release.env"
-  printf 'release-a\n' > "$remote_root/state/active-release"
-  chmod 600 "$remote_root/state/active-release"
+  cat > "$remote_root/state/release-selection" <<'STATE'
+SELECTION_FORMAT=1
+ACTIVE_RELEASE=release-a
+PREVIOUS_RELEASE=
+PENDING_RELEASE=
+STATE
+  chmod 600 "$remote_root/state/release-selection"
   write_valid_environment "$remote_root/shared/.env" "state-secret-${candidate}"
   : > "$remote_root/runtime.log"
 }
@@ -185,7 +236,7 @@ run_rollback() {
   RELEASE_RUNTIME="$fake_runtime" \
   RUNTIME_LOG="$remote_root/runtime.log" \
   RUNTIME_FAIL_ONCE="$remote_root/fail-once" \
-  ROLLBACK_LOCK_HELD="${ROLLBACK_LOCK_HELD:-false}" \
+  RELEASE_LOCK_TOKEN="${RELEASE_LOCK_TOKEN:-}" \
     bash "$remote_root/releases/$from_release/deploy/scripts/rollback.sh" \
       --from "$from_release" --to "$to_release" "$@" > "$log_file" 2>&1
 }
@@ -195,7 +246,7 @@ deploy_from_legacy() {
   local candidate="${2:-release-b}"
   run_deploy "$remote_root" "$candidate" "$remote_root/deploy.log" \
     || fail "fixture deployment ${candidate} failed"
-  [[ "$(cat "$remote_root/state/active-release")" == "$candidate" ]] \
+  [[ "$(read_active "$remote_root")" == "$candidate" ]] \
     || fail "fixture deployment did not activate ${candidate}"
 }
 
@@ -249,7 +300,7 @@ ENV
   assert_file_mode_600 "$remote_root/state/env-snapshots/release-initial.before.env"
   [[ ! -e "$remote_root/state/maintenance" ]] \
     || fail "${name} incorrectly left maintenance enabled before release work"
-  [[ ! -e "$remote_root/state/pending-release" ]] \
+  [[ -z "$(read_pending "$remote_root")" ]] \
     || fail "${name} left stale pending release state"
   ! grep -Fq "$sentinel" "$deploy_log" || fail "${name} leaked the environment secret"
   ! grep -Fq "$legacy_pepper" "$deploy_log" || fail "${name} leaked the legacy pepper"
@@ -278,12 +329,34 @@ ENV
   assert_file_mode_600 "$remote_root/shared/.env"
   [[ -f "$remote_root/state/maintenance" ]] \
     || fail "unrecoverable initial runtime failure did not retain maintenance"
-  [[ "$(cat "$remote_root/state/pending-release")" == release-initial ]] \
+  [[ "$(read_pending "$remote_root")" == release-initial ]] \
     || fail "unrecoverable initial runtime failure lost pending state"
-  [[ ! -e "$remote_root/state/active-release" ]] \
+  [[ -z "$(read_active "$remote_root")" ]] \
     || fail "failed initial release was recorded active"
   ! grep -Fq "$sentinel" "$remote_root/deploy.log" \
     || fail "initial runtime failure leaked an environment secret"
+}
+
+test_previous_release_environment_failures_restore_bytes() {
+  local variant remote_root original
+  for variant in migrate redis mail; do
+    remote_root="$tmp_dir/previous-env-$variant"
+    prepare_active_legacy "$remote_root"
+    case "$variant" in
+      migrate)
+        sed -i '/^EMAIL_VERIFICATION_CODE_PEPPER=/d;/^REDIS_PASSWORD=/cREDIS_PASSWORD=invalid' "$remote_root/shared/.env"
+        printf 'PASSWORD_RESET_CODE_PEPPER=%s\n' 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789' >> "$remote_root/shared/.env"
+        ;;
+      redis) sed -i 's/^REDIS_URL=.*/REDIS_URL=redis:\/\/wrong@redis:6379\/0/' "$remote_root/shared/.env" ;;
+      mail) sed -i '/^SMTP_FROM=/d' "$remote_root/shared/.env"; set_runtime_failure "$remote_root" prepare release-b ;;
+    esac
+    original="$remote_root/original.env"; cp "$remote_root/shared/.env" "$original"
+    if run_deploy "$remote_root" release-b "$remote_root/deploy.log"; then fail "previous release $variant failure unexpectedly succeeded"; fi
+    cmp -s "$original" "$remote_root/shared/.env" || fail "previous release $variant failure changed environment bytes"
+    assert_file_mode_600 "$remote_root/shared/.env"
+    [[ "$(read_active "$remote_root")" == release-a && -z "$(read_pending "$remote_root")" ]] || fail "previous release $variant failure changed selection"
+    [[ ! -e "$remote_root/state/maintenance" ]] || fail "pre-runtime $variant failure left maintenance"
+  done
 }
 
 test_pending_state_and_snapshot_binding() {
@@ -296,9 +369,9 @@ test_pending_state_and_snapshot_binding() {
   grep -Eq '^health-public:release-b:active=release-a:pending=release-b:maintenance=off$' \
     "$remote_root/runtime.log" \
     || fail "public probe did not retain active target plus pending candidate state"
-  [[ "$(cat "$remote_root/state/active-release")" == release-b ]]
-  [[ "$(cat "$remote_root/state/previous-release")" == release-a ]]
-  [[ ! -e "$remote_root/state/pending-release" ]] \
+  [[ "$(read_active "$remote_root")" == release-b ]]
+  [[ "$(read_previous "$remote_root")" == release-a ]]
+  [[ -z "$(read_pending "$remote_root")" ]] \
     || fail "successful deployment did not clear pending state"
 
   metadata="$remote_root/state/env-snapshots/release-b.before.meta"
@@ -318,7 +391,7 @@ test_stale_pending_deployment_rejected() {
   local before_env="$tmp_dir/stale-pending.before.env"
   prepare_active_legacy "$remote_root"
   cp "$remote_root/shared/.env" "$before_env"
-  printf 'other-candidate\n' > "$remote_root/state/pending-release"
+  write_selection "$remote_root" release-a '' other-candidate
 
   if run_deploy "$remote_root" release-b "$remote_root/deploy.log"; then
     fail "deployment accepted stale pending release state"
@@ -341,8 +414,8 @@ test_automatic_rollback_state_identity() {
   fi
   cmp -s "$before_env" "$remote_root/shared/.env" \
     || fail "automatic rollback did not restore the environment"
-  [[ "$(cat "$remote_root/state/active-release")" == release-a ]]
-  [[ ! -e "$remote_root/state/pending-release" ]]
+  [[ "$(read_active "$remote_root")" == release-a ]]
+  [[ -z "$(read_pending "$remote_root")" ]]
   [[ ! -e "$remote_root/state/maintenance" ]]
   grep -q '^start-release:release-a:' "$remote_root/runtime.log" \
     || fail "automatic rollback did not restart the rollback target"
@@ -366,9 +439,9 @@ test_automatic_rollback_failure_is_safe() {
   assert_file_mode_600 "$remote_root/shared/.env"
   [[ -f "$remote_root/state/maintenance" ]] \
     || fail "failed automatic rollback did not retain maintenance"
-  [[ "$(cat "$remote_root/state/active-release")" == release-a ]] \
+  [[ "$(read_active "$remote_root")" == release-a ]] \
     || fail "failed automatic rollback changed active release state"
-  [[ "$(cat "$remote_root/state/pending-release")" == release-b ]] \
+  [[ "$(read_pending "$remote_root")" == release-b ]] \
     || fail "failed automatic rollback lost pending candidate state"
   grep -q '^start-release:release-a:' "$remote_root/runtime.log" \
     || fail "automatic rollback failure fixture did not reach target restart"
@@ -384,7 +457,7 @@ test_manual_state_mismatch_rejected() {
   prepare_active_legacy "$remote_root"
   deploy_from_legacy "$remote_root"
   cp "$remote_root/shared/.env" "$before_env"
-  printf 'release-a\n' > "$remote_root/state/active-release"
+  write_selection "$remote_root" release-a release-a ''
   : > "$remote_root/runtime.log"
 
   if run_rollback "$remote_root" release-b release-a "$remote_root/rollback.log"; then
@@ -404,7 +477,7 @@ test_manual_previous_mismatch_rejected() {
   prepare_active_legacy "$remote_root"
   deploy_from_legacy "$remote_root"
   cp "$remote_root/shared/.env" "$before_env"
-  printf 'other-target\n' > "$remote_root/state/previous-release"
+  write_selection "$remote_root" release-b other-target ''
   : > "$remote_root/runtime.log"
 
   if run_rollback "$remote_root" release-b release-a "$remote_root/rollback.log"; then
@@ -424,12 +497,11 @@ test_automatic_state_mismatch_rejected() {
   prepare_active_legacy "$remote_root"
   deploy_from_legacy "$remote_root"
   cp "$remote_root/shared/.env" "$before_env"
-  printf 'release-a\n' > "$remote_root/state/active-release"
-  printf 'other-candidate\n' > "$remote_root/state/pending-release"
-  mkdir "$remote_root/state/deploy.lock"
+  write_selection "$remote_root" release-a '' other-candidate
+  token="$(create_borrowed_lock "$remote_root")"
   : > "$remote_root/runtime.log"
 
-  if ROLLBACK_LOCK_HELD=true run_rollback \
+  if RELEASE_LOCK_TOKEN="$token" run_rollback \
     "$remote_root" release-b release-a "$remote_root/rollback.log"; then
     fail "automatic rollback accepted a mismatched pending candidate"
   fi
@@ -447,12 +519,11 @@ test_automatic_active_mismatch_rejected() {
   prepare_active_legacy "$remote_root"
   deploy_from_legacy "$remote_root"
   cp "$remote_root/shared/.env" "$before_env"
-  printf 'other-active\n' > "$remote_root/state/active-release"
-  printf 'release-b\n' > "$remote_root/state/pending-release"
-  mkdir "$remote_root/state/deploy.lock"
+  write_selection "$remote_root" other-active '' release-b
+  token="$(create_borrowed_lock "$remote_root")"
   : > "$remote_root/runtime.log"
 
-  if ROLLBACK_LOCK_HELD=true run_rollback \
+  if RELEASE_LOCK_TOKEN="$token" run_rollback \
     "$remote_root" release-b release-a "$remote_root/rollback.log"; then
     fail "automatic rollback accepted a mismatched active rollback target"
   fi
@@ -584,7 +655,7 @@ test_public_health_failure_restores_maintenance() {
     || fail "rollback did not open the public probe window"
   [[ -f "$remote_root/state/maintenance" ]] \
     || fail "public health failure did not restore maintenance"
-  [[ "$(cat "$remote_root/state/active-release")" == release-b ]] \
+  [[ "$(read_active "$remote_root")" == release-b ]] \
     || fail "failed rollback committed the target release state"
 }
 
@@ -629,7 +700,7 @@ test_schema_restore_failure_is_safe() {
     || fail "schema restore failure did not retain maintenance"
   ! grep -q '^start-release:' "$remote_root/runtime.log" \
     || fail "schema restore failure restarted a release"
-  [[ "$(cat "$remote_root/state/active-release")" == release-b ]] \
+  [[ "$(read_active "$remote_root")" == release-b ]] \
     || fail "schema restore failure changed active release state"
 }
 
@@ -714,6 +785,241 @@ SH
     || fail "legacy import ignored API_IMAGE_REPOSITORY for image tag"
 }
 
+test_single_selection_state() {
+  local remote_root="$tmp_dir/selection-state"
+  prepare_active_legacy "$remote_root"
+  deploy_from_legacy "$remote_root"
+  [[ -f "$remote_root/state/release-selection" ]] || fail "single release-selection state was not created"
+  grep -Fxq 'ACTIVE_RELEASE=release-b' "$remote_root/state/release-selection"
+  grep -Fxq 'PREVIOUS_RELEASE=release-a' "$remote_root/state/release-selection"
+  grep -Fxq 'PENDING_RELEASE=' "$remote_root/state/release-selection"
+  for legacy in active-release previous-release pending-release; do
+    [[ ! -e "$remote_root/state/$legacy" ]] || fail "legacy split state remains: $legacy"
+  done
+}
+
+test_invalid_identity_arms_guard() {
+  local remote_root="$tmp_dir/invalid-guard"
+  prepare_active_legacy "$remote_root"
+  if DEPLOY_ROOT="$remote_root" DATA_DIR="$remote_root/data" BACKUP_DIR="$remote_root/backups" \
+    RELEASE_RUNTIME="$fake_runtime" RUNTIME_LOG="$remote_root/runtime.log" RUNTIME_FAIL_ONCE="$remote_root/fail-once" \
+    bash "$remote_root/releases/release-b/deploy/scripts/rollback.sh" --from '../release-b' --to release-a \
+      > "$remote_root/rollback.log" 2>&1; then
+    fail "invalid rollback identity was accepted"
+  fi
+  [[ -f "$remote_root/state/maintenance" ]] || fail "invalid identity failed before maintenance guard"
+  [[ ! -d "$remote_root/state/deploy.lock" ]] || fail "invalid identity leaked the release lock"
+  rm -f "$remote_root/state/maintenance"
+  if run_rollback "$remote_root" release-b release-b "$remote_root/same-release.log"; then
+    fail "rollback accepted identical source and target"
+  fi
+  [[ -f "$remote_root/state/maintenance" ]] || fail "identical release failure bypassed maintenance guard"
+}
+
+test_public_probe_hang_is_bounded() {
+  local remote_root="$tmp_dir/public-hang" rollback_root="$tmp_dir/rollback-public-hang"
+  local started elapsed
+  prepare_active_legacy "$remote_root"
+  started="$(date +%s)"
+  if RUNTIME_HANG_ON=health-public:release-b RUNTIME_HANG_SECONDS=30 \
+    PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=1 PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=1 \
+    run_deploy "$remote_root" release-b "$remote_root/deploy.log"; then
+    fail "hanging public probe unexpectedly succeeded"
+  fi
+  elapsed="$(( $(date +%s) - started ))"
+  [[ "$elapsed" -le 20 ]] || fail "public probe was not bounded (${elapsed}s)"
+  [[ ! -d "$remote_root/state/deploy.lock" ]] || fail "public hang leaked the release lock"
+
+  prepare_active_legacy "$rollback_root"; deploy_from_legacy "$rollback_root"
+  started="$(date +%s)"
+  if RUNTIME_HANG_ON=health-public:release-a RUNTIME_HANG_SECONDS=30 \
+    PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=1 PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=1 \
+    run_rollback "$rollback_root" release-b release-a "$rollback_root/rollback.log"; then
+    fail "hanging rollback public probe unexpectedly succeeded"
+  fi
+  elapsed="$(( $(date +%s) - started ))"
+  [[ "$elapsed" -le 20 ]] || fail "rollback public probe was not bounded (${elapsed}s)"
+  [[ -f "$rollback_root/state/maintenance" && "$(read_active "$rollback_root")" == release-b ]] \
+    || fail "rollback public hang lost maintenance or committed selection"
+  [[ ! -d "$rollback_root/state/deploy.lock" ]] || fail "rollback public hang leaked the release lock"
+}
+
+test_docker_inspect_errors_fail_fast() {
+  local root="$tmp_dir/docker-inspect" bin="$tmp_dir/docker-inspect/bin"
+  mkdir -p "$root/deploy" "$bin"
+  : > "$root/deploy/compose.yml"
+  printf 'RELEASE_ID=release-x\n' > "$root/release.env"
+  cat > "$bin/docker" <<'SH'
+#!/usr/bin/env bash
+case "${DOCKER_FAKE_MODE:-daemon}" in
+  daemon) echo 'Cannot connect to the Docker daemon' >&2; exit 1 ;;
+  missing) echo "Error: No such container: ${*: -1}" >&2; exit 1 ;;
+  stopped)
+    [[ "$1 $2" == 'container inspect' ]] && exit 0
+    printf 'false\n'
+    ;;
+  running)
+    [[ "$1 $2" == 'container inspect' ]] && exit 0
+    printf 'true\n'
+    ;;
+esac
+SH
+  chmod +x "$bin/docker"
+  if PATH="$bin:$PATH" DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-stopped "$root" release-x; then
+    fail "Docker daemon inspect error was treated as a missing container"
+  fi
+  PATH="$bin:$PATH" DOCKER_FAKE_MODE=missing DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-stopped "$root" release-x \
+    || fail "explicit Docker missing-container result was rejected"
+  PATH="$bin:$PATH" DOCKER_FAKE_MODE=stopped DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-stopped "$root" release-x \
+    || fail "explicit stopped containers were rejected"
+  if PATH="$bin:$PATH" DOCKER_FAKE_MODE=running DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-stopped "$root" release-x; then
+    fail "running container was accepted before schema restore"
+  fi
+}
+
+test_schema_uses_protected_copy() {
+  local remote_root="$tmp_dir/schema-copy" source original_digest restore_path restore_digest
+  prepare_active_legacy "$remote_root"
+  deploy_from_legacy "$remote_root"
+  source="$remote_root/backups/explicit.sql"
+  printf 'original immutable schema\n' > "$source"
+  chmod 600 "$source"
+  original_digest="$(sha256sum "$source" | cut -d' ' -f1)"
+  : > "$remote_root/runtime.log"
+  SCHEMA_MUTATE_SOURCE="$source" run_rollback "$remote_root" release-b release-a \
+    "$remote_root/rollback.log" --schema-backup "$source" || fail "protected schema rollback failed"
+  IFS=: read -r restore_path restore_digest < "$remote_root/schema-restore.log"
+  [[ "$restore_path" != "$source" ]] || fail "runtime restored mutable caller schema path"
+  [[ "$restore_digest" == "$original_digest" ]] || fail "protected schema copy changed after stop"
+}
+
+test_explicit_stale_lock_recovery() {
+  local remote_root="$tmp_dir/lock-recovery" recovery
+  mkdir -p "$remote_root/state/deploy.lock"
+  cat > "$remote_root/state/deploy.lock/owner" <<'EOF'
+LOCK_FORMAT=1
+TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+PID=99999999
+START_TICKS=1
+OPERATION=deploy
+EOF
+  chmod 600 "$remote_root/state/deploy.lock/owner"
+  recovery="$script_dir/recover-release-lock.sh"
+  [[ -x "$recovery" ]] || fail "stale lock recovery entry point is missing"
+  DEPLOY_ROOT="$remote_root" bash "$recovery" --confirm-stale-lock-recovery
+  [[ ! -d "$remote_root/state/deploy.lock" ]] || fail "stale lock recovery left the lock"
+}
+
+test_environment_source_swap_never_reaches_live() {
+  local remote_root="$tmp_dir/env-source-swap" wrapper="$tmp_dir/env-source-swap/bin" before
+  prepare_active_legacy "$remote_root"
+  deploy_from_legacy "$remote_root"
+  before="$remote_root/before.env"
+  cp "$remote_root/shared/.env" "$before"
+  mkdir -p "$wrapper"
+  cat > "$wrapper/cp" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+for candidate in "$@"; do
+  if [[ "$candidate" == *env-snapshots/release-b.before.env && ! -e "$SWAP_DONE" ]]; then
+    printf 'attacker bytes\n' > "$candidate"
+    chmod 600 "$candidate"
+    : > "$SWAP_DONE"
+  fi
+done
+exec "$REAL_CP" "$@"
+SH
+  chmod +x "$wrapper/cp"
+  if PATH="$wrapper:$PATH" REAL_CP=/usr/bin/cp SWAP_DONE="$remote_root/swap.done" \
+    run_rollback "$remote_root" release-b release-a "$remote_root/rollback.log"; then
+    fail "rollback accepted a snapshot swapped during protected copy"
+  fi
+  cmp -s "$before" "$remote_root/shared/.env" || fail "source swap wrote unverified bytes to live environment"
+  [[ -f "$remote_root/state/maintenance" ]] || fail "source swap did not retain maintenance"
+}
+
+test_selection_write_failure_is_atomic_and_retryable() {
+  local remote_root="$tmp_dir/selection-write" wrapper="$tmp_dir/selection-write/bin" before
+  prepare_active_legacy "$remote_root"
+  deploy_from_legacy "$remote_root"
+  before="$remote_root/selection.before"
+  cp "$remote_root/state/release-selection" "$before"
+  mkdir -p "$wrapper"
+  cat > "$wrapper/mv" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+destination="${*: -1}"
+if [[ "$destination" == */state/release-selection && ! -e "$MV_FAILED" ]]; then
+  : > "$MV_FAILED"
+  exit 71
+fi
+exec /usr/bin/mv "$@"
+SH
+  chmod +x "$wrapper/mv"
+  if PATH="$wrapper:$PATH" MV_FAILED="$remote_root/mv.failed" \
+    run_rollback "$remote_root" release-b release-a "$remote_root/rollback-fail.log"; then
+    fail "selection write failure unexpectedly succeeded"
+  fi
+  cmp -s "$before" "$remote_root/state/release-selection" || fail "selection write failure produced split state"
+  [[ -f "$remote_root/state/maintenance" ]] || fail "selection failure did not retain maintenance"
+  run_rollback "$remote_root" release-b release-a "$remote_root/rollback-retry.log" || fail "selection retry failed"
+  [[ "$(read_active "$remote_root")" == release-a && -z "$(read_previous "$remote_root")" ]] || fail "selection retry did not commit atomically"
+}
+
+test_lock_ownership_boundaries() {
+  local root="$tmp_dir/lock-ownership" token wrong
+  mkdir -p "$root/state"
+  # shellcheck source=release-state.sh
+  source "$script_dir/release-state.sh"
+  acquire_release_lock "$root/state/deploy.lock" deploy
+  token="$release_lock_token"
+  wrong="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  if borrow_release_lock "$root/state/deploy.lock" "$wrong"; then fail "wrong lock token borrowed a live lock"; fi
+  borrow_release_lock "$root/state/deploy.lock" "$token" || fail "owner token could not borrow its live lock"
+  if DEPLOY_ROOT="$root" bash "$script_dir/recover-release-lock.sh" --confirm-stale-lock-recovery >/dev/null 2>&1; then
+    fail "stale recovery removed a live owner lock"
+  fi
+  : > "$root/state/deploy.lock/obstruction"
+  if release_release_lock "$root/state/deploy.lock" "$token"; then fail "lock cleanup failure was silently accepted"; fi
+}
+
+test_environment_destination_tamper_restores_rescue() {
+  local remote_root="$tmp_dir/env-destination-tamper" wrapper="$tmp_dir/env-destination-tamper/bin" before
+  prepare_active_legacy "$remote_root"; deploy_from_legacy "$remote_root"
+  before="$remote_root/before.env"; cp "$remote_root/shared/.env" "$before"; mkdir -p "$wrapper"
+  cat > "$wrapper/mv" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+destination="${*: -1}"
+/usr/bin/mv "$@"
+if [[ "$destination" == */shared/.env && ! -e "$TAMPER_DONE" ]]; then
+  printf 'post-rename attacker bytes\n' > "$destination"; chmod 600 "$destination"; : > "$TAMPER_DONE"
+fi
+SH
+  chmod +x "$wrapper/mv"
+  if PATH="$wrapper:$PATH" TAMPER_DONE="$remote_root/tamper.done" run_rollback "$remote_root" release-b release-a "$remote_root/rollback.log"; then
+    fail "post-rename environment tamper unexpectedly succeeded"
+  fi
+  cmp -s "$before" "$remote_root/shared/.env" || fail "post-verify failure left a bad live environment"
+  [[ -f "$remote_root/state/maintenance" ]] || fail "destination tamper did not retain maintenance"
+}
+
+test_protected_schema_tamper_is_rejected() {
+  local remote_root="$tmp_dir/schema-protected-tamper" source
+  prepare_active_legacy "$remote_root"; deploy_from_legacy "$remote_root"
+  source="$remote_root/backups/explicit.sql"; printf 'schema bytes\n' > "$source"; chmod 600 "$source"; : > "$remote_root/runtime.log"
+  if SCHEMA_TAMPER_PROTECTED=true run_rollback "$remote_root" release-b release-a "$remote_root/rollback.log" --schema-backup "$source"; then
+    fail "tampered protected schema input unexpectedly restored"
+  fi
+  ! grep -q '^restore-schema:' "$remote_root/runtime.log" || fail "tampered protected schema reached database import"
+  ! grep -q '^start-release:' "$remote_root/runtime.log" || fail "tampered schema failure restarted a release"
+  [[ "$(read_active "$remote_root")" == release-b && -f "$remote_root/state/maintenance" ]] || fail "schema tamper lost safe state"
+}
+
 if selected env-after-migrate; then
   assert_environment_failure_restored env-after-migrate migrate
 fi
@@ -725,6 +1031,9 @@ if selected env-after-mail; then
 fi
 if selected initial-runtime-failure; then
   test_initial_runtime_failure_restores_environment
+fi
+if selected previous-env-failures; then
+  test_previous_release_environment_failures_restore_bytes
 fi
 if selected pending-state; then
   test_pending_state_and_snapshot_binding
@@ -782,6 +1091,39 @@ if selected release-id-path; then
 fi
 if selected api-image-repository; then
   test_api_image_repository_consistency
+fi
+if selected selection-state; then
+  test_single_selection_state
+fi
+if selected invalid-identity-guard; then
+  test_invalid_identity_arms_guard
+fi
+if selected public-hang; then
+  test_public_probe_hang_is_bounded
+fi
+if selected docker-inspect-errors; then
+  test_docker_inspect_errors_fail_fast
+fi
+if selected schema-protected-copy; then
+  test_schema_uses_protected_copy
+fi
+if selected lock-recovery; then
+  test_explicit_stale_lock_recovery
+fi
+if selected env-source-swap; then
+  test_environment_source_swap_never_reaches_live
+fi
+if selected selection-write-failure; then
+  test_selection_write_failure_is_atomic_and_retryable
+fi
+if selected lock-ownership; then
+  test_lock_ownership_boundaries
+fi
+if selected env-destination-tamper; then
+  test_environment_destination_tamper_restores_rescue
+fi
+if selected schema-protected-tamper; then
+  test_protected_schema_tamper_is_rejected
 fi
 
 echo "release safety ${test_case}: OK"
