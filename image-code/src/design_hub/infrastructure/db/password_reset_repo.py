@@ -4,6 +4,7 @@ import math
 import re
 import secrets
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -163,17 +164,24 @@ class SqlAlchemyPasswordResetStore(PasswordResetStore):
                         )
                     ).scalar_one_or_none()
                     if row is not None:
+                        if (
+                            row.delivery_state == PasswordResetDeliveryState.PENDING.value
+                            and _utc(row.expires_at) > claimed_at_utc
+                        ):
+                            retry_after = max(
+                                1,
+                                math.ceil(
+                                    (_utc(row.expires_at) - claimed_at_utc).total_seconds()
+                                ),
+                            )
+                            return PasswordResetClaimContended(retry_after)
                         remaining = _cooldown_remaining(
                             previous_claimed_at=row.delivery_claimed_at,
                             claimed_at=claimed_at_utc,
                             cooldown_seconds=cooldown_seconds,
                         )
                         if (
-                            row.delivery_state
-                            in (
-                                PasswordResetDeliveryState.PENDING.value,
-                                PasswordResetDeliveryState.ACTIVE.value,
-                            )
+                            row.delivery_state == PasswordResetDeliveryState.ACTIVE.value
                             and remaining > 0
                         ):
                             return PasswordResetCooldown(remaining)
@@ -290,7 +298,7 @@ class SqlAlchemyPasswordResetStore(PasswordResetStore):
         *,
         email: str,
         code_hash: str,
-        password_hash: str,
+        password_hash_factory: Callable[[], str],
         completed_at: datetime,
         max_attempts: int,
     ) -> PasswordResetCompletion:
@@ -318,19 +326,19 @@ class SqlAlchemyPasswordResetStore(PasswordResetStore):
                         ),
                     )
                     if consumed.rowcount == 1:
-                        updated_user = cast(
-                            CursorResult[Any],
+                        user = (
                             await session.execute(
-                                update(AppUser)
+                                select(AppUser)
                                 .where(
                                     AppUser.email == email,
                                     AppUser.enabled.is_(True),
                                 )
-                                .values(password_hash=password_hash)
-                            ),
-                        )
-                        if updated_user.rowcount != 1:
+                                .with_for_update()
+                            )
+                        ).scalar_one_or_none()
+                        if user is None:
                             raise _AccountUnavailable
+                        user.password_hash = password_hash_factory()
                         return PasswordResetCompleted()
 
                     failed = cast(

@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
@@ -150,26 +151,33 @@ export function useForgotPassword() {
 
 /** POST /auth/reset-password —— 校验验证码并设新密码（密码公钥加密）。 */
 export function useResetPassword() {
-  return useMutation({
-    gcTime: 0,
-    mutationFn: async (vars: ResetPasswordVars) => {
-      const password = await encryptSecret(vars.password)
-      const { data, error, response } = await api
-        .POST('/auth/reset-password', {
-          body: {
-            email: vars.email,
-            code: vars.code,
-            password,
-          },
-        })
-        .catch((): never => {
-          throw new Error(NETWORK_ERROR)
-        })
-      if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
-      if (error || !data) throw new Error(errorMessage(error, '重置密码失败'))
-      return data
+  const [isPending, setIsPending] = useState(false)
+  const mutateAsync = useCallback(
+    async (vars: ResetPasswordVars) => {
+      setIsPending(true)
+      try {
+        const password = await encryptSecret(vars.password)
+        const { data, error, response } = await api
+          .POST('/auth/reset-password', {
+            body: {
+              email: vars.email,
+              code: vars.code,
+              password,
+            },
+          })
+          .catch((): never => {
+            throw new Error(NETWORK_ERROR)
+          })
+        if (response.status === 429) throw new Error(RATE_LIMIT_ERROR)
+        if (error || !data) throw new Error(errorMessage(error, '重置密码失败'))
+        return data
+      } finally {
+        setIsPending(false)
+      }
     },
-  })
+    [],
+  )
+  return { mutateAsync, isPending }
 }
 
 /** GET /me —— 取当前用户（含角色）；token 就绪后启用. */

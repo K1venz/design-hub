@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -155,5 +155,28 @@ describe('ForgotPasswordPage sensitive mutation lifecycle', () => {
     expect((screen.getByLabelText('确认新密码') as HTMLInputElement).value).toBe('')
     expect(cacheText(client)).not.toContain('very-secret-password')
     expect(cacheText(client)).not.toContain('123456')
+  })
+
+  it('never puts reset secrets in mutation cache when a pending request outlives the page', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ message: '验证码已发送' }))
+      .mockReturnValueOnce(new Promise<Response>(() => undefined))
+    const { client, unmount } = renderPage()
+
+    await requestCode()
+    fillResetForm()
+    const codeInput = screen.getByLabelText('验证码')
+    const passwordInput = screen.getByLabelText('新密码')
+    fireEvent.click(screen.getByRole('button', { name: '重置密码' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(encryptSecretMock).toHaveBeenCalledWith('very-secret-password')
+    unmount()
+
+    expect(cacheText(client)).not.toContain('very-secret-password')
+    expect(cacheText(client)).not.toContain('123456')
+    expect(storageText()).not.toContain('very-secret-password')
+    expect(storageText()).not.toContain('123456')
+    expect(codeInput.isConnected).toBe(false)
+    expect(passwordInput.isConnected).toBe(false)
   })
 })

@@ -46,7 +46,6 @@ export function ForgotPasswordPage() {
     setInfo(null)
     setErrorMessage(null)
     forgot.reset()
-    reset.reset()
     try {
       const data = await forgot.mutateAsync({ email: target })
       setInfo(data.message)
@@ -64,7 +63,6 @@ export function ForgotPasswordPage() {
     setInfo(null)
     setErrorMessage(null)
     forgot.reset()
-    reset.reset()
     try {
       await reset.mutateAsync({
         email: email.trim(),
@@ -78,7 +76,6 @@ export function ForgotPasswordPage() {
       setCode('')
       setPassword('')
       setConfirm('')
-      reset.reset()
     }
   }
 

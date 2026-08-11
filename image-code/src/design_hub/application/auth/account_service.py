@@ -11,6 +11,8 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import structlog
+
 from design_hub.application.auth.verification_codes import digest_verification_code
 from design_hub.domain.enums import Role
 from design_hub.domain.errors import AuthenticationError, DomainError
@@ -44,6 +46,7 @@ _MIN_PASSWORD = 8
 _CODE_DIGITS = 6
 _GENERIC_FORGOT_MSG = "若该邮箱已注册，验证码将发送至邮箱（请查收，含垃圾箱）"
 _INVALID_CODE_MSG = "验证码错误或已过期"
+_LOG = structlog.get_logger(__name__)
 
 
 def _new_code() -> str:
@@ -237,7 +240,7 @@ class AccountService:
         if isinstance(claim, PasswordResetAccountUnavailable):
             return _GENERIC_FORGOT_MSG
         if isinstance(claim, PasswordResetCooldown | PasswordResetClaimContended):
-            raise ValueError(f"发送太频繁，请 {claim.retry_after_seconds} 秒后再试")
+            return _GENERIC_FORGOT_MSG
         if not isinstance(claim, PasswordResetClaimed):
             raise TypeError(f"unsupported password-reset claim outcome: {type(claim).__name__}")
 
@@ -268,7 +271,12 @@ class AccountService:
                     delivery_error=delivery_error,
                     invalidation_error=invalidation_error,
                 ) from invalidation_error
-            raise
+            _LOG.warning(
+                "password_reset_email_delivery_failed",
+                challenge_id=challenge.id,
+                error_type=type(delivery_error).__name__,
+            )
+            return _GENERIC_FORGOT_MSG
 
         try:
             active = await self.resets.activate(
@@ -292,7 +300,12 @@ class AccountService:
                     activation_error=activation_error,
                     invalidation_error=invalidation_error,
                 ) from invalidation_error
-            raise
+            _LOG.warning(
+                "password_reset_activation_failed",
+                challenge_id=challenge.id,
+                error_type=type(activation_error).__name__,
+            )
+            return _GENERIC_FORGOT_MSG
         return _GENERIC_FORGOT_MSG
 
     async def reset_password(self, *, email: str, code: str, password: str) -> None:
@@ -315,7 +328,7 @@ class AccountService:
                 code=code,
                 pepper=self.email_verification_code_pepper,
             ),
-            password_hash=self.passwords.hash(password),
+            password_hash_factory=lambda: self.passwords.hash(password),
             completed_at=now,
             max_attempts=self.reset_max_attempts,
         )
