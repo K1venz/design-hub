@@ -77,4 +77,35 @@ if (
   exit 1
 fi
 
+compose_config='{
+  "services": {
+    "api": {
+      "image": "design-hub-api:release-test",
+      "networks": {"mail": {}},
+      "labels": {"com.design-hub.release": "release-test"}
+    },
+    "worker": {
+      "image": "design-hub-api:release-test",
+      "networks": {},
+      "labels": {"com.design-hub.release": "release-test"}
+    },
+    "nginx": {
+      "labels": {"com.design-hub.release": "release-test"},
+      "volumes": [
+        {"source": "release-root/release-test/web", "target": "/usr/share/nginx/html"},
+        {"source": "state-root", "target": "/etc/design-hub-state"}
+      ]
+    },
+    "dkim": {"healthcheck": {"test": ["CMD-SHELL", "nc -z 127.0.0.1 8891"]}},
+    "smtp": {"expose": [25]}
+  },
+  "networks": {"mail": {"ipam": {"config": [{"subnet": "172.29.0.0/24"}]}}}
+}'
+RELEASE_ID=release-test \
+DESIGN_HUB_RELEASE_DIR=release-root/release-test \
+DESIGN_HUB_STATE_DIR=state-root \
+ENV_EXAMPLE_PATH="$script_dir/../.env.example" \
+COMPOSE_CONFIG_JSON="$compose_config" \
+  bash "$script_dir/check-mail-config.sh"
+
 echo "mail environment provisioning: OK"
