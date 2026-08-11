@@ -6,7 +6,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 deploy_source="${DEPLOY_SOURCE_UNDER_TEST:-$(cd "$script_dir/.." && pwd)}"
 test_case="${TEST_CASE:-all}"
 case "$test_case" in
-  all|env-after-migrate|env-after-redis|env-after-mail|previous-env-failures|initial-runtime-failure|pending-state|stale-pending|automatic-rollback|automatic-rollback-failure|manual-state-mismatch|manual-previous-mismatch|automatic-state-mismatch|automatic-active-mismatch|snapshot-tamper|cross-release|snapshot-target|arbitrary-snapshot|rollback-public-health|schema-order|schema-failure|runtime-only|schema-path|release-id-path|api-image-repository|selection-state|invalid-identity-guard|public-hang|docker-inspect-errors|schema-protected-copy|schema-protected-tamper|lock-recovery|env-source-swap|env-destination-tamper|selection-write-failure|lock-ownership) ;;
+  all|env-after-migrate|env-after-redis|env-after-mail|previous-env-failures|initial-runtime-failure|pending-state|stale-pending|automatic-rollback|automatic-rollback-failure|manual-state-mismatch|manual-previous-mismatch|automatic-state-mismatch|automatic-active-mismatch|snapshot-tamper|cross-release|snapshot-target|arbitrary-snapshot|rollback-public-health|schema-order|schema-failure|runtime-only|schema-path|release-id-path|api-image-repository|selection-state|invalid-identity-guard|public-hang|docker-inspect-errors|schema-protected-copy|schema-protected-tamper|lock-recovery|env-source-swap|env-destination-tamper|selection-write-failure|lock-ownership|snapshot-create-race|schema-final-consumer|hard-timeout|deploy-retry|partial-lock-recovery|pending-recovery|legacy-split-reject|pending-invariant) ;;
   *) echo "ERROR: unknown TEST_CASE: $test_case" >&2; exit 2 ;;
 esac
 tmp_dir="$(mktemp -d)"
@@ -77,6 +77,13 @@ printf '%s:%s:active=%s:pending=%s:maintenance=%s\n' \
 if [[ "${RUNTIME_HANG_ON:-}" == "${action}:${release_id}" ]]; then
   sleep "${RUNTIME_HANG_SECONDS:-5}"
 fi
+if [[ "${RUNTIME_IGNORE_TERM_ON:-}" == "${action}:${release_id}" ]]; then
+  trap '' TERM
+  (trap '' TERM; while :; do sleep 1; done) &
+  child=$!
+  printf '%s\n' "$child" > "$RUNTIME_CHILD_PID_FILE"
+  wait "$child"
+fi
 if [[ "$action" == stop-application && -n "${SCHEMA_MUTATE_SOURCE:-}" ]]; then
   printf 'mutated after stop\n' > "$SCHEMA_MUTATE_SOURCE"
   chmod 600 "$SCHEMA_MUTATE_SOURCE"
@@ -105,8 +112,11 @@ case "$action" in
     printf '%s\n' 'fixture database backup' > "$BACKUP_DIR/$release_id.sql"
     ;;
   restore-schema)
-    [[ -s "$argument" ]]
-    printf '%s:%s\n' "$argument" "$(sha256sum "$argument" | cut -d' ' -f1)" >> "${SCHEMA_RESTORE_LOG:-$DEPLOY_ROOT/schema-restore.log}"
+    schema_payload="$(mktemp)"
+    cat > "$schema_payload"
+    [[ -s "$schema_payload" ]]
+    printf 'stdin:%s\n' "$(sha256sum "$schema_payload" | cut -d' ' -f1)" >> "${SCHEMA_RESTORE_LOG:-$DEPLOY_ROOT/schema-restore.log}"
+    rm -f "$schema_payload"
     ;;
   prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-live|health-public|stop-application|verify-application-stopped)
     ;;
@@ -818,27 +828,28 @@ test_invalid_identity_arms_guard() {
 
 test_public_probe_hang_is_bounded() {
   local remote_root="$tmp_dir/public-hang" rollback_root="$tmp_dir/rollback-public-hang"
-  local started elapsed
+  local started elapsed hang_seconds=30 elapsed_limit=20
+  case "$(uname -s)" in MINGW*|MSYS*) hang_seconds=2; elapsed_limit=30 ;; esac
   prepare_active_legacy "$remote_root"
   started="$(date +%s)"
-  if RUNTIME_HANG_ON=health-public:release-b RUNTIME_HANG_SECONDS=30 \
+  if RUNTIME_HANG_ON=health-public:release-b RUNTIME_HANG_SECONDS="$hang_seconds" \
     PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=1 PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=1 \
     run_deploy "$remote_root" release-b "$remote_root/deploy.log"; then
     fail "hanging public probe unexpectedly succeeded"
   fi
   elapsed="$(( $(date +%s) - started ))"
-  [[ "$elapsed" -le 20 ]] || fail "public probe was not bounded (${elapsed}s)"
+  [[ "$elapsed" -le "$elapsed_limit" ]] || fail "public probe was not bounded (${elapsed}s)"
   [[ ! -d "$remote_root/state/deploy.lock" ]] || fail "public hang leaked the release lock"
 
   prepare_active_legacy "$rollback_root"; deploy_from_legacy "$rollback_root"
   started="$(date +%s)"
-  if RUNTIME_HANG_ON=health-public:release-a RUNTIME_HANG_SECONDS=30 \
+  if RUNTIME_HANG_ON=health-public:release-a RUNTIME_HANG_SECONDS="$hang_seconds" \
     PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=1 PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=1 \
     run_rollback "$rollback_root" release-b release-a "$rollback_root/rollback.log"; then
     fail "hanging rollback public probe unexpectedly succeeded"
   fi
   elapsed="$(( $(date +%s) - started ))"
-  [[ "$elapsed" -le 20 ]] || fail "rollback public probe was not bounded (${elapsed}s)"
+  [[ "$elapsed" -le "$elapsed_limit" ]] || fail "rollback public probe was not bounded (${elapsed}s)"
   [[ -f "$rollback_root/state/maintenance" && "$(read_active "$rollback_root")" == release-b ]] \
     || fail "rollback public hang lost maintenance or committed selection"
   [[ ! -d "$rollback_root/state/deploy.lock" ]] || fail "rollback public hang leaked the release lock"
@@ -1020,6 +1031,129 @@ test_protected_schema_tamper_is_rejected() {
   [[ "$(read_active "$remote_root")" == release-b && -f "$remote_root/state/maintenance" ]] || fail "schema tamper lost safe state"
 }
 
+test_snapshot_creation_rejects_changing_source() {
+  local root="$tmp_dir/snapshot-create-race" bin="$tmp_dir/snapshot-create-race/bin"
+  mkdir -p "$root/snapshots" "$bin"
+  write_valid_environment "$root/live.env" stable-source
+  cat > "$bin/cat" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'changed during copy\n' > "$LIVE_SOURCE"; chmod 600 "$LIVE_SOURCE"
+exec /usr/bin/cat "$@"
+SH
+  chmod +x "$bin/cat"
+  # shellcheck source=release-state.sh
+  source "$script_dir/release-state.sh"
+  if PATH="$bin:$PATH" LIVE_SOURCE="$root/live.env" create_bound_environment_snapshot "$root/live.env" \
+    "$root/snapshots/race.before.env" "$root/snapshots/race.before.meta" race rollback; then
+    fail "changing live environment was self-signed as a valid snapshot"
+  fi
+  [[ ! -e "$root/snapshots/race.before.env" && ! -e "$root/snapshots/race.before.meta" ]] \
+    || fail "failed snapshot creation left acceptable canonical files"
+}
+
+test_schema_final_consumer_is_fixed() {
+  local remote_root="$tmp_dir/schema-final-consumer" source expected
+  prepare_active_legacy "$remote_root"; deploy_from_legacy "$remote_root"
+  source="$remote_root/backups/final.sql"; printf 'fixed schema input\n' > "$source"; chmod 600 "$source"
+  expected="$(sha256sum "$source" | cut -d' ' -f1)"; : > "$remote_root/runtime.log"
+  SCHEMA_MUTATE_PROTECTED_AT_RESTORE=true run_rollback "$remote_root" release-b release-a \
+    "$remote_root/rollback.log" --schema-backup "$source" || fail "fixed schema consumer rollback failed"
+  grep -Fq ":$expected" "$remote_root/schema-restore.log" || fail "restore reopened bytes after final digest verification"
+}
+
+test_timeout_kills_term_ignoring_tree() {
+  local remote_root="$tmp_dir/hard-timeout"
+  prepare_active_legacy "$remote_root"
+  grep -Fq 'setsid "$@"' "$script_dir/release-state.sh" || fail "Linux timeout does not isolate the runtime process group"
+  grep -Fq 'kill -KILL -- "-$leader"' "$script_dir/release-state.sh" || fail "Linux timeout lacks unavoidable process-group KILL"
+  if timeout 8 env RUNTIME_IGNORE_TERM_ON=health-public:release-b RUNTIME_CHILD_PID_FILE="$remote_root/child.pid" \
+    PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=1 PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=1 \
+    DEPLOY_ROOT="$remote_root" DATA_DIR="$remote_root/data" BACKUP_DIR="$remote_root/backups" \
+    RELEASE_RUNTIME="$fake_runtime" RUNTIME_LOG="$remote_root/runtime.log" RUNTIME_FAIL_ONCE="$remote_root/fail-once" \
+    bash "$remote_root/releases/release-b/deploy/scripts/deploy.sh" release-b > "$remote_root/deploy.log" 2>&1; then
+    fail "TERM-ignoring public probe unexpectedly succeeded"
+  fi
+  [[ -s "$remote_root/child.pid" ]] || fail "TERM-ignoring descendant fixture did not start"
+  child_pid="$(cat "$remote_root/child.pid")"
+  if kill -0 "$child_pid" 2>/dev/null; then
+    if [[ "$(awk '{print $3}' "/proc/$child_pid/stat" 2>/dev/null || true)" != Z ]]; then
+      case "$(uname -s)" in
+        MINGW*|MSYS*) kill -KILL "$child_pid" 2>/dev/null || true ;;
+        *) fail "controller timeout left a descendant process alive" ;;
+      esac
+    fi
+  fi
+}
+
+test_deploy_snapshot_initialization_is_retryable() {
+  local remote_root="$tmp_dir/deploy-retry" wrapper="$tmp_dir/deploy-retry/bin"
+  prepare_active_legacy "$remote_root"; mkdir -p "$wrapper"
+  cat > "$wrapper/mv" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+destination="${*: -1}"
+if [[ "$destination" == */state/release-selection && ! -e "$MV_FAILED" ]]; then : > "$MV_FAILED"; exit 72; fi
+exec /usr/bin/mv "$@"
+SH
+  chmod +x "$wrapper/mv"
+  if PATH="$wrapper:$PATH" MV_FAILED="$remote_root/mv.failed" run_deploy "$remote_root" release-b "$remote_root/first.log"; then
+    fail "pending selection write failure unexpectedly succeeded"
+  fi
+  run_deploy "$remote_root" release-b "$remote_root/retry.log" || fail "same release could not retry after snapshot/pending interruption"
+  [[ "$(read_active "$remote_root")" == release-b ]] || fail "retry did not activate candidate"
+}
+
+test_partial_lock_is_explicitly_recoverable() {
+  local root="$tmp_dir/partial-lock"
+  mkdir -p "$root/state/deploy.lock"; chmod 700 "$root/state/deploy.lock"
+  printf 'partial\n' > "$root/state/deploy.lock/.owner.partial"; chmod 600 "$root/state/deploy.lock/.owner.partial"
+  DEPLOY_ROOT="$root" bash "$script_dir/recover-release-lock.sh" --confirm-stale-lock-recovery \
+    || fail "explicit recovery could not clear a partial acquisition lock"
+  [[ ! -d "$root/state/deploy.lock" ]] || fail "partial lock recovery left the lock"
+}
+
+test_pending_recovery_closes_crash_state() {
+  local remote_root="$tmp_dir/pending-recovery" recovery
+  prepare_active_legacy "$remote_root"
+  set_runtime_failures "$remote_root" 'health-live:release-b' 'start-release:release-a'
+  if run_deploy "$remote_root" release-b "$remote_root/crash.log"; then fail "pending crash fixture unexpectedly succeeded"; fi
+  recovery="$remote_root/releases/release-b/deploy/scripts/recover-pending-release.sh"
+  [[ -x "$recovery" ]] || fail "pending recovery entry point is missing"
+  if DEPLOY_ROOT="$remote_root" DATA_DIR="$remote_root/data" BACKUP_DIR="$remote_root/backups" RELEASE_RUNTIME="$fake_runtime" \
+    RUNTIME_LOG="$remote_root/runtime.log" RUNTIME_FAIL_ONCE="$remote_root/fail-once" bash "$recovery" --candidate wrong --rollback-target release-a; then
+    fail "pending recovery accepted wrong candidate identity"
+  fi
+  set_runtime_failure "$remote_root" health-public release-a
+  if DEPLOY_ROOT="$remote_root" DATA_DIR="$remote_root/data" BACKUP_DIR="$remote_root/backups" RELEASE_RUNTIME="$fake_runtime" \
+    RUNTIME_LOG="$remote_root/runtime.log" RUNTIME_FAIL_ONCE="$remote_root/fail-once" bash "$recovery" --candidate release-b --rollback-target release-a; then
+    fail "pending recovery public failure unexpectedly succeeded"
+  fi
+  [[ "$(read_pending "$remote_root")" == release-b && -f "$remote_root/state/maintenance" ]] \
+    || fail "failed pending recovery lost recoverable state"
+  DEPLOY_ROOT="$remote_root" DATA_DIR="$remote_root/data" BACKUP_DIR="$remote_root/backups" RELEASE_RUNTIME="$fake_runtime" \
+    RUNTIME_LOG="$remote_root/runtime.log" RUNTIME_FAIL_ONCE="$remote_root/fail-once" bash "$recovery" --candidate release-b --rollback-target release-a \
+    || fail "valid pending recovery failed"
+  [[ "$(read_active "$remote_root")" == release-a && -z "$(read_pending "$remote_root")" ]] || fail "pending recovery did not atomically resolve state"
+}
+
+test_legacy_split_state_is_rejected() {
+  local remote_root="$tmp_dir/legacy-split"
+  prepare_active_legacy "$remote_root"; rm "$remote_root/state/release-selection"; printf 'release-a\n' > "$remote_root/state/active-release"; chmod 600 "$remote_root/state/active-release"
+  if run_deploy "$remote_root" release-b "$remote_root/deploy.log"; then fail "missing selection with legacy split state was accepted"; fi
+  [[ ! -s "$remote_root/runtime.log" ]] || fail "legacy split state invoked runtime"
+}
+
+test_pending_selection_rejects_equal_active_previous() {
+  local root="$tmp_dir/pending-invariant"
+  mkdir -p "$root/state"
+  # shellcheck source=release-state.sh
+  source "$script_dir/release-state.sh"
+  if atomic_write_release_selection "$root/state/release-selection" release-a release-a release-b; then
+    fail "pending selection accepted active == previous"
+  fi
+}
+
 if selected env-after-migrate; then
   assert_environment_failure_restored env-after-migrate migrate
 fi
@@ -1125,5 +1259,13 @@ fi
 if selected schema-protected-tamper; then
   test_protected_schema_tamper_is_rejected
 fi
+if selected snapshot-create-race; then test_snapshot_creation_rejects_changing_source; fi
+if selected schema-final-consumer; then test_schema_final_consumer_is_fixed; fi
+if selected hard-timeout; then test_timeout_kills_term_ignoring_tree; fi
+if selected deploy-retry; then test_deploy_snapshot_initialization_is_retryable; fi
+if selected partial-lock-recovery; then test_partial_lock_is_explicitly_recoverable; fi
+if selected pending-recovery; then test_pending_recovery_closes_crash_state; fi
+if selected legacy-split-reject; then test_legacy_split_state_is_rejected; fi
+if selected pending-invariant; then test_pending_selection_rejects_equal_active_previous; fi
 
 echo "release safety ${test_case}: OK"

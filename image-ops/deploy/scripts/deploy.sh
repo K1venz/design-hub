@@ -26,6 +26,8 @@ for required in "$release_dir/release.env" "$release_dir/deploy/compose.yml" \
   "$release_dir/deploy/scripts/mail-env.sh" \
   "$release_dir/deploy/scripts/release-state.sh" \
   "$release_dir/deploy/scripts/rollback.sh" \
+  "$release_dir/deploy/scripts/recover-release-lock.sh" \
+  "$release_dir/deploy/scripts/recover-pending-release.sh" \
   "$release_dir/web/index.html"; do
   [[ -f "$required" ]] || {
     echo "ERROR: staged release is incomplete: ${required}" >&2
@@ -322,8 +324,8 @@ run_public_probe() {
   local max_timeout="${PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS:-10}"
   [[ "$connect_timeout" =~ ^[1-9][0-9]*$ && "$connect_timeout" -le 30 ]] || { echo "ERROR: invalid public health connect timeout" >&2; return 1; }
   [[ "$max_timeout" =~ ^[1-9][0-9]*$ && "$max_timeout" -le 120 ]] || { echo "ERROR: invalid public health max timeout" >&2; return 1; }
-  PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS="$connect_timeout" PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS="$max_timeout" \
-    timeout --signal=TERM "$max_timeout" bash "$runtime" health-public "$release_dir" "$release_id"
+  export PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS="$connect_timeout" PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS="$max_timeout"
+  run_with_hard_timeout "$max_timeout" bash "$runtime" health-public "$release_dir" "$release_id"
 }
 run_public_probe
 

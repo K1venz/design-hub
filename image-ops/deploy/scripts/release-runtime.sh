@@ -228,12 +228,8 @@ SQL
     ;;
 
   restore-schema)
-    [[ -s "$argument" ]] || {
-      echo "ERROR: explicit schema backup is missing or empty" >&2
-      exit 1
-    }
     root_password="$(read_root_password)"
-    docker exec -i -e MYSQL_PWD="$root_password" mysql mysql -uroot design_hub < "$argument"
+    docker exec -i -e MYSQL_PWD="$root_password" mysql mysql -uroot design_hub
     unset root_password
     ;;
 
