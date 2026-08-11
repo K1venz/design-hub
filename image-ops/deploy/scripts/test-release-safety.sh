@@ -6,7 +6,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 deploy_source="${DEPLOY_SOURCE_UNDER_TEST:-$(cd "$script_dir/.." && pwd)}"
 test_case="${TEST_CASE:-all}"
 case "$test_case" in
-  all|env-after-migrate|env-after-redis|env-after-mail|previous-env-failures|initial-runtime-failure|pending-state|stale-pending|automatic-rollback|automatic-rollback-failure|manual-state-mismatch|manual-previous-mismatch|automatic-state-mismatch|automatic-active-mismatch|snapshot-tamper|cross-release|snapshot-target|arbitrary-snapshot|rollback-public-health|schema-order|schema-failure|runtime-only|schema-path|release-id-path|api-image-repository|selection-state|invalid-identity-guard|public-hang|docker-inspect-errors|schema-protected-copy|schema-protected-tamper|lock-recovery|env-source-swap|env-destination-tamper|selection-write-failure|lock-ownership|snapshot-create-race|schema-final-consumer|hard-timeout|deploy-retry|partial-lock-recovery|pending-recovery|legacy-split-reject|pending-invariant|partial-lock-types|initial-pending-abort|systemd-containment|final-commit-retry|dangling-state-reject|image-resume-identity) ;;
+  all|env-after-migrate|env-after-redis|env-after-mail|previous-env-failures|initial-runtime-failure|pending-state|stale-pending|automatic-rollback|automatic-rollback-failure|manual-state-mismatch|manual-previous-mismatch|automatic-state-mismatch|automatic-active-mismatch|snapshot-tamper|cross-release|snapshot-target|arbitrary-snapshot|rollback-public-health|schema-order|schema-failure|runtime-only|schema-path|release-id-path|api-image-repository|selection-state|invalid-identity-guard|public-hang|docker-inspect-errors|schema-protected-copy|schema-protected-tamper|lock-recovery|env-source-swap|env-destination-tamper|selection-write-failure|lock-ownership|snapshot-create-race|schema-final-consumer|hard-timeout|deploy-retry|partial-lock-recovery|pending-recovery|legacy-split-reject|pending-invariant|partial-lock-types|initial-pending-abort|systemd-containment|final-commit-retry|dangling-state-reject|image-resume-identity|lock-tombstone|runtime-contract) ;;
   *) echo "ERROR: unknown TEST_CASE: $test_case" >&2; exit 2 ;;
 esac
 tmp_dir="$(mktemp -d)"
@@ -123,13 +123,19 @@ case "$action" in
     printf '%s\n' 'fixture database backup' > "$BACKUP_DIR/$release_id.sql"
     ;;
   restore-schema)
+    if [[ "${SCHEMA_MUTATE_PROTECTED_AT_RESTORE:-false}" == true ]]; then
+      [[ -n "${SCHEMA_MUTATION_TARGET:-}" ]] || { echo 'missing schema mutation target' >&2; exit 2; }
+      printf 'attacker replacement at final consumer\n' > "$SCHEMA_MUTATION_TARGET"
+      chmod 600 "$SCHEMA_MUTATION_TARGET"
+      : > "${SCHEMA_MUTATION_PROOF:?schema mutation proof is required}"
+    fi
     schema_payload="$(mktemp)"
     cat > "$schema_payload"
     [[ -s "$schema_payload" ]]
     printf 'stdin:%s\n' "$(sha256sum "$schema_payload" | cut -d' ' -f1)" >> "${SCHEMA_RESTORE_LOG:-$DEPLOY_ROOT/schema-restore.log}"
     rm -f "$schema_payload"
     ;;
-  prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-live|health-public|stop-application|verify-application-stopped)
+  prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-live|health-public|stop-application|verify-application-stopped|verify-application-owned)
     ;;
   *)
     echo "unexpected runtime action: $action" >&2
@@ -798,23 +804,28 @@ test_api_image_repository_consistency() {
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$DOCKER_LOG"
-if [[ "$1 $2" == 'image inspect' && "$3" != *:latest ]]; then
-  exit 1
+if [[ "$1 $2" == 'image inspect' ]]; then
+  [[ "$*" != *--format* ]] || { printf 'sha256:%064d\n' 0; exit 0; }
+  [[ "$3" == *:latest || -f "$LEGACY_TAGGED" ]]
+  exit
 fi
+if [[ "$1 $2" == 'image tag' ]]; then : > "$LEGACY_TAGGED"; exit 0; fi
 SH
   chmod +x "$docker_bin/docker"
 
   PATH="$docker_bin:$PATH" \
   DOCKER_LOG="$docker_log" \
+  LEGACY_TAGGED="$tmp_dir/image-repository/tagged" \
   API_IMAGE_REPOSITORY=custom-design-api \
   DEPLOY_ROOT="$tmp_dir/image-repository/root" \
     bash "$script_dir/release-runtime.sh" import-legacy "$release_root" legacy-repo
-  grep -Fxq 'image inspect custom-design-api:latest' "$docker_log" \
+  grep -Fq 'custom-design-api:latest' "$docker_log" \
     || fail "legacy import ignored API_IMAGE_REPOSITORY for source image"
   grep -Fxq 'image inspect custom-design-api:legacy-repo' "$docker_log" \
     || fail "legacy import ignored API_IMAGE_REPOSITORY for target inspection"
   grep -Fxq 'image tag custom-design-api:latest custom-design-api:legacy-repo' "$docker_log" \
     || fail "legacy import ignored API_IMAGE_REPOSITORY for image tag"
+  assert_file_mode_600 "$tmp_dir/image-repository/root/state/image-identities/legacy-repo.api"
 }
 
 test_single_selection_state() {
@@ -895,6 +906,8 @@ case "${DOCKER_FAKE_MODE:-daemon}" in
     [[ "$1 $2" == 'container inspect' ]] && exit 0
     printf 'true\n'
     ;;
+  owned) printf '%s\n' "${OWNED_RELEASE:-release-x}" ;;
+  foreign) printf 'another-release\n' ;;
 esac
 SH
   chmod +x "$bin/docker"
@@ -911,6 +924,20 @@ SH
   if PATH="$bin:$PATH" DOCKER_FAKE_MODE=running DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
     bash "$script_dir/release-runtime.sh" verify-application-stopped "$root" release-x; then
     fail "running container was accepted before schema restore"
+  fi
+  PATH="$bin:$PATH" DOCKER_FAKE_MODE=owned OWNED_RELEASE=release-x DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-owned "$root" release-x \
+    || fail "candidate-owned containers were rejected"
+  PATH="$bin:$PATH" DOCKER_FAKE_MODE=missing DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-owned "$root" release-x \
+    || fail "explicit missing containers were rejected during ownership check"
+  if PATH="$bin:$PATH" DOCKER_FAKE_MODE=foreign DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-owned "$root" release-x; then
+    fail "containers from another release were accepted"
+  fi
+  if PATH="$bin:$PATH" DOCKER_FAKE_MODE=daemon DEPLOY_ROOT="$tmp_dir/docker-inspect/deploy-root" \
+    bash "$script_dir/release-runtime.sh" verify-application-owned "$root" release-x; then
+    fail "Docker daemon error was treated as missing during ownership check"
   fi
 }
 
@@ -1079,8 +1106,11 @@ test_schema_final_consumer_is_fixed() {
   prepare_active_legacy "$remote_root"; deploy_from_legacy "$remote_root"
   source="$remote_root/backups/final.sql"; printf 'fixed schema input\n' > "$source"; chmod 600 "$source"
   expected="$(sha256sum "$source" | cut -d' ' -f1)"; : > "$remote_root/runtime.log"
-  SCHEMA_MUTATE_PROTECTED_AT_RESTORE=true run_rollback "$remote_root" release-b release-a \
+  SCHEMA_MUTATE_PROTECTED_AT_RESTORE=true SCHEMA_MUTATION_TARGET="$source" \
+    SCHEMA_MUTATION_PROOF="$remote_root/mutation.proof" run_rollback "$remote_root" release-b release-a \
     "$remote_root/rollback.log" --schema-backup "$source" || fail "fixed schema consumer rollback failed"
+  [[ -f "$remote_root/mutation.proof" ]] || fail "schema final-consumer fixture did not execute its mutation"
+  grep -Fxq 'attacker replacement at final consumer' "$source" || fail "schema mutation target was not changed"
   grep -Fq ":$expected" "$remote_root/schema-restore.log" || fail "restore reopened bytes after final digest verification"
 }
 
@@ -1165,6 +1195,53 @@ test_partial_lock_types_fail_closed() {
   release_release_lock "$root/state/deploy.lock" "$token" || fail "valid lock cleanup failed"
 }
 
+test_lock_cleanup_uses_atomic_tombstone() {
+  local root="$tmp_dir/lock-tombstone" bin="$tmp_dir/lock-tombstone/bin" token
+  mkdir -p "$root/state" "$bin"
+  # shellcheck source=release-state.sh
+  source "$script_dir/release-state.sh"
+  acquire_release_lock "$root/state/deploy.lock" deploy
+  token="$release_lock_token"
+  cat > "$bin/rmdir" <<'SH'
+#!/usr/bin/env bash
+case "$1" in *.released.*) exit 75 ;; esac
+exec /usr/bin/rmdir "$@"
+SH
+  chmod +x "$bin/rmdir"
+  if PATH="$bin:$PATH" release_release_lock "$root/state/deploy.lock" "$token"; then
+    fail "injected tombstone removal failure unexpectedly succeeded"
+  fi
+  [[ ! -e "$root/state/deploy.lock" ]] || fail "cleanup failure left an ownerless canonical lock"
+  compgen -G "$root/state/deploy.lock.released.$token" >/dev/null || fail "cleanup failure lost the protected tombstone"
+  acquire_release_lock "$root/state/deploy.lock" deploy || fail "retired tombstone blocked a new canonical lock"
+  release_release_lock "$root/state/deploy.lock" "$release_lock_token" || fail "new canonical lock cleanup failed"
+}
+
+test_runtime_contract_is_protected() {
+  local root="$tmp_dir/runtime-contract"
+  mkdir -p "$root"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/runtime"
+  chmod 755 "$root/runtime"
+  # shellcheck source=release-state.sh
+  source "$script_dir/release-state.sh"
+  require_runtime_contract "$root/runtime" || fail "protected absolute runtime was rejected"
+  if require_runtime_contract relative-runtime; then fail "relative custom runtime was accepted"; fi
+  case "$(uname -s)" in
+    MINGW*|MSYS*) grep -Fq '! -L "$runtime"' "$script_dir/release-state.sh" || fail "runtime symlink rejection is missing" ;;
+    *)
+      ln -s "$root/runtime" "$root/runtime-link"
+      if require_runtime_contract "$root/runtime-link"; then fail "symlink custom runtime was accepted"; fi
+      ;;
+  esac
+  case "$(uname -s)" in
+    MINGW*|MSYS*) grep -Fq '8#$mode & 8#022' "$script_dir/release-state.sh" || fail "writable runtime rejection is missing" ;;
+    *)
+      chmod 777 "$root/runtime"
+      if require_runtime_contract "$root/runtime"; then fail "writable custom runtime was accepted"; fi
+      ;;
+  esac
+}
+
 test_initial_pending_abort_is_explicit_and_safe() {
   local root="$tmp_dir/initial-pending-abort" recovery original
   mkdir -p "$root/shared" "$root/state" "$root/backups"
@@ -1182,6 +1259,21 @@ test_initial_pending_abort_is_explicit_and_safe() {
       --initial-abort --candidate wrong; then
     fail "initial abort accepted wrong candidate"
   fi
+  sed -i 's/^RELEASE_ID=.*/RELEASE_ID=wrong-manifest/' "$root/releases/release-initial/release.env"
+  if DEPLOY_ROOT="$root" DATA_DIR="$root/data" BACKUP_DIR="$root/backups" RELEASE_RUNTIME="$fake_runtime" \
+    RUNTIME_LOG="$root/runtime.log" RUNTIME_FAIL_ONCE="$root/fail-once" bash "$recovery" \
+      --initial-abort --candidate release-initial; then
+    fail "initial abort accepted a mismatched candidate manifest"
+  fi
+  sed -i 's/^RELEASE_ID=.*/RELEASE_ID=release-initial/' "$root/releases/release-initial/release.env"
+  set_runtime_failure "$root" verify-application-owned release-initial
+  if DEPLOY_ROOT="$root" DATA_DIR="$root/data" BACKUP_DIR="$root/backups" RELEASE_RUNTIME="$fake_runtime" \
+    RUNTIME_LOG="$root/runtime.log" RUNTIME_FAIL_ONCE="$root/fail-once" bash "$recovery" \
+      --initial-abort --candidate release-initial; then
+    fail "initial abort stopped an unowned candidate runtime"
+  fi
+  [[ "$(read_pending "$root")" == release-initial && -f "$root/state/maintenance" ]] \
+    || fail "ownership rejection lost pending or maintenance state"
   DEPLOY_ROOT="$root" DATA_DIR="$root/data" BACKUP_DIR="$root/backups" RELEASE_RUNTIME="$fake_runtime" \
     RUNTIME_LOG="$root/runtime.log" RUNTIME_FAIL_ONCE="$root/fail-once" bash "$recovery" \
       --initial-abort --candidate release-initial || fail "initial pending abort failed"
@@ -1195,14 +1287,18 @@ test_initial_pending_abort_is_explicit_and_safe() {
 test_systemd_cgroup_boundary_is_required() {
   local root="$tmp_dir/systemd-containment" bin="$tmp_dir/systemd-containment/bin" args escaped_pid
   mkdir -p "$root" "$bin"
-  cat > "$bin/systemd-run" <<'SH'
+cat > "$bin/systemd-run" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$@" > "$SYSTEMD_ARGS_LOG"
-while [[ "$1" != -- ]]; do shift; done
+environment=("PATH=$PATH")
+while [[ "$1" != -- ]]; do
+  case "$1" in --setenv=*) environment+=("${1#--setenv=}") ;; esac
+  shift
+done
 shift
-if [[ "${FAKE_SYSTEMD_TIMEOUT:-false}" != true ]]; then exec "$@"; fi
-"$@" & leader=$!
+if [[ "${FAKE_SYSTEMD_TIMEOUT:-false}" != true ]]; then exec env -i "${environment[@]}" "$@"; fi
+env -i "${environment[@]}" ESCAPED_PID_FILE="$ESCAPED_PID_FILE" "$@" & leader=$!
 for _ in $(seq 1 50); do [[ -s "$ESCAPED_PID_FILE" ]] && break; sleep 0.02; done
 [[ -s "$ESCAPED_PID_FILE" ]] || { kill -KILL "$leader" 2>/dev/null || true; exit 1; }
 kill -KILL "$(cat "$ESCAPED_PID_FILE")" "$leader" 2>/dev/null || true
@@ -1220,9 +1316,18 @@ SH
 exec "$@"
 SH
   chmod +x "$bin/setsid"
+  cat > "$root/env-probe" <<'SH'
+#!/usr/bin/env bash
+env | sort > "$1"
+SH
+  chmod +x "$root/env-probe"
   # shellcheck source=release-state.sh
   source "$script_dir/release-state.sh"
-  SYSTEMD_ARGS_LOG="$root/args" PATH="$bin:$PATH" run_with_hard_timeout 3 /usr/bin/true \
+  SYSTEMD_ARGS_LOG="$root/args" PATH="$bin:$PATH" PUBLIC_HEALTH_URL=https://health.invalid/ \
+    PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=2 PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=3 \
+    DEPLOY_ROOT=/srv/design-hub DATA_DIR=/srv/data BACKUP_DIR=/srv/backups MYSQL_ENV=/srv/mysql.env \
+    SERVER_IP=192.0.2.1 API_IMAGE_REPOSITORY=registry.invalid/design-hub SMTP_PASSWORD=must-not-cross \
+    run_with_hard_timeout 3 "$root/env-probe" "$root/probe-env" \
     || fail "fake systemd controller boundary failed"
   args="$(cat "$root/args")"
   grep -Fxq -- '--wait' "$root/args" || fail "systemd controller does not wait for the unit result"
@@ -1230,6 +1335,18 @@ SH
   grep -Fxq -- '--property=KillMode=control-group' "$root/args" || fail "systemd controller lacks cgroup-wide kill"
   grep -Fxq -- '--property=RuntimeMaxSec=3s' "$root/args" || fail "systemd controller lacks hard runtime deadline"
   grep -Fxq -- '--property=TimeoutStopSec=2s' "$root/args" || fail "systemd controller lacks bounded stop"
+  for expected in \
+    '--setenv=PUBLIC_HEALTH_URL=https://health.invalid/' \
+    '--setenv=PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS=2' \
+    '--setenv=PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS=3' \
+    '--setenv=DEPLOY_ROOT=/srv/design-hub' '--setenv=DATA_DIR=/srv/data' \
+    '--setenv=BACKUP_DIR=/srv/backups' '--setenv=MYSQL_ENV=/srv/mysql.env' \
+    '--setenv=SERVER_IP=192.0.2.1' '--setenv=API_IMAGE_REPOSITORY=registry.invalid/design-hub'; do
+    grep -Fxq -- "$expected" "$root/args" || fail "systemd controller omitted allowlisted environment: $expected"
+  done
+  ! grep -q 'SMTP_PASSWORD' "$root/args" || fail "systemd controller forwarded a secret environment value"
+  grep -Fxq 'PUBLIC_HEALTH_URL=https://health.invalid/' "$root/probe-env" || fail "clean service environment lost public health URL"
+  ! grep -q 'SMTP_PASSWORD' "$root/probe-env" || fail "clean service environment received a secret"
   [[ "$args" != *setsid* ]] || fail "controller still relies on escapable process groups"
   cat > "$root/escaped-probe" <<'SH'
 #!/usr/bin/env bash
@@ -1304,6 +1421,7 @@ set -euo pipefail
 if [[ "$1 $2" == 'image inspect' ]]; then
   if [[ "$*" == *--format* ]]; then
     case "$*" in
+      *'printf'*'cn.design-hub.release-id'*) printf '%s\t%s\t%s\t%s\n' "$FAKE_IMAGE_ID" "$FAKE_LABEL_RELEASE" "$FAKE_LABEL_SOURCE" "$FAKE_LABEL_REPOSITORY" ;;
       *'.Id'*) printf '%s\n' "$FAKE_IMAGE_ID" ;;
       *'release-id'*) printf '%s\n' "$FAKE_LABEL_RELEASE" ;;
       *'source-commit'*) printf '%s\n' "$FAKE_LABEL_SOURCE" ;;
@@ -1315,7 +1433,21 @@ if [[ "$1 $2" == 'image inspect' ]]; then
   [[ -f "$FAKE_IMAGE_EXISTS" ]]
   exit
 fi
-if [[ "$1" == compose && "$*" == *' build '* ]]; then : > "$FAKE_IMAGE_EXISTS"; exit 0; fi
+if [[ "$1" == build ]]; then
+  iidfile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in --iidfile) iidfile="$2"; shift 2 ;; *) shift ;; esac
+  done
+  [[ -n "$iidfile" ]] || exit 2
+  printf '%s\n' "$FAKE_IMAGE_ID" > "$iidfile"
+  : > "$FAKE_IMAGE_EXISTS"
+  exit 0
+fi
+if [[ "$1" == compose ]]; then
+  printf 'compose-reference=%s args=%s\n' "${API_IMAGE_REFERENCE:-tag}" "$*" >> "$FAKE_DOCKER_LOG"
+  [[ "$*" != *' build '* ]] || : > "$FAKE_IMAGE_EXISTS"
+  exit 0
+fi
 echo "unexpected docker invocation: $*" >&2; exit 2
 SH
   cat > "$bin/python3" <<'SH'
@@ -1329,9 +1461,17 @@ SH
   image_id="sha256:$(printf 'a%.0s' {1..64})"
   source_commit="$(sed -n 's/^SOURCE_COMMIT=//p' "$root/releases/release-image/release.env")"
   export FAKE_LABEL_RELEASE=release-image FAKE_LABEL_SOURCE="$source_commit" FAKE_LABEL_REPOSITORY=design-hub-api
+  export FAKE_DOCKER_LOG="$root/docker.log"
   PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" FAKE_IMAGE_EXISTS="$root/image.exists" FAKE_IMAGE_ID="$image_id" \
     bash "$runtime" build-release "$root/releases/release-image" release-image || fail "first immutable image build failed"
   rm "$root/state/image-identities/release-image.api"
+  printf '%s\n' "$image_id" > "$root/state/image-identities/release-image.api.building"
+  chmod 600 "$root/state/image-identities/release-image.api.building"
+  if PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" FAKE_IMAGE_EXISTS="$root/image.exists" \
+    FAKE_IMAGE_ID="sha256:$(printf 'b%.0s' {1..64})" \
+    bash "$runtime" build-release "$root/releases/release-image" release-image; then
+    fail "crash resume accepted a tag with a different image ID"
+  fi
   PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" FAKE_IMAGE_EXISTS="$root/image.exists" FAKE_IMAGE_ID="$image_id" \
     bash "$runtime" build-release "$root/releases/release-image" release-image || fail "crash-before-identity image resume failed"
   if FAKE_LABEL_SOURCE=wrong-source PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" \
@@ -1344,6 +1484,10 @@ SH
     fail "image resume accepted a different immutable image"
   fi
   assert_file_mode_600 "$root/state/image-identities/release-image.api"
+  PATH="$bin:$PATH" DEPLOY_ROOT="$root" DATA_DIR="$root/data" FAKE_IMAGE_EXISTS="$root/image.exists" FAKE_IMAGE_ID="$image_id" \
+    bash "$runtime" migrate "$root/releases/release-image" release-image || fail "immutable image migration failed"
+  grep -Fq "compose-reference=$image_id" "$root/docker.log" || fail "migrate consumed a mutable image tag"
+  unset FAKE_LABEL_RELEASE FAKE_LABEL_SOURCE FAKE_LABEL_REPOSITORY FAKE_DOCKER_LOG
 }
 
 test_pending_recovery_closes_crash_state() {
@@ -1506,5 +1650,7 @@ if selected systemd-containment; then test_systemd_cgroup_boundary_is_required; 
 if selected final-commit-retry; then test_final_selection_commit_retry; fi
 if selected dangling-state-reject; then test_dangling_release_state_is_rejected; fi
 if selected image-resume-identity; then test_api_image_resume_is_manifest_bound; fi
+if selected lock-tombstone; then test_lock_cleanup_uses_atomic_tombstone; fi
+if selected runtime-contract; then test_runtime_contract_is_protected; fi
 
 echo "release safety ${test_case}: OK"

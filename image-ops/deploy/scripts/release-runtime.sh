@@ -66,19 +66,40 @@ verify_api_image_identity() {
     && grep -Fxq "IMAGE_ID=$actual_image_id" "$identity_file"
 }
 
-inspect_api_image_label() {
-  local image="$1" label="$2"
-  inspected_label="$(docker image inspect --format "{{ index .Config.Labels \"${label}\" }}" "$image")"
+inspect_api_image_object() {
+  local image="$1" tuple
+  tuple="$(docker image inspect --format '{{printf "%s\t%s\t%s\t%s" .Id (index .Config.Labels "cn.design-hub.release-id") (index .Config.Labels "cn.design-hub.source-commit") (index .Config.Labels "cn.design-hub.image-repository")}}' "$image")" || return 1
+  IFS=$'\t' read -r inspected_image_id inspected_release inspected_source inspected_repository <<< "$tuple"
+  [[ "$inspected_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
 }
 
-verify_api_image_labels() {
-  local image="$1" repository="$2" source_commit="$3"
-  inspect_api_image_label "$image" cn.design-hub.release-id
-  [[ "$inspected_label" == "$release_id" ]] || return 1
-  inspect_api_image_label "$image" cn.design-hub.source-commit
-  [[ "$inspected_label" == "$source_commit" ]] || return 1
-  inspect_api_image_label "$image" cn.design-hub.image-repository
-  [[ "$inspected_label" == "$repository" ]] || return 1
+verify_inspected_api_image() {
+  local repository="$1" source_commit="$2"
+  [[ "$inspected_release" == "$release_id" \
+    && "$inspected_source" == "$source_commit" \
+    && "$inspected_repository" == "$repository" ]]
+}
+
+load_api_image_reference() {
+  local repository="${API_IMAGE_REPOSITORY:-design-hub-api}" identity_file="$state_dir/image-identities/${release_id}.api" image_id
+  load_manifest_value SOURCE_COMMIT
+  image_id="$(sed -n 's/^IMAGE_ID=//p' "$identity_file" 2>/dev/null || true)"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || { echo "ERROR: immutable API image identity is unavailable" >&2; return 1; }
+  verify_api_image_identity "$identity_file" "$repository" "$manifest_value" "$image_id" \
+    || { echo "ERROR: immutable API image identity does not match the release manifest" >&2; return 1; }
+  docker image inspect "$image_id" >/dev/null \
+    || { echo "ERROR: immutable API image object is unavailable" >&2; return 1; }
+  API_IMAGE_REFERENCE="$image_id"
+  export API_IMAGE_REFERENCE
+}
+
+read_protected_image_id_file() {
+  local path="$1"
+  [[ -f "$path" && ! -L "$path" && "$(stat -c '%a' "$path")" == 600 \
+    && "$(wc -l < "$path")" -eq 1 ]] || return 1
+  protected_image_id="$(cat "$path")"
+  [[ "$protected_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
 }
 
 read_root_password() {
@@ -146,13 +167,33 @@ PY
 case "$action" in
   import-legacy)
     image_repository="${API_IMAGE_REPOSITORY:-design-hub-api}"
-    docker image inspect "${image_repository}:latest" >/dev/null
-    docker image inspect "${image_repository}:${release_id}" >/dev/null 2>&1 && {
-      echo "ERROR: imported legacy image identity already exists" >&2
-      exit 1
-    }
-    docker image tag "${image_repository}:latest" "${image_repository}:${release_id}"
-    unset image_repository
+    identity_file="$state_dir/image-identities/${release_id}.api"
+    import_identity_file="${identity_file}.importing"
+    mkdir -p "$(dirname "$identity_file")"
+    source_image_id="$(docker image inspect --format '{{.Id}}' "${image_repository}:latest")"
+    [[ "$source_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "ERROR: legacy source image has an invalid immutable ID" >&2; exit 1; }
+    if [[ ! -e "$import_identity_file" && ! -L "$import_identity_file" ]]; then
+      umask 077
+      printf '%s\n' "$source_image_id" > "$import_identity_file"
+      chmod 600 "$import_identity_file"
+    fi
+    read_protected_image_id_file "$import_identity_file" \
+      || { echo "ERROR: legacy import identity is invalid" >&2; exit 1; }
+    [[ "$protected_image_id" == "$source_image_id" ]] \
+      || { echo "ERROR: legacy source tag changed during import" >&2; exit 1; }
+    if ! docker image inspect "${image_repository}:${release_id}" >/dev/null 2>&1; then
+      docker image tag "${image_repository}:latest" "${image_repository}:${release_id}"
+    fi
+    image_id="$(docker image inspect --format '{{.Id}}' "${image_repository}:${release_id}")"
+    [[ "$image_id" == "$protected_image_id" ]] || { echo "ERROR: imported legacy tag differs from its immutable source" >&2; exit 1; }
+    if [[ -e "$identity_file" || -L "$identity_file" ]]; then
+      verify_api_image_identity "$identity_file" "$image_repository" "$SOURCE_COMMIT" "$image_id" \
+        || { echo "ERROR: imported legacy image identity conflicts with the manifest" >&2; exit 1; }
+    else
+      write_api_image_identity "$identity_file" "$image_repository" "$SOURCE_COMMIT" "$image_id"
+    fi
+    rm -- "$import_identity_file"
+    unset image_repository identity_file import_identity_file source_image_id image_id protected_image_id
     ;;
 
   prepare)
@@ -183,34 +224,54 @@ SQL
       || { echo "ERROR: API image repository is invalid" >&2; exit 1; }
     image="${image_repository}:${release_id}"
     identity_file="$state_dir/image-identities/${release_id}.api"
+    build_identity_file="${identity_file}.building"
     load_manifest_value SOURCE_COMMIT
     source_commit="$manifest_value"
     if docker image inspect "$image" >/dev/null 2>&1; then
-      image_id="$(docker image inspect --format '{{.Id}}' "$image")"
-      [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
-        || { echo "ERROR: existing API image has an invalid immutable ID" >&2; exit 1; }
-      verify_api_image_labels "$image" "$image_repository" "$source_commit" \
+      inspect_api_image_object "$image" \
+        || { echo "ERROR: existing API image object is invalid" >&2; exit 1; }
+      image_id="$inspected_image_id"
+      verify_inspected_api_image "$image_repository" "$source_commit" \
         || { echo "ERROR: existing API image labels do not match this release manifest" >&2; exit 1; }
       if [[ -e "$identity_file" || -L "$identity_file" ]]; then
         verify_api_image_identity "$identity_file" "$image_repository" "$source_commit" "$image_id" \
           || { echo "ERROR: existing API image is not bound to this release manifest" >&2; exit 1; }
       else
+        read_protected_image_id_file "$build_identity_file" \
+          || { echo "ERROR: existing API image has no protected build identity" >&2; exit 1; }
+        [[ "$protected_image_id" == "$image_id" ]] \
+          || { echo "ERROR: existing API image differs from its protected build identity" >&2; exit 1; }
         write_api_image_identity "$identity_file" "$image_repository" "$source_commit" "$image_id"
+        rm -- "$build_identity_file"
       fi
       echo "    Reusing manifest-bound immutable API image: ${image}"
     else
-      [[ ! -e "$identity_file" && ! -L "$identity_file" ]] \
+      [[ ! -e "$identity_file" && ! -L "$identity_file" \
+        && ! -e "$build_identity_file" && ! -L "$build_identity_file" ]] \
         || { echo "ERROR: API image identity exists without its immutable image" >&2; exit 1; }
-      compose build api dkim smtp
-      image_id="$(docker image inspect --format '{{.Id}}' "$image")"
-      [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
-        || { echo "ERROR: built API image has an invalid immutable ID" >&2; exit 1; }
-      verify_api_image_labels "$image" "$image_repository" "$source_commit" \
+      mkdir -p "$(dirname "$identity_file")"
+      umask 077
+      docker build --iidfile "$build_identity_file" \
+        --label "cn.design-hub.release-id=$release_id" \
+        --label "cn.design-hub.source-commit=$source_commit" \
+        --label "cn.design-hub.image-repository=$image_repository" \
+        --tag "$image" "$release_dir/app"
+      chmod 600 "$build_identity_file"
+      read_protected_image_id_file "$build_identity_file" \
+        || { echo "ERROR: Docker did not produce a protected immutable image ID" >&2; exit 1; }
+      image_id="$protected_image_id"
+      compose build dkim smtp
+      inspect_api_image_object "$image" \
+        || { echo "ERROR: built API image object is invalid" >&2; exit 1; }
+      [[ "$inspected_image_id" == "$image_id" ]] \
+        || { echo "ERROR: API image tag changed after its immutable build" >&2; exit 1; }
+      verify_inspected_api_image "$image_repository" "$source_commit" \
         || { echo "ERROR: built API image labels do not match this release manifest" >&2; exit 1; }
       write_api_image_identity "$identity_file" "$image_repository" "$source_commit" "$image_id"
+      rm -- "$build_identity_file"
     fi
     ensure_dkim_key
-    unset image_repository image identity_file source_commit image_id manifest_value
+    unset image_repository image identity_file build_identity_file source_commit image_id manifest_value protected_image_id
     ;;
 
   enable-maintenance)
@@ -235,10 +296,12 @@ SQL
     ;;
 
   migrate)
+    load_api_image_reference
     compose run --rm --no-deps api alembic upgrade head
     ;;
 
   start-release)
+    load_api_image_reference
     compose up -d redis dkim smtp
     wait_healthy design-hub-redis redis
     wait_healthy design-hub-dkim dkim
@@ -301,6 +364,28 @@ SQL
       rm -f "$inspect_error"
     done
     unset container running inspect_error
+    ;;
+
+  verify-application-owned)
+    for container in design-hub-api design-hub-worker; do
+      inspect_error="$(mktemp)"
+      if owner_release="$(docker container inspect --format '{{ index .Config.Labels "com.design-hub.release" }}' "$container" 2>"$inspect_error")"; then
+        [[ "$owner_release" == "$release_id" ]] || {
+          echo "ERROR: ${container} belongs to another release" >&2
+          rm -f "$inspect_error"
+          exit 1
+        }
+      elif grep -Fqx "Error: No such container: $container" "$inspect_error"; then
+        :
+      else
+        echo "ERROR: unable to inspect ${container} ownership" >&2
+        cat "$inspect_error" >&2
+        rm -f "$inspect_error"
+        exit 1
+      fi
+      rm -f "$inspect_error"
+    done
+    unset container owner_release inspect_error
     ;;
 
   restore-schema)

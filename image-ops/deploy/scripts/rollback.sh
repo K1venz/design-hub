@@ -187,6 +187,7 @@ else
 fi
 
 runtime="${RELEASE_RUNTIME:-$target_dir/deploy/scripts/release-runtime.sh}"
+require_runtime_contract "$runtime"
 bash "$runtime" enable-maintenance "$target_dir" "$to_release"
 restore_bound_environment_snapshot \
   "$snapshot_file" "$snapshot_metadata_file" "$env_file" \

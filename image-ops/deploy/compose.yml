@@ -99,7 +99,7 @@ services:
         cn.design-hub.release-id: ${RELEASE_ID:?RELEASE_ID is required}
         cn.design-hub.source-commit: ${SOURCE_COMMIT:?SOURCE_COMMIT is required}
         cn.design-hub.image-repository: ${API_IMAGE_REPOSITORY:-design-hub-api}
-    image: ${API_IMAGE_REPOSITORY:-design-hub-api}:${RELEASE_ID:?RELEASE_ID is required}
+    image: ${API_IMAGE_REFERENCE:-${API_IMAGE_REPOSITORY:-design-hub-api}:${RELEASE_ID:?RELEASE_ID is required}}
     container_name: design-hub-api
     restart: unless-stopped
     env_file:
@@ -129,7 +129,7 @@ services:
       com.design-hub.release: ${RELEASE_ID:?RELEASE_ID is required}
 
   worker:
-    image: ${API_IMAGE_REPOSITORY:-design-hub-api}:${RELEASE_ID:?RELEASE_ID is required}
+    image: ${API_IMAGE_REFERENCE:-${API_IMAGE_REPOSITORY:-design-hub-api}:${RELEASE_ID:?RELEASE_ID is required}}
     container_name: design-hub-worker
     restart: unless-stopped
     command: ["python", "-m", "design_hub.interface.worker"]

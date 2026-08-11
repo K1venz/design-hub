@@ -39,10 +39,11 @@ grep -Fxq "RELEASE_ID=${release_id}" "$release_dir/release.env" || {
   exit 1
 }
 
+runtime="${RELEASE_RUNTIME:-$release_dir/deploy/scripts/release-runtime.sh}"
+require_runtime_contract "$runtime"
 mkdir -p "$shared_dir" "$state_dir/env-snapshots" "$backup_dir"
 acquire_release_lock "$lock_dir" deploy
 
-runtime="${RELEASE_RUNTIME:-$release_dir/deploy/scripts/release-runtime.sh}"
 previous_release=""
 environment_snapshot_ready=false
 selection_pending_written=false

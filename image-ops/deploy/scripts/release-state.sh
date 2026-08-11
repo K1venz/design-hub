@@ -14,6 +14,16 @@ require_release_id() {
   }
 }
 
+require_runtime_contract() {
+  local runtime="$1" mode
+  [[ "$runtime" == /* ]] || { echo "ERROR: release runtime path must be absolute" >&2; return 1; }
+  [[ -f "$runtime" && ! -L "$runtime" && -x "$runtime" ]] \
+    || { echo "ERROR: release runtime must be an executable regular file" >&2; return 1; }
+  mode="$(stat -c '%a' "$runtime")" || return 1
+  (( (8#$mode & 8#022) == 0 )) \
+    || { echo "ERROR: release runtime must not be group- or world-writable" >&2; return 1; }
+}
+
 atomic_state_write() {
   local destination="$1"
   local value="$2"
@@ -190,13 +200,19 @@ borrow_release_lock() {
 }
 
 release_release_lock() {
-  local lock_dir="$1" expected_token="$2"
+  local lock_dir="$1" expected_token="$2" tombstone
   load_lock_owner "$lock_dir" || { echo "ERROR: cannot validate deployment lock for cleanup" >&2; return 1; }
   [[ "$expected_token" == "$lock_owner_token" ]] || { echo "ERROR: refusing to remove a lock owned by another operation" >&2; return 1; }
   if find "$lock_dir" -mindepth 1 -maxdepth 1 ! -name owner ! -name '.owner.*' -print -quit | grep -q .; then
     echo "ERROR: deployment lock contains unexpected files" >&2; return 1
   fi
   validate_lock_partials "$lock_dir" "$expected_token" || return 1
+  tombstone="${lock_dir}.released.${expected_token}"
+  [[ ! -e "$tombstone" && ! -L "$tombstone" ]] \
+    || { echo "ERROR: deployment lock cleanup tombstone already exists" >&2; return 1; }
+  mv -- "$lock_dir" "$tombstone" \
+    || { echo "ERROR: failed to atomically retire deployment lock" >&2; return 1; }
+  lock_dir="$tombstone"
   remove_lock_partials "$lock_dir" || return 1
   [[ -z "$(find "$lock_dir" -mindepth 1 -maxdepth 1 ! -name owner -print -quit)" ]] \
     || { echo "ERROR: deployment lock cleanup is incomplete" >&2; return 1; }
@@ -222,7 +238,8 @@ stable_copy_regular_file() {
 }
 
 run_with_hard_timeout() {
-  local max_seconds="$1" leader watchdog status leader_win_pid="" timeout_marker unit_name
+  local max_seconds="$1" leader watchdog status leader_win_pid="" timeout_marker unit_name key value
+  local -a systemd_environment=()
   shift
   case "$(uname -s)" in
     MINGW*|MSYS*)
@@ -236,11 +253,22 @@ run_with_hard_timeout() {
       [[ -d /run/systemd/system || -n "${RELEASE_ALLOW_FAKE_SYSTEMD:-}" ]] \
         || { echo "ERROR: systemd is not the active service manager" >&2; return 1; }
       unit_name="design-hub-probe-$BASHPID-$(openssl rand -hex 6)"
+      for key in PUBLIC_HEALTH_URL PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS \
+        DEPLOY_ROOT DATA_DIR BACKUP_DIR MYSQL_ENV SERVER_IP API_IMAGE_REPOSITORY; do
+        if [[ -v "$key" ]]; then
+          value="${!key}"
+          [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] \
+            || { echo "ERROR: invalid newline in public probe environment" >&2; return 1; }
+          systemd_environment+=("--setenv=${key}=${value}")
+        fi
+      done
       systemd-run --quiet --wait --collect --pipe --service-type=exec \
         "--unit=$unit_name" \
+        '--working-directory=/' \
         "--property=RuntimeMaxSec=${max_seconds}s" \
         '--property=TimeoutStopSec=2s' \
         '--property=KillMode=control-group' \
+        "${systemd_environment[@]}" \
         -- "$@"
       return $?
       ;;
