@@ -2,41 +2,6 @@
 
 ENV_FILE="${ENV_FILE:-.env}"
 
-snapshot_environment() {
-  local source_file="$1"
-  local snapshot_file="$2"
-  local snapshot_dir
-  local temporary
-
-  [[ -f "$source_file" ]] || {
-    echo "ERROR: environment file is missing" >&2
-    return 1
-  }
-  snapshot_dir="$(dirname "$snapshot_file")"
-  mkdir -p "$snapshot_dir"
-  temporary="${snapshot_file}.tmp.$$"
-  umask 077
-  cp "$source_file" "$temporary"
-  chmod 600 "$temporary"
-  mv -f "$temporary" "$snapshot_file"
-}
-
-restore_environment() {
-  local snapshot_file="$1"
-  local destination_file="$2"
-  local temporary
-
-  [[ -f "$snapshot_file" ]] || {
-    echo "ERROR: environment snapshot is missing" >&2
-    return 1
-  }
-  temporary="${destination_file}.restore.$$"
-  umask 077
-  cp "$snapshot_file" "$temporary"
-  chmod 600 "$temporary"
-  mv -f "$temporary" "$destination_file"
-}
-
 migrate_legacy_mail_env() {
   local legacy_count
   local current_count

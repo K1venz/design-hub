@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 deploy_source="$(cd "$script_dir/.." && pwd)"
@@ -47,7 +48,7 @@ case "$action" in
   restore-schema)
     [[ -s "$4" ]]
     ;;
-  prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-public)
+  prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-public|stop-application|verify-application-stopped)
     ;;
   *)
     echo "unexpected runtime action: $action" >&2
@@ -150,16 +151,29 @@ grep -q '^PASSWORD_RESET_CODE_PEPPER=' "$remote_root/shared/.env"
 ! grep -q '^EMAIL_VERIFICATION_CODE_PEPPER=' "$remote_root/shared/.env"
 ! grep -q '^restore-schema:' "$runtime_log"
 
-schema_backup="$tmp_dir/explicit-schema.sql"
-printf '%s\n' 'explicit schema rollback fixture' > "$schema_backup"
+stage_release release-c
 DEPLOY_ROOT="$remote_root" \
 DATA_DIR="$tmp_dir/data" \
 BACKUP_DIR="$remote_root/backups" \
 RELEASE_RUNTIME="$tmp_dir/fake-runtime.sh" \
 RUNTIME_LOG="$runtime_log" \
 RUNTIME_FAIL_ONCE="$runtime_fail_once" \
-  bash "$remote_root/releases/release-b/deploy/scripts/rollback.sh" \
-    --from release-b --to "$legacy_release" --schema-backup "$schema_backup"
+  bash "$remote_root/releases/release-c/deploy/scripts/deploy.sh" release-c
+
+[[ "$(cat "$remote_root/state/active-release")" == release-c ]]
+[[ "$(cat "$remote_root/state/previous-release")" == "$legacy_release" ]]
+
+schema_backup="$remote_root/backups/explicit-schema.sql"
+printf '%s\n' 'explicit schema rollback fixture' > "$schema_backup"
+chmod 600 "$schema_backup"
+DEPLOY_ROOT="$remote_root" \
+DATA_DIR="$tmp_dir/data" \
+BACKUP_DIR="$remote_root/backups" \
+RELEASE_RUNTIME="$tmp_dir/fake-runtime.sh" \
+RUNTIME_LOG="$runtime_log" \
+RUNTIME_FAIL_ONCE="$runtime_fail_once" \
+  bash "$remote_root/releases/release-c/deploy/scripts/rollback.sh" \
+    --from release-c --to "$legacy_release" --schema-backup "$schema_backup"
 grep -q "restore-schema:${legacy_release}" "$runtime_log"
 
 echo "versioned release, automatic rollback, environment restore, and explicit schema rollback: OK"

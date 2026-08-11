@@ -95,12 +95,14 @@ PY
 
 case "$action" in
   import-legacy)
-    docker image inspect design-hub-api:latest >/dev/null
-    docker image inspect "design-hub-api:${release_id}" >/dev/null 2>&1 && {
+    image_repository="${API_IMAGE_REPOSITORY:-design-hub-api}"
+    docker image inspect "${image_repository}:latest" >/dev/null
+    docker image inspect "${image_repository}:${release_id}" >/dev/null 2>&1 && {
       echo "ERROR: imported legacy image identity already exists" >&2
       exit 1
     }
-    docker image tag design-hub-api:latest "design-hub-api:${release_id}"
+    docker image tag "${image_repository}:latest" "${image_repository}:${release_id}"
+    unset image_repository
     ;;
 
   prepare)
@@ -191,6 +193,23 @@ SQL
   health-public)
     curl --fail --silent --show-error --insecure \
       "${PUBLIC_HEALTH_URL:-https://127.0.0.1/}" >/dev/null
+    ;;
+
+  stop-application)
+    compose stop api worker
+    ;;
+
+  verify-application-stopped)
+    for container in design-hub-api design-hub-worker; do
+      if docker container inspect "$container" >/dev/null 2>&1; then
+        running="$(docker inspect -f '{{.State.Running}}' "$container")"
+        [[ "$running" == false ]] || {
+          echo "ERROR: ${container} is still running before schema restore" >&2
+          exit 1
+        }
+      fi
+    done
+    unset container running
     ;;
 
   restore-schema)
