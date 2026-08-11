@@ -34,7 +34,12 @@ if [[ -e "$lock_dir/owner" ]]; then
 else
   validate_lock_partials "$lock_dir" || exit 1
   [[ "$lock_partials_found" == true ]] || { echo "ERROR: ownerless deployment lock has no recoverable metadata" >&2; exit 1; }
+  owner_token="$partial_lock_token"
 fi
+tombstone="${lock_dir}.recovered.${owner_token}"
+[[ ! -e "$tombstone" && ! -L "$tombstone" ]] || { echo "ERROR: stale lock recovery tombstone already exists" >&2; exit 1; }
+mv -- "$lock_dir" "$tombstone" || { echo "ERROR: failed to atomically retire stale deployment lock" >&2; exit 1; }
+lock_dir="$tombstone"
 remove_lock_partials "$lock_dir" || exit 1
 if [[ -e "$lock_dir/owner" ]]; then
   rm "$lock_dir/owner" || { echo "ERROR: failed to remove stale deployment lock owner" >&2; exit 1; }

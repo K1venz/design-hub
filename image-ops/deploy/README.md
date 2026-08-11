@@ -44,12 +44,13 @@ are present.
 Set `API_IMAGE_REPOSITORY` consistently for import, build, compose, and rollback;
 its default is `design-hub-api`. The API and worker image is tagged
 `${API_IMAGE_REPOSITORY:-design-hub-api}:<release-id>` and is never rebuilt under
-an existing identity. Immutable image labels bind repository, release, and
-source commit; a mode-600 identity record additionally binds the Docker image
-ID. If a crash occurs immediately after the build, the controller may recreate
-the missing record only from matching image labels and the exact staged
-manifest. An interrupted final state commit may reuse the image only when all
-identities still match. Compose labels API, worker, and nginx with
+an existing identity. Docker writes the API image ID to a protected `--iidfile`;
+immutable image labels bind repository, release, and source commit, while the
+mode-600 identity record binds that exact Docker image ID. A build/interrupted
+commit resumes only when tag, protected build ID, labels, and staged manifest
+all agree. Migration and API/worker startup consume the verified `sha256:` image
+object rather than the mutable tag. Legacy import uses the same protected-ID
+intent before tagging. Compose labels API, worker, and nginx with
 the same release ID. nginx binds only `releases/<release-id>/web` selected by the
 release orchestrator.
 
@@ -178,7 +179,11 @@ On Linux, `systemd-run` and an active systemd service manager are mandatory. The
 controller runs each probe in a transient service with `RuntimeMaxSec`, a
 two-second `TimeoutStopSec`, and `KillMode=control-group`; even a descendant that
 calls `setsid` remains inside the unit cgroup. Missing systemd support or a
-non-successful unit result fails the release closed.
+non-successful unit result fails the release closed. Because system services
+start with a clean environment, the controller explicitly forwards only public
+health URL/timeouts and non-secret runtime paths/network/image settings. Mail,
+database, JWT, and other secret values are never forwarded. A custom runtime
+must be an absolute executable regular file that is not group/world writable.
 
 Do not delete `state/deploy.lock` by hand. Its unguessable token binds an
 automatic rollback to the deployment that owns the lock. If the owning process
@@ -190,6 +195,11 @@ lock contents:
 bash /opt/docker/design-hub/releases/<release-id>/deploy/scripts/recover-release-lock.sh \
   --confirm-stale-lock-recovery
 ```
+
+Normal cleanup and stale recovery first atomically rename the canonical lock to
+a token-bound tombstone, then remove its contents. A cleanup failure may leave a
+protected tombstone for inspection, but never an ownerless canonical lock and
+never blocks acquisition of a new canonical lock.
 
 If a crash leaves `PENDING_RELEASE` set, do not edit state files. Verify the
 candidate and rollback identities shown in the protected `release-selection`,
@@ -211,6 +221,11 @@ restores the environment, atomically clears pending, and keeps maintenance on:
 bash /opt/docker/design-hub/releases/<candidate>/deploy/scripts/recover-pending-release.sh \
   --initial-abort --candidate <candidate>
 ```
+
+Before the initial abort stops fixed API/worker container names, it validates
+the candidate directory, manifest and runtime, then accepts each container only
+when it is absent or carries `com.design-hub.release=<candidate>`. Docker daemon
+errors and containers belonging to another release keep pending and maintenance.
 
 `release-selection` is mandatory once any release state exists. Before the
 first rollout, confirm that none of `state/active-release`,

@@ -47,7 +47,22 @@ if [[ "$initial_abort" == true ]]; then
   verify_bound_environment_snapshot "$state_dir/env-snapshots/$candidate.before.env" \
     "$state_dir/env-snapshots/$candidate.before.meta" "$candidate" ""
   candidate_dir="$deploy_root/releases/$candidate"
+  [[ -d "$candidate_dir" && ! -L "$candidate_dir" ]] \
+    || { echo "ERROR: initial abort candidate directory is invalid" >&2; exit 1; }
+  candidate_manifest="$candidate_dir/release.env"
+  [[ -f "$candidate_manifest" && ! -L "$candidate_manifest" ]] \
+    || { echo "ERROR: initial abort candidate manifest is invalid" >&2; exit 1; }
+  [[ "$(grep -c '^RELEASE_ID=' "$candidate_manifest" || true)" -eq 1 \
+    && "$(sed -n 's/^RELEASE_ID=//p' "$candidate_manifest")" == "$candidate" ]] \
+    || { echo "ERROR: initial abort candidate manifest identity mismatch" >&2; exit 1; }
+  [[ "$(grep -c '^SOURCE_COMMIT=' "$candidate_manifest" || true)" -eq 1 ]] \
+    || { echo "ERROR: initial abort candidate source identity is malformed" >&2; exit 1; }
+  candidate_source="$(sed -n 's/^SOURCE_COMMIT=//p' "$candidate_manifest")"
+  [[ "$candidate_source" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] \
+    || { echo "ERROR: initial abort candidate source identity is invalid" >&2; exit 1; }
   runtime="${RELEASE_RUNTIME:-$candidate_dir/deploy/scripts/release-runtime.sh}"
+  require_runtime_contract "$runtime"
+  bash "$runtime" verify-application-owned "$candidate_dir" "$candidate"
   bash "$runtime" stop-application "$candidate_dir" "$candidate"
   bash "$runtime" verify-application-stopped "$candidate_dir" "$candidate"
   restore_bound_environment_snapshot "$state_dir/env-snapshots/$candidate.before.env" \
