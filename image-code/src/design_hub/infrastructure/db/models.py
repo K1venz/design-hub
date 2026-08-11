@@ -34,6 +34,7 @@ REGISTRATION_DATETIME = DateTime(timezone=True).with_variant(
     MySqlDateTime(fsp=6),
     "mysql",
 )
+PASSWORD_RESET_DATETIME = REGISTRATION_DATETIME
 
 
 class ModelConfig(Base):
@@ -107,17 +108,37 @@ class AppUser(Base):
 
 
 class PasswordResetChallengeRow(Base):
-    """邮箱验证码重置密码挑战（明文验证码不落库，只存 hash）。"""
+    """Single atomic password-reset delivery claim per email."""
 
     __tablename__ = "password_reset_challenge"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_password_reset_challenge_email"),
+        UniqueConstraint("delivery_id", name="uq_password_reset_challenge_delivery_id"),
+        CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_password_reset_challenge_attempt_count_nonnegative",
+        ),
+        CheckConstraint(
+            "delivery_state IN ('pending_delivery', 'active', 'consumed')",
+            name="ck_password_reset_challenge_delivery_state",
+        ),
+        Index("ix_password_reset_challenge_consumed_at", "consumed_at"),
+    )
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), index=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    delivery_id: Mapped[str] = mapped_column(String(64))
+    email: Mapped[str] = mapped_column(String(255))
     code_hash: Mapped[str] = mapped_column(String(64))
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    delivery_state: Mapped[str] = mapped_column(String(32))
+    expires_at: Mapped[datetime] = mapped_column(PASSWORD_RESET_DATETIME)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        PASSWORD_RESET_DATETIME,
+        server_default=func.now(),
+    )
+    delivery_claimed_at: Mapped[datetime] = mapped_column(PASSWORD_RESET_DATETIME)
+    activated_at: Mapped[datetime | None] = mapped_column(PASSWORD_RESET_DATETIME, default=None)
+    consumed_at: Mapped[datetime | None] = mapped_column(PASSWORD_RESET_DATETIME, default=None)
 
 
 class RegistrationChallengeRow(Base):
