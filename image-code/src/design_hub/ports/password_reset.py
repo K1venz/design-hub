@@ -1,6 +1,7 @@
 """Password-reset delivery and completion persistence boundary."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -118,7 +119,7 @@ class PasswordResetStore(ABC):
         *,
         email: str,
         code_hash: str,
-        password_hash: str,
+        password_hash_factory: Callable[[], str],
         completed_at: datetime,
         max_attempts: int,
     ) -> PasswordResetCompletion:

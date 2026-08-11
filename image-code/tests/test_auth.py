@@ -7,6 +7,7 @@
 
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -193,6 +194,7 @@ class _FakeResetStore(PasswordResetStore):
         self._users = users
         self._items: dict[str, PasswordResetChallenge] = {}
         self._seq = 0
+        self.activation_returns_none = False
 
     async def claim(
         self,
@@ -238,6 +240,8 @@ class _FakeResetStore(PasswordResetStore):
         delivery_id: str,
         activated_at: datetime,
     ) -> PasswordResetChallenge | None:
+        if self.activation_returns_none:
+            return None
         for email, challenge in self._items.items():
             if (
                 challenge.id == challenge_id
@@ -285,7 +289,7 @@ class _FakeResetStore(PasswordResetStore):
         *,
         email: str,
         code_hash: str,
-        password_hash: str,
+        password_hash_factory: Callable[[], str],
         completed_at: datetime,
         max_attempts: int,
     ) -> PasswordResetCompletion:
@@ -308,7 +312,10 @@ class _FakeResetStore(PasswordResetStore):
         account = self._users._by_email.get(email)
         if account is None or not account.enabled:
             return PasswordResetInvalid()
-        self._users._by_email[email] = replace(account, password_hash=password_hash)
+        self._users._by_email[email] = replace(
+            account,
+            password_hash=password_hash_factory(),
+        )
         self._items[email] = replace(
             challenge,
             delivery_state=PasswordResetDeliveryState.CONSUMED,
@@ -734,7 +741,7 @@ def test_password_reset_wrong_code_400() -> None:
 
 
 def test_forgot_password_cooldown() -> None:
-    client, _, _, users, _, _ = _client()
+    client, _, _, users, mailer, _ = _client()
     asyncio.run(
         users.add(
             email="cool@x.com",
@@ -743,10 +750,13 @@ def test_forgot_password_cooldown() -> None:
             role=Role.DESIGNER,
         )
     )
-    assert client.post("/auth/forgot-password", json={"email": "cool@x.com"}).status_code == 200
+    first = client.post("/auth/forgot-password", json={"email": "cool@x.com"})
     again = client.post("/auth/forgot-password", json={"email": "cool@x.com"})
-    assert again.status_code == 400
-    assert "频繁" in again.json()["detail"]
+    assert first.status_code == 200
+    assert again.status_code == 200
+    assert again.json() == first.json()
+    assert isinstance(mailer, _FakeMailer)
+    assert len(mailer.sent) == 1
 
 
 def test_forgot_password_mail_failure_invalidates_challenge() -> None:
@@ -769,12 +779,77 @@ def test_forgot_password_mail_failure_invalidates_challenge() -> None:
             email_verification_code_pepper=_SECRET,
         )
 
-        with pytest.raises(OSError, match="smtp unavailable"):
-            await service.request_password_reset(email="mailfail@x.com")
+        generic = await service.request_password_reset(email="unknown@x.com")
+        first = await service.request_password_reset(email="mailfail@x.com")
+        assert first == generic
         assert await resets.get_active(email="mailfail@x.com") is None
 
-        with pytest.raises(OSError, match="smtp unavailable"):
-            await service.request_password_reset(email="mailfail@x.com")
+        second = await service.request_password_reset(email="mailfail@x.com")
+        assert second == generic
+
+    asyncio.run(run())
+
+
+def test_invalid_password_reset_does_not_hash_the_new_password() -> None:
+    async def run() -> None:
+        _, _, _, users, mailer, resets = _client()
+        users._by_email["cheap-invalid@x.com"] = UserAccount(
+            id=8,
+            email="cheap-invalid@x.com",
+            name="C",
+            role=Role.DESIGNER,
+            created_at=datetime.now(UTC),
+            password_hash="old-hash",
+        )
+        passwords = _CountingPasswordHasher()
+        service = AccountService(
+            users=users,
+            passwords=passwords,
+            tokens=PyJwtTokenService(secret=_SECRET),
+            resets=resets,
+            mailer=mailer,
+            email_verification_code_pepper=_SECRET,
+        )
+        await service.request_password_reset(email="cheap-invalid@x.com")
+
+        with pytest.raises(ValueError, match="验证码"):
+            await service.reset_password(
+                email="cheap-invalid@x.com",
+                code="000000",
+                password="newpassword9",
+            )
+
+        assert passwords.hash_calls == []
+
+    asyncio.run(run())
+
+
+def test_password_reset_activation_failure_is_publicly_indistinguishable() -> None:
+    async def run() -> None:
+        _, _, _, users, mailer, resets = _client()
+        users._by_email["activation-fail@x.com"] = UserAccount(
+            id=8,
+            email="activation-fail@x.com",
+            name="A",
+            role=Role.DESIGNER,
+            created_at=datetime.now(UTC),
+            password_hash="old-hash",
+        )
+        resets.activation_returns_none = True
+        service = AccountService(
+            users=users,
+            passwords=BcryptPasswordHasher(),
+            tokens=PyJwtTokenService(secret=_SECRET),
+            resets=resets,
+            mailer=mailer,
+            email_verification_code_pepper=_SECRET,
+        )
+
+        generic = await service.request_password_reset(email="unknown@x.com")
+        response = await service.request_password_reset(email="activation-fail@x.com")
+
+        assert response == generic
+        assert await resets.get_active(email="activation-fail@x.com") is None
 
     asyncio.run(run())
 

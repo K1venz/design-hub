@@ -51,8 +51,11 @@ Invalid sender addresses or blank display names fail during application
 composition. Header generation errors propagate; the mailer does not replace
 invalid values with defaults. SMTP network errors retain the existing
 password-reset behavior: the exact pending delivery claim is invalidated and the
-request fails. A reset code is not verifiable until SMTP delivery succeeds and
-the matching challenge and delivery identities are atomically activated.
+public endpoint returns the same generic acknowledgement used for unknown emails,
+and a structured warning records the internal failure without the recipient. If
+both delivery and exact invalidation fail, the combined consistency error remains
+fail-fast. A reset code is not verifiable until SMTP delivery succeeds and the
+matching challenge and delivery identities are atomically activated.
 
 ## Password-reset transaction boundary
 
@@ -61,14 +64,19 @@ through `pending_delivery`, `active`, and `consumed`; the database uniqueness
 constraint and atomic claim operation allow only one concurrent sender to win.
 Cooldown enforcement is part of that claim rather than a separate read before
 write, so concurrent requests cannot both send codes and silently invalidate
-one another.
+one another. A pending delivery cannot be replaced while its code lifetime is
+valid; after expiry, a new identity can atomically replace it and the old identity
+can no longer activate or invalidate the replacement.
 
 Reset completion performs the code comparison, attempt accounting, challenge
 consumption, and enabled-user password update through one repository transaction.
 The successful conditional update is the concurrency winner: a second submit of
 the same code is invalid, and a failed password update rolls challenge consumption
-back with it. The browser gives reset mutations zero cache lifetime and clears the
-code and password fields after both successful and failed submissions.
+back with it. Bcrypt runs only after that conditional winner and an enabled user
+row have been locked, so invalid, expired, and disabled-account requests do not
+consume password-hashing CPU. The browser keeps reset secrets outside the shared
+mutation cache and clears the code and password fields after both successful and
+failed submissions.
 
 The release migration deliberately recreates the short-lived reset challenge
 table with the new delivery-state constraints. Any code issued by an older release

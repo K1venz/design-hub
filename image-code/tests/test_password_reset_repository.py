@@ -143,6 +143,86 @@ def test_password_reset_is_not_verifiable_until_delivery_activation(tmp_path: Pa
     asyncio.run(run())
 
 
+def test_pending_password_reset_delivery_cannot_be_reclaimed_after_resend_cooldown(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        factory, engine = await _database(tmp_path / "pending-claim.db")
+        try:
+            await _seed_user(factory, email="pending@example.com")
+            store = SqlAlchemyPasswordResetStore(factory)
+            now = datetime.now(UTC)
+            first = await store.claim(
+                email="pending@example.com",
+                code_hash="a" * 64,
+                expires_at=now + timedelta(minutes=10),
+                claimed_at=now,
+                cooldown_seconds=60,
+            )
+            assert isinstance(first, PasswordResetClaimed)
+
+            second = await store.claim(
+                email="pending@example.com",
+                code_hash="b" * 64,
+                expires_at=now + timedelta(minutes=11, seconds=1),
+                claimed_at=now + timedelta(seconds=61),
+                cooldown_seconds=60,
+            )
+
+            assert isinstance(second, PasswordResetClaimContended)
+            assert await store.activate(
+                challenge_id=first.challenge.id,
+                delivery_id=first.challenge.delivery_id,
+                activated_at=now + timedelta(seconds=62),
+            ) is not None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_expired_pending_password_reset_delivery_can_be_reclaimed(tmp_path: Path) -> None:
+    async def run() -> None:
+        factory, engine = await _database(tmp_path / "expired-pending.db")
+        try:
+            await _seed_user(factory, email="expired-pending@example.com")
+            store = SqlAlchemyPasswordResetStore(factory)
+            now = datetime.now(UTC)
+            first = await store.claim(
+                email="expired-pending@example.com",
+                code_hash="a" * 64,
+                expires_at=now + timedelta(minutes=10),
+                claimed_at=now,
+                cooldown_seconds=60,
+            )
+            assert isinstance(first, PasswordResetClaimed)
+
+            reclaimed_at = now + timedelta(minutes=10, seconds=1)
+            second = await store.claim(
+                email="expired-pending@example.com",
+                code_hash="b" * 64,
+                expires_at=reclaimed_at + timedelta(minutes=10),
+                claimed_at=reclaimed_at,
+                cooldown_seconds=60,
+            )
+
+            assert isinstance(second, PasswordResetClaimed)
+            assert await store.activate(
+                challenge_id=first.challenge.id,
+                delivery_id=first.challenge.delivery_id,
+                activated_at=reclaimed_at,
+            ) is None
+            assert await store.activate(
+                challenge_id=second.challenge.id,
+                delivery_id=second.challenge.delivery_id,
+                activated_at=reclaimed_at,
+            ) is not None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
 def test_concurrent_password_reset_completion_has_one_winner(tmp_path: Path) -> None:
     async def run() -> None:
         factory, engine = await _database(tmp_path / "complete.db")
@@ -163,7 +243,7 @@ def test_concurrent_password_reset_completion_has_one_winner(tmp_path: Path) -> 
                 return await store.complete(
                     email="complete@example.com",
                     code_hash="c" * 64,
-                    password_hash=password_hash,
+                    password_hash_factory=lambda: password_hash,
                     completed_at=now + timedelta(seconds=1),
                     max_attempts=5,
                 )
@@ -223,7 +303,7 @@ def test_password_update_failure_rolls_back_challenge_consumption(tmp_path: Path
                 await store.complete(
                     email="rollback@example.com",
                     code_hash="d" * 64,
-                    password_hash="new-password-hash",
+                    password_hash_factory=lambda: "new-password-hash",
                     completed_at=now + timedelta(seconds=1),
                     max_attempts=5,
                 )
