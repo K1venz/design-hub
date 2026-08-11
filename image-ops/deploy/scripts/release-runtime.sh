@@ -208,13 +208,10 @@ case "$action" in
     mkdir -p "$data_dir"/{generated,assets,exports,redis} "$data_dir/mail"/{spool,dkim}
     mkdir -p "$shared_dir/nginx/certs" "$state_dir" "$backup_dir"
     chmod 700 "$data_dir/mail/dkim"
-    if [[ ! -f "$shared_dir/nginx/certs/design-hub.crt" ]]; then
-      openssl req -x509 -nodes -newkey rsa:2048 \
-        -keyout "$shared_dir/nginx/certs/design-hub.key" \
-        -out "$shared_dir/nginx/certs/design-hub.crt" \
-        -days 825 -subj "/C=CN/O=design-hub/CN=design-hub.local" \
-        -addext "subjectAltName=IP:${server_ip},DNS:design-hub.local" 2>/dev/null
-    fi
+    # shellcheck source=certificate-state.sh
+    source "$release_dir/deploy/scripts/certificate-state.sh"
+    ensure_shared_certificate \
+      "$shared_dir/nginx/certs" "$deploy_root/nginx/certs" "$server_ip"
     config_json="$(compose config --format json)"
     COMPOSE_CONFIG_JSON="$config_json" bash "$release_dir/deploy/scripts/check-mail-config.sh"
     bash "$release_dir/deploy/scripts/test-mail-env.sh"
