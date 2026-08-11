@@ -41,8 +41,15 @@ are present.
 └── mail/{spool,dkim}/
 ```
 
-The API and worker image is tagged `${API_IMAGE_REPOSITORY:-design-hub-api}:<release-id>` and is never
-rebuilt under an existing identity. Compose labels API, worker, and nginx with
+Set `API_IMAGE_REPOSITORY` consistently for import, build, compose, and rollback;
+its default is `design-hub-api`. The API and worker image is tagged
+`${API_IMAGE_REPOSITORY:-design-hub-api}:<release-id>` and is never rebuilt under
+an existing identity. Immutable image labels bind repository, release, and
+source commit; a mode-600 identity record additionally binds the Docker image
+ID. If a crash occurs immediately after the build, the controller may recreate
+the missing record only from matching image labels and the exact staged
+manifest. An interrupted final state commit may reuse the image only when all
+identities still match. Compose labels API, worker, and nginx with
 the same release ID. nginx binds only `releases/<release-id>/web` selected by the
 release orchestrator.
 
@@ -167,10 +174,11 @@ Public probes use a 3-second connect timeout and 10-second total timeout. Set
 `PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS` (1-30) and
 `PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS` (1-120) only to bounded positive integers.
 The controller also enforces the total timeout around custom runtimes.
-On Linux it starts the probe as an isolated job and sends TERM to the complete
-process tree at the total deadline, followed by an unavoidable KILL two seconds
-later. A TERM-ignoring runtime or descendant therefore cannot hold the release
-lock or public probe window indefinitely.
+On Linux, `systemd-run` and an active systemd service manager are mandatory. The
+controller runs each probe in a transient service with `RuntimeMaxSec`, a
+two-second `TimeoutStopSec`, and `KillMode=control-group`; even a descendant that
+calls `setsid` remains inside the unit cgroup. Missing systemd support or a
+non-successful unit result fails the release closed.
 
 Do not delete `state/deploy.lock` by hand. Its unguessable token binds an
 automatic rollback to the deployment that owns the lock. If the owning process
@@ -192,6 +200,16 @@ clears pending only after public health succeeds:
 ```bash
 bash /opt/docker/design-hub/releases/<candidate>/deploy/scripts/recover-pending-release.sh \
   --candidate <candidate> --rollback-target <active-release>
+```
+
+For the first deployment only, a crash may leave pending set while active and
+previous are both empty. Abort that candidate explicitly; the command validates
+the empty-target snapshot, stops and verifies the candidate application,
+restores the environment, atomically clears pending, and keeps maintenance on:
+
+```bash
+bash /opt/docker/design-hub/releases/<candidate>/deploy/scripts/recover-pending-release.sh \
+  --initial-abort --candidate <candidate>
 ```
 
 `release-selection` is mandatory once any release state exists. Before the

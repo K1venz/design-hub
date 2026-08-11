@@ -7,8 +7,10 @@ source "$script_dir/release-state.sh"
 
 candidate=""
 rollback_target=""
+initial_abort=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --initial-abort) initial_abort=true; shift ;;
     --candidate) candidate="${2:?--candidate requires a release identifier}"; shift 2 ;;
     --rollback-target) rollback_target="${2:?--rollback-target requires a release identifier}"; shift 2 ;;
     *) echo "ERROR: unknown pending recovery argument: $1" >&2; exit 2 ;;
@@ -25,7 +27,10 @@ acquire_release_lock "$lock_dir" rollback
 cleanup() {
   local status=$?
   trap - EXIT
-  if [[ "$status" -ne 0 ]]; then atomic_enable_maintenance "$maintenance_file" || true; fi
+  if [[ "$status" -ne 0 ]] && ! atomic_enable_maintenance "$maintenance_file"; then
+    echo "ERROR: failed to retain maintenance during pending recovery" >&2
+    status=1
+  fi
   if ! release_release_lock "$lock_dir" "$release_lock_token"; then [[ "$status" -ne 0 ]] || status=1; fi
   exit "$status"
 }
@@ -33,10 +38,27 @@ trap cleanup EXIT
 atomic_enable_maintenance "$maintenance_file"
 
 require_release_id "$candidate" candidate
-require_release_id "$rollback_target" rollback-target
-[[ "$candidate" != "$rollback_target" ]] || { echo "ERROR: pending candidate and rollback target must differ" >&2; exit 1; }
 load_release_state "$selection_file"
 [[ "$release_state_pending" == "$candidate" ]] || { echo "ERROR: pending recovery candidate mismatch" >&2; exit 1; }
+if [[ "$initial_abort" == true ]]; then
+  [[ -z "$rollback_target" ]] || { echo "ERROR: initial abort cannot specify a rollback target" >&2; exit 1; }
+  [[ -z "$release_state_active" && -z "$release_state_previous" ]] \
+    || { echo "ERROR: initial abort requires empty active and previous state" >&2; exit 1; }
+  verify_bound_environment_snapshot "$state_dir/env-snapshots/$candidate.before.env" \
+    "$state_dir/env-snapshots/$candidate.before.meta" "$candidate" ""
+  candidate_dir="$deploy_root/releases/$candidate"
+  runtime="${RELEASE_RUNTIME:-$candidate_dir/deploy/scripts/release-runtime.sh}"
+  bash "$runtime" stop-application "$candidate_dir" "$candidate"
+  bash "$runtime" verify-application-stopped "$candidate_dir" "$candidate"
+  restore_bound_environment_snapshot "$state_dir/env-snapshots/$candidate.before.env" \
+    "$state_dir/env-snapshots/$candidate.before.meta" "$deploy_root/shared/.env" "$candidate" ""
+  atomic_write_release_selection "$selection_file" "" "" ""
+  echo "==> INITIAL_PENDING_ABORT_DONE=${candidate}"
+  exit 0
+fi
+
+require_release_id "$rollback_target" rollback-target
+[[ "$candidate" != "$rollback_target" ]] || { echo "ERROR: pending candidate and rollback target must differ" >&2; exit 1; }
 [[ "$release_state_active" == "$rollback_target" ]] || { echo "ERROR: pending recovery rollback target mismatch" >&2; exit 1; }
 verify_bound_environment_snapshot "$state_dir/env-snapshots/$candidate.before.env" \
   "$state_dir/env-snapshots/$candidate.before.meta" "$candidate" "$rollback_target"

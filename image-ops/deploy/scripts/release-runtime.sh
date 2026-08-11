@@ -18,6 +18,9 @@ compose_file="$release_dir/deploy/compose.yml"
 
 [[ "$release_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ ]]
 [[ -f "$compose_file" ]]
+[[ "$(grep -c '^SOURCE_COMMIT=' "$release_dir/release.env" || true)" -eq 1 ]]
+SOURCE_COMMIT="$(sed -n 's/^SOURCE_COMMIT=//p' "$release_dir/release.env")"
+[[ "$SOURCE_COMMIT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
 
 export RELEASE_ID="$release_id"
 export DESIGN_HUB_RELEASE_DIR="$release_dir"
@@ -25,10 +28,57 @@ export DESIGN_HUB_SHARED_DIR="$shared_dir"
 export DESIGN_HUB_STATE_DIR="$state_dir"
 export DESIGN_HUB_DATA_DIR="$data_dir"
 export DESIGN_HUB_ENV_FILE="$env_file"
+export SOURCE_COMMIT
 
 compose() {
   docker compose --env-file "$env_file" -f "$compose_file" \
     --project-directory "$release_dir/deploy" "$@"
+}
+
+load_manifest_value() {
+  local key="$1" count
+  count="$(grep -c "^${key}=" "$release_dir/release.env" || true)"
+  [[ "$count" -eq 1 ]] || { echo "ERROR: release manifest field ${key} is malformed" >&2; return 1; }
+  manifest_value="$(sed -n "s/^${key}=//p" "$release_dir/release.env")"
+  [[ -n "$manifest_value" && "$manifest_value" != *$'\n'* ]] || return 1
+}
+
+write_api_image_identity() {
+  local destination="$1" repository="$2" source_commit="$3" image_id="$4" temporary
+  mkdir -p "$(dirname "$destination")"
+  temporary="$(mktemp "$(dirname "$destination")/.api-image.XXXXXX")" || return 1
+  umask 077
+  if ! printf '%s\n' 'API_IMAGE_IDENTITY_FORMAT=1' "REPOSITORY=$repository" \
+    "RELEASE_ID=$release_id" "SOURCE_COMMIT=$source_commit" "IMAGE_ID=$image_id" > "$temporary" \
+    || ! chmod 600 "$temporary" || ! mv -f "$temporary" "$destination"; then
+    rm -f "$temporary"; return 1
+  fi
+}
+
+verify_api_image_identity() {
+  local identity_file="$1" repository="$2" source_commit="$3" actual_image_id="$4"
+  [[ -f "$identity_file" && ! -L "$identity_file" && "$(stat -c '%a' "$identity_file")" == 600 \
+    && "$(wc -l < "$identity_file")" -eq 5 ]] || return 1
+  grep -Fxq 'API_IMAGE_IDENTITY_FORMAT=1' "$identity_file" \
+    && grep -Fxq "REPOSITORY=$repository" "$identity_file" \
+    && grep -Fxq "RELEASE_ID=$release_id" "$identity_file" \
+    && grep -Fxq "SOURCE_COMMIT=$source_commit" "$identity_file" \
+    && grep -Fxq "IMAGE_ID=$actual_image_id" "$identity_file"
+}
+
+inspect_api_image_label() {
+  local image="$1" label="$2"
+  inspected_label="$(docker image inspect --format "{{ index .Config.Labels \"${label}\" }}" "$image")"
+}
+
+verify_api_image_labels() {
+  local image="$1" repository="$2" source_commit="$3"
+  inspect_api_image_label "$image" cn.design-hub.release-id
+  [[ "$inspected_label" == "$release_id" ]] || return 1
+  inspect_api_image_label "$image" cn.design-hub.source-commit
+  [[ "$inspected_label" == "$source_commit" ]] || return 1
+  inspect_api_image_label "$image" cn.design-hub.image-repository
+  [[ "$inspected_label" == "$repository" ]] || return 1
 }
 
 read_root_password() {
@@ -128,13 +178,39 @@ SQL
     ;;
 
   build-release)
-    image="${API_IMAGE_REPOSITORY:-design-hub-api}:${release_id}"
+    image_repository="${API_IMAGE_REPOSITORY:-design-hub-api}"
+    [[ "$image_repository" =~ ^[A-Za-z0-9][A-Za-z0-9._/:_-]*$ ]] \
+      || { echo "ERROR: API image repository is invalid" >&2; exit 1; }
+    image="${image_repository}:${release_id}"
+    identity_file="$state_dir/image-identities/${release_id}.api"
+    load_manifest_value SOURCE_COMMIT
+    source_commit="$manifest_value"
     if docker image inspect "$image" >/dev/null 2>&1; then
-      echo "ERROR: immutable API image already exists: ${image}" >&2
-      exit 1
+      image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+      [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+        || { echo "ERROR: existing API image has an invalid immutable ID" >&2; exit 1; }
+      verify_api_image_labels "$image" "$image_repository" "$source_commit" \
+        || { echo "ERROR: existing API image labels do not match this release manifest" >&2; exit 1; }
+      if [[ -e "$identity_file" || -L "$identity_file" ]]; then
+        verify_api_image_identity "$identity_file" "$image_repository" "$source_commit" "$image_id" \
+          || { echo "ERROR: existing API image is not bound to this release manifest" >&2; exit 1; }
+      else
+        write_api_image_identity "$identity_file" "$image_repository" "$source_commit" "$image_id"
+      fi
+      echo "    Reusing manifest-bound immutable API image: ${image}"
+    else
+      [[ ! -e "$identity_file" && ! -L "$identity_file" ]] \
+        || { echo "ERROR: API image identity exists without its immutable image" >&2; exit 1; }
+      compose build api dkim smtp
+      image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+      [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+        || { echo "ERROR: built API image has an invalid immutable ID" >&2; exit 1; }
+      verify_api_image_labels "$image" "$image_repository" "$source_commit" \
+        || { echo "ERROR: built API image labels do not match this release manifest" >&2; exit 1; }
+      write_api_image_identity "$identity_file" "$image_repository" "$source_commit" "$image_id"
     fi
-    compose build api dkim smtp
     ensure_dkim_key
+    unset image_repository image identity_file source_commit image_id manifest_value
     ;;
 
   enable-maintenance)
