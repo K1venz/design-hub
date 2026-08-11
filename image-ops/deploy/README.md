@@ -41,7 +41,7 @@ are present.
 └── mail/{spool,dkim}/
 ```
 
-The API and worker image is tagged `design-hub-api:<release-id>` and is never
+The API and worker image is tagged `${API_IMAGE_REPOSITORY:-design-hub-api}:<release-id>` and is never
 rebuilt under an existing identity. Compose labels API, worker, and nginx with
 the same release ID. nginx binds only `releases/<release-id>/web` selected by the
 release orchestrator.
@@ -167,6 +167,10 @@ Public probes use a 3-second connect timeout and 10-second total timeout. Set
 `PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS` (1-30) and
 `PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS` (1-120) only to bounded positive integers.
 The controller also enforces the total timeout around custom runtimes.
+On Linux it starts the probe as an isolated job and sends TERM to the complete
+process tree at the total deadline, followed by an unavoidable KILL two seconds
+later. A TERM-ignoring runtime or descendant therefore cannot hold the release
+lock or public probe window indefinitely.
 
 Do not delete `state/deploy.lock` by hand. Its unguessable token binds an
 automatic rollback to the deployment that owns the lock. If the owning process
@@ -178,6 +182,27 @@ lock contents:
 bash /opt/docker/design-hub/releases/<release-id>/deploy/scripts/recover-release-lock.sh \
   --confirm-stale-lock-recovery
 ```
+
+If a crash leaves `PENDING_RELEASE` set, do not edit state files. Verify the
+candidate and rollback identities shown in the protected `release-selection`,
+then execute the gated recovery path. It verifies selection, manifest, snapshot
+identity and digest, restores the bound environment/runtime, and atomically
+clears pending only after public health succeeds:
+
+```bash
+bash /opt/docker/design-hub/releases/<candidate>/deploy/scripts/recover-pending-release.sh \
+  --candidate <candidate> --rollback-target <active-release>
+```
+
+`release-selection` is mandatory once any release state exists. Before the
+first rollout, confirm that none of `state/active-release`,
+`state/previous-release`, or `state/pending-release` remains. The controller
+fails fast if the single selection is missing while any split legacy file is
+present; it never guesses or migrates those identities. A trusted initial
+selection must contain exactly four mode-600 lines: `SELECTION_FORMAT=1`, then
+empty `ACTIVE_RELEASE`, `PREVIOUS_RELEASE`, and `PENDING_RELEASE` values. If a
+legacy runtime must be imported, leave all release state absent and let the
+first guarded deployment create the selection after validating the live tree.
 
 ## Validation
 

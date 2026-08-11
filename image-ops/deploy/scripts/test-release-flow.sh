@@ -46,7 +46,10 @@ case "$action" in
     fi
     ;;
   restore-schema)
-    [[ -s "$4" ]]
+    schema_payload="$(mktemp)"
+    cat > "$schema_payload"
+    [[ -s "$schema_payload" ]]
+    rm -f "$schema_payload"
     ;;
   prepare|build-release|enable-maintenance|migrate|start-release|health-candidate|switch-web|health-public|stop-application|verify-application-stopped)
     ;;

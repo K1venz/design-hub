@@ -45,7 +45,15 @@ atomic_enable_maintenance() {
 load_release_state() {
   local selection_file="$1" line unknown
   release_state_active=""; release_state_previous=""; release_state_pending=""
-  [[ -e "$selection_file" ]] || return 0
+  if [[ ! -e "$selection_file" ]]; then
+    local state_dir
+    state_dir="$(dirname "$selection_file")"
+    if [[ -e "$state_dir/active-release" || -e "$state_dir/previous-release" || -e "$state_dir/pending-release" ]]; then
+      echo "ERROR: legacy split release state exists without release-selection" >&2
+      return 1
+    fi
+    return 0
+  fi
   [[ -f "$selection_file" && ! -L "$selection_file" && "$(stat -c '%a' "$selection_file")" == 600 ]] || {
     echo "ERROR: release selection is not a protected regular file" >&2; return 1; }
   [[ "$(wc -l < "$selection_file")" -eq 4 ]] || { echo "ERROR: release selection is malformed" >&2; return 1; }
@@ -71,6 +79,11 @@ load_release_state() {
     echo "ERROR: pending and active release identities conflict" >&2
     return 1
   fi
+  if [[ -n "$release_state_pending" && -n "$release_state_previous" \
+    && "$release_state_previous" == "$release_state_active" ]]; then
+    echo "ERROR: pending selection cannot have identical active and previous releases" >&2
+    return 1
+  fi
   if [[ -z "$release_state_pending" \
     && -n "$release_state_previous" \
     && "$release_state_previous" == "$release_state_active" ]]; then
@@ -86,6 +99,7 @@ atomic_write_release_selection() {
   [[ -z "$pending" ]] || require_release_id "$pending" pending || return 1
   [[ -z "$previous" || -n "$active" ]] || { echo "ERROR: previous release requires active release" >&2; return 1; }
   [[ -z "$pending" || "$pending" != "$active" ]] || { echo "ERROR: pending and active conflict" >&2; return 1; }
+  [[ -z "$pending" || -z "$previous" || "$previous" != "$active" ]] || { echo "ERROR: pending selection cannot have identical active and previous releases" >&2; return 1; }
   [[ -n "$pending" || -z "$previous" || "$previous" != "$active" ]] || { echo "ERROR: active and previous conflict" >&2; return 1; }
   umask 077
   temporary="$(mktemp "$(dirname "$destination")/.release-selection.XXXXXX")" || return 1
@@ -100,11 +114,11 @@ process_start_ticks() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null; }
 acquire_release_lock() {
   local lock_dir="$1" operation="$2" owner temporary
   owner="$lock_dir/owner"
+  release_lock_token="$(openssl rand -hex 32)" || return 1
+  release_lock_start_ticks="$(process_start_ticks $$)" || return 1
   mkdir "$lock_dir" 2>/dev/null || { echo "ERROR: another release operation holds ${lock_dir}" >&2; return 1; }
   chmod 700 "$lock_dir" || { rmdir "$lock_dir"; return 1; }
   temporary="$(mktemp "$lock_dir/.owner.XXXXXX")" || { rmdir "$lock_dir"; return 1; }
-  release_lock_token="$(openssl rand -hex 32)" || { rmdir "$lock_dir"; return 1; }
-  release_lock_start_ticks="$(process_start_ticks $$)" || { rmdir "$lock_dir"; return 1; }
   umask 077
   if ! printf '%s\n' 'LOCK_FORMAT=1' "TOKEN=$release_lock_token" "PID=$$" "START_TICKS=$release_lock_start_ticks" "OPERATION=$operation" > "$temporary" \
     || ! chmod 600 "$temporary" || ! mv -f "$temporary" "$owner"; then
@@ -136,7 +150,62 @@ release_release_lock() {
   local lock_dir="$1" expected_token="$2"
   load_lock_owner "$lock_dir" || { echo "ERROR: cannot validate deployment lock for cleanup" >&2; return 1; }
   [[ "$expected_token" == "$lock_owner_token" ]] || { echo "ERROR: refusing to remove a lock owned by another operation" >&2; return 1; }
+  if find "$lock_dir" -mindepth 1 -maxdepth 1 ! -name owner ! -name '.owner.*' -print -quit | grep -q .; then
+    echo "ERROR: deployment lock contains unexpected files" >&2; return 1
+  fi
+  rm -f "$lock_dir"/.owner.*
   rm "$lock_dir/owner" && rmdir "$lock_dir" || { echo "ERROR: failed to remove deployment lock" >&2; return 1; }
+}
+
+stable_copy_regular_file() {
+  local source_file="$1" destination="$2" mode="$3" source_identity fd_identity before after
+  [[ -f "$source_file" && ! -L "$source_file" ]] || { echo "ERROR: source is not a regular file" >&2; return 1; }
+  source_identity="$(stat -Lc '%d:%i' "$source_file")" || return 1
+  exec {stable_fd}< "$source_file" || return 1
+  fd_identity="$(stat -Lc '%d:%i' "/proc/$$/fd/$stable_fd")" || { exec {stable_fd}<&-; return 1; }
+  [[ "$source_identity" == "$fd_identity" ]] || { exec {stable_fd}<&-; echo "ERROR: source changed while being opened" >&2; return 1; }
+  before="$(stat -Lc '%d:%i:%s:%y:%z' "/proc/$$/fd/$stable_fd")"
+  if ! cat <&$stable_fd > "$destination"; then exec {stable_fd}<&-; rm -f "$destination"; return 1; fi
+  after="$(stat -Lc '%d:%i:%s:%y:%z' "/proc/$$/fd/$stable_fd")"
+  exec {stable_fd}<&-
+  if [[ "$before" != "$after" || "$(stat -Lc '%d:%i' "$source_file" 2>/dev/null || true)" != "$source_identity" ]]; then
+    rm -f "$destination"; echo "ERROR: source changed while being copied" >&2; return 1
+  fi
+  chmod "$mode" "$destination"
+}
+
+run_with_hard_timeout() {
+  local max_seconds="$1" leader watchdog status leader_win_pid="" timeout_marker
+  shift
+  timeout_marker="$(mktemp "${TMPDIR:-/tmp}/release-timeout.XXXXXX")" || return 1
+  rm -f "$timeout_marker"
+  case "$(uname -s)" in
+    MINGW*|MSYS*)
+      "$@" & leader=$!
+      leader_win_pid="$(ps | awk -v target="$leader" '$1 == target {print $4}')"
+      ;;
+    *)
+      setsid "$@" & leader=$!
+      ;;
+  esac
+  (
+    sleep "$max_seconds"
+    : > "$timeout_marker"
+    if [[ -n "$leader_win_pid" ]]; then
+      taskkill.exe /PID "$leader_win_pid" /T /F >/dev/null 2>&1 || true
+      exit 0
+    fi
+    kill -TERM -- "-$leader" 2>/dev/null || true
+    sleep 2
+    kill -KILL -- "-$leader" 2>/dev/null || true
+  ) &
+  watchdog=$!
+  if wait "$leader"; then status=0; else status=$?; fi
+  kill "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+  if [[ -e "$timeout_marker" ]]; then rm -f "$timeout_marker"; return 124; fi
+  rm -f "$timeout_marker"
+  return "$status"
 }
 
 create_bound_environment_snapshot() {
@@ -162,23 +231,31 @@ create_bound_environment_snapshot() {
     echo "ERROR: environment file is not a regular file" >&2
     return 1
   }
-  [[ ! -e "$snapshot_file" && ! -L "$snapshot_file" \
-    && ! -e "$metadata_file" && ! -L "$metadata_file" ]] || {
-    echo "ERROR: environment snapshot already exists for immutable release ${candidate_release}" >&2
+  [[ "$(stat -c '%a' "$source_file")" == 600 ]] || {
+    echo "ERROR: environment file permissions must be 600" >&2
     return 1
   }
-
   snapshot_dir="$(dirname "$snapshot_file")"
   mkdir -p "$snapshot_dir"
-  snapshot_temporary="${snapshot_file}.tmp.$$"
-  metadata_temporary="${metadata_file}.tmp.$$"
+  snapshot_temporary="$(mktemp "$snapshot_dir/.snapshot.XXXXXX")"
+  metadata_temporary="$(mktemp "$snapshot_dir/.metadata.XXXXXX")"
   umask 077
-  if ! cp "$source_file" "$snapshot_temporary" \
-    || ! chmod 600 "$snapshot_temporary"; then
+  if ! stable_copy_regular_file "$source_file" "$snapshot_temporary" 600; then
     rm -f "$snapshot_temporary" "$metadata_temporary"
     return 1
   fi
   digest="$(sha256sum "$snapshot_temporary" | cut -d' ' -f1)"
+  if [[ -e "$snapshot_file" || -e "$metadata_file" ]]; then
+    if [[ -e "$snapshot_file" && -e "$metadata_file" ]] \
+      && verify_bound_environment_snapshot "$snapshot_file" "$metadata_file" "$candidate_release" "$rollback_release" \
+      && [[ "$digest" == "$snapshot_metadata_digest" ]]; then
+      rm -f "$snapshot_temporary" "$metadata_temporary"
+      return 0
+    fi
+    rm -f "$snapshot_temporary" "$metadata_temporary"
+    echo "ERROR: immutable environment snapshot conflicts with current source" >&2
+    return 1
+  fi
   if ! printf '%s\n' \
     'SNAPSHOT_FORMAT=1' \
     "CANDIDATE_RELEASE=${candidate_release}" \

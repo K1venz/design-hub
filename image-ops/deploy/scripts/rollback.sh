@@ -195,8 +195,12 @@ restore_bound_environment_snapshot \
 if [[ -n "$schema_backup" ]]; then
   bash "$runtime" stop-application "$target_dir" "$to_release"
   bash "$runtime" verify-application-stopped "$target_dir" "$to_release"
-  [[ "$(sha256sum "$protected_schema_backup" | cut -d' ' -f1)" == "$protected_schema_digest" ]] || { echo "ERROR: protected schema input digest mismatch" >&2; exit 1; }
-  bash "$runtime" restore-schema "$target_dir" "$to_release" "$protected_schema_backup"
+  exec {restore_fd}< "$protected_schema_backup"
+  [[ "$(sha256sum "/proc/$$/fd/$restore_fd" | cut -d' ' -f1)" == "$protected_schema_digest" ]] || { exec {restore_fd}<&-; echo "ERROR: protected schema input digest mismatch" >&2; exit 1; }
+  rm -f "$protected_schema_backup"
+  protected_schema_backup=""
+  bash "$runtime" restore-schema "$target_dir" "$to_release" <&$restore_fd
+  exec {restore_fd}<&-
 fi
 
 bash "$runtime" start-release "$target_dir" "$to_release"
@@ -208,8 +212,8 @@ connect_timeout="${PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS:-3}"
 max_timeout="${PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS:-10}"
 [[ "$connect_timeout" =~ ^[1-9][0-9]*$ && "$connect_timeout" -le 30 ]] || { echo "ERROR: invalid public health connect timeout" >&2; exit 1; }
 [[ "$max_timeout" =~ ^[1-9][0-9]*$ && "$max_timeout" -le 120 ]] || { echo "ERROR: invalid public health max timeout" >&2; exit 1; }
-PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS="$connect_timeout" PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS="$max_timeout" \
-  timeout --signal=TERM "$max_timeout" bash "$runtime" health-public "$target_dir" "$to_release"
+export PUBLIC_HEALTH_CONNECT_TIMEOUT_SECONDS="$connect_timeout" PUBLIC_HEALTH_MAX_TIMEOUT_SECONDS="$max_timeout"
+run_with_hard_timeout "$max_timeout" bash "$runtime" health-public "$target_dir" "$to_release"
 
 atomic_write_release_selection "$selection_file" "$to_release" "$target_previous_release" ""
 [[ -z "$protected_schema_backup" ]] || rm -f "$protected_schema_backup"
