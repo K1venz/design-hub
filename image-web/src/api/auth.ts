@@ -134,6 +134,7 @@ export interface ResetPasswordVars {
 /** POST /auth/forgot-password —— 发送重置验证码（防枚举，始终成功文案）。 */
 export function useForgotPassword() {
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: ForgotPasswordVars) => {
       const { data, error, response } = await api
         .POST('/auth/forgot-password', { body: { email: vars.email } })
@@ -150,6 +151,7 @@ export function useForgotPassword() {
 /** POST /auth/reset-password —— 校验验证码并设新密码（密码公钥加密）。 */
 export function useResetPassword() {
   return useMutation({
+    gcTime: 0,
     mutationFn: async (vars: ResetPasswordVars) => {
       const password = await encryptSecret(vars.password)
       const { data, error, response } = await api
