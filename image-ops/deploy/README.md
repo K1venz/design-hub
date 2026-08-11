@@ -26,8 +26,10 @@ are present.
 ├── state/
 │   ├── active-release
 │   ├── previous-release
+│   ├── pending-release            # exists only while a candidate is uncommitted
 │   ├── maintenance               # presence makes HTTPS return 503
-│   └── env-snapshots/<release>.before.env
+│   ├── env-snapshots/<release>.before.env
+│   └── env-snapshots/<release>.before.meta
 
 /root/db-backup-<release>-<timestamp>.sql
 
@@ -66,7 +68,9 @@ The orchestrator performs these guarded steps:
 1. On the first release-managed rollout, import the existing SPA and
    `design-hub-api:latest` as an immutable `legacy-*` rollback release.
 2. Copy the existing root `.env` into `shared/.env` when needed and create a
-   mode-600 snapshot for this release.
+   mode-600 snapshot plus non-secret metadata that binds its SHA-256 digest to
+   the candidate and rollback-target release identities. Record the candidate
+   as pending before any environment mutation.
 3. Explicitly and atomically rename `PASSWORD_RESET_CODE_PEPPER` to
    `EMAIL_VERIFICATION_CODE_PEPPER` without printing values. Normal provisioning
    rejects the legacy key; only this migration path accepts it.
@@ -76,8 +80,9 @@ The orchestrator performs these guarded steps:
    configuration before any database or runtime switch.
 6. Back up MySQL, run Alembic from the candidate image, start API/worker, and
    require container, API, and migration health.
-7. Atomically record the release, recreate nginx against that versioned SPA,
-   verify its index hash, remove maintenance, and check the public endpoint.
+7. Recreate nginx against the versioned SPA while the prior release remains
+   active in state, verify its index hash, remove maintenance, and check the
+   public endpoint. Only then atomically promote the pending candidate to active.
 
 Any failure after the environment snapshot automatically invokes the executable
 rollback path. If rollback itself fails, maintenance remains enabled and the
@@ -123,8 +128,10 @@ recipient, approved password, and received code at runtime.
 
 ## Rollback
 
-Normal rollback changes the API/worker image, versioned SPA, and environment
-snapshot together. It deliberately does not restore the database:
+Normal rollback changes the API/worker image, versioned SPA, and bound
+environment snapshot together. It verifies that `--from` is active, `--to` is
+the recorded previous release, and the snapshot metadata binds that exact edge.
+It deliberately does not restore the database:
 
 ```bash
 bash /opt/docker/design-hub/releases/<from-release>/deploy/scripts/rollback.sh \
@@ -141,10 +148,14 @@ bash /opt/docker/design-hub/releases/<from-release>/deploy/scripts/rollback.sh \
   --schema-backup /root/db-backup-<release>.sql
 ```
 
-The rollback command enables maintenance first, restores the mode-600 environment
-snapshot, starts and health-checks the previous immutable API/worker, recreates
-nginx against the previous SPA, then reopens traffic. DNS, SMTP queue, DKIM keys,
-and other persisted application data are not deleted.
+The rollback command enables maintenance first and restores the verified
+mode-600 environment snapshot. Runtime-only rollback then starts and
+health-checks the previous immutable API/worker without a database restore. An
+explicit schema restore first stops API and worker and verifies both are stopped
+before importing MySQL. Both paths recreate nginx against the previous SPA and
+only remove maintenance for the public probe window; any failure restores the
+marker atomically. DNS, SMTP queue, DKIM keys, and other persisted application
+data are not deleted.
 
 ## Validation
 
@@ -154,6 +165,7 @@ Local release semantics and environment restoration are executable tests:
 bash image-ops/deploy/scripts/test-mail-env.sh
 bash image-ops/deploy/scripts/test-registration-ratelimits.sh
 bash image-ops/deploy/scripts/test-release-flow.sh
+bash image-ops/deploy/scripts/test-release-safety.sh
 ```
 
 On the production host also run compose and nginx validation through the staged
