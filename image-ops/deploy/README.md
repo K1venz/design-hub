@@ -97,6 +97,12 @@ Any failure after the environment snapshot automatically invokes the executable
 rollback path. If rollback itself fails, maintenance remains enabled and the
 script exits nonzero.
 
+The atomic password-reset migration invalidates all outstanding reset codes while
+maintenance is enabled. This table contains only short-lived reset credentials;
+users must request a fresh code after the release completes. New codes remain
+pending until SMTP delivery succeeds, and password update plus code consumption
+commit in one database transaction.
+
 ## Environment and mail boundary
 
 Production uses:

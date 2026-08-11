@@ -50,8 +50,30 @@ unchanged.
 Invalid sender addresses or blank display names fail during application
 composition. Header generation errors propagate; the mailer does not replace
 invalid values with defaults. SMTP network errors retain the existing
-password-reset behavior: the generated reset challenge is invalidated and the
-request fails.
+password-reset behavior: the exact pending delivery claim is invalidated and the
+request fails. A reset code is not verifiable until SMTP delivery succeeds and
+the matching challenge and delivery identities are atomically activated.
+
+## Password-reset transaction boundary
+
+Password reset keeps one delivery claim per normalized email. A claim moves
+through `pending_delivery`, `active`, and `consumed`; the database uniqueness
+constraint and atomic claim operation allow only one concurrent sender to win.
+Cooldown enforcement is part of that claim rather than a separate read before
+write, so concurrent requests cannot both send codes and silently invalidate
+one another.
+
+Reset completion performs the code comparison, attempt accounting, challenge
+consumption, and enabled-user password update through one repository transaction.
+The successful conditional update is the concurrency winner: a second submit of
+the same code is invalid, and a failed password update rolls challenge consumption
+back with it. The browser gives reset mutations zero cache lifetime and clears the
+code and password fields after both successful and failed submissions.
+
+The release migration deliberately recreates the short-lived reset challenge
+table with the new delivery-state constraints. Any code issued by an older release
+therefore becomes invalid during the maintenance rollout; users request a new code
+after the release is healthy.
 
 ## Automated Verification
 
