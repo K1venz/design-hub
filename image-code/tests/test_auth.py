@@ -34,7 +34,19 @@ from design_hub.interface.api.deps import CurrentUserSseDep
 from design_hub.interface.api.routes import auth
 from design_hub.ports.auth import TokenService
 from design_hub.ports.mail import MailPort
-from design_hub.ports.password_reset import PasswordResetChallenge, PasswordResetStore
+from design_hub.ports.password_reset import (
+    PasswordResetAccountUnavailable,
+    PasswordResetAttemptsExceeded,
+    PasswordResetChallenge,
+    PasswordResetClaim,
+    PasswordResetClaimed,
+    PasswordResetCompleted,
+    PasswordResetCompletion,
+    PasswordResetCooldown,
+    PasswordResetDeliveryState,
+    PasswordResetInvalid,
+    PasswordResetStore,
+)
 from design_hub.ports.registration import (
     InitialRegistrationClaim,
     RegistrationAlreadyRegistered,
@@ -177,62 +189,132 @@ class _FailingMailer(MailPort):
 
 
 class _FakeResetStore(PasswordResetStore):
-    def __init__(self) -> None:
+    def __init__(self, users: _FakeUserRepo) -> None:
+        self._users = users
         self._items: dict[str, PasswordResetChallenge] = {}
+        self._seq = 0
 
-    async def get_active(self, email: str) -> PasswordResetChallenge | None:
-        challenge = self._items.get(email)
-        if challenge is None or challenge.consumed_at is not None:
-            return None
-        return challenge
-
-    async def replace_active(
+    async def claim(
         self,
         *,
         email: str,
         code_hash: str,
         expires_at: datetime,
-    ) -> PasswordResetChallenge:
-        ch = PasswordResetChallenge(
-            id=f"ch-{email}",
+        claimed_at: datetime,
+        cooldown_seconds: int,
+    ) -> PasswordResetClaim:
+        account = self._users._by_email.get(email)
+        if account is None or not account.enabled:
+            return PasswordResetAccountUnavailable()
+        previous = self._items.get(email)
+        if (
+            previous is not None
+            and previous.delivery_state
+            in (PasswordResetDeliveryState.PENDING, PasswordResetDeliveryState.ACTIVE)
+            and (claimed_at - previous.delivery_claimed_at).total_seconds() < cooldown_seconds
+        ):
+            return PasswordResetCooldown(cooldown_seconds)
+        self._seq += 1
+        challenge = PasswordResetChallenge(
+            id=f"reset-{self._seq}",
+            delivery_id=f"delivery-{self._seq}",
             email=email,
             code_hash=code_hash,
+            delivery_state=PasswordResetDeliveryState.PENDING,
             expires_at=expires_at,
             attempt_count=0,
-            created_at=datetime.now(UTC),
+            created_at=claimed_at,
+            delivery_claimed_at=claimed_at,
+            activated_at=None,
             consumed_at=None,
         )
-        self._items[email] = ch
-        return ch
+        self._items[email] = challenge
+        return PasswordResetClaimed(challenge)
 
-    async def record_failed_attempt(self, challenge_id: str) -> PasswordResetChallenge | None:
-        for email, ch in list(self._items.items()):
-            if ch.id == challenge_id and ch.consumed_at is None:
-                updated = PasswordResetChallenge(
-                    id=ch.id,
-                    email=ch.email,
-                    code_hash=ch.code_hash,
-                    expires_at=ch.expires_at,
-                    attempt_count=ch.attempt_count + 1,
-                    created_at=ch.created_at,
-                    consumed_at=None,
+    async def activate(
+        self,
+        *,
+        challenge_id: str,
+        delivery_id: str,
+        activated_at: datetime,
+    ) -> PasswordResetChallenge | None:
+        for email, challenge in self._items.items():
+            if (
+                challenge.id == challenge_id
+                and challenge.delivery_id == delivery_id
+                and challenge.delivery_state is PasswordResetDeliveryState.PENDING
+            ):
+                active = replace(
+                    challenge,
+                    delivery_state=PasswordResetDeliveryState.ACTIVE,
+                    activated_at=activated_at,
                 )
-                self._items[email] = updated
-                return updated
+                self._items[email] = active
+                return active
         return None
 
-    async def consume(self, challenge_id: str) -> None:
-        for email, ch in list(self._items.items()):
-            if ch.id == challenge_id:
-                self._items[email] = PasswordResetChallenge(
-                    id=ch.id,
-                    email=ch.email,
-                    code_hash=ch.code_hash,
-                    expires_at=ch.expires_at,
-                    attempt_count=ch.attempt_count,
-                    created_at=ch.created_at,
-                    consumed_at=datetime.now(UTC),
+    async def get_active(self, *, email: str) -> PasswordResetChallenge | None:
+        challenge = self._items.get(email)
+        if (
+            challenge is None
+            or challenge.delivery_state is not PasswordResetDeliveryState.ACTIVE
+            or challenge.consumed_at is not None
+        ):
+            return None
+        return challenge
+
+    async def invalidate(
+        self,
+        *,
+        challenge_id: str,
+        delivery_id: str,
+        invalidated_at: datetime,
+    ) -> bool:
+        for email, challenge in self._items.items():
+            if challenge.id == challenge_id and challenge.delivery_id == delivery_id:
+                self._items[email] = replace(
+                    challenge,
+                    delivery_state=PasswordResetDeliveryState.CONSUMED,
+                    consumed_at=invalidated_at,
                 )
+                return True
+        return False
+
+    async def complete(
+        self,
+        *,
+        email: str,
+        code_hash: str,
+        password_hash: str,
+        completed_at: datetime,
+        max_attempts: int,
+    ) -> PasswordResetCompletion:
+        challenge = self._items.get(email)
+        if (
+            challenge is None
+            or challenge.delivery_state is not PasswordResetDeliveryState.ACTIVE
+            or challenge.expires_at <= completed_at
+            or challenge.consumed_at is not None
+        ):
+            return PasswordResetInvalid()
+        if challenge.attempt_count >= max_attempts:
+            return PasswordResetAttemptsExceeded()
+        if challenge.code_hash != code_hash:
+            updated = replace(challenge, attempt_count=challenge.attempt_count + 1)
+            self._items[email] = updated
+            if updated.attempt_count >= max_attempts:
+                return PasswordResetAttemptsExceeded()
+            return PasswordResetInvalid()
+        account = self._users._by_email.get(email)
+        if account is None or not account.enabled:
+            return PasswordResetInvalid()
+        self._users._by_email[email] = replace(account, password_hash=password_hash)
+        self._items[email] = replace(
+            challenge,
+            delivery_state=PasswordResetDeliveryState.CONSUMED,
+            consumed_at=completed_at,
+        )
+        return PasswordResetCompleted()
 
 
 def _client(
@@ -269,7 +351,7 @@ def _client(
     )
     app.state.user_repository = users
     mailer = mailer or _FakeMailer()
-    resets = _FakeResetStore()
+    resets = _FakeResetStore(users)
     app.state.account_service = AccountService(
         users=users,
         passwords=BcryptPasswordHasher(),
@@ -595,7 +677,7 @@ def test_password_reset_round_trip() -> None:
     forgot = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
     assert forgot.status_code == 200
     code = _code_from_mail(mailer)
-    challenge = asyncio.run(resets.get_active("reset@example.com"))
+    challenge = asyncio.run(resets.get_active(email="reset@example.com"))
     assert challenge is not None
     assert challenge.code_hash == digest_verification_code(
         purpose="password-reset",
@@ -689,7 +771,7 @@ def test_forgot_password_mail_failure_invalidates_challenge() -> None:
 
         with pytest.raises(OSError, match="smtp unavailable"):
             await service.request_password_reset(email="mailfail@x.com")
-        assert await resets.get_active("mailfail@x.com") is None
+        assert await resets.get_active(email="mailfail@x.com") is None
 
         with pytest.raises(OSError, match="smtp unavailable"):
             await service.request_password_reset(email="mailfail@x.com")
