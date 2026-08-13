@@ -37,15 +37,15 @@ function DesktopNavItem({ item }: { item: NavigationItem }) {
       aria-label={item.label}
       className={({ isActive }) =>
         cn(
-          'group/nav inline-flex h-9 items-center justify-center overflow-hidden rounded-full px-2.5 outline-none transition-[color,background-color,box-shadow,translate] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-wb-brand-soft',
+          'group/nav inline-flex h-9 items-center justify-center gap-1.5 rounded-[10px] px-3 outline-none transition-[color,background-color,box-shadow,translate] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-wb-brand-soft',
           isActive
-            ? 'bg-wb-brand font-semibold text-white shadow-[0_7px_18px_-10px_rgba(91,91,214,.85)]'
-            : 'text-wb-ink-5 hover:-translate-y-0.5 hover:bg-wb-tint-1 hover:text-wb-brand-deep hover:shadow-[0_8px_18px_-12px_rgba(91,91,214,.55)] focus-visible:-translate-y-0.5 focus-visible:bg-wb-tint-1 focus-visible:text-wb-brand-deep',
+            ? 'bg-wb-tint-1 font-semibold text-wb-brand-deep shadow-[inset_0_0_0_1px_rgba(91,91,214,.08)]'
+            : 'text-wb-ink-5 hover:-translate-y-0.5 hover:bg-wb-tint-1 hover:text-wb-brand-deep hover:shadow-[0_8px_18px_-12px_rgba(91,91,214,.25)] focus-visible:-translate-y-0.5 focus-visible:bg-wb-tint-1 focus-visible:text-wb-brand-deep',
         )
       }
     >
-      <item.icon className="size-[18px] shrink-0" />
-      <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] opacity-0 transition-[max-width,opacity,margin] duration-200 group-hover/nav:ml-1.5 group-hover/nav:max-w-24 group-hover/nav:opacity-100 group-focus-visible/nav:ml-1.5 group-focus-visible/nav:max-w-24 group-focus-visible/nav:opacity-100">
+      <item.icon className="size-4 shrink-0" />
+      <span className="hidden whitespace-nowrap text-[13px] md:inline">
         {item.label}
       </span>
     </NavLink>
@@ -202,8 +202,8 @@ function ProfileMenu() {
 
 export function AppTopBar() {
   return (
-    <header className="shrink-0 px-3 pb-2 pt-3">
-      <div className="glass-panel mx-auto grid h-14 w-full max-w-[840px] grid-cols-[1fr_auto_1fr] items-center rounded-[22px] px-3 shadow-[0_16px_42px_-28px_rgba(31,41,55,.42)] sm:px-4">
+    <header className="shrink-0 border-b border-wb-line-1/80 bg-white/75 px-4 backdrop-blur-xl sm:px-6">
+      <div data-global-nav-frame="true" className="mx-auto grid h-16 w-full max-w-[1280px] grid-cols-[1fr_auto_1fr] items-center px-1 sm:px-2">
         <a
           href="https://image.sepaitech.com/"
           aria-label="前往实朴图片平台首页"

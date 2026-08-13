@@ -327,6 +327,17 @@
     radial-gradient(620px 360px at 96% 8%, rgb(214 91 176 / 0.05), transparent 70%);
 }
 
+/* Product canvas: close-value mist fields add depth without competing with content. */
+@utility mist-canvas {
+  background-color: #eef1f7;
+  background-image:
+    radial-gradient(72rem 44rem at -12% 18%, rgb(231 231 243 / 0.82), transparent 68%),
+    radial-gradient(64rem 42rem at 108% 14%, rgb(238 234 243 / 0.76), transparent 70%),
+    radial-gradient(58rem 38rem at 94% 92%, rgb(232 238 243 / 0.72), transparent 72%),
+    linear-gradient(112deg, rgb(250 251 253 / 0.34), transparent 38%, rgb(250 251 253 / 0.28));
+  background-attachment: fixed;
+}
+
 /* SSE 加载 shimmer：白色扫光横扫占位槽（transform-only，省电） */
 @keyframes shimmer-sweep {
   from { transform: translateX(-100%); }
