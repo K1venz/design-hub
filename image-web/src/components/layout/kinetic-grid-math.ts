@@ -1,37 +1,11 @@
 export type Point = { x: number; y: number }
 export type Ripple = Point & { startedAt: number }
-export type GridTopology = {
-  points: Point[]
-  edges: Array<[number, number]>
-}
 
 const POINTER_RADIUS = 180
 const POINTER_PULL = 16
 const RIPPLE_SPEED = 0.26
 const RIPPLE_WIDTH = 38
 const RIPPLE_PUSH = 8
-
-export function buildGridTopology(
-  width: number,
-  height: number,
-  gap: number,
-): GridTopology {
-  const columns = Math.floor(width / gap)
-  const rows = Math.floor(height / gap)
-  const points: Point[] = []
-  const edges: Array<[number, number]> = []
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let column = 0; column < columns; column += 1) {
-      const index = row * columns + column
-      points.push({ x: gap / 2 + column * gap, y: gap / 2 + row * gap })
-      if (column + 1 < columns) edges.push([index, index + 1])
-      if (row + 1 < rows) edges.push([index, index + columns])
-    }
-  }
-
-  return { points, edges }
-}
 
 export function calculateGridDisplacement(
   point: Point,
