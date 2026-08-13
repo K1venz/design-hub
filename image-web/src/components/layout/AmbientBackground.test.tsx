@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { AmbientBackground } from './AmbientBackground'
-import { calculateGridDisplacement } from './kinetic-grid-math'
+import { buildGridTopology, calculateGridDisplacement } from './kinetic-grid-math'
 
 describe('kinetic grid background', () => {
   it('renders one inert canvas instead of the retired layered decoration', () => {
@@ -45,5 +45,22 @@ describe('kinetic grid background', () => {
 
     expect(onWave.x).toBeGreaterThan(230)
     expect(awayFromWave).toEqual({ x: 100, y: 100 })
+  })
+
+  it('connects every grid point to its horizontal and vertical neighbors', () => {
+    const topology = buildGridTopology(68, 68, 34)
+
+    expect(topology.points).toEqual([
+      { x: 17, y: 17 },
+      { x: 51, y: 17 },
+      { x: 17, y: 51 },
+      { x: 51, y: 51 },
+    ])
+    expect(topology.edges).toEqual([
+      [0, 1],
+      [0, 2],
+      [1, 3],
+      [2, 3],
+    ])
   })
 })
