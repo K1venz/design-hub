@@ -20,7 +20,8 @@ describe('top navigation implementation contract', () => {
   it('uses the approved centered frame and external brand destination', () => {
     const html = renderTopBar()
 
-    expect(html).toContain('max-w-[840px]')
+    expect(html).toContain('data-global-nav-frame="true"')
+    expect(html).not.toContain('max-w-[840px]')
     expect(html).toContain('grid-cols-[1fr_auto_1fr]')
     expect(html).toContain('href="https://image.sepaitech.com/"')
     expect(html).toContain('h-[30px] w-[26px]')
@@ -29,8 +30,7 @@ describe('top navigation implementation contract', () => {
   it('supports icon label expansion and mobile menu access', () => {
     const html = renderTopBar()
 
-    expect(html).toContain('group-hover/nav:max-w-24')
-    expect(html).toContain('group-focus-visible/nav:max-w-24')
+    expect(html).toContain('md:inline')
     expect(html).toContain('hover:bg-wb-tint-1')
     expect(html).toContain('hover:text-wb-brand-deep')
     expect(html).toContain('hover:-translate-y-0.5')
