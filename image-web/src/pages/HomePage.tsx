@@ -24,7 +24,7 @@ export function HomePage() {
   return (
     <AppShell>
       <main className="min-h-0 flex-1 overflow-auto pb-6 pr-3">
-        <div className="mx-auto w-full max-w-[1060px] px-4 sm:px-6">
+        <div className="mx-auto w-full max-w-[1180px] px-4 sm:px-6">
           <Hero />
           <ToolSection />
           <ShowcaseSection />
@@ -48,7 +48,7 @@ function Hero() {
   }
 
   return (
-    <section className="pt-8 text-center sm:pt-12">
+    <section data-home-section="agent-entry" className="pt-8 text-center sm:pt-12">
       <h1 className="font-display text-[30px] font-semibold leading-[1.12] tracking-tight sm:text-[40px] lg:text-[44px]">
         和我聊聊，<span className="aurora-text">你想要什么设计？</span>
       </h1>
@@ -87,16 +87,16 @@ function Hero() {
 function ToolSection() {
   return (
     <section className="mt-10 sm:mt-12">
-      <SectionHead title="用实朴的工具" sub="直达每个出图工作台" />
-
-      <div className="grid gap-3 min-[900px]:grid-cols-2">
+      <div data-home-section="primary-workspaces">
+        <SectionHead title="选择一个工作台" sub="目标明确时，直接进入专项创作流程" />
+      <div className="grid gap-4 min-[900px]:grid-cols-2">
         {TOOL_BANNERS.map((b) => (
           <Link
             key={b.key}
             to={b.to}
-            className="lift-card group rounded-2xl border border-white/70 bg-gradient-to-br from-wb-tint-1 to-white p-5 shadow-[0_8px_28px_-16px_rgba(91,91,214,.3)] [--lift-shadow:0_16px_36px_-16px_rgba(91,91,214,.45)]"
+            className="lift-card group min-h-[168px] rounded-2xl border border-wb-tint-line bg-[rgba(250,251,253,.88)] p-6 shadow-[0_16px_40px_-30px_rgba(58,61,104,.38)] [--lift-shadow:0_20px_46px_-28px_rgba(91,91,214,.35)]"
           >
-            <span className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-wb-grad-from to-wb-grad-to text-white shadow-[0_8px_20px_-8px_rgba(91,91,214,.6)]">
+            <span className="grid size-11 place-items-center rounded-xl bg-wb-tint-1 text-wb-brand-deep ring-1 ring-wb-tint-line">
               <b.icon className="size-5" />
             </span>
             <h3 className="mt-3 flex items-center gap-1.5 text-[16px] font-semibold text-wb-ink-1">
@@ -107,21 +107,27 @@ function ToolSection() {
           </Link>
         ))}
       </div>
+      </div>
 
-      <div className="mt-3 grid gap-3 min-[900px]:grid-cols-4">
+      <div data-home-section="utility-tools" className="mt-8">
+        <SectionHead title="快捷工具" sub="快速进入单项图片处理" />
+      <div className="grid gap-3 sm:grid-cols-2 min-[900px]:grid-cols-4">
         {TOOL_TILES.map((t) => (
           <Link
             key={t.key}
             to={t.to}
-            className="lift-card group flex flex-col gap-2 rounded-2xl border border-white/70 bg-white/70 p-3.5 shadow-[0_4px_18px_-12px_rgba(40,40,90,.2)]"
+            className="lift-card group flex min-h-[88px] items-center gap-3 rounded-2xl border border-wb-line-1 bg-[rgba(250,251,253,.82)] p-4"
           >
             <span className="grid size-9 place-items-center rounded-xl bg-wb-tint-1 text-wb-brand-deep transition-colors group-hover:bg-wb-brand group-hover:text-white">
               <t.icon className="size-[18px]" />
             </span>
-            <span className="text-[13.5px] font-semibold text-wb-ink-2">{t.label}</span>
-            <span className="text-[11.5px] text-wb-ink-6">{t.desc}</span>
+            <span className="min-w-0">
+              <span className="block text-[13.5px] font-semibold text-wb-ink-2">{t.label}</span>
+              <span className="mt-1 block text-[11.5px] text-wb-ink-6">{t.desc}</span>
+            </span>
           </Link>
         ))}
+      </div>
       </div>
     </section>
   )
@@ -169,7 +175,7 @@ function ShowcaseSection() {
   return (
     <>
       <div ref={ref} className="h-px w-full" aria-hidden />
-      <section className="mt-14">
+      <section data-home-section="showcase" className="mt-14">
         <SectionHead title="看看实朴出的图" sub="实朴真实出品 · 一键做同款" />
         <div className={SHOWCASE_GRID}>
           {real.slice(0, shown).map((item, index) => {
