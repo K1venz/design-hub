@@ -52,4 +52,17 @@ describe('top navigation implementation contract', () => {
     expect(html).not.toContain('data-slot="avatar"')
     expect(html).not.toContain('w-[212px]')
   })
+
+  it('keeps application content above the ambient background scene', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/home'] },
+        createElement(AppShell, null, createElement('main', null, 'content')),
+      ),
+    )
+
+    expect(html).toContain('data-ambient-background="true"')
+    expect(html).toContain('relative z-10 flex min-h-0 flex-1 flex-col')
+  })
 })
