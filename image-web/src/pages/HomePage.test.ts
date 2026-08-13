@@ -60,6 +60,10 @@ describe('HomePage', () => {
   it('renders one guided chat entry and only real tool destinations', () => {
     const html = renderHome()
 
+    expect(html).toContain('data-home-section="agent-entry"')
+    expect(html).toContain('data-home-section="primary-workspaces"')
+    expect(html).toContain('data-home-section="utility-tools"')
+    expect(html).toContain('glass-panel')
     expect(html).toContain('aria-label="描述你的设计需求"')
     expect(html).toContain(
       'placeholder="用大白话描述你的产品和想要的效果，实朴帮你完成白底、场景、卖点等电商图片。',
@@ -94,6 +98,7 @@ describe('HomePage', () => {
 
     const html = renderHome()
 
+    expect(html).toContain('data-home-section="showcase"')
     expect(html).toContain('看看实朴出的图')
     expect(html).toContain('花生礼盒早餐场景')
     expect(html).toContain('用户输入的暖色早餐桌商品摄影提示词')
