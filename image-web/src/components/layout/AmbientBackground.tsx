@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 
 import {
-  buildGridTopology,
   calculateGridDisplacement,
   type Point,
   type Ripple,
@@ -19,40 +18,27 @@ function drawGrid(
   now: number,
 ) {
   context.clearRect(0, 0, width, height)
-  const topology = buildGridTopology(width, height, GRID_GAP)
-  const displacedPoints = topology.points.map((source) => ({
-    source,
-    point: calculateGridDisplacement(
-        source,
+
+  for (let row = GRID_GAP / 2; row < height; row += GRID_GAP) {
+    for (let column = GRID_GAP / 2; column < width; column += GRID_GAP) {
+      const point = calculateGridDisplacement(
+        { x: column, y: row },
         pointer,
         now,
         ripples,
-      ),
-  }))
-
-  context.beginPath()
-  for (const [startIndex, endIndex] of topology.edges) {
-    const start = displacedPoints[startIndex].point
-    const end = displacedPoints[endIndex].point
-    context.moveTo(start.x, start.y)
-    context.lineTo(end.x, end.y)
-  }
-  context.strokeStyle = 'rgba(61, 74, 104, 0.24)'
-  context.lineWidth = 0.75
-  context.stroke()
-
-  for (const { source, point } of displacedPoints) {
+      )
       const pointerDistance = pointer
-        ? Math.hypot(pointer.x - source.x, pointer.y - source.y)
+        ? Math.hypot(pointer.x - column, pointer.y - row)
         : Number.POSITIVE_INFINITY
       const prominence = Math.max(0, 1 - pointerDistance / 220)
 
       context.beginPath()
-      context.arc(point.x, point.y, 1.8 + prominence * 1.8, 0, Math.PI * 2)
+      context.arc(point.x, point.y, 1.15 + prominence * 1.45, 0, Math.PI * 2)
       context.fillStyle = prominence > 0
-        ? `rgba(69, 61, 185, ${0.345 + prominence * 0.57})`
-        : 'rgba(57, 68, 98, 0.3)'
+        ? `rgba(91, 91, 214, ${0.23 + prominence * 0.38})`
+        : 'rgba(76, 91, 124, 0.2)'
       context.fill()
+    }
   }
 }
 
