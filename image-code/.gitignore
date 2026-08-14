@@ -19,7 +19,7 @@ generated/
 assets/
 exports/
 
-# Env
+# Env（含 .env.development 等本地开发配置一律不入库；模板见 .env.example）
 .env
 .env.*
-!.env.development
+!.env.example
