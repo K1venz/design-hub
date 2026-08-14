@@ -16,6 +16,14 @@ import {
   type ChatPreviewImage,
 } from '@/lib/chat'
 
+/** 出图加载中的温柔小字（按已出张数轮换，随进度自然变化）。 */
+const LOADING_LINES = [
+  '正在为你的商品认真打光…',
+  '给画面找一个舒服的角落…',
+  '光与影正在赶来…',
+  '在调色盘上轻轻搅动…',
+]
+
 export function ChatResultBlock({
   slots,
   status,
@@ -46,6 +54,10 @@ export function ChatResultBlock({
     failed: '生成失败',
     interrupted: '连接已中断，任务仍在后台执行',
   }
+  // 出图加载中的温柔小字（按已出张数轮换，随进度自然变化）。
+  const loadingLine = generating
+    ? LOADING_LINES[done % LOADING_LINES.length]
+    : null
 
   return (
     <div className="glass-lite max-w-[88%] rounded-2xl rounded-tl-md p-3">
@@ -55,6 +67,9 @@ export function ChatResultBlock({
           <Loader2Icon className="ml-1.5 inline size-3 animate-spin text-wb-brand" />
         )}
       </p>
+      {loadingLine && (
+        <p className="mb-2 px-1 text-[11.5px] text-wb-ink-7">{loadingLine}</p>
+      )}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {slots.map((slot, index) => {
           if (slot.unavailable) {
