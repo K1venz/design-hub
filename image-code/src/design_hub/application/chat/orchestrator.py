@@ -649,7 +649,7 @@ class ChatOrchestrator:
             return
 
         # 读工具回喂循环耗尽（LLM 反复调工具未收敛）→ 兜底收尾，防卡死
-        fallback = "我查了下但还没完全理清，能再具体说说你想做什么吗？"
+        fallback = "我这边还没完全理清，你能再具体说说想做什么吗？我们慢慢来～"
         yield ChatEvent("assistant_delta", {"text": fallback})
         await self.chat_repo.append_message(
             session_id=session_id, role="assistant", content=fallback
@@ -680,9 +680,10 @@ class ChatOrchestrator:
             return
 
         if action == "cancel":
-            yield ChatEvent("assistant_delta", {"text": "已取消本次出图。"})
+            cancel_text = "好呀，已取消本次出图。随时想继续，我都在～"
+            yield ChatEvent("assistant_delta", {"text": cancel_text})
             await self.chat_repo.append_message(
-                session_id=session_id, role="assistant", content="已取消本次出图。"
+                session_id=session_id, role="assistant", content=cancel_text
             )
             yield ChatEvent("assistant_end", {"status": "complete"})
             return
@@ -798,7 +799,11 @@ class ChatOrchestrator:
         transcript = await self.chat_repo.get_transcript(session_id, user.user_id)
         note = ChatMessage(
             role="user",
-            content=f"（系统提示）刚才的出图已{summary}，请用一句自然的话向用户收尾，不要再调用工具。",
+            content=(
+                f"（系统提示）刚才的出图已{summary}。"
+                "请用一句温暖自然的话向用户收尾，保持专业，不要再调用工具；"
+                "成功时给一点小小的喜悦，失败时给一句不夸张的安抚。"
+            ),
         )
         history = _to_llm_messages(transcript) if transcript is not None else []
         llm_messages = [ChatMessage(role="system", content=self.system_prompt), *history, note]
@@ -822,7 +827,10 @@ class ChatOrchestrator:
                     closing += chunk.text
                     yield ChatEvent("assistant_delta", {"text": chunk.text})
         except (ModelUnavailableError, TextLLMError):
-            closing = "已完成，可在结果区查看。" if completed else "很抱歉，出图未成功，请重试。"
+            closing = (
+                "已完成，可在结果区查看。" if completed
+                else "这次没能顺利出图，别着急，稍后再试一次就好。"
+            )
             yield ChatEvent("assistant_delta", {"text": closing})
         await self.chat_repo.update_assistant_message(
             session_id=session_id,

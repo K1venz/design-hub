@@ -15,6 +15,14 @@ import { downloadImage } from '@/lib/download'
 import type { ImageToolSource } from '@/lib/image-tools'
 import { IMAGE_TYPE_FIELDS, type ResultSlot } from '@/lib/listing'
 
+/** 出图加载中的温柔小字（按已出张数轮换，随进度自然变化）。 */
+const LOADING_LINES = [
+  '正在为你的商品认真打光…',
+  '给画面找一个舒服的角落…',
+  '光与影正在赶来…',
+  '在调色盘上轻轻搅动…',
+]
+
 interface ResultGalleryProps {
   title: string
   slots: ResultSlot[]
@@ -104,7 +112,10 @@ export function ResultGallery({
               style={{ width: `${total ? (done / total) * 100 : 0}%` }}
             />
           </div>
-          <p className="mb-4 text-[12.5px] text-wb-ink-6">已出 {done} / {total} 张…</p>
+          <p className="mb-1 text-[12.5px] text-wb-ink-6">已出 {done} / {total} 张…</p>
+          <p className="mb-4 text-[11.5px] text-wb-ink-7">
+            {LOADING_LINES[done % LOADING_LINES.length]}
+          </p>
         </>
       )}
 
