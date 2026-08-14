@@ -60,6 +60,15 @@ const PHASE_LABEL: Record<string, string> = {
   done: '完成',
 }
 
+/** 等待轮换语（温柔治愈）：LLM 思考期间 3s 轮换一句，让等待不那么干。 */
+const WAITING_LINES = [
+  '正在认真听你讲…',
+  '正在为你整理想法…',
+  '让灵感慢慢落下来…',
+  '稍等，正在为你安排…',
+  '正在给画笔蘸上颜色…',
+]
+
 /**
  * 「帮我设计」对话页（登录内测，方案 C）。Hero/快捷卡带来的 `?q=` 自动发首条。
  * 流式气泡 + 步骤条 + 工具透明 + 生成确认 + 出图结果卡（job_event 复用工作台渲染）。
@@ -73,6 +82,14 @@ export function ChatPage() {
   const chatModelsQuery = useChatModels()
   const chatModelSelection = useModelSelection('chat', chatModelsQuery)
   const [state, setState] = useState<ChatState>(initialChatState)
+  const [waitingIdx, setWaitingIdx] = useState(0)
+  useEffect(() => {
+    if (!state.streaming || state.awaiting) return
+    const timer = window.setInterval(() => {
+      setWaitingIdx((i) => (i + 1) % WAITING_LINES.length)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [state.streaming, state.awaiting])
   const [draft, setDraft] = useState('')
   const [imageOptions, setImageOptions] = useState<ChatImageOptionDraft>(
     INITIAL_CHAT_IMAGE_OPTIONS,
@@ -484,7 +501,7 @@ export function ChatPage() {
 
             {state.streaming && !state.awaiting && (
               <div className="flex items-center gap-2 px-1 text-[12.5px] text-wb-ink-6">
-                <Loader2Icon className="size-3.5 animate-spin" /> 思考中…
+                <Loader2Icon className="size-3.5 animate-spin" /> {WAITING_LINES[waitingIdx]}
               </div>
             )}
 
