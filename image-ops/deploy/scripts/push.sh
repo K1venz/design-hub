@@ -71,7 +71,7 @@ if [[ -n "${DEPLOY_LOCAL_ROOT:-}" ]]; then
   mv "$incoming" "$target"
 else
   key="${DEPLOY_KEY:-$HOME/.ssh/dh_deploy_ed25519}"
-  host="${DEPLOY_HOST:-root@203.0.113.10}"
+  host="${DEPLOY_HOST:?DEPLOY_HOST is required (user@host)}"
   deploy_root="${DEPLOY_ROOT:-/opt/docker/design-hub}"
   rsh="ssh -i $key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   incoming="$deploy_root/.incoming/$release_id"
