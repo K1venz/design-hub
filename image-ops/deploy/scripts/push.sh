@@ -11,7 +11,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"   # image-ops/deploy
 REPO="$(cd "$HERE/../.." && pwd)"          # image-gen 仓库根
 KEY="${DEPLOY_KEY:-$HOME/.ssh/dh_deploy_ed25519}"
-HOST="${DEPLOY_HOST:-root@203.0.113.10}"
+HOST="${DEPLOY_HOST:?DEPLOY_HOST is required (user@host)}"
 DEST="/opt/docker/design-hub"
 RSH="ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "设计中台图生图引擎核心（design_hub）"
 readme = "README.md"
 authors = [
-    { name = "Kiven zhao", email = "200728390+K1venz@users.noreply.github.com" }
+    { name = "Kiven zhao" }
 ]
 requires-python = ">=3.12"
 dependencies = [
